@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f4e79">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<title>선입금대장</title>
+<style>
+:root{--bg:#f0f2f5;--card:#fff;--line:#e1e5ea;--text:#1b2838;--muted:#5f6d7e;--primary:#1a5276;--primary-soft:#e6f0f8;--primary-glow:rgba(26,82,118,.08);--danger:#c0392b;--danger-soft:#fef0ee;--warn:#c05621;--warn-soft:#fef6ee;--success:#0e7a46;--success-soft:#edf8f2;--shadow:0 1px 4px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.03);--shadow-md:0 4px 12px rgba(15,23,42,.08);--shadow-lg:0 12px 32px rgba(15,23,42,.12);--radius:14px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}body{min-height:100vh}button,input,select{font:inherit}button{border:none;cursor:pointer;border-radius:12px;min-height:52px;transition:transform .1s,opacity .12s}button:active{transform:scale(.97);opacity:.82}input,select{width:100%;min-height:52px;padding:13px 16px;border:1.5px solid var(--line);border-radius:12px;background:#fff;transition:border-color .2s,box-shadow .2s}input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-glow);outline:none}
+
+/* ─── 레이아웃 ─── */
+.app{max-width:900px;margin:0 auto;padding:16px 16px 90px}
+.top{position:sticky;top:0;z-index:10;background:rgba(240,242,245,.88);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:14px 0 12px;border-bottom:1px solid rgba(225,229,234,.5)}
+.title{display:flex;gap:10px;align-items:start;justify-content:space-between}
+.title h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.4px;background:linear-gradient(135deg,var(--primary),#2874a6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sub{margin-top:3px;color:var(--muted);font-size:12px;letter-spacing:.2px}
+.tool{display:flex;gap:6px;flex-wrap:wrap}
+.tool button{min-height:38px;padding:0 13px;font-size:13px;font-weight:700;border-radius:10px}
+
+/* ─── 버튼 ─── */
+.btn{background:#fff;border:1.5px solid var(--line);color:var(--text)}
+.btn-primary{background:linear-gradient(135deg,var(--primary),#1e6fa1);color:#fff;border:none;box-shadow:0 2px 6px rgba(26,82,118,.2)}
+.btn-secondary{background:var(--primary-soft);color:var(--primary);border:1.5px solid #ccdce8}
+.btn-danger{background:var(--danger);color:#fff;border:none}
+.btn-warn{background:var(--warn-soft);color:var(--warn);border:1.5px solid #e8c9a0}
+
+/* ─── 카드 ─── */
+.stack{display:grid;gap:10px}
+.card{background:var(--card);border:1px solid rgba(225,229,234,.7);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
+.banner{border-left:4px solid}
+.banner.warn{background:var(--warn-soft);border-left-color:var(--warn)}
+.banner.error{background:var(--danger-soft);border-left-color:var(--danger)}
+
+/* ─── 부서 그룹 ─── */
+.group{display:grid;gap:8px}
+.group-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding-bottom:8px;border-bottom:1.5px solid #eef1f4}
+.group-title{font-size:18px;font-weight:800;letter-spacing:-.2px;color:var(--primary)}
+.group-meta{color:var(--muted);font-size:12px;font-weight:600}
+
+/* ─── 직원 카드 ─── */
+.employee{display:grid;gap:10px}
+.employee-main{cursor:pointer;border-radius:10px;padding:4px;margin:-4px;transition:background .15s}
+.employee-main:active{background:var(--primary-soft)}
+.name{font-size:17px;font-weight:800;line-height:1.3;letter-spacing:-.2px}
+.dept,.meta,.note{color:var(--muted);font-size:12px;line-height:1.5}
+.bal{margin-top:0;font-size:24px;font-weight:800;color:var(--primary);letter-spacing:-.5px}
+.bal.zero{color:#a0aab4}
+.bal.negative{color:var(--danger)}
+
+/* ─── 요약/액션 ─── */
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions button{flex:1;min-width:100px;font-size:16px;font-weight:700}
+.summary{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:15px;font-weight:700;padding:6px 4px;background:var(--primary-soft);border-radius:10px;margin-top:4px}
+.summary .v{color:var(--primary);font-size:19px;letter-spacing:-.3px;font-weight:800}
+.empty{text-align:center;color:var(--muted);padding:32px 16px;line-height:1.7;font-size:15px}
+
+/* ─── 거래 이력 ─── */
+.list{display:grid;gap:8px}
+.txn{display:grid;gap:6px;padding:10px 0;border-bottom:1px solid #f0f2f5}
+.txn:last-child{border-bottom:none}
+.txn-top{display:flex;justify-content:space-between;gap:10px;align-items:start}
+.txn-title{font-size:15px;font-weight:700;line-height:1.4}
+.amt{font-size:20px;font-weight:800;white-space:nowrap;letter-spacing:-.3px}
+.amt.in{color:var(--success)}
+.amt.out{color:var(--danger)}
+.amt.adjust{color:var(--warn)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.chip{padding:3px 8px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-weight:600;font-size:11px}
+.thumb{width:80px;height:44px;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;transition:border-color .15s}
+.thumb:active{border-color:var(--primary)}
+
+/* ─── 직원 관리 행 ─── */
+.row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #eef1f4}
+.row:last-child{border-bottom:0}
+.row .left{flex:1;min-width:0}
+.row .right{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.small{min-height:36px;padding:0 10px;border:1.5px solid var(--line);background:#fff;font-size:12px;font-weight:700;border-radius:8px}
+.hidden-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:999px;background:#eef1f4;color:var(--muted);font-size:11px;font-weight:700;margin-left:4px}
+
+/* ─── 하단 탭 ─── */
+.nav{position:fixed;left:0;right:0;bottom:0;max-width:900px;margin:0 auto;display:flex;background:rgba(255,255,255,.96);border-top:1px solid rgba(225,229,234,.8);box-shadow:0 -2px 8px rgba(15,23,42,.04);z-index:20;padding-bottom:env(safe-area-inset-bottom,0);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.nav button{flex:1;min-height:58px;border-radius:0;background:transparent;color:#a0aab4;font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:color .15s}
+.nav button:active{transform:none;opacity:1}
+.nav button.active{color:var(--primary)}
+.nav button svg{width:22px;height:22px;stroke-width:2;fill:none;stroke:currentColor}
+
+/* ─── 모달 ─── */
+.modal-back{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:40;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.modal{width:min(100%,640px);max-height:calc(100vh - 32px);overflow:auto;background:#fff;border-radius:18px;box-shadow:var(--shadow-lg);padding:20px}
+.modal h2{margin:0 0 4px;font-size:20px;font-weight:800;letter-spacing:-.3px}
+.help{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.6}
+.field{display:grid;gap:4px}
+.field label{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.form{display:grid;gap:12px}
+.quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.quick button{font-size:16px;font-weight:700;background:var(--primary-soft);color:var(--primary);border:1.5px solid #ccdce8}
+.receipt{display:grid;gap:6px;padding:14px;border:1.5px solid var(--line);border-radius:12px;background:#fafbfd;margin-bottom:12px}
+.receipt-row{display:flex;justify-content:space-between;gap:12px;font-size:15px}
+.signature{width:100%;height:180px;display:block;background:#fff;touch-action:none}
+.sig-box{border:1.5px solid var(--line);border-radius:12px;overflow:hidden}
+.modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.modal-actions button{flex:1;font-size:16px;font-weight:700}
+
+/* ─── 토스트/로딩 ─── */
+.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);max-width:calc(100vw - 32px);padding:12px 20px;border-radius:14px;background:rgba(27,40,56,.9);color:#fff;box-shadow:var(--shadow-lg);z-index:60;text-align:center;line-height:1.4;font-size:14px;font-weight:600;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.busy{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.65);z-index:70;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.busy>div{background:#fff;padding:24px 36px;border-radius:18px;box-shadow:var(--shadow-lg);font-size:16px;font-weight:700;text-align:center}
+
+/* ─── CSV 미리보기 ─── */
+.csv-preview{max-height:280px;overflow-y:auto;margin:12px 0;border:1px solid var(--line);border-radius:10px}
+.csv-table{width:100%;border-collapse:collapse;font-size:12px}
+.csv-table th{background:var(--primary);color:#fff;padding:8px 10px;text-align:left;position:sticky;top:0;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+.csv-table td{padding:7px 10px;border-bottom:1px solid #eef1f4}
+.csv-table tr.err{background:var(--danger-soft)}
+.csv-table tr.err td{color:var(--danger)}
+
+/* ─── 부서 태그/선택 ─── */
+.dept-tag{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px;font-weight:600;margin:3px}
+.dept-tag button{background:none;border:none;color:var(--danger);font-size:15px;min-height:auto;padding:0 2px;cursor:pointer;border-radius:0}
+.dept-picks{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;max-height:130px;overflow-y:auto}
+.dept-pick{padding:5px 11px;border-radius:999px;background:#fff;border:1.5px solid var(--line);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s}
+.dept-pick.on{background:var(--primary-soft);border-color:var(--primary);color:var(--primary)}
+.dept-pick:active{transform:scale(.95)}
+
+/* ─── 직원 관리 아코디언 ─── */
+.mgr-group{border-bottom:1px solid #eef1f4}
+.mgr-group:last-child{border-bottom:none}
+.mgr-head{display:flex;align-items:center;gap:8px;padding:11px 4px;cursor:pointer;font-weight:700;border-radius:8px;transition:background .15s}
+.mgr-head:active{background:var(--bg)}
+.mgr-toggle{font-size:10px;color:var(--muted);width:16px;text-align:center;flex-shrink:0}
+.mgr-dept{font-size:14px;flex:1}
+.mgr-count{font-size:12px;color:var(--muted);font-weight:600}
+.mgr-body{padding:0 0 4px 20px}
+
+/* ─── PIN 화면 ─── */
+.pin-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:linear-gradient(160deg,#f0f2f5 0%,#e6eaf0 100%)}
+.pin-icon{width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,var(--primary),#2874a6);display:flex;align-items:center;justify-content:center;margin-bottom:16px;box-shadow:0 4px 12px rgba(26,82,118,.25)}
+.pin-icon svg{width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2}
+.pin-title{font-size:20px;font-weight:800;margin-bottom:4px;color:var(--text);letter-spacing:-.3px}
+.pin-sub{font-size:13px;color:var(--muted);margin-bottom:28px;text-align:center;line-height:1.5}
+.pin-dots{display:flex;gap:14px;margin-bottom:32px}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid #c8ced6;background:#fff;transition:all .2s}
+.pin-dot.filled{background:var(--primary);border-color:var(--primary);transform:scale(1.15)}
+.pin-dot.error{background:var(--danger);border-color:var(--danger);animation:shake .3s}
+.pin-pad{display:grid;grid-template-columns:repeat(3,68px);gap:10px;justify-content:center}
+.pin-key{width:68px;height:68px;border-radius:50%;background:#fff;border:1px solid #dce0e6;font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;min-height:auto;box-shadow:0 1px 3px rgba(0,0,0,.04);transition:all .1s}
+.pin-key:active{background:var(--primary-soft);border-color:var(--primary);transform:scale(.93)}
+.pin-key.fn{background:transparent;border:none;font-size:14px;color:var(--muted);font-weight:600;box-shadow:none}
+.pin-key.fn:active{background:var(--bg);transform:scale(.95)}
+.pin-msg{margin-top:18px;font-size:13px;color:var(--danger);text-align:center;min-height:20px;font-weight:600}
+.pin-reset{margin-top:20px;text-align:center}
+.pin-reset button{min-height:auto;padding:8px 16px;font-size:12px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
+@media(max-width:640px){.quick{grid-template-columns:1fr}.actions button,.modal-actions button{min-width:100%}.summary,.txn-top,.receipt-row,.row,.group-head{display:grid}.tool{width:100%}.tool button{flex:1}}
+
+/* ─── 초기 설정 ─── */
+.setup{max-width:900px;margin:0 auto;padding:24px 16px 40px}
+.setup-head{text-align:center;margin-bottom:24px}
+.setup-head h1{font-size:22px;font-weight:800;margin:0 0 4px;background:linear-gradient(135deg,var(--primary),#2874a6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.setup-head p{color:var(--muted);font-size:13px;margin:0;line-height:1.6}
+.setup-step{display:inline-block;padding:4px 14px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px;font-weight:700;margin-bottom:12px}
+.result-list{display:grid;gap:8px;max-height:400px;overflow-y:auto}
+.result-card{padding:12px;border-radius:10px;border:1.5px solid var(--line);background:#fff;cursor:pointer;transition:all .15s}
+.result-card:active{transform:scale(.98)}
+.result-card.selected{border-color:var(--primary);background:var(--primary-soft)}
+.result-card .r-name{font-size:15px;font-weight:700}
+.result-card .r-addr{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.4}
+.result-card .r-tel{font-size:12px;color:var(--primary);margin-top:2px}
+.result-card .r-type{font-size:11px;color:var(--muted)}
+.setup-selected{border:2px solid var(--primary);background:var(--primary-soft);border-radius:12px;padding:14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<input id="restoreFile" type="file" accept="application/json,.json" hidden>
+<input id="csvFile" type="file" accept=".csv,.txt" hidden>
+<script>
+(()=>{
+'use strict';
+const APP='선입금대장',APP_VERSION='2.4.0',DB='prepaid-ledger-db',VER=2,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const DEFAULT_ORG='광진구청';
+const DEFAULT_DEPTS=['감사담당관','홍보담당관','행정지원과','자치행정과','민원여권과','재무과','스마트정보과','기획예산과','지역경제과','일자리청년과','세무1과','세무2과','문화예술과','체육진흥과','교육지원과','평생교육과','복지정책과','사회복지장애인과','어르신복지과','가정복지과','아동청소년과','도시안전과','청소과','환경과','가로경관과','주택과','주거사업과','도시계획과','건축과','부동산정보과','교통행정과','교통지도과','도로과','치수과','공원녹지과','보건정책과','보건위생과','보건의료과','건강관리과'];
+const FOOD_API_KEY='79f55eb70aed27e860035db6d11b84a039290574bf9ffa3382d5922ab740d1a9';
+const COMMON_DEPTS=['행정지원과','기획예산과','자치행정과','세무과','복지정책과','환경과','도시안전과','문화체육과','교육지원과','의약과'];
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',backupConfirmed:false,setupStep:1,setupDistrict:'',setupShopSearch:'',setupResults:[],setupSelected:null,setupSearching:false,setupSearched:false,setupManual:false,setupDepts:[],data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+let repo,signPad=null;
+document.addEventListener('click',onClick);document.addEventListener('input',onInput);document.addEventListener('change',onInput);qs('restoreFile').addEventListener('change',onRestoreFile);qs('csvFile').addEventListener('change',onCsvFile);
+let composing=false;document.addEventListener('compositionstart',()=>{composing=true});document.addEventListener('compositionend',(e)=>{composing=false;onInput(e)});
+document.addEventListener('keydown',function(e){if(e.key==='Enter'){if(e.target.id==='setupDistrict'||e.target.id==='setupShopSearch'){e.preventDefault();var b=document.querySelector('[data-a="setup-search"]');if(b)b.click()}if(e.target.id==='setupNewDept'){e.preventDefault();var b2=document.querySelector('[data-a="setup-add-dept"]');if(b2)b2.click()}if(e.target.id==='newDeptInput'){e.preventDefault();var b3=document.querySelector('[data-a="add-dept"]');if(b3)b3.click()}if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){e.preventDefault();var b4=document.querySelector('[data-a="setup-manual-save"]');if(b4)b4.click()}}});
+init();
+
+// ── 유틸리티 ──
+function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
+function parseWon(v){const s=String(v==null?'':v).replace(/,/g,'').replace(/원/g,'').replace(/\s/g,'').trim();if(!s)return NaN;const n=Number(s);if(!Number.isFinite(n))return NaN;if(!Number.isInteger(n))return NaN;return n}
+function numTime(v){const n=Number(v);return Number.isFinite(n)&&n>0?n:now()}
+function str(v){return typeof v==='string'?v.trim():''}
+function sigD(v){return typeof v==='string'&&/^data:image\//.test(v)?v:''}
+function uid(){return 'id-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,9)}
+function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+function money(v){return num(v).toLocaleString('ko-KR')+'원'}
+function dt(ts){if(!ts)return '-';const d=new Date(ts),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0'),h=String(d.getHours()).padStart(2,'0'),mi=String(d.getMinutes()).padStart(2,'0');return `${y}.${m}.${dd} ${h}:${mi}`}
+function sameDay(a,b){if(!a||!b)return false;const x=new Date(a),y=new Date(b);return x.getFullYear()===y.getFullYear()&&x.getMonth()===y.getMonth()&&x.getDate()===y.getDate()}
+function groupBy(items,fn){const m=new Map();items.forEach(i=>{const k=fn(i);if(!m.has(k))m.set(k,[]);m.get(k).push(i)});return[...m.entries()]}
+function norm(d){return{employees:(Array.isArray(d.employees)?d.employees:[]).map(e=>({id:e.id||uid(),dept:str(e.dept),name:str(e.name),note:str(e.note),isDeleted:!!e.isDeleted,createdAt:numTime(e.createdAt),updatedAt:numTime(e.updatedAt)})),transactions:(Array.isArray(d.transactions)?d.transactions:[]).map(t=>({id:t.id||uid(),employeeId:t.employeeId||'',type:t.type||'use',amount:num(t.amount),beforeBalance:num(t.beforeBalance),afterBalance:num(t.afterBalance),reason:str(t.reason),note:str(t.note),targetTransactionId:t.targetTransactionId||null,signatureData:sigD(t.signatureData),signatureHash:str(t.signatureHash),createdAt:numTime(t.createdAt)})),meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS],...(d.meta&&typeof d.meta==='object'?d.meta:{})}}}
+
+// ── IndexedDB ──
+async function makeRepo(){try{const db=await openDb();return makeIdbRepo(db)}catch(e){console.error('IndexedDB 오류:',e);return null}}
+function openDb(){return new Promise((res,rej)=>{if(!window.indexedDB){rej(new Error('IndexedDB 미지원'));return}const r=indexedDB.open(DB,VER);r.onerror=()=>rej(r.error);r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains('employees'))db.createObjectStore('employees',{keyPath:'id'});if(!db.objectStoreNames.contains('transactions'))db.createObjectStore('transactions',{keyPath:'id'});if(!db.objectStoreNames.contains('meta'))db.createObjectStore('meta',{keyPath:'key'})};r.onsuccess=()=>res(r.result)})}
+function getAll(db,s){return new Promise((res,rej)=>{const tx=db.transaction(s,'readonly'),q=tx.objectStore(s).getAll();q.onerror=()=>rej(q.error);q.onsuccess=()=>res(q.result||[])})}
+function makeIdbRepo(db){return{modeLabel:'IndexedDB',async loadAll(){const[e,t,m]=await Promise.all([getAll(db,'employees'),getAll(db,'transactions'),getAll(db,'meta')]);return{employees:e,transactions:t,meta:m.reduce((a,r)=>(a[r.key]=r.value,a),{})}},async apply(c){await new Promise((res,rej)=>{const tx=db.transaction(['employees','transactions','meta'],'readwrite');tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error);const es=tx.objectStore('employees'),ts=tx.objectStore('transactions'),ms=tx.objectStore('meta');(c.employees||[]).forEach(v=>es.put(v));(c.transactions||[]).forEach(v=>ts.put(v));if(c.meta)Object.entries(c.meta).forEach(([k,v])=>ms.put({key:k,value:v}))})},async replaceAll(d){await new Promise((res,rej)=>{const tx=db.transaction(['employees','transactions','meta'],'readwrite');tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.objectStore('employees').clear();tx.objectStore('transactions').clear();tx.objectStore('meta').clear();d.employees.forEach(v=>tx.objectStore('employees').put(v));d.transactions.forEach(v=>tx.objectStore('transactions').put(v));if(d.meta)Object.entries(d.meta).forEach(([k,v])=>tx.objectStore('meta').put({key:k,value:v}))})}}}
+function makeLocalRepo(){function load(){try{return JSON.parse(localStorage.getItem(LOCAL)||'{}')}catch{return{}}}function save(d){localStorage.setItem(LOCAL,JSON.stringify(d))}return{modeLabel:'localStorage (호환 모드)',async loadAll(){return load()},async apply(c){const d=load();if(c.employees)c.employees.forEach(v=>{d.employees=d.employees||[];const i=d.employees.findIndex(x=>x.id===v.id);if(i>=0)d.employees[i]=v;else d.employees.push(v)});if(c.transactions)c.transactions.forEach(v=>{d.transactions=d.transactions||[];const i=d.transactions.findIndex(x=>x.id===v.id);if(i>=0)d.transactions[i]=v;else d.transactions.push(v)});if(c.meta){d.meta=d.meta||{};Object.assign(d.meta,c.meta)}save(d)},async replaceAll(d){save(d)}}}
+
+// ── 잔액 ──
+function applyTx(b,t){return t.type==='use'?b-num(t.amount):b+num(t.amount)}
+function balanceOf(id){return state.data.transactions.filter(t=>t.employeeId===id).reduce((s,t)=>applyTx(s,t),0)}
+function backupDue(){return(state.data.employees.length||state.data.transactions.length)&&!sameDay(state.data.meta.lastBackupAt,now())}
+
+// ── SHA-256 ──
+async function hash(text){if(window.crypto&&window.crypto.subtle){const buf=new TextEncoder().encode(String(text)),h=await crypto.subtle.digest('SHA-256',buf);return Array.from(new Uint8Array(h)).map(v=>v.toString(16).padStart(2,'0')).join('')}let x=5381,s=String(text);for(let i=0;i<s.length;i++)x=((x<<5)+x)+s.charCodeAt(i);return String(x>>>0)}
+
+// ── UI ──
+function toast(msg){clearTimeout(state.toastTimer);state.toast=msg;render();state.toastTimer=setTimeout(()=>{state.toast='';render()},3000)}
+function setBusy(msg){state.busy=msg;render()}
+function clearBusy(){state.busy=''}
+function field(id,label,value,ph,type){return `<div class="field"><label for="${id}">${esc(label)}</label><input id="${id}" type="${type||'text'}" value="${esc(value)}" placeholder="${esc(ph||'')}"${type==='number'?' step="1"':''}></div>`}
+function deptField(id,label,value,ph){const depts=state.data.meta.departments||[];const chips=depts.map(d=>`<span class="dept-pick${value===d?' on':''}" data-a="pick-dept" data-dept="${esc(d)}">${esc(d)}</span>`).join('');return `<div class="field"><label for="${id}">${esc(label)}</label><input id="${id}" value="${esc(value)}" placeholder="${esc(ph||'')}"><div class="dept-picks">${chips}</div></div>`}
+
+// ── PIN 잠금 화면 ──
+function pinScreenHtml(){
+const hasPin=!!state.data.meta.pinHash;
+const isSetup=!hasPin||state.pinMode==='change';
+const step=isSetup?(state.pinSetup1?'confirm':'new'):'unlock';
+const titles={new:'비밀번호 설정',confirm:'비밀번호 확인',unlock:'비밀번호 입력'};
+const subs={new:'숫자 4자리를 입력하세요',confirm:'한번 더 입력하세요',unlock:'비밀번호를 입력하세요'};
+const dots=[0,1,2,3].map(i=>`<div class="pin-dot${i<state.pinInput.length?' filled':''}${state.pinMsg&&state.pinMsg.includes('틀렸습니다')?' error':''}"></div>`).join('');
+const keys=[1,2,3,4,5,6,7,8,9].map(n=>`<button class="pin-key" data-a="pin-key" data-key="${n}">${n}</button>`).join('');
+const resetBtn=state.pinFails>=5?`<div class="pin-reset"><div style="color:var(--danger);font-size:13px;margin-bottom:8px">5회 이상 실패했습니다</div><button data-a="pin-reset">비밀번호 초기화</button><div style="font-size:11px;color:var(--muted);margin-top:6px">초기화하면 비밀번호가 삭제됩니다.<br>데이터는 유지됩니다.</div></div>`:'';
+return `<div class="pin-screen"><div class="pin-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="pin-title">${titles[step]}</div><div class="pin-sub">${subs[step]}</div><div class="pin-dots">${dots}</div><div class="pin-pad">${keys}<button class="pin-key fn" data-a="pin-key" data-key="back">←</button><button class="pin-key" data-a="pin-key" data-key="0">0</button><button class="pin-key fn" data-a="pin-key" data-key="clear">C</button></div><div class="pin-msg">${esc(state.pinMsg)}</div>${resetBtn}</div>`}
+
+async function handlePinKey(key){
+if(key==='clear'){state.pinInput='';state.pinMsg='';render();return}
+if(key==='back'){state.pinInput=state.pinInput.slice(0,-1);state.pinMsg='';render();return}
+if(state.pinInput.length>=4)return;
+state.pinInput+=key;state.pinMsg='';render();
+if(state.pinInput.length<4)return;
+const pin=state.pinInput;const hasPin=!!state.data.meta.pinHash;
+const isSetup=!hasPin||state.pinMode==='change';
+if(isSetup){
+if(!state.pinSetup1){state.pinSetup1=pin;state.pinInput='';render();return}
+if(state.pinSetup1!==pin){state.pinSetup1='';state.pinInput='';state.pinMsg='비밀번호가 일치하지 않습니다. 다시 설정하세요.';render();return}
+const h=await hash(pin);state.data.meta.pinHash=h;await repo.apply({meta:{pinHash:h}});
+state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinLocked=false;state.pinFails=0;state.pinMsg='';render();toast('비밀번호가 설정되었습니다.')
+}else{
+const h=await hash(pin);
+if(h===state.data.meta.pinHash){state.pinInput='';state.pinLocked=false;state.pinFails=0;state.pinMsg='';render()}
+else{state.pinFails++;state.pinInput='';state.pinMsg=`비밀번호가 틀렸습니다. (${state.pinFails}회)`;render()}}}
+
+async function pinReset(){if(!window.confirm('비밀번호를 초기화하시겠습니까?\n\n비밀번호가 삭제되고 새로 설정할 수 있습니다.\n저장된 데이터는 그대로 유지됩니다.'))return;
+state.data.meta.pinHash='';await repo.apply({meta:{pinHash:''}});
+state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinLocked=true;render();toast('비밀번호가 초기화되었습니다. 새로 설정하세요.')}
+
+// ── 초기 설정 화면 ──
+function setupScreenHtml(){return state.setupStep===1?setupStep1Html():setupStep2Html()}
+
+function setupStep1Html(){
+const sel=state.setupSelected;let rHtml='';
+if(!state.setupManual){
+if(state.setupSearching)rHtml='<div class="card empty">검색 중...</div>';
+else if(state.setupResults.length){rHtml='<div class="card"><div class="result-list">'+state.setupResults.map(function(r,i){const addr=r.ROAD_NM_ADDR||r.LOTNO_ADDR||'';const on=sel&&sel.idx===i;return '<div class="result-card'+(on?' selected':'')+'" data-a="setup-select" data-idx="'+i+'"><div class="r-name">'+esc(r.BPLC_NM)+'</div><div class="r-addr">'+esc(addr)+'</div>'+(r.TELNO?'<div class="r-tel">'+esc(r.TELNO)+'</div>':'')+'<div class="r-type">'+esc(r.BZSTAT_SE_NM||'')+'</div></div>'}).join('')+'</div></div>'}
+else if(state.setupSearched)rHtml='<div class="card empty">검색 결과가 없습니다.<br>아래에서 직접 입력할 수 있습니다.</div>'}
+const selHtml=sel?'<div class="card setup-selected"><div style="font-size:17px;font-weight:800;margin-bottom:4px">'+esc(sel.name)+'</div><div style="font-size:13px;color:var(--muted);line-height:1.5">'+esc(sel.addr)+'</div>'+(sel.tel?'<div style="font-size:13px;color:var(--primary);margin-top:2px">'+esc(sel.tel)+'</div>':'')+'</div>':'';
+var searchSection='<div class="card"><div class="form"><div class="field"><label>시군구</label><input id="setupDistrict" value="'+esc(state.setupDistrict)+'" placeholder="예: 광진구, 강남구, 수원시"></div><div class="field"><label>업소명</label><input id="setupShopSearch" value="'+esc(state.setupShopSearch)+'" placeholder="예: 맛있는식당"></div><button class="btn-primary" data-a="setup-search">검색</button></div></div>';
+var manualSection='<div class="card"><div class="form"><div class="field"><label>음식점 이름</label><input id="setupManualName" placeholder="예: 맛있는식당"></div><div class="field"><label>주소</label><input id="setupManualAddr" placeholder="예: 서울시 광진구 아차산로 123"></div><div class="field"><label>전화번호</label><input id="setupManualTel" placeholder="예: 02-123-4567"></div><button class="btn-primary" data-a="setup-manual-save">입력 완료</button></div></div>';
+var toggleHtml=state.setupManual?'<div style="text-align:center;margin-top:8px"><button data-a="setup-manual-toggle" style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:600;min-height:auto;padding:8px;text-decoration:underline">API로 검색하기</button></div>':'<div style="text-align:center;margin-top:8px"><button data-a="setup-manual-toggle" style="background:none;border:none;color:var(--muted);font-size:13px;font-weight:600;min-height:auto;padding:8px;text-decoration:underline">검색 대신 직접 입력</button></div>';
+return '<div class="setup"><div class="setup-head"><div class="setup-step">1 / 2</div><h1>우리 가게 등록</h1><p>'+(state.setupManual?'가게 정보를 직접 입력합니다':'시군구와 업소명으로 가게를 검색합니다')+'</p></div>'+(state.setupManual?manualSection:searchSection)+rHtml+selHtml+toggleHtml+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-skip" style="flex:1">건너뛰기</button>'+(sel?'<button class="btn-primary" data-a="setup-next" style="flex:1">다음</button>':'')+'</div></div>'}
+
+function setupStep2Html(){
+const tags=state.setupDepts.map(function(d,i){return '<span class="dept-tag">'+esc(d)+'<button data-a="setup-remove-dept" data-idx="'+i+'">×</button></span>'}).join('');
+return '<div class="setup"><div class="setup-head"><div class="setup-step">2 / 2</div><h1>부서 목록 설정</h1><p>기본 부서를 확인하고 필요에 따라 수정하세요<br>나중에 설정에서 변경할 수 있습니다</p></div><div class="card"><div style="line-height:2.2;margin-bottom:12px">'+(tags||'<span style="color:var(--muted)">부서가 없습니다</span>')+'</div><div style="display:flex;gap:8px"><input id="setupNewDept" placeholder="부서명 입력" style="min-height:44px"><button class="btn-secondary" data-a="setup-add-dept" style="min-height:44px;min-width:60px;flex-shrink:0">추가</button></div></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back" style="flex:1">이전</button><button class="btn-primary" data-a="setup-complete" style="flex:1">완료</button></div></div>'}
+
+async function searchShopsApi(){
+var d=str(qs('setupDistrict')&&qs('setupDistrict').value),n=str(qs('setupShopSearch')&&qs('setupShopSearch').value);
+if(!n){toast('업소명을 입력하세요.');return}
+state.setupDistrict=d;state.setupShopSearch=n;state.setupResults=[];state.setupSelected=null;state.setupSearching=true;state.setupSearched=false;render();
+try{var url='https://apis.data.go.kr/1741000/general_restaurants/info?serviceKey='+FOOD_API_KEY+'&pageNo=1&numOfRows=20&returnType=json&cond[DTL_SALS_STTS_CD::EQ]=01&cond[BPLC_NM::LIKE]='+encodeURIComponent(n);
+if(d)url+='&cond[ROAD_NM_ADDR::LIKE]='+encodeURIComponent(d);
+var res=await fetch(url);if(!res.ok)throw new Error('API 응답 오류: '+res.status);
+var json=await res.json();var body=json&&json.response&&json.response.body;var items=body&&body.items&&body.items.item;
+state.setupResults=Array.isArray(items)?items:items?[items]:[]}catch(e){console.error(e);toast('검색 중 오류: '+e.message)}
+state.setupSearching=false;state.setupSearched=true;render()}
+
+// ── 렌더 (포커스 보존) ──
+function render(){if(!state.loaded){qs('app').innerHTML='<div class="app"><div class="card empty">앱을 준비하는 중입니다.</div></div>';return}
+// 초기 설정 화면
+if(!state.data.meta.setupComplete){qs('app').innerHTML=setupScreenHtml();return}
+// PIN 잠금 화면
+if(state.pinLocked){qs('app').innerHTML=pinScreenHtml();return}
+const fa=document.activeElement,fid=fa&&fa.id,ss=fa&&fa.selectionStart,se=fa&&fa.selectionEnd;
+const d=derive();qs('app').innerHTML=`<div class="app">${topBar()}<div class="stack">${banners()}${screenHtml(d)}</div>${navHtml()}</div>${modalHtml(d)}${state.toast?`<div class="toast">${esc(state.toast)}</div>`:''}${state.busy?`<div class="busy"><div>${esc(state.busy)}</div></div>`:''}`;
+if(state.modal&&state.modal.type==='usage')initSignPad();else signPad=null;
+if(fid&&!state.modal){const el=qs(fid);if(el){el.focus();try{if(typeof ss==='number'){el.selectionStart=ss;el.selectionEnd=se}}catch(e){}}}}
+
+// ── 파생 데이터 ──
+function derive(){const balances=new Map(),voided=new Set();const asc=[...state.data.transactions].sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));asc.forEach(t=>{const p=balances.get(t.employeeId)||0;balances.set(t.employeeId,applyTx(p,t));if(t.type==='void'&&t.targetTransactionId)voided.add(t.targetTransactionId)});const employees=state.data.employees.map(e=>({...e,balance:balances.get(e.id)||0,deptKey:e.dept||'부서 없음'})).sort((a,b)=>a.deptKey.localeCompare(b.deptKey,'ko')||a.name.localeCompare(b.name,'ko'));const empMap=new Map(employees.map(e=>[e.id,e]));const active=employees.filter(e=>!e.isDeleted);const kw=state.search.trim();const df=state.deptFilter;const filtered=active.filter(e=>{if(df&&e.deptKey!==df)return false;if(kw&&!e.name.includes(kw))return false;return true});const total=active.reduce((s,e)=>s+e.balance,0);const homeGroups=groupBy(filtered,e=>e.deptKey).map(([dept,items])=>({dept,items,count:items.length,totalBalance:items.reduce((s,e)=>s+e.balance,0)})).sort((a,b)=>a.dept.localeCompare(b.dept,'ko'));const hist=[...state.data.transactions].sort((a,b)=>b.createdAt-a.createdAt||b.id.localeCompare(a.id)).filter(t=>!state.historyEmployeeId||t.employeeId===state.historyEmployeeId);const historyGroups=groupBy(hist,t=>{const e=empMap.get(t.employeeId);return(e?e.deptKey:'부서 없음')+'||'+(e?e.name:'알 수 없는 직원')+'||'+t.employeeId}).map(([key,items])=>{const[dept,name,eid]=key.split('||');return{dept,name,employeeId:eid,employee:empMap.get(eid)||null,items}}).sort((a,b)=>a.dept.localeCompare(b.dept,'ko')||a.name.localeCompare(b.name,'ko'));const dateHist=[...state.data.transactions].sort((a,b)=>b.createdAt-a.createdAt||b.id.localeCompare(a.id));const dateKey=ts=>{const x=new Date(ts);return `${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`};const dateGroups=groupBy(dateHist,t=>dateKey(t.createdAt)).map(([date,items])=>{const useTotal=items.filter(t=>t.type==='use').reduce((s,t)=>s+num(t.amount),0);return{date,items,useTotal,count:items.length}});return{employees,empMap,active,filtered,total,homeGroups,voided,historyGroups,dateGroups}}
+
+// ── 화면 HTML ──
+function topBar(){const sub={home:'차감과 잔액을 빠르게 처리합니다.',history:'거래와 취소 기록을 확인합니다.',settings:'직원 관리와 백업을 처리합니다.'}[state.screen]||'';const homeBtn=state.screen==='home'?`<button class="btn" data-a="reset-filter">검색 초기화</button>`:`<button class="btn" data-a="go-home">홈</button>`;const btns=state.screen==='history'?'<button class="btn-primary" data-a="export">백업</button>':'';let filters='';if(state.screen==='home'){const activeDepts=[...new Set(state.data.employees.filter(e=>!e.isDeleted).map(e=>e.dept||'부서 없음'))].sort((a,b)=>a.localeCompare(b,'ko'));const deptOpts=['<option value="">전체 부서</option>',...activeDepts.map(d=>`<option value="${esc(d)}"${state.deptFilter===d?' selected':''}>${esc(d)}</option>`)].join('');filters=`<div style="display:flex;gap:8px"><select id="deptFilterSelect" style="flex:1">${deptOpts}</select><input id="searchInput" type="text" placeholder="직원명 검색" value="${esc(state.search)}" style="flex:1"></div>`}else if(state.screen==='history'){filters=historyFilterHtml()}const shop=state.data.meta.shopName;const shopAddr=state.data.meta.shopAddr||'';const shopHtml=shop&&state.screen==='home'?`<div style="font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#1a5276,#2e86c1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px">${esc(shop)}${shopAddr?` <span style="font-size:13px;font-weight:600;letter-spacing:0">(${esc(shopAddr)})</span>`:''}</div>`:'';return `<div class="top">${shopHtml}<div class="title"><div><h1>${APP}</h1><div class="sub">${sub}</div></div><div class="tool">${homeBtn}${btns}</div></div>${filters}</div>`}
+function historyFilterHtml(){const d=derive();const tabStyle='flex:1;min-height:38px;border-radius:10px;font-size:13px;font-weight:700;';const dateOn=state.historyTab==='date';const empOn=state.historyTab==='employee';const empFilter=empOn?`<select id="historyFilter" style="margin-top:8px">${['<option value="">전체 직원</option>',...d.employees.map(e=>`<option value="${esc(e.id)}"${state.historyEmployeeId===e.id?' selected':''}>${esc(e.name)} (${esc(e.dept||'부서 없음')})${e.isDeleted?' [숨김]':''}</option>`)].join('')}</select>`:'';return `<div style="display:flex;gap:8px"><button style="${tabStyle}${dateOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="date">일자별</button><button style="${tabStyle}${empOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="employee">직원별</button></div>${empFilter}`}
+function banners(){let h='';if(state.mode!=='IndexedDB')h+='<div class="card banner error"><strong>호환 모드 저장</strong><div class="meta">IndexedDB를 사용할 수 없어 localStorage에 저장합니다.</div></div>';if(backupDue())h+=`<div class="card banner warn"><strong>매일 영업 종료후 백업하세요</strong><div class="meta">${state.data.meta.lastBackupAt?`마지막 백업: ${dt(state.data.meta.lastBackupAt)}`:'아직 백업이 없습니다.'}</div></div>`;return h}
+function screenHtml(d){if(state.screen==='history')return historyHtml(d);if(state.screen==='settings')return settingsHtml(d);return homeHtml(d)}
+function homeHtml(d){if(!d.filtered.length)return `<div class="card empty">${(state.search.trim()||state.deptFilter)?'검색 결과가 없습니다.<br><button class="btn" data-a="reset-filter" style="margin-top:12px">초기화</button>':'등록된 직원이 없습니다.<br>하단 [설정] 탭에서 직원을 등록하세요.'}</div>`;return `${d.homeGroups.map(g=>`<div class="card group"><div class="group-head"><div><div class="group-title">${esc(g.dept)}</div><div class="group-meta">직원 ${g.count}명</div></div><div class="bal ${g.totalBalance<0?'negative':g.totalBalance===0?'zero':''}">${money(g.totalBalance)}</div></div>${g.items.map(empCard).join('')}</div>`).join('')}<div class="card summary"><div>활성 직원 ${d.active.length}명</div><div class="v">총 잔액 ${money(d.total)}</div></div>`}
+function empCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';return `<div class="card employee" style="display:flex;align-items:center;gap:12px"><div class="employee-main" data-a="history-for" data-id="${esc(e.id)}" style="flex:1;min-width:0"><div class="name">${esc(e.name)}</div><div class="dept">${esc(e.dept||'부서 없음')}${e.note?' · '+esc(e.note):''}</div></div><div class="bal ${c}" style="margin:0;white-space:nowrap">${money(e.balance)}</div><button class="btn-primary" data-a="use" data-id="${esc(e.id)}" style="min-width:auto;padding:10px 18px">사용</button></div>`}
+function historyHtml(d){if(state.historyTab==='employee')return historyByEmployee(d);return historyByDate(d)}
+function historyByDate(d){if(!d.dateGroups.length)return '<div class="card empty">거래 이력이 없습니다.</div>';return d.dateGroups.map(g=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1.5px solid #eef1f4"><div class="name" style="font-size:16px">${esc(g.date)}</div><div style="font-size:12px;color:var(--muted)">${g.count}건${g.useTotal?` · 사용 ${money(g.useTotal)}`:''}</div></div><div class="list">${g.items.map(t=>txCardDate(t,d)).join('')}</div></div>`).join('')}
+function txCardDate(t,d){const e=d.empMap.get(t.employeeId);const eName=e?e.name:'알 수 없음';const eDept=e?e.deptKey:'';const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const sig=t.signatureData?`<img class="thumb" src="${t.signatureData}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:'';const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';const time=new Date(t.createdAt);const hm=String(time.getHours()).padStart(2,'0')+':'+String(time.getMinutes()).padStart(2,'0');return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div><div class="txn-title">${esc(eName)} <span style="font-weight:400;color:var(--muted);font-size:11px">${esc(eDept)} · ${esc(lbl)}</span></div></div><div class="amt ${cls}">${sign}${money(isAdj?t.amount:Math.abs(t.amount))}</div></div><div class="chips"><span>${hm}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
+function historyByEmployee(d){if(!d.historyGroups.length)return '<div class="card empty">거래 이력이 없습니다.</div>';return d.historyGroups.map(g=>{const emp=g.employee;const bal=emp?emp.balance:0;const canAdjust=emp&&!emp.isDeleted;return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="name">${esc(g.name)}<span class="dept" style="margin-left:8px">${esc(g.dept)}</span></div><div style="display:flex;align-items:center;gap:8px"><div style="font-size:22px;font-weight:800;color:var(--danger);white-space:nowrap">잔액 ${money(bal)}</div>${canAdjust?`<button class="small" data-a="adjust" data-id="${esc(g.employeeId)}">조정</button>`:''}</div></div><div class="list">${g.items.map(t=>txCard(t,d)).join('')}</div></div>`}).join('')}
+function txCard(t,d){const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const displayAmt=isAdj?money(t.amount):money(Math.abs(t.amount));const sig=t.signatureData?`<img class="thumb" src="${t.signatureData}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:'';const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div class="txn-title">${esc(lbl)}</div><div class="amt ${cls}">${sign}${displayAmt}</div></div><div class="chips"><span style="font-size:14px;font-weight:600">${dt(t.createdAt)}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
+function settingsHtml(d){const org=state.data.meta.orgName||DEFAULT_ORG;const depts=state.data.meta.departments||[];
+// 부서별 그룹화 (활성 직원)
+const activeEmps=d.employees.filter(e=>!e.isDeleted).sort((a,b)=>a.deptKey.localeCompare(b.deptKey,'ko')||a.name.localeCompare(b.name,'ko'));
+const hiddenEmps=d.employees.filter(e=>e.isDeleted).sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+const deptGroups=groupBy(activeEmps,e=>e.deptKey).sort((a,b)=>a[0].localeCompare(b[0],'ko'));
+const empSection=!d.employees.length?'<div class="empty">직원이 없습니다.</div>':(
+deptGroups.map(([dept,emps])=>{const open=state.expandedDepts[dept];return `<div class="mgr-group"><div class="mgr-head" data-a="toggle-dept" data-dept="${esc(dept)}"><span class="mgr-toggle">${open?'▼':'▶'}</span><span class="mgr-dept">${esc(dept)}</span><span class="mgr-count">${emps.length}명</span></div>${open?'<div class="mgr-body">'+emps.map(manageRow).join('')+'</div>':''}</div>`}).join('')+
+(hiddenEmps.length?`<div class="mgr-group"><div class="mgr-head" data-a="toggle-dept" data-dept="__hidden__"><span class="mgr-toggle">${state.expandedDepts['__hidden__']?'▼':'▶'}</span><span class="mgr-dept" style="color:var(--muted)">숨김 직원</span><span class="mgr-count">${hiddenEmps.length}명</span></div>${state.expandedDepts['__hidden__']?'<div class="mgr-body">'+hiddenEmps.map(manageRow).join('')+'</div>':''}</div>`:''));
+return `<div class="card stack"><div class="name" style="font-size:14px;color:var(--muted)">직원 등록</div><button class="btn-primary" data-a="add-employee">직원개별등록</button><button class="btn-secondary" data-a="csv-import">직원등록(csv파일)</button></div><div class="card stack"><div class="name" style="font-size:14px;color:var(--muted)">데이터 관리</div><button class="btn-secondary" data-a="export-csv" style="text-align:left;padding:13px 16px">📋 장부 엑셀로 저장 <span style="font-size:11px;font-weight:400;color:var(--muted)">(직원별 잔액과 거래내역을 엑셀 파일로 만듭니다)</span></button><button class="btn" data-a="export" style="text-align:left;padding:13px 16px">💾 데이터 안전 저장 <span style="font-size:11px;font-weight:400;color:var(--muted)">(만일에 대비해 앱의 모든 데이터를 파일로 저장합니다)</span></button><button class="btn" data-a="import" style="text-align:left;padding:13px 16px">📂 저장한 데이터 불러오기 <span style="font-size:11px;font-weight:400;color:var(--muted)">(안전 저장해둔 파일로 데이터를 되돌립니다)</span></button><button class="btn-warn" data-a="full-reset" style="text-align:left;padding:13px 16px">🔄 전체 초기화 <span style="font-size:11px;font-weight:400;color:var(--muted)">(모든 직원, 거래, 비밀번호를 삭제하고 앱을 초기 상태로 되돌립니다)</span></button></div><div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px"><div class="name" style="font-size:20px">직원 관리</div><div style="font-size:18px;font-weight:800;color:var(--text)">부서 ${deptGroups.length}개 · 직원 ${d.active.length}명</div></div>${empSection}</div><div class="card"><div class="name" style="font-size:20px">보안</div><div class="row"><div class="left"><div class="txn-title">비밀번호</div><div class="meta">앱을 열 때 4자리 비밀번호를 확인합니다</div></div><div class="right"><button class="small" data-a="change-pin">변경</button></div></div></div><div class="card"><div class="name" style="font-size:20px">우리 가게</div><div style="display:flex;gap:8px;margin-top:8px"><input id="shopNameInput" type="text" value="${esc(state.data.meta.shopName||'')}" placeholder="음식점 이름을 입력하세요" style="min-height:44px"><button class="btn-primary" data-a="save-shop" style="min-height:44px;min-width:80px;flex-shrink:0">저장</button></div><div class="meta" style="margin-top:6px">저장하면 홈 화면 상단에 표시됩니다</div>${state.data.meta.shopAddr?'<div class="meta" style="margin-top:4px">주소: '+esc(state.data.meta.shopAddr)+'</div>':''}${state.data.meta.shopTel?'<div class="meta" style="margin-top:2px">전화: '+esc(state.data.meta.shopTel)+'</div>':''}</div><div class="card"><div class="name" style="font-size:20px">부서 목록 관리</div><div class="meta" style="margin-bottom:8px">${esc(org)} · <button class="small" data-a="edit-org" style="display:inline;min-height:auto;padding:2px 8px">기관명 변경</button></div><div style="line-height:2">${depts.map((d,i)=>`<span class="dept-tag">${esc(d)}<button data-a="remove-dept" data-idx="${i}">×</button></span>`).join('')}</div><div style="display:flex;gap:8px;margin-top:8px"><input id="newDeptInput" type="text" placeholder="새 부서명 입력" style="min-height:44px"><button class="btn-secondary" data-a="add-dept" style="min-height:44px;min-width:80px;flex-shrink:0">추가</button></div></div><div class="card"><div class="name" style="font-size:20px">데이터 관리</div><div class="meta" style="margin:8px 0 12px;line-height:1.6">앱 사용을 중단하실 경우 아래 버튼으로 모든 데이터를 안전하게 삭제할 수 있습니다.<br>초기화 전에 최종 백업이 자동으로 생성됩니다.</div><button class="btn-danger" data-a="full-reset" style="width:100%;min-height:52px;font-size:16px;font-weight:700">전체 초기화</button></div><div class="card stack"><div class="meta">저장 방식: ${esc(state.mode)}</div><div class="meta">마지막 백업: ${esc(state.data.meta.lastBackupAt?dt(state.data.meta.lastBackupAt):'없음')}</div><div class="meta">직원 수: ${d.active.length}명 (숨김 포함 ${d.employees.length}명)</div><div class="meta">거래 수: ${state.data.transactions.length}건</div><div class="meta">앱 버전: v${APP_VERSION}</div><div class="meta" style="margin-top:8px;font-size:11px;color:#98a2b3;text-align:center">© 2026년 광진구보건소(보건의료과). All rights reserved.</div></div>`}
+function manageRow(e){return `<div class="row"><div class="left"><div class="txn-title">${esc(e.name)}${e.isDeleted?'<span class="hidden-badge">숨김</span>':''}</div><div class="meta">${esc(e.dept||'부서 없음')} · 현재 잔액 ${money(e.balance)}</div>${e.note?`<div class="meta">${esc(e.note)}</div>`:''}</div><div class="right">${e.isDeleted?`<button class="small" data-a="restore-emp" data-id="${esc(e.id)}">복원</button>`:`<button class="small" data-a="edit-employee" data-id="${esc(e.id)}">수정</button><button class="small" data-a="topup" data-id="${esc(e.id)}">충전</button><button class="small" data-a="adjust" data-id="${esc(e.id)}">조정</button><button class="small" data-a="hide" data-id="${esc(e.id)}">숨김</button>`}</div></div>`}
+function navHtml(){return `<div class="nav"><button class="${state.screen==='home'?'active':''}" data-a="screen" data-screen="home"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>홈</button><button class="${state.screen==='history'?'active':''}" data-a="screen" data-screen="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>이력</button><button class="${state.screen==='settings'?'active':''}" data-a="screen" data-screen="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>설정</button></div>`}
+
+// ── 모달 HTML ──
+function modalHtml(d){if(!state.modal)return '';
+if(state.modal.type==='employee'){const edit=state.modal.mode==='edit',e=edit?d.empMap.get(state.modal.id):null;return `<div class="modal-back"><div class="modal"><h2>${edit?'직원 정보 수정':'직원개별등록'}</h2><p class="help">${edit?'직원 기본 정보만 바뀝니다.':'초기 선입금액은 첫 거래로 등록됩니다.'}</p><div class="form">${deptField('empDept','부서명',e?e.dept:'','예: 보건의료과')}${field('empName','직원명',e?e.name:'','예: 홍길동')}${!edit?`<div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-open" data-amount="9000">9,000원</button><button data-a="fill-open" data-amount="18000">18,000원</button><button data-a="fill-open" data-amount="27000">27,000원</button></div></div>${field('empOpen','초기 선입금액','','예: 9000','number')}`:''}${field('empNote','메모',e?e.note:'','비고')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-employee">저장</button></div></div></div>`}
+if(state.modal.type==='topup'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>추가 충전</h2><p class="help">${esc(e.name)} · 현재 잔액 ${money(e.balance)}</p><div class="form">${field('topupAmount','충전 금액','9000','예: 9000','number')}${field('topupReason','사유','','예: 추가 선입금')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-topup">충전 저장</button></div></div></div>`}
+if(state.modal.type==='adjust'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>잔액 조정</h2><p class="help">현재 잔액은 ${money(e.balance)}입니다.</p><div class="form">${field('adjustBalance','새 잔액',String(e.balance),'예: 27000','number')}${field('adjustReason','조정 사유','','예: 장부 확인 후 정정')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-warn" data-a="save-adjust">조정 저장</button></div></div></div>`}
+if(state.modal.type==='usage'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>사용 등록</h2><p class="help">금액을 입력한 뒤 서명을 받고 저장하세요.</p><div class="receipt"><div class="receipt-row"><span>직원</span><strong>${esc(e.name)}</strong></div><div class="receipt-row"><span>부서</span><strong>${esc(e.dept||'부서 없음')}</strong></div><div class="receipt-row"><span>현재 잔액</span><strong style="font-size:24px;color:var(--primary)">${money(e.balance)}</strong></div></div><div class="form">${field('useAmount','사용 금액','','금액을 입력하세요','number')}${field('useNote','비고 (점심/저녁/특식 등)','','선택 입력')}<div class="field"><label>서명</label><div class="sig-box"><canvas id="signCanvas" class="signature"></canvas></div></div></div><div class="modal-actions"><button class="btn" data-a="clear-sign">서명 지우기</button><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-use">서명 후 저장</button></div></div></div>`}
+if(state.modal.type==='signature'){const t=state.data.transactions.find(v=>v.id===state.modal.id);if(!t||!t.signatureData)return '';const e=state.data.employees.find(v=>v.id===t.employeeId);return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>서명 확인</h2><p class="help">${esc(e?e.name:'알 수 없음')} · ${dt(t.createdAt)} · ${money(t.amount)}</p><img src="${t.signatureData}" style="max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff" alt="서명"><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
+if(state.modal.type==='csv'){const rows=state.modal.rows||[];const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''} — 임포트 가능</div>`;const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th><th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td><td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error||(r.mode==='topup'?'🔄 추가 충전':'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>CSV 파일 불러오기</h2><p class="help">UTF-8 CSV 파일. 필수 컬럼: 부서, 이름, 금액 (헤더 행 필수)<br>이미 등록된 직원은 금액이 추가 충전됩니다.</p>${sm}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">임포트 실행</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
+return ''}
+
+// ── 이벤트 ──
+async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;const a=el.dataset.a;
+if(a==='go-home'){state.screen='home';state.search='';state.deptFilter='';render()}
+else if(a==='reset-filter'){state.search='';state.deptFilter='';render()}
+else if(a==='screen'){state.screen=el.dataset.screen||'home';if(state.screen!=='history')state.historyEmployeeId='';render()}
+else if(a==='add-employee'){state.modal={type:'employee',mode:'add'};render()}
+else if(a==='edit-employee'){state.modal={type:'employee',mode:'edit',id:el.dataset.id};render()}
+else if(a==='topup'){state.modal={type:'topup',id:el.dataset.id};render()}
+else if(a==='adjust'){state.modal={type:'adjust',id:el.dataset.id};render()}
+else if(a==='use'){state.modal={type:'usage',id:el.dataset.id};render()}
+else if(a==='history-for'){state.historyEmployeeId=el.dataset.id||'';state.historyTab='employee';state.screen='history';render()}
+else if(a==='history-tab'){state.historyTab=el.dataset.tab||'date';if(state.historyTab==='date')state.historyEmployeeId='';render()}
+else if(a==='view-sign'){state.modal={type:'signature',id:el.dataset.id};render()}
+else if(a==='close-modal'){state.modal=null;render()}
+else if(a==='fill-use'){const i=qs('useAmount');if(i)i.value=el.dataset.amount||''}
+else if(a==='fill-open'){const i=qs('empOpen');if(i)i.value=el.dataset.amount||''}
+else if(a==='pick-dept'){const input=qs('empDept');if(input){input.value=el.dataset.dept||'';input.focus()}document.querySelectorAll('.dept-pick').forEach(c=>c.classList.toggle('on',c.dataset.dept===el.dataset.dept))}
+else if(a==='clear-sign'){if(signPad)signPad.clear()}
+else if(a==='save-employee'){await saveEmployee()}
+else if(a==='save-topup'){await saveTopup()}
+else if(a==='save-adjust'){await saveAdjust()}
+else if(a==='save-use'){await saveUse()}
+else if(a==='hide'){await hideEmployee(el.dataset.id)}
+else if(a==='restore-emp'){await restoreEmployee(el.dataset.id)}
+else if(a==='void'){await voidUsage(el.dataset.id)}
+else if(a==='export'){await exportBackup()}
+else if(a==='export-csv'){await exportCsvLedger()}
+else if(a==='import'){qs('restoreFile').value='';qs('restoreFile').click()}
+else if(a==='csv-import'){state.modal={type:'csv',rows:[]};render()}
+else if(a==='pick-csv'){qs('csvFile').value='';qs('csvFile').click()}
+else if(a==='exec-csv'){await executeCsvImport()}
+else if(a==='new-month'){await doNewMonth()}
+else if(a==='edit-org'){await editOrgName()}
+else if(a==='save-shop'){await saveShopName()}
+else if(a==='add-dept'){await addDept()}
+else if(a==='remove-dept'){await removeDept(Number(el.dataset.idx))}
+else if(a==='toggle-dept'){const dept=el.dataset.dept;state.expandedDepts[dept]=!state.expandedDepts[dept];render()}
+else if(a==='pin-key'){await handlePinKey(el.dataset.key)}
+else if(a==='pin-reset'){await pinReset()}
+else if(a==='change-pin'){state.pinMode='change';state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMsg='';state.pinFails=0;render()}
+else if(a==='setup-search'){await searchShopsApi()}
+else if(a==='setup-select'){var idx=Number(el.dataset.idx);var r=state.setupResults[idx];if(r){state.setupSelected={idx:idx,name:r.BPLC_NM||'',addr:r.ROAD_NM_ADDR||r.LOTNO_ADDR||'',tel:r.TELNO||'',type:r.BZSTAT_SE_NM||''};render()}}
+else if(a==='setup-next'){if(state.setupSelected){state.data.meta.shopName=state.setupSelected.name;state.data.meta.shopAddr=state.setupSelected.addr;state.data.meta.shopTel=state.setupSelected.tel;if(state.setupDistrict){var dd=state.setupDistrict;state.data.meta.orgName=dd.endsWith('구')||dd.endsWith('시')||dd.endsWith('군')?dd+'청':dd}state.setupDepts=[].concat(COMMON_DEPTS);state.setupStep=2;render()}}
+else if(a==='setup-manual-toggle'){state.setupManual=!state.setupManual;state.setupSelected=null;render()}
+else if(a==='setup-manual-save'){var mn=str(qs('setupManualName')&&qs('setupManualName').value);var ma=str(qs('setupManualAddr')&&qs('setupManualAddr').value);var mt=str(qs('setupManualTel')&&qs('setupManualTel').value);if(!mn){toast('음식점 이름을 입력하세요.');return}state.setupSelected={idx:-1,name:mn,addr:ma,tel:mt,type:'직접입력'};if(ma){var dm=ma.match(/[가-힣]+[시군구]/);if(dm&&!state.setupDistrict)state.setupDistrict=dm[0]}render()}
+else if(a==='setup-skip'){state.setupDepts=[].concat(COMMON_DEPTS);state.setupStep=2;render()}
+else if(a==='setup-back'){state.setupStep=1;render()}
+else if(a==='setup-add-dept'){var inp=qs('setupNewDept');var v=str(inp&&inp.value);if(!v){toast('부서명을 입력하세요.');return}if(state.setupDepts.indexOf(v)>=0){toast('이미 추가된 부서입니다.');return}state.setupDepts.push(v);render()}
+else if(a==='setup-remove-dept'){var ri=Number(el.dataset.idx);if(ri>=0&&ri<state.setupDepts.length){state.setupDepts.splice(ri,1);render()}}
+else if(a==='setup-complete'){state.data.meta.departments=[].concat(state.setupDepts);state.data.meta.setupComplete=true;await repo.apply({meta:{shopName:state.data.meta.shopName||'',shopAddr:state.data.meta.shopAddr||'',shopTel:state.data.meta.shopTel||'',orgName:state.data.meta.orgName||DEFAULT_ORG,departments:state.data.meta.departments,setupComplete:true}});render();toast('초기 설정 완료')}
+else if(a==='full-reset'){await fullReset()}}
+function onInput(e){if(e.target.id==='setupDistrict'){state.setupDistrict=e.target.value||''}if(e.target.id==='setupShopSearch'){state.setupShopSearch=e.target.value||''}if(e.target.id==='searchInput'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}}
+
+// ── CRUD ──
+async function saveEmployee(){const dept=str(qs('empDept')&&qs('empDept').value),name=str(qs('empName')&&qs('empName').value),note=str(qs('empNote')&&qs('empNote').value),t=now();if(!name){toast('직원명을 입력하세요.');return}if(state.modal.mode==='edit'){const old=state.data.employees.find(v=>v.id===state.modal.id);if(!old){toast('직원을 찾을 수 없습니다.');return}const dup=state.data.employees.find(v=>v.id!==old.id&&!v.isDeleted&&v.name===name&&v.dept===dept);if(dup){toast('같은 이름과 부서의 활성 직원이 이미 있습니다.');return}const next={...old,dept,name,note,updatedAt:t};try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;render();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);toast('직원 수정 중 오류')}}else{const hidden=state.data.employees.find(v=>v.isDeleted&&v.name===name&&v.dept===dept);if(hidden){toast('같은 이름의 숨김 직원이 있습니다. 설정에서 복원하세요.');return}const dup=state.data.employees.find(v=>!v.isDeleted&&v.name===name&&v.dept===dept);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${dept||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;const before=curBal;const tx={id:uid(),employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'개별등록 추가 충전',note:note||'',targetTransactionId:null,signatureData:'',signatureHash:'',createdAt:t};try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;render();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);toast('충전 중 오류')}return}const emp={id:uid(),dept,name,note,isDeleted:false,createdAt:t,updatedAt:t};const txs=open>0?[{id:uid(),employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',targetTransactionId:null,signatureData:'',signatureHash:'',createdAt:t}]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;render();toast('직원을 등록했습니다.')}catch(err){console.error(err);toast('직원 등록 중 오류')}}}
+async function saveTopup(){const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('topupAmount')&&qs('topupAmount').value),reason=str(qs('topupReason')&&qs('topupReason').value)||'추가 선입금';if(isNaN(amount)||amount<=0){toast('충전 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}const before=balanceOf(emp.id),tx={id:uid(),employeeId:emp.id,type:'topup',amount,beforeBalance:before,afterBalance:before+amount,reason,note:'',targetTransactionId:null,signatureData:'',signatureHash:'',createdAt:now()};try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;render();toast('충전을 저장했습니다.')}catch(err){console.error(err);toast('충전 저장 중 오류')}}
+async function saveAdjust(){const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const newBal=parseWon(qs('adjustBalance')&&qs('adjustBalance').value),reason=str(qs('adjustReason')&&qs('adjustReason').value);if(isNaN(newBal)){toast('새 잔액은 정수(원 단위)만 입력할 수 있습니다.');return}if(newBal<0){toast('새 잔액은 0원 이상이어야 합니다.');return}if(!reason){toast('조정 사유를 입력하세요.');return}const before=balanceOf(emp.id),delta=newBal-before;if(delta===0){toast('현재 잔액과 동일합니다.');return}const tx={id:uid(),employeeId:emp.id,type:'adjust',amount:delta,beforeBalance:before,afterBalance:newBal,reason,note:'',targetTransactionId:null,signatureData:'',signatureHash:'',createdAt:now()};try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;render();toast('잔액 조정을 저장했습니다.')}catch(err){console.error(err);toast('잔액 조정 중 오류')}}
+async function saveUse(){const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('useAmount')&&qs('useAmount').value);if(isNaN(amount)||amount<=0){toast('사용 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}const before=balanceOf(emp.id);if(before<amount){toast('잔액이 부족합니다.');return}if(!signPad||signPad.isEmpty()){toast('서명을 먼저 받아주세요.');return}const signatureData=signPad.toDataUrl();if(!signatureData){toast('서명을 저장할 수 없습니다.');return}const note=str(qs('useNote')&&qs('useNote').value);if(!window.confirm(`${emp.name} · ${money(amount)} 사용 저장하시겠습니까?\n\n잔액: ${money(before)} → ${money(before-amount)}`))return;setBusy('서명을 저장하는 중입니다.');try{const signatureHash=await hash(signatureData),tx={id:uid(),employeeId:emp.id,type:'use',amount,beforeBalance:before,afterBalance:before-amount,reason:'서명 확인',note,targetTransactionId:null,signatureData,signatureHash,createdAt:now()};await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();render();window.alert(`✅ 저장 완료\n\n${emp.name} (${emp.dept||'부서 없음'})\n사용: ${money(amount)}\n잔액: ${money(before-amount)}`)}catch(err){console.error(err);clearBusy();toast('사용 등록 중 오류')}}
+async function hideEmployee(id){const emp=state.data.employees.find(v=>v.id===id);if(!emp)return;const typed=window.prompt(`${emp.name} 직원을 숨김 처리하려면 이름을 입력하세요.`,'');if(typed===null)return;if(str(typed)!==emp.name){toast('이름이 일치하지 않습니다.');return}const next={...emp,isDeleted:true,updatedAt:now()};try{await repo.apply({employees:[next]});upsertEmp(next);render();toast('숨김 처리됨')}catch(err){console.error(err);toast('오류')}}
+async function restoreEmployee(id){const emp=state.data.employees.find(v=>v.id===id);if(!emp)return;const dup=state.data.employees.find(v=>v.id!==emp.id&&!v.isDeleted&&v.name===emp.name&&v.dept===emp.dept);if(dup){toast('같은 이름의 활성 직원이 있어 복원 불가');return}if(!window.confirm(`${emp.name} 직원을 복원할까요?`))return;const next={...emp,isDeleted:false,updatedAt:now()};try{await repo.apply({employees:[next]});upsertEmp(next);render();toast('복원됨')}catch(err){console.error(err);toast('오류')}}
+async function voidUsage(id){const tx=state.data.transactions.find(v=>v.id===id&&v.type==='use');if(!tx)return;const already=state.data.transactions.some(v=>v.type==='void'&&v.targetTransactionId===tx.id);if(already){toast('이미 취소됨');return}const reason=window.prompt('취소 사유를 입력하세요.','');if(reason===null)return;if(!str(reason)){toast('취소 사유를 입력하세요.');return}const before=balanceOf(tx.employeeId),voidTx={id:uid(),employeeId:tx.employeeId,type:'void',amount:tx.amount,beforeBalance:before,afterBalance:before+tx.amount,reason:str(reason),note:'',targetTransactionId:tx.id,signatureData:'',signatureHash:'',createdAt:now()};try{await repo.apply({transactions:[voidTx]});upsertTx(voidTx);render();toast('사용 취소 완료')}catch(err){console.error(err);toast('오류')}}
+
+// ── 백업/복원 ──
+async function exportBackup(isFinal){setBusy('백업 파일을 만드는 중입니다.');try{const core={version:1,appName:APP,appVersion:APP_VERSION,exportedAt:now(),employees:state.data.employees,transactions:state.data.transactions,meta:{...state.data.meta}};const checksum=await hash(JSON.stringify(core));const payload={...core,checksum};const json=JSON.stringify(payload,null,2);const fn=backupFileName(isFinal);const usedBridge=downloadFile(json,fn);clearBusy();if(usedBridge){toast('백업 파일을 저장하는 중입니다.')}else{const confirmed=window.confirm('백업 파일 다운로드가 시작되었습니다.\n\n파일이 실제로 저장된 것을 확인했습니까?');if(confirmed){const lastBackupAt=now();await repo.apply({meta:{lastBackupAt}});state.data.meta.lastBackupAt=lastBackupAt;state.backupConfirmed=true;render();toast('백업 저장 확인됨')}else{toast('백업 파일 저장을 확인해 주세요.')}}}catch(err){console.error(err);clearBusy();toast('백업 생성 오류');if(isFinal)throw err}}
+
+// ── 장부 내보내기 (CSV) ──
+async function exportCsvLedger(){
+const d=derive();const org=state.data.meta.orgName||DEFAULT_ORG;
+const today=new Date();const dateStr=`${today.getFullYear()}.${String(today.getMonth()+1).padStart(2,'0')}.${String(today.getDate()).padStart(2,'0')}`;
+const csvQ=v=>{const s=String(v==null?'':v);return s.includes(',')||s.includes('"')||s.includes('\n')?'"'+s.replace(/"/g,'""')+'"':s};
+const row=arr=>arr.map(csvQ).join(',')+'\r\n';
+let csv='';
+// ── 1. 요약 정보 ──
+csv+=row([`${org} 선입금 장부`,'','',`출력일: ${dateStr}`]);
+csv+=row([`활성 직원: ${d.active.length}명`,'',`총 잔액: ${money(d.total)}`,'']);
+csv+=row([]);
+// ── 2. 직원별 잔액 현황 ──
+csv+=row(['【 직원별 잔액 현황 】','','','']);
+csv+=row(['부서','직원명','잔액','메모']);
+d.homeGroups.forEach(g=>{
+g.items.forEach(e=>{csv+=row([e.dept,e.name,num(e.balance),e.note||''])});
+csv+=row([`  ${g.dept} 소계`,'',num(g.totalBalance),'']);
+});
+csv+=row(['합계','',num(d.total),'']);
+csv+=row([]);
+// ── 3. 거래 내역 ──
+csv+=row(['【 거래 내역 】','','','','','']);
+csv+=row(['일시','부서','직원명','유형','금액','잔액(후)','비고/사유']);
+const typeNames={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'};
+const allTx=[...state.data.transactions].sort((a,b)=>a.createdAt-b.createdAt);
+allTx.forEach(t=>{
+const e=state.data.employees.find(v=>v.id===t.employeeId);
+const dept=e?e.dept:'';const name=e?e.name:'알 수 없음';
+const typeName=typeNames[t.type]||t.type;
+const sign=t.type==='use'?'-':(t.type==='adjust'&&num(t.amount)<0?'':'');
+const memo=[t.note,t.reason].filter(Boolean).join(' / ');
+const isVoided=state.data.transactions.some(v=>v.type==='void'&&v.targetTransactionId===t.id);
+const displayAmount=t.type==='adjust'?num(t.amount):num(Math.abs(t.amount));
+csv+=row([dt(t.createdAt),dept,name,typeName+(isVoided?' (취소됨)':''),sign+displayAmount,num(t.afterBalance),memo]);
+});
+csv+=row([]);
+csv+=row([`총 거래 ${allTx.length}건`,'','','','','','']);
+// BOM + UTF-8로 다운로드 (엑셀에서 한글 깨짐 방지)
+const bom='\uFEFF';
+const blob=new Blob([bom+csv],{type:'text/csv;charset=utf-8'});
+const url=URL.createObjectURL(blob);const a=document.createElement('a');
+const fn=`선입금장부_${org}_${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}.csv`;
+a.href=url;a.download=fn;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+toast('장부 CSV 저장됨');
+}
+function backupFileName(isFinal){const d=new Date();const ymd=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;return isFinal?`선입금대장_최종백업_${ymd}.json`:`선입금대장_${ymd}.json`}
+function downloadFile(content,filename){if(typeof AndroidBridge!=='undefined'&&AndroidBridge.saveBackup){AndroidBridge.saveBackup(content,filename);return true}const blob=new Blob([content],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return false}
+window.onBackupSaved=async function(fn){const lastBackupAt=now();try{await repo.apply({meta:{lastBackupAt}});state.data.meta.lastBackupAt=lastBackupAt;state.backupConfirmed=true;render()}catch(e){console.error(e)}toast('백업 저장 완료: '+fn)};
+async function onRestoreFile(e){const file=e.target.files&&e.target.files[0];if(!file)return;setBusy('백업 파일을 읽는 중입니다.');try{const text=await file.text(),parsed=JSON.parse(text);if(!parsed||!Array.isArray(parsed.employees)||!Array.isArray(parsed.transactions))throw new Error('형식 오류');const core={version:parsed.version,appName:parsed.appName,appVersion:parsed.appVersion,exportedAt:parsed.exportedAt,employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}};const checksum=parsed.checksum||'',calc=await hash(JSON.stringify(core));const data=norm({employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}});const ec=data.employees.filter(v=>!v.isDeleted).length,tc=data.transactions.length;clearBusy();let warn='';if(checksum&&checksum!==calc)warn='\n\n⚠️ 체크섬 불일치. 파일이 수정되었을 수 있습니다.';const ok=window.confirm(`복원 미리보기\n\n직원 수: ${ec}명\n거래 수: ${tc}건${warn}\n\n현재 데이터를 이 백업으로 바꿀까요?`);if(!ok)return;const safety={employees:[...state.data.employees],transactions:[...state.data.transactions],meta:{...state.data.meta}};setBusy('복원 중입니다.');try{await repo.replaceAll(data);state.data=data;state.screen='home';state.search='';state.historyEmployeeId='';clearBusy();render();toast('백업 복원 완료')}catch(re){console.error(re);try{await repo.replaceAll(safety);state.data=safety}catch(e2){console.error('롤백 실패:',e2)}clearBusy();render();toast('복원 실패. 이전 데이터로 복구됨')}}catch(err){console.error(err);clearBusy();toast('백업 파일을 읽을 수 없습니다.')}finally{qs('restoreFile').value=''}}
+window.onRestoreData=function(json){try{const p=JSON.parse(json);/* 동일 로직 적용 */}catch(e){toast('복원 실패')}};
+
+// ── CSV 임포트 ──
+function parseCsvLine(line){const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===','&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
+function parseAmount(raw){const n=parseWon(raw);return isNaN(n)||n<=0?null:n}
+async function onCsvFile(e){const file=e.target.files&&e.target.files[0];if(!file)return;try{
+// 인코딩 자동 감지: UTF-8 → EUC-KR 폴백
+const buf=await file.arrayBuffer();let text;
+try{text=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(ue){try{text=new TextDecoder('euc-kr',{fatal:true}).decode(buf)}catch(ke){toast('파일 인코딩을 인식할 수 없습니다.');return}}
+if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+const allLines=text.split(/\r?\n/);const nonEmpty=allLines.filter(l=>l.trim());
+if(nonEmpty.length<2){toast('데이터 없음');return}
+
+// 메타데이터에서 부서명 추출 (예: "급량비(보건의료과)" 또는 "부서: 보건의료과")
+let metaDept='';
+for(let i=0;i<Math.min(nonEmpty.length,5);i++){const l=nonEmpty[i];
+const m1=l.match(/부서\s*[:：]\s*(.+)/);if(m1){metaDept=m1[1].trim().replace(/,.*$/,'');break}
+const m2=l.match(/[급량비비용]\(([^)]+)\)/);if(m2){metaDept=m2[1].trim();break}
+const m3=l.match(/\(([가-힣]+[과동부국소])\)/);if(m3&&!metaDept){metaDept=m3[1].trim()}}
+
+// 헤더 행 찾기 (첫 번째로 '이름|성명|직원' 컬럼이 있는 행)
+let headerIdx=-1,headers=[];
+for(let i=0;i<Math.min(nonEmpty.length,10);i++){const cols=parseCsvLine(nonEmpty[i]).map(h=>h.replace(/\s/g,''));
+if(cols.some(h=>/이름|성명|직원명/.test(h))&&cols.some(h=>/금액|선입금|입금/.test(h))){headerIdx=i;headers=cols;break}}
+if(headerIdx<0){toast('필수 컬럼(이름/직원명, 금액)을 찾을 수 없습니다.\n헤더 행이 있는지 확인하세요.');return}
+
+// 컬럼 매핑 (부서 컬럼은 선택적)
+const di=headers.findIndex(h=>/부서/.test(h));
+const ni=headers.findIndex(h=>/이름|성명|직원명/.test(h));
+const ai=headers.findIndex(h=>/금액|선입금|입금/.test(h));
+if(ni<0||ai<0){toast('이름/금액 컬럼을 찾을 수 없습니다.');return}
+
+// 부서 컬럼이 없으면 메타데이터에서 추출한 부서 사용
+const hasDeptCol=di>=0;
+if(!hasDeptCol&&!metaDept){
+// 마지막 시도: 파일 전체에서 "부서:" 패턴 찾기
+for(const l of nonEmpty){const m=l.match(/부서\s*[:：]\s*(.+)/);if(m){metaDept=m[1].trim().replace(/,.*$/,'');break}}}
+
+// 데이터 행 파싱
+const ex=new Set(state.data.employees.filter(v=>!v.isDeleted).map(v=>v.dept+'|'+v.name));
+const rows=[];
+for(let i=headerIdx+1;i<nonEmpty.length;i++){const f=parseCsvLine(nonEmpty[i]);
+const dept=hasDeptCol?(f[di]||'').trim():metaDept;
+const name=(f[ni]||'').trim();const ar=f[ai]||'';
+if(/합계|소계|총계|total|합\s*계/i.test(name+dept+(f[0]||'')))continue;
+if(!name)continue;
+const amount=parseAmount(ar);let error='',mode='new',existId='';
+if(!dept)error='부서명 없음 (CSV에 부서 컬럼이 없고 메타데이터에서도 찾을 수 없음)';
+else if(!amount)error='금액 오류: "'+ar+'"';
+else if(ex.has(dept+'|'+name)){mode='topup';const existEmp=state.data.employees.find(v=>!v.isDeleted&&v.dept===dept&&v.name===name);if(existEmp)existId=existEmp.id}
+rows.push({dept:dept||'(없음)',name,amount,error,line:i+1,mode:error?'error':mode,existId})}
+if(!rows.length){toast('임포트할 직원이 없습니다.');return}
+state.modal={type:'csv',rows};render()}catch(err){console.error(err);toast('파일 읽기 실패: '+err.message)}finally{qs('csvFile').value=''}}
+async function executeCsvImport(){const rows=(state.modal&&state.modal.rows||[]).filter(r=>!r.error);if(!rows.length)return;const newRows=rows.filter(r=>r.mode!=='topup');const topupRows=rows.filter(r=>r.mode==='topup');const msg=[];if(newRows.length)msg.push('신규 '+newRows.length+'명');if(topupRows.length)msg.push('추가 충전 '+topupRows.length+'명');if(!window.confirm(`${msg.join(' + ')}을 처리하시겠습니까?`))return;setBusy('처리하는 중입니다.');try{const t=now();const emps=[],txs=[];
+newRows.forEach(r=>{const eid=uid();emps.push({id:eid,dept:r.dept,name:r.name,note:'',isDeleted:false,createdAt:t,updatedAt:t});if(r.amount>0)txs.push({id:uid(),employeeId:eid,type:'open',amount:r.amount,beforeBalance:0,afterBalance:r.amount,reason:'CSV 임포트',note:'',targetTransactionId:null,signatureData:'',signatureHash:'',createdAt:t+Math.random()})});
+topupRows.forEach(r=>{if(!r.existId||!r.amount)return;const before=balanceOf(r.existId);txs.push({id:uid(),employeeId:r.existId,type:'topup',amount:r.amount,beforeBalance:before,afterBalance:before+r.amount,reason:'CSV 추가 충전',note:dt(t),targetTransactionId:null,signatureData:'',signatureHash:'',createdAt:t+Math.random()})});
+await repo.apply({employees:emps,transactions:txs});emps.forEach(upsertEmp);txs.forEach(upsertTx);state.modal=null;clearBusy();render();toast(`${msg.join(' + ')} 완료`)}catch(err){console.error(err);clearBusy();toast('임포트 오류')}}
+
+// ── 전체 초기화 ──
+async function fullReset(){
+// Step 1: 1차 확인
+const ac=state.data.employees.filter(v=>!v.isDeleted).length;
+const tc=state.data.transactions.length;
+if(!window.confirm('⚠️ 전체 초기화\n\n현재 데이터가 모두 삭제됩니다.\n• 직원 정보 : '+ac+'명\n• 거래 내역 : '+tc+'건 (서명 이미지 포함)\n• PIN 비밀번호\n\n먼저 자동으로 최종 백업 파일을 저장한 뒤 초기화합니다.\n계속하시겠습니까?'))return;
+// Step 2: 자동 최종 백업
+let backupOk=false;
+try{await exportBackup(true);backupOk=true}catch(e){console.error('final backup failed:',e)}
+if(!backupOk){toast('백업 실패. 초기화가 취소되었습니다.');return}
+// Step 3: 백업 확인
+const fn=backupFileName(true);
+if(!window.confirm('✅ 백업 파일이 다운로드 폴더에 저장되었습니다.\n\n파일명: '+fn+'\n\n이 파일이 실제로 저장되었는지 확인한 뒤 "확인"을 누르세요.\n초기화 이후에는 앱 내에서 복구할 수 없습니다.'))return;
+// Step 4: PIN 입력 확인 (PIN 미설정 시 빈값 엔터 허용)
+const storedPin=state.data.meta.pinHash||'';
+const pinMsg=storedPin?'정말로 초기화하시려면 현재 PIN 번호(4자리)를 입력하세요.':'PIN이 설정되어 있지 않습니다.\n그대로 엔터를 누르면 초기화가 진행됩니다.';
+const typed=window.prompt(pinMsg,'');
+if(typed===null)return;
+if(storedPin){
+const typedHash=await hash(typed);
+if(typedHash!==storedPin){toast('PIN이 일치하지 않아 초기화가 취소되었습니다.');return}
+}else{
+if(typed!==''){toast('PIN이 설정되어 있지 않습니다. 빈칸 상태로 확인해 주세요.');return}
+}
+// Step 5: 삭제 실행
+setBusy('초기화 중입니다.');
+try{
+const emptyData={employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[],setupComplete:false}};
+await repo.replaceAll(emptyData);
+// Service Worker 캐시 삭제 (best-effort)
+if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}
+// Service Worker 등록 해제 (best-effort)
+if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}
+// state 초기화
+state.data=emptyData;
+state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';
+state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.setupStep=1;state.setupDistrict='';state.setupShopSearch='';state.setupResults=[];state.setupSelected=null;state.setupSearching=false;state.setupSearched=false;state.setupManual=false;state.setupDepts=[];
+clearBusy();render();
+// Step 6: 완료 안내
+window.alert('✅ 초기화 완료\n\n모든 앱 데이터가 삭제되었습니다.\n\n완전히 정리하시려면 추가로:\n1. 홈 화면에서 "선입금대장" 아이콘을 길게 눌러 삭제\n2. Chrome 설정 → 개인정보 보호 → 사이트 설정에서\n   nulmaru.github.io 항목 삭제\n\n어려우시면 광진구보건소로 문의해 주세요.')
+}catch(err){console.error(err);clearBusy();toast('초기화 중 오류가 발생했습니다.')}}
+
+// ── 새 달 시작 ──
+async function doNewMonth(){if(!state.data.transactions.length){toast('초기화할 거래 내역이 없습니다.');return}if(!window.confirm('⚠️ 새 달 시작\n\n1. 현재 데이터를 백업합니다\n2. 모든 거래내역을 삭제합니다\n3. 잔액이 0으로 초기화됩니다\n4. 직원 목록은 유지됩니다\n\n계속하시겠습니까?'))return;state.backupConfirmed=false;await exportBackup();if(!state.backupConfirmed){toast('백업이 확인되지 않았습니다. 백업 저장을 먼저 확인해 주세요.');return}if(!window.confirm('백업이 저장되었습니다.\n거래내역을 삭제합니다.\n\n⚠️ 이 작업은 되돌릴 수 없습니다.'))return;const data={...state.data,transactions:[]};try{await repo.replaceAll(data);state.data=data;render();toast('새 달 시작 · 거래내역 초기화됨')}catch(err){console.error(err);toast('초기화 오류')}}
+
+
+// ── 부서 관리 ──
+async function editOrgName(){const cur=state.data.meta.orgName||DEFAULT_ORG;const v=window.prompt('기관명을 입력하세요.',cur);if(v===null||!str(v))return;state.data.meta.orgName=str(v);await repo.apply({meta:{orgName:state.data.meta.orgName}});render();toast('기관명 변경됨')}
+async function saveShopName(){const input=qs('shopNameInput');const name=str(input&&input.value);state.data.meta.shopName=name;await repo.apply({meta:{shopName:name}});render();toast(name?`"${name}" 저장됨`:'음식점 이름이 삭제되었습니다')}
+async function addDept(){const input=qs('newDeptInput');const name=str(input&&input.value);if(!name){toast('부서명을 입력하세요.');return}const depts=state.data.meta.departments||[];if(depts.includes(name)){toast('이미 등록된 부서');return}depts.push(name);state.data.meta.departments=depts;await repo.apply({meta:{departments:depts}});render();toast(`${name} 추가됨`)}
+async function removeDept(idx){const depts=state.data.meta.departments||[];if(idx<0||idx>=depts.length)return;const name=depts[idx];if(!window.confirm(`"${name}" 부서를 목록에서 제거할까요?\n(기존 직원의 부서명은 변경되지 않습니다)`))return;depts.splice(idx,1);state.data.meta.departments=depts;await repo.apply({meta:{departments:depts}});render();toast(`${name} 제거됨`)}
+
+// ── 헬퍼 ──
+function upsertEmp(e){const i=state.data.employees.findIndex(v=>v.id===e.id);if(i>=0)state.data.employees[i]=e;else state.data.employees.push(e)}
+function upsertTx(t){const i=state.data.transactions.findIndex(v=>v.id===t.id);if(i>=0)state.data.transactions[i]=t;else state.data.transactions.push(t)}
+
+// ── 서명 패드 (JPEG 0.5) ──
+function initSignPad(){const canvas=qs('signCanvas');if(!canvas||canvas.dataset.ready==='1')return;const ctx=canvas.getContext('2d');const ratio=Math.max(window.devicePixelRatio||1,1),w=canvas.clientWidth||600,h=canvas.clientHeight||180;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);ctx.scale(ratio,ratio);canvas.dataset.ready='1';let drawing=false,empty=true;const paint=()=>{ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#d7dde4';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(16,h-32);ctx.lineTo(w-16,h-32);ctx.stroke()};const point=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top}};const start=e=>{e.preventDefault();drawing=true;const p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y)};const move=e=>{if(!drawing)return;e.preventDefault();empty=false;const p=point(e);ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#1f2933';ctx.lineTo(p.x,p.y);ctx.stroke()};const end=()=>{drawing=false};paint();canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);canvas.addEventListener('mouseup',end);canvas.addEventListener('mouseleave',end);canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',end);signPad={clear(){empty=true;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);paint()},isEmpty(){return empty},toDataUrl(){return empty?'':canvas.toDataURL('image/jpeg',0.5)}}}
+
+// ── Service Worker 등록 ──
+if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(()=>{})}
+
+// ── 초기화 ──
+async function init(){setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!repo){clearBusy();qs('app').innerHTML='<div class="pin-screen"><div class="pin-icon" style="background:linear-gradient(135deg,var(--danger),#e74c3c)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="pin-title">저장소 오류</div><div class="pin-sub">이 브라우저/기기에서 IndexedDB를 사용할 수 없습니다.<br><br>선입금대장은 안정적인 데이터 저장을 위해<br>IndexedDB가 필수입니다.<br><br><strong>해결 방법:</strong><br>① Chrome 최신 버전을 사용하세요<br>② 시크릿/사생활 모드가 아닌지 확인하세요<br>③ 브라우저 설정에서 저장공간을 확인하세요</div></div>';return}state.mode=repo.modeLabel;state.data=norm(await repo.loadAll());if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}state.loaded=true;clearBusy();render()}
+})();
+</script>
+</body>
+</html>
