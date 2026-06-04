@@ -182,7 +182,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='2.4.0',DB='prepaid-ledger-db',VER=2,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='2.4.1',DB='prepaid-ledger-db',VER=2,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 const DEFAULT_ORG='광진구청';
 const DEFAULT_DEPTS=['감사담당관','홍보담당관','행정지원과','자치행정과','민원여권과','재무과','스마트정보과','기획예산과','지역경제과','일자리청년과','세무1과','세무2과','문화예술과','체육진흥과','교육지원과','평생교육과','복지정책과','사회복지장애인과','어르신복지과','가정복지과','아동청소년과','도시안전과','청소과','환경과','가로경관과','주택과','주거사업과','도시계획과','건축과','부동산정보과','교통행정과','교통지도과','도로과','치수과','공원녹지과','보건정책과','보건위생과','보건의료과','건강관리과'];
 const FOOD_API_KEY='79f55eb70aed27e860035db6d11b84a039290574bf9ffa3382d5922ab740d1a9';
@@ -291,7 +291,7 @@ try{var url='https://apis.data.go.kr/1741000/general_restaurants/info?serviceKey
 if(d)url+='&cond[ROAD_NM_ADDR::LIKE]='+encodeURIComponent(d);
 var res=await fetch(url);if(!res.ok)throw new Error('API 응답 오류: '+res.status);
 var json=await res.json();var body=json&&json.response&&json.response.body;var items=body&&body.items&&body.items.item;
-state.setupResults=Array.isArray(items)?items:items?[items]:[]}catch(e){console.error(e);toast('검색 중 오류: '+e.message)}
+state.setupResults=Array.isArray(items)?items:items?[items]:[]}catch(e){console.error(e);state.setupSearching=false;state.setupSearched=false;state.setupManual=true;render();toast('검색을 사용할 수 없어 직접 입력으로 전환했습니다.');return}
 state.setupSearching=false;state.setupSearched=true;render()}
 
 // ── 렌더 (포커스 보존) ──
@@ -455,8 +455,12 @@ toast('장부 CSV 저장됨');
 function backupFileName(isFinal){const d=new Date();const ymd=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;return isFinal?`선입금대장_최종백업_${ymd}.json`:`선입금대장_${ymd}.json`}
 function downloadFile(content,filename){if(typeof AndroidBridge!=='undefined'&&AndroidBridge.saveBackup){AndroidBridge.saveBackup(content,filename);return true}const blob=new Blob([content],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return false}
 window.onBackupSaved=async function(fn){const lastBackupAt=now();try{await repo.apply({meta:{lastBackupAt}});state.data.meta.lastBackupAt=lastBackupAt;state.backupConfirmed=true;render()}catch(e){console.error(e)}toast('백업 저장 완료: '+fn)};
-async function onRestoreFile(e){const file=e.target.files&&e.target.files[0];if(!file)return;setBusy('백업 파일을 읽는 중입니다.');try{const text=await file.text(),parsed=JSON.parse(text);if(!parsed||!Array.isArray(parsed.employees)||!Array.isArray(parsed.transactions))throw new Error('형식 오류');const core={version:parsed.version,appName:parsed.appName,appVersion:parsed.appVersion,exportedAt:parsed.exportedAt,employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}};const checksum=parsed.checksum||'',calc=await hash(JSON.stringify(core));const data=norm({employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}});const ec=data.employees.filter(v=>!v.isDeleted).length,tc=data.transactions.length;clearBusy();let warn='';if(checksum&&checksum!==calc)warn='\n\n⚠️ 체크섬 불일치. 파일이 수정되었을 수 있습니다.';const ok=window.confirm(`복원 미리보기\n\n직원 수: ${ec}명\n거래 수: ${tc}건${warn}\n\n현재 데이터를 이 백업으로 바꿀까요?`);if(!ok)return;const safety={employees:[...state.data.employees],transactions:[...state.data.transactions],meta:{...state.data.meta}};setBusy('복원 중입니다.');try{await repo.replaceAll(data);state.data=data;state.screen='home';state.search='';state.historyEmployeeId='';clearBusy();render();toast('백업 복원 완료')}catch(re){console.error(re);try{await repo.replaceAll(safety);state.data=safety}catch(e2){console.error('롤백 실패:',e2)}clearBusy();render();toast('복원 실패. 이전 데이터로 복구됨')}}catch(err){console.error(err);clearBusy();toast('백업 파일을 읽을 수 없습니다.')}finally{qs('restoreFile').value=''}}
-window.onRestoreData=function(json){try{const p=JSON.parse(json);/* 동일 로직 적용 */}catch(e){toast('복원 실패')}};
+async function restoreFromParsed(parsed){if(!parsed||!Array.isArray(parsed.employees)||!Array.isArray(parsed.transactions))throw new Error('형식 오류');const core={version:parsed.version,appName:parsed.appName,appVersion:parsed.appVersion,exportedAt:parsed.exportedAt,employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}};const checksum=parsed.checksum||'',calc=await hash(JSON.stringify(core));const data=norm({employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}});
+// 데이터 보존: 복원 데이터에 직원/거래가 있으면 설정 마법사로 되돌아가지 않도록 setupComplete 유지
+if((data.employees.length||data.transactions.length)&&!data.meta.setupComplete)data.meta.setupComplete=true;
+const ec=data.employees.filter(v=>!v.isDeleted).length,tc=data.transactions.length;clearBusy();let warn='';if(checksum&&checksum!==calc)warn='\n\n⚠️ 체크섬 불일치. 파일이 수정되었을 수 있습니다.';const ok=window.confirm(`복원 미리보기\n\n직원 수: ${ec}명\n거래 수: ${tc}건${warn}\n\n현재 데이터를 이 백업으로 바꿀까요?`);if(!ok)return false;const safety={employees:[...state.data.employees],transactions:[...state.data.transactions],meta:{...state.data.meta}};setBusy('복원 중입니다.');try{await repo.replaceAll(data);state.data=data;state.screen='home';state.search='';state.historyEmployeeId='';clearBusy();render();toast('백업 복원 완료');return true}catch(re){console.error(re);try{await repo.replaceAll(safety);state.data=safety}catch(e2){console.error('롤백 실패:',e2)}clearBusy();render();toast('복원 실패. 이전 데이터로 복구됨');return false}}
+async function onRestoreFile(e){const file=e.target.files&&e.target.files[0];if(!file)return;setBusy('백업 파일을 읽는 중입니다.');try{const text=await file.text(),parsed=JSON.parse(text);await restoreFromParsed(parsed)}catch(err){console.error(err);clearBusy();toast('백업 파일을 읽을 수 없습니다.')}finally{qs('restoreFile').value=''}}
+window.onRestoreData=async function(json){setBusy('백업 데이터를 읽는 중입니다.');try{const parsed=JSON.parse(json);await restoreFromParsed(parsed)}catch(e){console.error(e);clearBusy();toast('복원 실패')}};
 
 // ── CSV 임포트 ──
 function parseCsvLine(line){const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===','&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
