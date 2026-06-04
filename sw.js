@@ -26,23 +26,41 @@ self.addEventListener('activate', e => {
   );
 });
 
-// 요청 가로채기: 캐시 우선, 없으면 네트워크
+// 요청 가로채기
 self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+
+  // HTML 문서(화면 자체)는 네트워크 우선: 온라인이면 항상 최신 버전을 받고,
+  // 오프라인일 때만 캐시로 폴백한다. (구버전에 갇히는 문제 방지)
+  const isHTML = req.mode === 'navigate' ||
+    (req.headers.get('accept') || '').includes('text/html');
+  if (isHTML) {
+    e.respondWith(
+      fetch(req)
+        .then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // 그 외 자산: 캐시 우선 + 백그라운드 갱신(stale-while-revalidate)
   e.respondWith(
-    caches.match(e.request)
-      .then(cached => {
-        if (cached) {
-          // 캐시된 것을 먼저 돌려주고, 백그라운드에서 네트워크 업데이트
-          const fetchPromise = fetch(e.request).then(response => {
-            if (response && response.status === 200) {
-              const clone = response.clone();
-              caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-            }
-            return response;
-          }).catch(() => {});
-          return cached;
+    caches.match(req).then(cached => {
+      const fetchPromise = fetch(req).then(response => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
         }
-        return fetch(e.request);
-      })
+        return response;
+      }).catch(() => cached);
+      return cached || fetchPromise;
+    })
   );
 });
