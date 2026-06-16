@@ -141,7 +141,13 @@ async function main() {
     }
 
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
-    await assert(await count(page, '[data-a="new-month"]') === 1, 'new-month action must be visible');
+    await assert(await count(page, '[data-a="new-month"]') === 0, 'new-month action must be removed');
+    await assert(await count(page, '[data-a="full-reset"]') === 1, 'full-reset action must appear once');
+    await assert(await count(page, '[data-a="export-safe"]') === 1, 'combined safe export action must be visible');
+    await assert(await count(page, '[data-a="export-csv"]') === 0, 'standalone CSV export action must be removed from settings');
+    await assert((await page.locator('.agency-current-name').textContent()).includes('광진구청'), 'setup agency should be reflected as current agency');
+    await page.locator('#agencySelectSettings').selectOption('gangnam');
+    await page.waitForFunction(() => document.querySelector('.agency-current-name')?.textContent.includes('강남구청'));
     await page.locator('[data-a="add-employee"]').click();
     await page.locator('#empDept').fill('Dept A');
     await page.locator('#empName').fill('User A');
@@ -169,11 +175,21 @@ async function main() {
     await assert(Boolean(data.transactions.find(tx => tx.type === 'use').signatureData), 'use transaction should contain signature data');
 
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.locator('[data-a="export"]').click()
-    ]);
-    const backupPath = await download.path();
+    const capturedDownloads = [];
+    const onDownload = download => capturedDownloads.push(download);
+    page.on('download', onDownload);
+    await page.locator('[data-a="export-safe"]').click();
+    for (let i = 0; i < 20 && capturedDownloads.length < 2; i += 1) {
+      await page.waitForTimeout(100);
+    }
+    page.off('download', onDownload);
+    await assert(capturedDownloads.length >= 2, 'safe export should trigger two downloads');
+    const downloads = capturedDownloads.map(d => ({ item: d, name: d.suggestedFilename() }));
+    const csvDownload = downloads.find(d => d.name.endsWith('.csv'));
+    const jsonDownload = downloads.find(d => d.name.endsWith('.json'));
+    await assert(Boolean(csvDownload), 'safe export should download a CSV ledger file');
+    await assert(Boolean(jsonDownload), 'safe export should download a JSON backup file');
+    const backupPath = await jsonDownload.item.path();
     const backup = JSON.parse(await fsp.readFile(backupPath, 'utf8'));
     const core = {
       schemaVersion: backup.schemaVersion,
@@ -185,6 +201,7 @@ async function main() {
     const checksum = crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex');
     await assert(backup.schemaVersion === 2, 'backup schemaVersion should be 2');
     await assert(backup.payload && Array.isArray(backup.payload.transactions), 'backup payload should contain transactions');
+    await assert(backup.payload.meta && backup.payload.meta.orgName === '강남구청', 'selected agency name should be saved in backup meta');
     await assert(checksum === backup.checksum, 'backup checksum should match payload');
 
     await page.reload({ waitUntil: 'load' });
@@ -207,6 +224,8 @@ async function main() {
       checks: {
         apiUiRemoved: true,
         agencyDepartmentPicker: true,
+        settingsMenuCleanup: true,
+        safeLedgerExport: true,
         transactionFlow: true,
         backupV2: true,
         pinResetWipesData: true
