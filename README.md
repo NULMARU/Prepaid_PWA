@@ -4,6 +4,7 @@
 
 ## 주요 기능
 - 부서별 직원 잔액 관리
+- 서울시청·서울시 25개 구청 과 단위 부서 선택
 - 식사 사용 시 서명 기반 차감
 - 일자별/직원별 거래 이력 조회
 - 데이터 백업/복원 (JSON)
@@ -24,6 +25,7 @@ python -m http.server 8765
 | `index.html` | 앱 전체 (HTML/CSS/JS 단일 파일) |
 | `manifest.json` | PWA 매니페스트 |
 | `sw.js` | 서비스 워커 (오프라인 캐시) |
+| `agency-departments.json` | 서울시청·25개 구청 과 단위 부서 목록 |
 | `manual.html` | 사용자 매뉴얼 (인쇄용) |
 
 ## 라이선스

@@ -130,6 +130,10 @@ async function main() {
     await page.locator('#setupManualTel').fill('02-111-2222');
     await page.locator('[data-a="setup-manual-save"]').click();
     await page.locator('[data-a="setup-next"]').click();
+    await page.waitForSelector('#agencySelectSetup');
+    await page.locator('#agencySelectSetup').selectOption('gwangjin');
+    await page.locator('[data-a="agency-add-all"][data-ctx="setup"]').click();
+    await assert(await page.locator('.dept-tag', { hasText: '보건의료과' }).count() > 0, 'agency departments should be added during setup');
     await page.locator('[data-a="setup-complete"]').click();
 
     for (const key of ['1', '2', '3', '4', '1', '2', '3', '4']) {
@@ -202,6 +206,7 @@ async function main() {
       dialogs: dialogs.map(d => d.type),
       checks: {
         apiUiRemoved: true,
+        agencyDepartmentPicker: true,
         transactionFlow: true,
         backupV2: true,
         pinResetWipesData: true

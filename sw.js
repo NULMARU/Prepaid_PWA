@@ -1,9 +1,10 @@
-const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.3';
+const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.4';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './manual.html'
+  './manual.html',
+  './agency-departments.json'
 ];
 
 // 설치: 파일들을 캐시에 저장
