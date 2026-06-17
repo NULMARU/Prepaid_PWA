@@ -11,6 +11,7 @@
 - 저장한 데이터 복원 (JSON)
 - 4자리 PIN 잠금
 - 초기 설정 마법사 (가게 정보 직접 입력)
+- Android PWA 설치용 PNG 아이콘 제공
 
 ## 사용 방법
 브라우저에서 `index.html`을 열거나, 웹 서버에 호스팅하여 사용합니다.
@@ -26,6 +27,7 @@ python -m http.server 8765
 | `manifest.json` | PWA 매니페스트 |
 | `sw.js` | 서비스 워커 (오프라인 캐시) |
 | `agency-departments.json` | 서울시청·25개 구청 과 단위 부서 목록 |
+| `icons/` | Android PWA 설치용 PNG 아이콘 |
 | `manual.html` | 사용자 매뉴얼 (인쇄용) |
 
 ## 라이선스

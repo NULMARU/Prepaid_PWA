@@ -121,6 +121,16 @@ async function main() {
   try {
     await page.goto(url, { waitUntil: 'load' });
 
+    const manifest = JSON.parse(await fsp.readFile(path.join(root, 'manifest.json'), 'utf8'));
+    const icon192 = manifest.icons && manifest.icons.find(icon => icon.src === 'icons/icon-192.png' && icon.sizes === '192x192' && icon.type === 'image/png');
+    const icon512 = manifest.icons && manifest.icons.find(icon => icon.src === 'icons/icon-512.png' && icon.sizes === '512x512' && icon.type === 'image/png');
+    await assert(Boolean(icon192), 'manifest should contain 192x192 PNG icon');
+    await assert(Boolean(icon512), 'manifest should contain 512x512 PNG icon');
+    for (const icon of [icon192, icon512]) {
+      const bytes = await fsp.readFile(path.join(root, icon.src));
+      await assert(bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), `${icon.src} should be a PNG file`);
+    }
+
     await assert(await count(page, '[data-a="setup-search"]') === 0, 'public shop search button must be removed');
     await assert(await count(page, '[data-a="setup-source"]') === 0, 'public API source toggle must be removed');
     await assert(await count(page, '[data-a="voice-shop"]') === 0, 'shop-search voice button must be removed');
@@ -223,6 +233,7 @@ async function main() {
       dialogs: dialogs.map(d => d.type),
       checks: {
         apiUiRemoved: true,
+        manifestPngIcons: true,
         agencyDepartmentPicker: true,
         settingsMenuCleanup: true,
         safeLedgerExport: true,
