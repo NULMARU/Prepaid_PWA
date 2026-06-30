@@ -74,7 +74,7 @@ async function assert(condition, message) {
 
 async function readDb(page) {
   return page.evaluate(() => new Promise((resolve, reject) => {
-    const req = indexedDB.open('prepaid-ledger-db', 2);
+    const req = indexedDB.open('prepaid-ledger-db');
     req.onerror = () => reject(req.error && req.error.message || 'IndexedDB open failed');
     req.onsuccess = () => {
       const db = req.result;
@@ -183,6 +183,24 @@ async function main() {
     await assert(data.transactions.map(tx => tx.type).join(',') === 'open,use', 'open and use transactions should be saved');
     await assert(balance === 18000, 'balance should be 18000 after one use');
     await assert(Boolean(data.transactions.find(tx => tx.type === 'use').signatureData), 'use transaction should contain signature data');
+    // 다자간 확장(beta.7): tx 무결성 체인 + 키페어
+    const useTx = data.transactions.find(tx => tx.type === 'use');
+    const openTx = data.transactions.find(tx => tx.type === 'open');
+    await assert(Boolean(useTx.txHash) && Boolean(openTx.txHash), 'transactions should carry integrity txHash');
+    await assert(useTx.prevHash === openTx.txHash, 'use transaction prevHash should chain to the open transaction');
+    const metaMap = (data.meta || []).reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(Boolean(metaMap.pubKey) && Boolean(metaMap.privKeyWrapped) && Boolean(metaMap.deviceSecret), 'keypair should be generated and private key wrapped');
+    // 페이지 함수로 체인 무결성 재검증 (verifyChain은 IIFE 내부이므로 동일 알고리즘으로 재계산)
+    const chainOk = await page.evaluate(async (txs) => {
+      const subtle = window.crypto.subtle;
+      const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+      async function h(t){const b=new TextEncoder().encode(String(t)),d=await subtle.digest('SHA-256',b);return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,'0')).join('')}
+      const sorted = txs.slice().sort((a,b)=>a.createdAt-b.createdAt||(a.id<b.id?-1:a.id>b.id?1:0));
+      let prev='';
+      for(const t of sorted){ if(!t.txHash){prev='';continue} const e=await h(String(t.employeeId)+'|'+num(t.amount)+'|'+num(t.afterBalance)+'|'+(t.prevHash||'')+'|'+t.createdAt); if(e!==t.txHash) return false; if((t.prevHash||'')!==prev) return false; prev=t.txHash; }
+      return true;
+    }, data.transactions);
+    await assert(chainOk, 'integrity hash chain should recompute and verify');
 
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     const capturedDownloads = [];
@@ -209,7 +227,7 @@ async function main() {
       payload: backup.payload
     };
     const checksum = crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex');
-    await assert(backup.schemaVersion === 2, 'backup schemaVersion should be 2');
+    await assert(backup.schemaVersion === 3, 'backup schemaVersion should be 3');
     await assert(backup.payload && Array.isArray(backup.payload.transactions), 'backup payload should contain transactions');
     await assert(backup.payload.meta && backup.payload.meta.orgName === '강남구청', 'selected agency name should be saved in backup meta');
     await assert(checksum === backup.checksum, 'backup checksum should match payload');
