@@ -1,0 +1,18 @@
+name = "prepaid-relay"
+main = "src/worker.js"
+compatibility_date = "2026-06-01"
+
+# 담당자 웹/음식점 앱 출처. 배포 시 실제 도메인으로 좁히세요(보안).
+[vars]
+ALLOW_ORIGIN = "*"
+LOCALDATA_BASE = "http://www.localdata.go.kr/platform/rest/TO0/openDataApi"
+LOCALDATA_OPNSVCID = "07_24_04_P"   # 일반음식점. 활용신청 상세에서 값 확인 후 교정.
+
+# D1 바인딩. 아래 database_id는 `wrangler d1 create prepaid-relay` 후 출력값으로 교체.
+[[d1_databases]]
+binding = "DB"
+database_name = "prepaid-relay"
+database_id = "REPLACE_WITH_D1_ID"
+
+# 비밀키는 파일에 두지 말고 CLI로 등록:
+#   wrangler secret put LOCALDATA_KEY
