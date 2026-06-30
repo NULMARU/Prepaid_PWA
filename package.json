@@ -1,0 +1,26 @@
+{
+  "name": "prepaid_pwa",
+  "version": "1.0.0",
+  "description": "소규모 음식점에서 단체·직원 식대 선입금을 관리하는 오프라인 지원 PWA 앱입니다.",
+  "main": "sw.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NULMARU/Prepaid_PWA.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/NULMARU/Prepaid_PWA/issues"
+  },
+  "homepage": "https://github.com/NULMARU/Prepaid_PWA#readme",
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}
