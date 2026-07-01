@@ -50,10 +50,13 @@ async function defaultSearch(env, region, q) {
   const kw = (q || '').trim();
   return rows
     .map(r => ({
-      restaurant_id: pick(r, ['mgtNo', 'MGTNO', 'managementNo', 'lcnsNo', '관리번호']),
-      name: pick(r, ['bplcNm', 'BPLCNM', 'businessName', '사업장명', 'upsoNm']),
-      address: pick(r, ['rdnWhlAddr', 'siteWhlAddr', 'RDNWHLADDR', 'SITEWHLADDR', 'roadAddr', 'lotAddr', '소재지전체주소']),
-      status: pick(r, ['trdStateNm', 'TRDSTATENM', 'businessStatus', '영업상태명'])
+      // 행정안전부_식품_일반음식점 조회서비스 실제 필드 우선, LOCALDATA 변형 후순위
+      restaurant_id: pick(r, ['MNG_NO', 'mgtNo', 'MGTNO', '관리번호']),
+      name: pick(r, ['BPLC_NM', 'bplcNm', 'BPLCNM', '사업장명']),
+      address: pick(r, ['ROAD_NM_ADDR', 'LOTNO_ADDR', 'rdnWhlAddr', 'siteWhlAddr', '소재지전체주소']),
+      status: pick(r, ['SALS_STTS_NM', 'DTL_SALS_STTS_NM', 'trdStateNm', '영업상태명']),
+      category: pick(r, ['BZSTAT_SE_NM', 'SNTTN_BZSTAT_NM']),
+      region_code: pick(r, ['OPN_ATMY_GRP_CD'])
     }))
     .filter(r => r.restaurant_id && r.name)
     .filter(r => !kw || r.name.includes(kw));
