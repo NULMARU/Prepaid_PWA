@@ -5,8 +5,10 @@ compatibility_date = "2026-06-01"
 # 담당자 웹/음식점 앱 출처. 배포 시 실제 도메인으로 좁히세요(보안).
 [vars]
 ALLOW_ORIGIN = "*"
-LOCALDATA_BASE = "http://www.localdata.go.kr/platform/rest/TO0/openDataApi"
-LOCALDATA_OPNSVCID = "07_24_04_P"   # 일반음식점. 활용신청 상세에서 값 확인 후 교정.
+# data.go.kr 행정안전부_식품_일반음식점 조회서비스
+PUBLIC_API_BASE = "https://apis.data.go.kr/1741000/general_restaurants"
+PUBLIC_API_REGION_PARAM = "localCode"   # 지역(자치단체코드) 파라미터명. 요청변수 확인 후 교정.
+# PUBLIC_API_NAME_PARAM = ""            # 상호 검색 파라미터가 있으면 지정(없으면 서버가 이름 필터)
 
 # D1 바인딩. 아래 database_id는 `wrangler d1 create prepaid-relay` 후 출력값으로 교체.
 [[d1_databases]]
@@ -14,5 +16,5 @@ binding = "DB"
 database_name = "prepaid-relay"
 database_id = "REPLACE_WITH_D1_ID"
 
-# 비밀키는 파일에 두지 말고 CLI로 등록:
-#   wrangler secret put LOCALDATA_KEY
+# 비밀키는 파일에 두지 말고 CLI로 등록 (data.go.kr "Decoding(일반)" 키 사용):
+#   wrangler secret put PUBLIC_API_KEY

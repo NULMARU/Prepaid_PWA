@@ -38,8 +38,8 @@ wrangler login             # 브라우저 로그인 (대화형) → 터미널에
 wrangler d1 create prepaid-relay
 wrangler d1 execute prepaid-relay --remote --file=schema.sql
 
-# LOCALDATA 인증키를 시크릿으로 등록 (파일에 두지 말 것)
-wrangler secret put LOCALDATA_KEY        # 프롬프트에 키 붙여넣기
+# data.go.kr 인증키를 시크릿으로 등록 (파일에 두지 말 것, Decoding/일반 키 사용)
+wrangler secret put PUBLIC_API_KEY       # 프롬프트에 키 붙여넣기
 
 wrangler deploy            # → https://prepaid-relay.<계정>.workers.dev
 ```
@@ -47,28 +47,26 @@ wrangler deploy            # → https://prepaid-relay.<계정>.workers.dev
 
 ---
 
-## C. LOCALDATA 인증키 검증 (가장 먼저 확인)
+## C. data.go.kr 인증키 검증 (가장 먼저 확인)
 
-`행정안전부_식품_일반음식점 조회서비스` 키가 정상인지 1회 호출로 확인한다.
-**정확한 엔드포인트·파라미터명은 data.go.kr 마이페이지 → 오픈API → 활용신청 현황 → 해당 서비스 상세의 "요청주소·샘플코드"에서 확인** 후 교정한다.
+승인된 서비스: **행정안전부_식품_일반음식점 조회서비스** (REST, JSON+XML)
+End Point: `https://apis.data.go.kr/1741000/general_restaurants`
 
-- 키가 **localdata.go.kr** 발급(authKey)일 때 예시:
+**남은 확인 1가지** — data.go.kr 서비스 상세의 **"상세기능정보/요청변수"**에서:
+- 지역(자치단체코드) **파라미터명** (기본값 `localCode`로 설정됨 — 다르면 `wrangler.toml`의 `PUBLIC_API_REGION_PARAM` 교정)
+- 상호 검색 파라미터 존재 여부 (있으면 `PUBLIC_API_NAME_PARAM` 지정, 없으면 서버가 이름 필터)
+- 페이징 파라미터가 `pageNo/numOfRows`가 맞는지 (data.go.kr 표준)
+
+**로컬 실키 테스트** (Decoding/일반 키 사용):
 ```bash
-curl "http://www.localdata.go.kr/platform/rest/TO0/openDataApi?authKey=<키>&resultType=json&opnSvcId=07_24_04_P&localCode=<지역코드>&pageIndex=1&pageSize=5"
+PUBLIC_API_KEY=<Decoding키> node server/dev-server.mjs
+curl "http://localhost:8788/api/restaurants?region=<자치단체코드>&q=<상호일부>"
 ```
-- 키가 **data.go.kr** 발급(serviceKey)일 때 → 활용신청 상세의 샘플 URL을 그대로 사용(파라미터명이 `serviceKey`).
+→ `[{restaurant_id,name,address,status}]` 배열이 나오면 성공.
 
-확인 포인트:
-- `opnSvcId` 일반음식점 코드(예상 `07_24_04_P`) — 활용 페이지에서 실제 값 확인 후 `wrangler.toml`의 `LOCALDATA_OPNSVCID` 교정.
-- `localCode`(지역코드, 시군구) — 담당자 웹의 `region` 입력값.
-- 응답 필드 `bplcNm`(상호)·`rdnWhlAddr`/`siteWhlAddr`(주소)·`trdStateNm`(영업상태)·`mgtNo`(관리번호=restaurant_id). 실제 응답의 필드명이 다르면 `server/src/worker.js`의 `defaultSearch` 매핑을 교정.
-- 로컬에서 실제 키로 검색 테스트:
-```bash
-LOCALDATA_KEY=<키> node server/dev-server.mjs
-curl "http://localhost:8788/api/restaurants?region=<지역코드>&q=<상호일부>"
-```
+응답 필드 매핑은 `server/src/worker.js`의 `pick()`/`extractRows()`가 data.go.kr 표준(`response.body.items.item`, `bplcNm`·`rdnWhlAddr`·`trdStateNm`·`mgtNo`)과 다양한 변형을 처리한다. 필드명이 다르면 `pick()` 후보 배열에 추가.
 
-> 참고: LOCALDATA OpenAPI는 **사업장명 직접 검색 파라미터가 없어** 지역으로 받아와 서버에서 이름 필터링한다(스펙 §10-4 "지역 필수"와 일치). 데이터갱신일 기반 호출은 전월 24일~당일 범위 제한이 있으니, 전체 스냅샷이 필요하면 파일데이터(CSV) 적재 방식(스펙 대안)을 검토.
+> 참고: 이 서비스는 **상호 직접 검색 파라미터가 없을 가능성이 높아** 지역(자치단체코드)으로 받아와 서버에서 이름 필터링한다(스펙 §10-4 "지역 필수"와 일치). 자치단체코드는 참고문서 `개방자치단체코드_영업상태코드.xlsx` 참조.
 
 ---
 

@@ -15,31 +15,45 @@ function uuid() {
     : 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
 
-// LOCALDATA 일반음식점 조회서비스 프록시 (지역 필수). 키는 서버 시크릿.
-async function defaultSearch(env, region, q) {
-  if (!env.LOCALDATA_KEY) throw new Error('LOCALDATA_KEY 미설정');
-  const base = env.LOCALDATA_BASE || 'http://www.localdata.go.kr/platform/rest/TO0/openDataApi';
-  const opnSvcId = env.LOCALDATA_OPNSVCID || '07_24_04_P'; // 일반음식점
-  const url = new URL(base);
-  url.searchParams.set('authKey', env.LOCALDATA_KEY);
-  url.searchParams.set('resultType', 'json');
-  url.searchParams.set('opnSvcId', opnSvcId);
-  url.searchParams.set('localCode', region);
-  url.searchParams.set('pageIndex', '1');
-  url.searchParams.set('pageSize', '500');
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error('LOCALDATA HTTP ' + res.status);
-  const data = await res.json();
+// 공공 음식점 조회서비스 프록시 (지역 필수). 키는 서버 시크릿.
+// 기본값: data.go.kr 행정안전부_식품_일반음식점 조회서비스(apis.data.go.kr/1741000/general_restaurants).
+// serviceKey 는 반드시 "Decoding(일반)" 키를 사용(URL 재인코딩 이중처리 방지).
+function extractRows(data) {
+  // data.go.kr 표준: response.body.items.item[]
+  const b = data && data.response && data.response.body;
+  if (b && b.items) { const it = b.items.item != null ? b.items.item : b.items; return Array.isArray(it) ? it : (it ? [it] : []); }
   // LOCALDATA: result.body.rows[0].row[]
-  const rows = (((data.result || {}).body || {}).rows || []);
-  const list = (rows[0] && rows[0].row) || [];
+  const ld = data && data.result && data.result.body && data.result.body.rows;
+  if (Array.isArray(ld)) return (ld[0] && ld[0].row) || [];
+  // 배열 그대로
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.items)) return data.items;
+  return [];
+}
+function pick(r, keys) { for (const k of keys) { if (r[k] != null && String(r[k]).trim() !== '') return String(r[k]); } return ''; }
+async function defaultSearch(env, region, q) {
+  const key = env.PUBLIC_API_KEY || env.LOCALDATA_KEY;
+  if (!key) throw new Error('PUBLIC_API_KEY 미설정');
+  const base = env.PUBLIC_API_BASE || 'https://apis.data.go.kr/1741000/general_restaurants';
+  const regionParam = env.PUBLIC_API_REGION_PARAM || 'localCode';
+  const url = new URL(base);
+  url.searchParams.set('serviceKey', key);
+  url.searchParams.set('type', 'json');
+  url.searchParams.set('pageNo', '1');
+  url.searchParams.set('numOfRows', '500');
+  if (region) url.searchParams.set(regionParam, region);
+  if (q && env.PUBLIC_API_NAME_PARAM) url.searchParams.set(env.PUBLIC_API_NAME_PARAM, q);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error('공공API HTTP ' + res.status);
+  const data = await res.json();
+  const rows = extractRows(data);
   const kw = (q || '').trim();
-  return list
+  return rows
     .map(r => ({
-      restaurant_id: String(r.mgtNo || r.MGTNO || ''),
-      name: String(r.bplcNm || r.BPLCNM || ''),
-      address: String(r.rdnWhlAddr || r.siteWhlAddr || r.RDNWHLADDR || r.SITEWHLADDR || ''),
-      status: String(r.trdStateNm || r.TRDSTATENM || '')
+      restaurant_id: pick(r, ['mgtNo', 'MGTNO', 'managementNo', 'lcnsNo', '관리번호']),
+      name: pick(r, ['bplcNm', 'BPLCNM', 'businessName', '사업장명', 'upsoNm']),
+      address: pick(r, ['rdnWhlAddr', 'siteWhlAddr', 'RDNWHLADDR', 'SITEWHLADDR', 'roadAddr', 'lotAddr', '소재지전체주소']),
+      status: pick(r, ['trdStateNm', 'TRDSTATENM', 'businessStatus', '영업상태명'])
     }))
     .filter(r => r.restaurant_id && r.name)
     .filter(r => !kw || r.name.includes(kw));
