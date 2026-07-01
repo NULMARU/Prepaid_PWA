@@ -32,20 +32,24 @@ function extractRows(data) {
 }
 function pick(r, keys) { for (const k of keys) { if (r[k] != null && String(r[k]).trim() !== '') return String(r[k]); } return ''; }
 async function defaultSearch(env, region, q) {
+  // data.go.kr 행정안전부_식품_일반음식점 조회서비스 /info 오퍼레이션.
+  // cond[OPN_ATMY_GRP_CD::EQ]=개방자치단체코드(지역), cond[BPLC_NM::LIKE]=사업장명 검색.
   const key = env.PUBLIC_API_KEY || env.LOCALDATA_KEY;
   if (!key) throw new Error('PUBLIC_API_KEY 미설정');
-  const base = env.PUBLIC_API_BASE || 'https://apis.data.go.kr/1741000/general_restaurants';
-  const regionParam = env.PUBLIC_API_REGION_PARAM || 'localCode';
-  const url = new URL(base);
-  url.searchParams.set('serviceKey', key);
-  url.searchParams.set('type', 'json');
-  url.searchParams.set('pageNo', '1');
-  url.searchParams.set('numOfRows', '500');
-  if (region) url.searchParams.set(regionParam, region);
-  if (q && env.PUBLIC_API_NAME_PARAM) url.searchParams.set(env.PUBLIC_API_NAME_PARAM, q);
-  const res = await fetch(url.toString());
+  const base = env.PUBLIC_API_BASE || 'https://apis.data.go.kr/1741000/general_restaurants/info';
+  const regionParam = env.PUBLIC_API_REGION_PARAM || 'cond[OPN_ATMY_GRP_CD::EQ]';
+  const nameParam = env.PUBLIC_API_NAME_PARAM || 'cond[BPLC_NM::LIKE]';
+  // cond[...] 파라미터명은 브래킷을 리터럴로 유지하고 값만 인코딩(값에 serviceKey +,/,= 포함 가능).
+  const params = [['serviceKey', key], ['pageNo', '1'], ['numOfRows', '100'], ['returnType', 'json']];
+  if (region) params.push([regionParam, region]);
+  if (q) params.push([nameParam, q]);
+  const qs = params.map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+  const res = await fetch(base + '?' + qs);
   if (!res.ok) throw new Error('공공API HTTP ' + res.status);
   const data = await res.json();
+  const hdr = data && data.response && data.response.header;
+  if (hdr && hdr.resultCode != null && !['0', '00'].includes(String(hdr.resultCode)))
+    throw new Error('공공API 오류: ' + (hdr.resultMsg || hdr.resultCode));
   const rows = extractRows(data);
   const kw = (q || '').trim();
   return rows

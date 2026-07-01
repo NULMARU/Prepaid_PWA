@@ -47,26 +47,23 @@ wrangler deploy            # → https://prepaid-relay.<계정>.workers.dev
 
 ---
 
-## C. data.go.kr 인증키 검증 (가장 먼저 확인)
+## C. data.go.kr 검색 (확정 — 지역·이름 필터 지원)
 
-승인된 서비스: **행정안전부_식품_일반음식점 조회서비스** (REST, JSON+XML)
-End Point: `https://apis.data.go.kr/1741000/general_restaurants`
-
-**남은 확인 1가지** — data.go.kr 서비스 상세의 **"상세기능정보/요청변수"**에서:
-- 지역(자치단체코드) **파라미터명** (기본값 `localCode`로 설정됨 — 다르면 `wrangler.toml`의 `PUBLIC_API_REGION_PARAM` 교정)
-- 상호 검색 파라미터 존재 여부 (있으면 `PUBLIC_API_NAME_PARAM` 지정, 없으면 서버가 이름 필터)
-- 페이징 파라미터가 `pageNo/numOfRows`가 맞는지 (data.go.kr 표준)
+승인 서비스: **행정안전부_식품_일반음식점 조회서비스**
+- Base: `https://apis.data.go.kr/1741000/general_restaurants` · 오퍼레이션 **`/info`**
+- 필수: `serviceKey`, `pageNo`, `numOfRows`(**max 100**), 응답형식 `returnType=json`
+- 지역: `cond[OPN_ATMY_GRP_CD::EQ]=<개방자치단체코드>`
+- 이름: `cond[BPLC_NM::LIKE]=<상호일부>` · 영업상태: `cond[SALS_STTS_CD::EQ]=01`(영업)
+- 응답: `response.body.items.item[]`, 필드 `BPLC_NM`(상호)·`MNG_NO`(관리번호=restaurant_id)·`ROAD_NM_ADDR`/`LOTNO_ADDR`(주소)·`SALS_STTS_NM`(영업상태)·`OPN_ATMY_GRP_CD`(자치단체코드)
 
 **로컬 실키 테스트** (Decoding/일반 키 사용):
 ```bash
 PUBLIC_API_KEY=<Decoding키> node server/dev-server.mjs
-curl "http://localhost:8788/api/restaurants?region=<자치단체코드>&q=<상호일부>"
+curl "http://localhost:8788/api/restaurants?region=<개방자치단체코드>&q=<상호일부>"
 ```
-→ `[{restaurant_id,name,address,status}]` 배열이 나오면 성공.
+→ `[{restaurant_id,name,address,status,region_code}]` 배열이 나오면 성공.
 
-응답 필드 매핑은 `server/src/worker.js`의 `pick()`/`extractRows()`가 data.go.kr 표준(`response.body.items.item`, `bplcNm`·`rdnWhlAddr`·`trdStateNm`·`mgtNo`)과 다양한 변형을 처리한다. 필드명이 다르면 `pick()` 후보 배열에 추가.
-
-> 참고: 이 서비스는 **상호 직접 검색 파라미터가 없을 가능성이 높아** 지역(자치단체코드)으로 받아와 서버에서 이름 필터링한다(스펙 §10-4 "지역 필수"와 일치). 자치단체코드는 참고문서 `개방자치단체코드_영업상태코드.xlsx` 참조.
+개방자치단체코드는 참고문서 `개방자치단체코드_영업상태코드.xlsx`에 시군구별로 있음(예: 제주시 6510000, 서귀포 6520000). 담당자 웹의 `region` 입력값으로 사용. 응답 인증키 오류는 header `resultCode`로 감지해 메시지를 반환.
 
 ---
 
