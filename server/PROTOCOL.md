@@ -43,9 +43,11 @@ batch_hash = SHA-256(hex)
 
 | 메서드·경로 | 요청 | 응답 | 비고 |
 |---|---|---|---|
-| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key}` | `{ok:true}` | 공개키 upsert |
+| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key}` | `{ok:true}` | 공개키 upsert (음식점 등록) |
+| `POST /api/deregister` | `{restaurant_id}` | `{ok:true}` | 음식점 주인 등록 해제(선금 받기 중단) → 공개키 삭제 |
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key}` / 404 | 담당자 웹이 암호화 전 조회 |
-| `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | LOCALDATA 프록시(키 은닉), 지역 필수 |
+| `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` | 담당자 웹: '선금 받기 가능' 표시용 |
+| `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) | `{summary_id}` | 부서·음식점 단위 1건 |
 | `GET /api/inbox?restaurant_id=` | — | `[{summary_id, summary, ciphertext, status}]` | 음식점 앱 폴링(PENDING만) |
 | `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED"}` | `{ok:true}` | 승인/거절, blob delivered 표시 |

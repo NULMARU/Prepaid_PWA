@@ -117,6 +117,15 @@ const call = (store, env, method, path, body) =>
   r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID);
   ok((await r.json()).length === 0, '승인 후 수신함에서 제거');
 
+  // 6) 담당자 등록 조회 + 음식점 등록 해제(선금 받기 중단)
+  r = await call(store, env, 'GET', '/api/registered?ids=' + RID + ',NOPE-999');
+  ok((await r.json()).length === 1, '/api/registered: 등록된 것만 반환');
+  r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RID });
+  ok(r.status === 200, '등록 해제(선금 받기 중단) 200');
+  ok((await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RID)).status === 404, '해제 후 공개키 404(담당자 전송 불가)');
+  r = await call(store, env, 'GET', '/api/registered?ids=' + RID);
+  ok((await r.json()).length === 0, '해제 후 registered에서 제외');
+
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

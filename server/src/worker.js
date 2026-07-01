@@ -92,6 +92,20 @@ export async function handle(request, env, store) {
       return json(env, { restaurant_id: row.restaurant_id, public_key: row.public_key });
     }
 
+    // 음식점 주인 등록 해제 (선금 받기 중단). 공개키 삭제 → 담당자가 더는 전송 불가.
+    if (path === '/api/deregister' && request.method === 'POST') {
+      const b = await request.json();
+      if (!b.restaurant_id) return json(env, { error: 'restaurant_id 필요' }, 400);
+      await store.deregisterKey(String(b.restaurant_id));
+      return json(env, { ok: true });
+    }
+
+    // 담당자 웹: 후보 음식점 중 '선금 받기 가능(등록된)' 목록만 반환.
+    if (path === '/api/registered' && request.method === 'GET') {
+      const ids = (url.searchParams.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean);
+      return json(env, await store.registeredAmong(ids));
+    }
+
     if (path === '/api/restaurants' && request.method === 'GET') {
       const region = url.searchParams.get('region') || '';
       const q = url.searchParams.get('q') || '';
@@ -161,6 +175,15 @@ export function makeD1Store(DB) {
     async getPublicKey(id) {
       return await DB.prepare('SELECT restaurant_id,public_key FROM public_key_registry WHERE restaurant_id=?').bind(id).first();
     },
+    async deregisterKey(id) {
+      await DB.prepare('DELETE FROM public_key_registry WHERE restaurant_id=?').bind(id).run();
+    },
+    async registeredAmong(ids) {
+      if (!ids.length) return [];
+      const ph = ids.map(() => '?').join(',');
+      const r = await DB.prepare('SELECT restaurant_id FROM public_key_registry WHERE restaurant_id IN (' + ph + ')').bind(...ids).all();
+      return (r.results || []).map(x => x.restaurant_id);
+    },
     async insertSummary(s) {
       await DB.prepare('INSERT INTO deposit_summary (id,institution,department,restaurant_id,restaurant_name,year_month,total_amount,member_count,batch_hash,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
         .bind(s.id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.batch_hash, s.status, s.created_at).run();
@@ -204,6 +227,8 @@ export function makeMemoryStore() {
     _dump: () => ({ keys, summaries, blobs, consents }),
     async registerKey(r) { keys.set(r.restaurant_id, r); },
     async getPublicKey(id) { return keys.get(id) || null; },
+    async deregisterKey(id) { keys.delete(id); },
+    async registeredAmong(ids) { return ids.filter(id => keys.has(id)); },
     async insertSummary(s) { summaries.push(s); },
     async insertBlob(b) { blobs.push(b); },
     async insertConsent(c) { consents.push(c); },
