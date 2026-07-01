@@ -63,6 +63,7 @@ async function defaultSearch(env, region, q) {
       region_code: pick(r, ['OPN_ATMY_GRP_CD'])
     }))
     .filter(r => r.restaurant_id && r.name)
+    .filter(r => !r.status.includes('폐업'))   // 영업 중인 곳만
     .filter(r => !kw || r.name.includes(kw));
 }
 
@@ -94,7 +95,7 @@ export async function handle(request, env, store) {
     if (path === '/api/restaurants' && request.method === 'GET') {
       const region = url.searchParams.get('region') || '';
       const q = url.searchParams.get('q') || '';
-      if (!region) return json(env, { error: '지역(region) 필수' }, 400);
+      if (!region && !q) return json(env, { error: '지역 또는 가게 이름이 필요합니다' }, 400);
       const search = env.searchRestaurants || defaultSearch;
       const list = await search(env, region, q);
       return json(env, list);
