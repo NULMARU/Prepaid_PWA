@@ -86,7 +86,8 @@ function srv(){return ($('server').value||'').trim().replace(/\/$/,'')}
 function log(m){const el=$('log');el.classList.remove('hide');el.textContent+=m+'\n';el.scrollTop=el.scrollHeight}
 
 // ── 서버 주소 기억 ──
-$('server').value=localStorage.getItem('relay-server')||'';
+const DEFAULT_SERVER='https://prepaid-relay.sulsul-plus.workers.dev';
+$('server').value=localStorage.getItem('relay-server')||DEFAULT_SERVER;
 $('server').addEventListener('change',()=>localStorage.setItem('relay-server',$('server').value));
 
 // ── crypto (PROTOCOL.md §2·§3와 일치) ──
