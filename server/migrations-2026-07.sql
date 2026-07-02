@@ -54,3 +54,9 @@ WHERE rowid NOT IN (
 DELETE FROM encrypted_blob WHERE summary_id NOT IN (SELECT id FROM deposit_summary);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_summary_batch ON deposit_summary(restaurant_id, batch_hash);
+
+-- ── 2026-07(2차) 추가: 보존 기간 단축 — 수령 즉시 파기, 미수령 최대 72시간 후 자동 파기 ──
+-- deposit_summary.created_at·processed_at은 최초 설치본부터 이미 존재하므로 컬럼 추가 불필요.
+-- status에 'EXPIRED' 값이 추가되지만 CHECK 제약이 없는 컬럼이라 스키마 변경 불요(코드 레벨 처리).
+-- PENDING 72시간 만료 스캔(inbox 이중 방어·TTL cron)을 위한 인덱스만 추가한다.
+CREATE INDEX IF NOT EXISTS idx_summary_status_created ON deposit_summary(status, created_at);

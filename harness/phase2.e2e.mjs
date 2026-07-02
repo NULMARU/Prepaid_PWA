@@ -328,6 +328,82 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const rrNoHeader = await handle(new Request('http://x/api/registered?ids=rl-test2', { method: 'GET' }), env, store);
   ok(rrNoHeader.status === 200, '레이트 리밋: CF-Connecting-IP 헤더 없는 요청(하니스 등)은 영향 없음');
 
+  // 17) 데이터 보존 최소화(PROTOCOL.md §6): 수령 즉시 파기 + 미수령 72시간 자동 파기.
+  // 시각 주입은 전역 Date.now()를 몽키패치하지 않고, store에 저장된 created_at/processed_at을
+  // 직접 되돌려 "시간이 흘렀다"를 시뮬레이션한다(cleanupTTL(now)가 이미 그렇듯 store는 순수
+  // JS 객체이므로 이 방식이 자연스럽다).
+  const RID7 = 'MGT-0008';
+  const kp7 = await genKeyPair();
+  const spki7 = b64(await subtle.exportKey('spki', kp7.publicKey));
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID7, restaurant_name: '보존테스트', public_key: spki7 });
+
+  // 17-a) 승인 즉시 blob 파기
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RID7, restaurant_name: '보존테스트', total_amount: 1000, member_count: 1, batch_hash: 'h-retain-approve' },
+    blob: { restaurant_id: RID7, ciphertext: badCipher }
+  });
+  const sjApprove = await r.json();
+  ok(r.status === 200 && !!sjApprove.summary_id, '보존 테스트: 제출 200');
+  ok(store._dump().blobs.some(b => b.summary_id === sjApprove.summary_id), '보존 테스트: 승인 전에는 encrypted_blob 존재');
+  const tok7 = await getAuthToken(store, env, RID7, kp7.privateKey);
+  r = await call(store, env, 'POST', '/api/approve', { summary_id: sjApprove.summary_id, status: 'APPROVED', restaurant_id: RID7, auth_token: tok7 });
+  ok(r.status === 200, '보존 테스트: 승인 200');
+  const dumpAfterApprove = store._dump();
+  ok(!dumpAfterApprove.blobs.some(b => b.summary_id === sjApprove.summary_id), '보존 테스트: 승인 즉시 encrypted_blob 삭제(inbox 재조회로도 ciphertext 접근 불가)');
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID7);
+  ok(!(await r.json()).some(x => x.summary_id === sjApprove.summary_id), '보존 테스트: 승인 후 inbox 재조회에서도 해당 건 노출 안 됨(PENDING 아님)');
+  const summaryAfterApprove = dumpAfterApprove.summaries.find(s => s.id === sjApprove.summary_id);
+  ok(!!summaryAfterApprove && summaryAfterApprove.status === 'APPROVED' && summaryAfterApprove.total_amount === 1000, '보존 테스트: 비식별 요약(총액·인원·해시) 행은 즉시 삭제되지 않고 유지');
+
+  // 17-b) 거절 시에도 즉시 파기(승인과 동일 경로)
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RID7, restaurant_name: '보존테스트', total_amount: 500, member_count: 1, batch_hash: 'h-retain-reject' },
+    blob: { restaurant_id: RID7, ciphertext: badCipher }
+  });
+  const sjReject = await r.json();
+  const tok7b = await getAuthToken(store, env, RID7, kp7.privateKey);
+  r = await call(store, env, 'POST', '/api/approve', { summary_id: sjReject.summary_id, status: 'REJECTED', restaurant_id: RID7, auth_token: tok7b });
+  ok(r.status === 200, '보존 테스트: 거절 200');
+  ok(!store._dump().blobs.some(b => b.summary_id === sjReject.summary_id), '보존 테스트: 거절 시에도 즉시 encrypted_blob 삭제');
+
+  // 17-c) 승인 처리 실패 시(이미 처리된 건 재시도) blob은 삭제되지 않아야 함 — 이미 삭제된 상태이므로
+  // "새로 지워지는 부작용"이 없는지를 확인(상태 전이 성공과 같은 순서로만 삭제되는 안전성 회귀 방지).
+  const tok7c = await getAuthToken(store, env, RID7, kp7.privateKey);
+  r = await call(store, env, 'POST', '/api/approve', { summary_id: sjReject.summary_id, status: 'APPROVED', restaurant_id: RID7, auth_token: tok7c });
+  ok(r.status === 409, '보존 테스트: 이미 처리된 건 재승인 시도는 409(전이 실패 시 삭제 로직도 실행 안 됨)');
+
+  // 17-d) 미수령 72시간 경과 → inbox 조회 시점에도 즉시 제외(이중 방어 1단계, cron 이전)
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RID7, restaurant_name: '보존테스트', total_amount: 700, member_count: 2, batch_hash: 'h-retain-expire' },
+    blob: { restaurant_id: RID7, ciphertext: badCipher }
+  });
+  const sjExpire = await r.json();
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID7);
+  ok((await r.json()).some(x => x.summary_id === sjExpire.summary_id), '보존 테스트: 만료 전(정상 PENDING)에는 inbox에 노출');
+  const summaryToAge = store._dump().summaries.find(s => s.id === sjExpire.summary_id);
+  summaryToAge.created_at = Date.now() - (72 * 60 * 60 * 1000 + 60 * 1000); // 72시간 + 1분 전 제출로 시뮬레이션
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID7);
+  ok(!(await r.json()).some(x => x.summary_id === sjExpire.summary_id), '보존 테스트: 미수령 72시간 경과 항목은 cron 실행 전에도 inbox 쿼리 조건으로 제외(이중 방어)');
+
+  // 17-e) TTL cron: 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 삭제(이중 방어 2단계)
+  const cleanup1 = await store.cleanupTTL(Date.now());
+  ok(cleanup1.expiredSummaries >= 1, '보존 테스트: TTL cron이 미수령 만료 항목을 처리(expiredSummaries>=1)');
+  const dumpAfterExpireCron = store._dump();
+  const expiredSummary = dumpAfterExpireCron.summaries.find(s => s.id === sjExpire.summary_id);
+  ok(!!expiredSummary && expiredSummary.status === 'EXPIRED', '보존 테스트: 미수령 72시간 경과 항목이 EXPIRED로 전이됨');
+  ok(!dumpAfterExpireCron.blobs.some(b => b.summary_id === sjExpire.summary_id), '보존 테스트: EXPIRED 전이 시 encrypted_blob 즉시 삭제');
+
+  // EXPIRED 상태는 더 이상 승인/거절 대상이 아님(PENDING 전이 가드에 걸림)
+  const tok7d = await getAuthToken(store, env, RID7, kp7.privateKey);
+  r = await call(store, env, 'POST', '/api/approve', { summary_id: sjExpire.summary_id, status: 'APPROVED', restaurant_id: RID7, auth_token: tok7d });
+  ok(r.status === 409, '보존 테스트: EXPIRED 상태는 승인/거절 시도 시 409(상태 전이 가드)');
+
+  // 17-f) 비식별 요약(총액·인원·해시)도 처리 후 30일 지나면 TTL cron이 삭제(APPROVED/REJECTED/EXPIRED 공통)
+  expiredSummary.processed_at = Date.now() - (30 * 24 * 60 * 60 * 1000 + 60 * 1000);
+  const cleanup2 = await store.cleanupTTL(Date.now());
+  ok(cleanup2.deletedSummaries >= 1, '보존 테스트: 30일 지난 EXPIRED 비식별 요약도 TTL cron에서 삭제 대상에 포함');
+  ok(!store._dump().summaries.some(s => s.id === sjExpire.summary_id), '보존 테스트: 30일 경과 후 EXPIRED summary 행 자체도 제거됨(30일 보관 정책 그대로 적용)');
+
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

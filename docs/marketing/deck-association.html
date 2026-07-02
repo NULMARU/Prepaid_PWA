@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>선입금대장 — 요식업협회 지회 발표 슬라이드</title>
+<style>
+  :root {
+    --accent: #0a5c36;
+    --ink: #1a1a1a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #e9e9e9;
+    color: var(--ink);
+    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .slide {
+    width: 210mm;
+    height: 297mm;
+    margin: 8mm auto;
+    padding: 18mm 20mm;
+    background: #ffffff;
+    box-shadow: 0 0 4px rgba(0,0,0,0.2);
+    position: relative;
+    page-break-after: always;
+    display: flex;
+    flex-direction: column;
+  }
+  .slide:last-child { page-break-after: auto; }
+
+  .slide-kicker {
+    font-size: 11pt;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin: 0 0 6px 0;
+  }
+  .slide-title {
+    font-size: 26pt;
+    font-weight: 800;
+    color: var(--ink);
+    margin: 0 0 4px 0;
+    line-height: 1.25;
+  }
+  .slide-title .accent { color: var(--accent); }
+  hr.divider {
+    border: none;
+    border-top: 3px solid var(--accent);
+    margin: 10px 0 18px 0;
+    width: 60px;
+  }
+  .slide-body {
+    flex: 1;
+    font-size: 14.5pt;
+    line-height: 1.6;
+  }
+  .badge-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .badge {
+    display: inline-block;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 10pt;
+    padding: 2px 10px;
+    border-radius: 999px;
+  }
+  .speaker-note {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px dashed #ccc;
+    font-size: 9pt;
+    color: #777;
+  }
+  .speaker-note .label {
+    font-weight: 700;
+    color: #999;
+  }
+  .page-tag {
+    position: absolute;
+    top: 10mm;
+    right: 20mm;
+    font-size: 10pt;
+    color: #999;
+  }
+  ul.list, ol.list {
+    margin: 0;
+    padding-left: 22px;
+  }
+  ul.list li, ol.list li {
+    margin-bottom: 10px;
+  }
+  .grid3 {
+    display: flex;
+    gap: 10mm;
+    margin-top: 8px;
+  }
+  .grid3 .item {
+    flex: 1;
+    text-align: center;
+    border: 2px solid #ddd;
+    border-radius: 12px;
+    padding: 14px 10px;
+  }
+  .grid3 .icon { font-size: 30pt; margin-bottom: 6px; }
+  .grid3 .num {
+    display: inline-block;
+    width: 26px; height: 26px; line-height: 26px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 800;
+    font-size: 12pt;
+    margin-bottom: 6px;
+  }
+  .cover {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    flex: 1;
+  }
+  .cover .brand-mark {
+    font-size: 40pt;
+    font-weight: 800;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .cover .brand-sub {
+    font-size: 16pt;
+    color: #333;
+    margin-bottom: 24px;
+  }
+  .placeholder {
+    color: #b5651d;
+    font-weight: 700;
+  }
+  .contact-box {
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    background: #f2f8f5;
+    margin-top: 20px;
+  }
+  .contact-box .url {
+    font-size: 15pt;
+    font-weight: 800;
+    color: var(--accent);
+    margin: 8px 0;
+    word-break: break-all;
+  }
+
+  @media print {
+    html, body { background: #ffffff; }
+    .slide {
+      width: auto;
+      height: auto;
+      min-height: 277mm;
+      margin: 0;
+      box-shadow: none;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    @page {
+      size: A4;
+      margin: 10mm;
+    }
+  }
+</style>
+</head>
+<body>
+
+  <!-- Slide 1: 표지 -->
+  <section class="slide">
+    <span class="page-tag">1 / 8</span>
+    <div class="cover">
+      <div class="brand-mark">선입금대장</div>
+      <div class="brand-sub">회원 업소를 위한 무료 단체장부</div>
+      <div class="badge-row" style="justify-content:center;">
+        <span class="badge">완전 무료</span>
+        <span class="badge">결제·송금 아님</span>
+      </div>
+    </div>
+    <div class="speaker-note"><span class="label">발표 대본:</span> 오늘은 회원 업소 사장님들의 단체·직원 식대 선금 관리를 도와드릴 무료 장부 서비스, 선입금대장을 소개하겠습니다.</div>
+  </section>
+
+  <!-- Slide 2: 회원의 문제 -->
+  <section class="slide">
+    <span class="page-tag">2 / 8</span>
+    <div class="slide-kicker">문제</div>
+    <h2 class="slide-title">단체 외상·선금,<br><span class="accent">수기 관리의 한계</span></h2>
+    <hr class="divider">
+    <div class="slide-body">
+      <ul class="list">
+        <li>수첩·메모지 분실로 남은 금액을 알 수 없게 되는 경우</li>
+        <li>&quot;누가 얼마 남았는지&quot; 사장님과 손님 기억이 달라 생기는 분쟁</li>
+        <li>월말·분기 정산 때마다 반복되는 계산 스트레스</li>
+      </ul>
+    </div>
+    <div class="speaker-note"><span class="label">발표 대본:</span> 단체 선금을 수첩이나 기억에 의존해 관리하다 보면 분실, 기억 분쟁, 정산 스트레스가 반복적으로 발생합니다.</div>
+  </section>
+
+  <!-- Slide 3: 해법 한 장 -->
+  <section class="slide">
+    <span class="page-tag">3 / 8</span>
+    <div class="slide-kicker">해법</div>
+    <h2 class="slide-title">폰 하나로 끝나는<br><span class="accent">선금 장부</span></h2>
+    <hr class="divider">
+    <div class="slide-body">
+      <div class="grid3">
+        <div class="item">
+          <div class="num">1</div>
+          <div class="icon">📲</div>
+          <div>홈 화면에 추가</div>
+        </div>
+        <div class="item">
+          <div class="num">2</div>
+          <div class="icon">📩</div>
+          <div>명단 받기</div>
+        </div>
+        <div class="item">
+          <div class="num">3</div>
+          <div class="icon">👆</div>
+          <div>이름 눌러 자동 차감</div>
+        </div>
+      </div>
+    </div>
+    <div class="speaker-note"><span class="label">발표 대본:</span> 설치 없이 홈 화면에 추가하고, 전달받은 명단을 등록한 뒤, 식사 때 이름만 누르면 잔액이 자동으로 차감됩니다.</div>
+  </section>
+
+  <!-- Slide 4: 공공기관 연계 -->
+  <section class="slide">
+    <span class="page-tag">4 / 8</span>
+    <div class="slide-kicker">공공기관 연계</div>
+    <h2 class="slide-title">구청 부서가 명단을<br><span class="accent">안전하게 보내는 구조</span></h2>
+    <hr class="divider">
+    <div class="slide-body">
+      <p>구청 등 기관 담당자는 별도 웹 화면에서 직원 명단을 암호화해 음식점에 전달할 수 있습니다.</p>
+      <p>이 구조로 관공서 주변 상권의 회원 업소는 기관 연계 선금 거래를 더 쉽게 받을 수 있습니다.</p>
+    </div>
+    <div class="speaker-note"><span class="label">발표 대본:</span> 구청 같은 공공기관 담당자가 안전하게 명단을 보낼 수 있는 구조를 갖추고 있어, 관공서 주변 회원 업소에 직접적인 혜택이 됩니다.</div>
+  </section>
+
+  <!-- Slide 5: 안전·신뢰 -->
+  <section class="slide">
+    <span class="page-tag">5 / 8</span>
+    <div class="slide-kicker">안전·신뢰</div>
+    <h2 class="slide-title">무료 · 암호화 ·<br><span class="accent">데이터는 사장님 폰에</span></h2>
+    <hr class="divider">
+    <div class="slide-body">
+      <ul class="list">
+        <li>이용료, 수수료 없이 <strong>완전 무료</strong></li>
+        <li>명단은 암호화되어 전달되며 서버는 내용을 볼 수 없음</li>
+        <li>기록된 장부 데이터는 사장님 폰에 저장</li>
+        <li><strong>결제앱이 아닙니다</strong> — 돈을 대신 받거나 보내지 않는 장부 도구입니다</li>
+      </ul>
+    </div>
+    <div class="speaker-note"><span class="label">발표 대본:</span> 무료이고, 명단은 암호화되며, 장부 데이터는 사장님 폰에 남습니다. 결제나 송금을 대행하는 앱이 아니라는 점을 분명히 말씀드립니다.</div>
+  </section>
+
+  <!-- Slide 6: 협회에 드리는 제안 -->
+  <section class="slide">
+    <span class="page-tag">6 / 8</span>
+    <div class="slide-kicker">제안</div>
+    <h2 class="slide-title">협회에<br><span class="accent">드리는 제안</span></h2>
+    <hr class="divider">
+    <div class="slide-body">
+      <ul class="list">
+        <li>지회 대상 설명회 1회 진행</li>
+        <li>도입을 희망하는 업소에는 현장 지원 제공</li>
+      </ul>
+    </div>
+    <div class="speaker-note"><span class="label">발표 대본:</span> 협회에는 지회 설명회를 1회 진행해 드리고, 도입을 원하시는 업소에는 현장에서 직접 설치를 도와드리겠습니다.</div>
+  </section>
+
+  <!-- Slide 7: 파일럿 현황 -->
+  <section class="slide">
+    <span class="page-tag">7 / 8</span>
+    <div class="slide-kicker">진행 현황</div>
+    <h2 class="slide-title">파일럿 <span class="accent">현황</span></h2>
+    <hr class="divider">
+    <div class="slide-body">
+      <p class="placeholder">[파일럿 사례 기재 예정]</p>
+    </div>
+    <div class="speaker-note"><span class="label">발표 대본:</span> 현재 진행 중인 파일럿 사례는 추후 확정되는 대로 업데이트해 공유드리겠습니다.</div>
+  </section>
+
+  <!-- Slide 8: 연락처 -->
+  <section class="slide">
+    <span class="page-tag">8 / 8</span>
+    <div class="slide-kicker">문의</div>
+    <h2 class="slide-title">함께해 주세요</h2>
+    <hr class="divider">
+    <div class="slide-body">
+      <div class="contact-box">
+        <div>지금 바로 시작하기</div>
+        <div class="url">https://nulmaru.github.io/Prepaid_PWA/</div>
+        <div>문의처: <span class="placeholder">[문의처]</span></div>
+      </div>
+    </div>
+    <div class="speaker-note"><span class="label">발표 대본:</span> 관심 있으신 지회, 회원 업소께서는 아래 문의처로 연락 주시면 바로 안내해 드리겠습니다.</div>
+  </section>
+
+</body>
+</html>

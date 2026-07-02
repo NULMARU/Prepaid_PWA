@@ -17,20 +17,23 @@ CREATE TABLE IF NOT EXISTS deposit_summary (
   total_amount    INTEGER NOT NULL,    -- 부서·음식점별 선금 합계 (개인별 금액 ❌)
   member_count    INTEGER NOT NULL,    -- 대상 인원수 (이름 ❌)
   batch_hash      TEXT NOT NULL,       -- 배치 무결성 해시
-  status          TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING|APPROVED|REJECTED
+  status          TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING|APPROVED|REJECTED|EXPIRED(미수령 72시간 경과)
   created_at      INTEGER NOT NULL,
-  processed_at    INTEGER              -- APPROVED/REJECTED 전이 시각(TTL 정리 30일 기준)
+  processed_at    INTEGER              -- APPROVED/REJECTED/EXPIRED 전이 시각(TTL 정리 30일 기준)
 );
 CREATE INDEX IF NOT EXISTS idx_summary_restaurant ON deposit_summary(restaurant_id, status);
 -- 감사 항목: 동일 (restaurant_id,batch_hash) 중복 제출 방지(멱등 처리와 짝을 이룸).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_summary_batch ON deposit_summary(restaurant_id, batch_hash);
+-- PENDING 72시간 만료 스캔(inbox 이중 방어·TTL cron)을 위한 인덱스.
+CREATE INDEX IF NOT EXISTS idx_summary_status_created ON deposit_summary(status, created_at);
 
+-- 행은 승인/거절(수령) 즉시 또는 미수령 72시간 만료 시 삭제된다(§6) — 장기 보관되지 않음.
 CREATE TABLE IF NOT EXISTS encrypted_blob (
   id            TEXT PRIMARY KEY,      -- uuid
   summary_id    TEXT NOT NULL,         -- → deposit_summary.id
   restaurant_id TEXT NOT NULL,
   ciphertext    TEXT NOT NULL,         -- §2 blob의 JSON 문자열 (서버는 복호화 불가)
-  delivered     INTEGER NOT NULL DEFAULT 0,
+  delivered     INTEGER NOT NULL DEFAULT 0,  -- 레거시 필드(미사용): 행이 즉시 삭제되므로 의미 없음
   created_at    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_blob_summary ON encrypted_blob(summary_id);

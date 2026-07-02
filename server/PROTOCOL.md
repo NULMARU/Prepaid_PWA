@@ -51,7 +51,7 @@ batch_hash = SHA-256(hex)
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 선택 헤더 `X-Agency-Token` | `{summary_id}` | 부서·음식점 단위 1건(§4.3) |
 | `GET /api/inbox?restaurant_id=` | — | `[{summary_id, summary, ciphertext, status}]` | 음식점 앱 폴링(PENDING만) |
-| `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절, blob delivered 표시. 인증 필요 |
+| `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절. 상태 전이 성공 시 암호문(`encrypted_blob`) 즉시 파기(§6). 인증 필요 |
 | `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash}` | `{ok:true}` | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요 |
 | `POST /api/ledger-backup/get` | `{restaurant_id, auth_token}` | `{blob, blob_hash, updated_at}` / 404 | 백업 조회. 인증 필요 |
 | `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?}` | 기관 이메일 OTP 발급(§4.4) |
@@ -113,15 +113,50 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
   (`agency_token`). 이 토큰이 `X-Agency-Token` 헤더 값이 된다.
 
 ## 5. 상태 머신
-`deposit_summary.status`: `PENDING` →(approve)→ `APPROVED` / `REJECTED`.
+`deposit_summary.status`: `PENDING` →(approve)→ `APPROVED` / `REJECTED`, 또는
+`PENDING` →(72시간 미수령)→ `EXPIRED`.
 거절 시 음식점 앱은 복호화하지 않고 폐기. 승인 시에만 blob 복호화.
-`processed_at`(상태 전이 시각)은 TTL 정리(§6)의 기준이 된다.
+`APPROVED`/`REJECTED`/`EXPIRED` 어느 쪽이든 상태 전이 시점에 `encrypted_blob` 행이 파기된다(§6).
+`processed_at`(상태 전이 시각)은 비식별 요약의 TTL 정리(30일, §6)의 기준이 된다.
 
-## 6. TTL 정리(cron) · 레이트 리밋
+## 6. 보존 기간 · TTL 정리(cron) · 레이트 리밋
+
+### 6.0 보존 정책 (요약)
+
+암호문(`encrypted_blob`)은 **음식점이 수령(승인/거절)하는 즉시 파기**되며, 수령하지 않은
+경우에도 **최대 72시간(3일) 후 자동 파기**된다. 개인을 식별할 수 없는 요약 정보
+(`deposit_summary`의 총액·인원수·해시·상태)만 처리 완료 후 30일간 보관 후 삭제된다.
+
+이와 별도로 담당자 웹에는 **무보관 모드("직접 전달")**가 존재한다 — 담당자가 암호화한 blob을
+서버로 전송하지 않고 파일·QR 등으로 음식점에 직접 전달하는 경로로, 이 경로에서는 명단(암호문
+포함)이 **서버에 일절 저장되지 않는다**. 이 모드는 담당자 웹(클라이언트) 구현이며, 본 문서가
+기술하는 서버(`worker.js`)에는 해당 경로를 위한 별도 코드가 없다 — 서버는 그저 호출되지 않을
+뿐이다.
+
+### 6.1 즉시 파기 (승인/거절)
+
+`POST /api/approve`가 `deposit_summary.status`를 `PENDING`에서 `APPROVED` 또는 `REJECTED`로
+전이시키는 데 성공하면, 같은 요청 처리 안에서 곧바로 해당 `summary_id`에 연결된
+`encrypted_blob` 행을 삭제한다. 상태 전이가 실패(이미 처리됨 등)하면 blob은 삭제되지
+않으므로 재시도가 안전하다. `deposit_summary` 행(비식별 요약) 자체는 삭제하지 않고 §6.3의
+30일 TTL까지 유지한다.
+
+### 6.2 미수령 72시간 만료
+
+`PENDING` 상태로 72시간(제출 시각 `created_at` 기준) 지난 항목은 이중으로 방어된다:
+
+1. **조회 시점**: `GET /api/inbox`는 `status='PENDING'`이어도 `created_at`이 72시간을
+   넘었으면 결과에서 제외한다(아래 cron이 아직 돌지 않았어도 노출되지 않음).
+2. **cron 시점**: TTL cron이 하루 1회 돌 때, 72시간 지난 `PENDING` 항목을 `status='EXPIRED'`로
+   전이시키고 연결된 `encrypted_blob`을 즉시 삭제한다(`processed_at`을 전이 시각으로 기록).
+
+### 6.3 TTL cron · 레이트 리밋
 
 - **TTL cron** (`wrangler.toml` `[triggers] crons`, 매일 UTC 18:17=KST 새벽 03:17): 개인정보
-  최소화 목적으로 ① `APPROVED`/`REJECTED` 후 30일 지난 `deposit_summary`+연결된
-  `encrypted_blob`을 삭제, ② 만료된 `auth_challenge`/`agency_otp`/`agency_token`을 삭제.
+  최소화 목적으로 ① 72시간 지난 `PENDING`을 `EXPIRED`로 전이하며 `encrypted_blob`을 즉시 삭제
+  (§6.2 — 승인/거절 건은 §6.1에서 이미 즉시 삭제되었으므로 이 단계는 대개 no-op),
+  ② `APPROVED`/`REJECTED`/`EXPIRED` 후 30일 지난 `deposit_summary`(+ 혹시 남아있는
+  `encrypted_blob`)를 삭제, ③ 만료된 `auth_challenge`/`agency_otp`/`agency_token`을 삭제.
   서버는 zero-knowledge이며 원장 진실은 항상 음식점 기기에 있으므로, 이 정리는 서버 보관
   데이터를 줄이는 것일 뿐 데이터 손실이 아니다.
 - **레이트 리밋(베스트 에포트)**: `CF-Connecting-IP`당 분당 60회로 per-isolate 메모리 Map을
@@ -137,5 +172,8 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
   (3) 소유 증명 인증, (4) 최소한의 집계(총액·인원수) 보관뿐이다.
 - **암호문 외 개인정보를 저장하지 않는다.** 직원명·개인별 금액·전화번호는 서버 어디에도
   평문으로 존재하지 않는다(§0). 기관 OTP 인증의 이메일도 해시로만 남긴다(§4.3).
+- **암호문은 수령 즉시 파기, 미수령 시 최대 72시간(3일) 후 자동 파기한다.** 비식별 요약
+  (총액·인원·해시)만 30일 보관한다(§6). 무보관 모드("직접 전달")를 이용하면 명단이 서버에
+  일절 저장되지 않는다(구현은 담당자 웹 클라이언트 측 — 서버 코드 변경 없음).
 - 원장의 진실은 항상 음식점 기기에 있다(로컬 우선). 서버는 전송 중계와 백업 보관소일 뿐,
   권위 있는 원장이 아니다.

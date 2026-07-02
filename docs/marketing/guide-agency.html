@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>선입금대장 — 기관 담당자용 도입 안내문</title>
+<style>
+  :root {
+    --accent: #0a5c36;
+    --ink: #1a1a1a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    color: var(--ink);
+    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 16mm 18mm;
+    font-size: 11pt;
+    line-height: 1.55;
+  }
+  .page + .page {
+    page-break-before: always;
+  }
+  .badge-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .badge {
+    display: inline-block;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 9.5pt;
+    padding: 2px 10px;
+    border-radius: 999px;
+  }
+  .doc-title {
+    font-size: 22pt;
+    font-weight: 800;
+    color: var(--accent);
+    margin: 4px 0 2px 0;
+  }
+  .doc-sub {
+    font-size: 11.5pt;
+    color: #333;
+    margin: 0 0 14px 0;
+  }
+  hr.divider {
+    border: none;
+    border-top: 2px solid var(--accent);
+    margin: 10px 0 16px 0;
+  }
+  h2.section-title {
+    font-size: 14.5pt;
+    color: var(--accent);
+    margin: 18px 0 8px 0;
+    font-weight: 800;
+    border-left: 5px solid var(--accent);
+    padding-left: 8px;
+  }
+  h2.section-title.first { margin-top: 0; }
+  p { margin: 0 0 10px 0; }
+  .box {
+    border: 1.5px solid #ccc;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    background: #fafafa;
+  }
+  .box.accent {
+    border-color: var(--accent);
+    background: #f2f8f5;
+  }
+  ol, ul {
+    margin: 0 0 10px 0;
+    padding-left: 20px;
+  }
+  li { margin-bottom: 6px; }
+  .method-cols {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .method {
+    flex: 1;
+    border: 1.5px solid #ccc;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .method .m-title {
+    font-weight: 800;
+    color: var(--accent);
+    font-size: 12pt;
+    margin-bottom: 4px;
+  }
+  .qa {
+    border-left: 5px solid var(--accent);
+    background: #f7f7f7;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+  }
+  .qa .q {
+    font-weight: 800;
+    font-size: 11.5pt;
+    margin: 0 0 3px 0;
+  }
+  .qa .a {
+    font-size: 11pt;
+    margin: 0;
+    color: #222;
+  }
+  .footer {
+    margin-top: 14px;
+    padding-top: 8px;
+    border-top: 1px solid #ccc;
+    font-size: 9.5pt;
+    color: #555;
+    display: flex;
+    justify-content: space-between;
+  }
+  .page-num {
+    text-align: right;
+    font-size: 9pt;
+    color: #888;
+  }
+  .pilot-note {
+    display: inline-block;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  @media print {
+    .page {
+      width: auto;
+      min-height: auto;
+      padding: 10mm 14mm;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    @page {
+      size: A4;
+      margin: 10mm;
+    }
+  }
+</style>
+</head>
+<body>
+
+  <!-- PAGE 1 -->
+  <div class="page">
+    <div class="badge-row">
+      <span class="badge">무료 파일럿 중</span>
+      <span class="badge">결제·송금 아님</span>
+      <span class="badge">종단간 암호화</span>
+    </div>
+    <div class="doc-title">선입금대장 도입 안내</div>
+    <div class="doc-sub">기관 담당자를 위한 직원·단체 식대 선금 명단 전달 안내 — 선입금대장(음식점용 앱)과 연동되는 명단 전달 웹</div>
+    <hr class="divider">
+
+    <h2 class="section-title first">문제 — 명단 전달의 개인정보·감사 부담</h2>
+    <p>
+      직원 식대 선금을 운영하는 기관은 대상 직원 명단을 협력 음식점에 전달해야 합니다.
+      현재 관행은 전화 통보 또는 수기 문서(엑셀, 종이) 전달이 일반적이며, 이 과정에서
+      개인정보(성명, 소속, 때로는 연락처)가 비암호화 상태로 이동하거나 다수의 손을 거치는
+      경우가 있습니다. 이는 개인정보 유출 위험뿐 아니라, 사후 감사 시 &quot;명단이 어떤 경로로,
+      어떤 형태로 전달되었는지&quot;를 소명하기 어렵게 만드는 원인이 됩니다.
+    </p>
+
+    <h2 class="section-title">해법 — 브라우저에서 암호화되는 명단 전달</h2>
+    <p>
+      선입금대장의 기관용 웹은 담당자의 <strong>브라우저 안에서</strong> 명단을 암호화한 뒤 전달합니다.
+      암호화된 내용은 대상 음식점만 열람할 수 있으며, 전달 방식은 두 가지 중 선택할 수 있습니다.
+    </p>
+    <div class="method-cols">
+      <div class="method">
+        <div class="m-title">① 바로 보내기 (서버 경유)</div>
+        <p style="margin:0;">암호화된 상태로 서버를 거쳐 전달됩니다. 서버는 수령 즉시 삭제하며,
+        보관 기간은 <strong>최대 3일</strong>을 넘기지 않습니다.</p>
+      </div>
+      <div class="method">
+        <div class="m-title">② 직접 전달 (서버 무보관)</div>
+        <p style="margin:0;">암호화된 파일 또는 QR코드로 담당자가 직접 전달합니다.
+        이 방식은 <strong>서버에 전혀 저장되지 않습니다.</strong></p>
+      </div>
+    </div>
+
+    <h2 class="section-title">도입 절차</h2>
+    <ol>
+      <li>별도 계약이나 프로그램 설치가 필요하지 않습니다.</li>
+      <li>이용료는 없으며, 현재 <span class="pilot-note">무료 파일럿</span>으로 운영 중입니다.</li>
+      <li>담당자는 브라우저로 접속하여 명단을 입력하고, 전달 방식(①/②)을 선택해 대상 음식점에 보내면 됩니다.</li>
+    </ol>
+    <div class="box accent">
+      대상 음식점은 별도 앱(선입금대장)에서 전달받은 명단을 확인하고, 식사 시 이름을 선택해 선금을 차감하는 방식으로 사용합니다. 결제·이체 기능은 없으며, 선금 자체는 기관에서 음식점으로 직접 이체됩니다.
+    </div>
+
+    <div class="footer">
+      <span>선입금대장 · 기관 담당자용 도입 안내 (1/2)</span>
+      <span>문의처: [문의처]</span>
+    </div>
+  </div>
+
+  <!-- PAGE 2 -->
+  <div class="page">
+    <h2 class="section-title first">보안 Q&amp;A</h2>
+
+    <div class="qa">
+      <p class="q">Q1. 서버가 명단 내용을 볼 수 있나요?</p>
+      <p class="a">A. 볼 수 없습니다. 명단은 담당자의 브라우저에서 암호화된 뒤 전송되는
+      종단간 암호화 구조이며, 서버는 암호문만 중계합니다.</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">Q2. 서버가 해외에 있다면 문제가 되지 않나요?</p>
+      <p class="a">A. &quot;직접 전달&quot; 방식을 선택하면 명단이 서버에 아예 업로드되지 않습니다.
+      &quot;바로 보내기&quot; 방식을 쓰더라도 서버에는 암호문만 잠시(최대 3일) 머물다 즉시 삭제되므로,
+      서버 소재지와 무관하게 원문 노출 위험이 없습니다.</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">Q3. 전화번호를 수집하나요?</p>
+      <p class="a">A. 수집하지 않습니다.</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">Q4. 결제나 자금 이동 기능이 있나요?</p>
+      <p class="a">A. 없습니다. 선입금대장은 잔액을 기록·차감하는 <strong>장부 도구</strong>입니다.
+      선금 자체는 기관에서 음식점으로 기존 방식대로 직접 이체합니다.</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">Q5. 법적 근거가 되는 문서가 있나요?</p>
+      <p class="a">A. 개인정보처리방침과 이용약관을 공개하고 있으며, 기관용 위탁 문서(위·수탁 계약서 등) 템플릿은
+      제공 예정입니다.</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">Q6. 소속 기관에서 확인해야 할 사항이 있나요?</p>
+      <p class="a">A. 도입 전 소속 기관의 개인정보 보호 담당 부서와 사전 확인을 거치는 것을 권장합니다.</p>
+    </div>
+
+    <div class="box">
+      본 서비스는 현재 <span class="pilot-note">무료 파일럿</span> 단계로 운영 중이며, 상급 보고 또는
+      감사 대응 시 본 문서를 참고 자료로 활용하실 수 있습니다. 추가 자료(정책 문서, 위탁 계약서 템플릿 등)가
+      필요하신 경우 아래 문의처로 연락 주시기 바랍니다.
+    </div>
+
+    <div class="footer">
+      <span>선입금대장 · 기관 담당자용 도입 안내 (2/2)</span>
+      <span>문의처: [문의처]</span>
+    </div>
+  </div>
+
+</body>
+</html>
