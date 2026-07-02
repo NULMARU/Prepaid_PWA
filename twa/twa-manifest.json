@@ -1,0 +1,54 @@
+{
+  "packageId": "kr.nulmaru.prepaid",
+  "host": "nulmaru.github.io",
+  "name": "선입금대장",
+  "launcherName": "선입금대장",
+  "display": "standalone",
+  "themeColor": "#1F4E79",
+  "themeColorDark": "#1F4E79",
+  "navigationColor": "#1F4E79",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#00000000",
+  "navigationDividerColorDark": "#00000000",
+  "backgroundColor": "#F4F6F8",
+  "enableNotifications": false,
+  "startUrl": "/Prepaid_PWA/",
+  "iconUrl": "https://nulmaru.github.io/Prepaid_PWA/icons/icon-512.png",
+  "maskableIconUrl": "https://nulmaru.github.io/Prepaid_PWA/icons/icon-512.png",
+  "monochromeIconUrl": "",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://nulmaru.github.io/Prepaid_PWA/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": false
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://nulmaru.github.io/Prepaid_PWA/",
+  "minSdkVersion": 21,
+  "orientation": "default",
+  "fingerprints": [
+    {
+      "name": "PLACEHOLDER — release keystore not generated yet. Run `bubblewrap build` (or `keytool -list -v -keystore android.keystore`) to get the real SHA-256, then replace this value before publishing assetlinks.json.",
+      "value": "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00"
+    }
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "appVersion": "1.0.0",
+  "_comment": "PLACEHOLDER values: packageId, signingKey path/alias, and fingerprints[].value are examples only. Real signing key + SHA-256 fingerprint must be generated locally via `bubblewrap build` and never committed to this repo. See docs/twa-guide.md."
+}

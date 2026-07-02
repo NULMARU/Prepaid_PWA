@@ -1,18 +1,113 @@
 // 중계 서버 (Cloudflare Worker). 스펙 §1.1·§2.2. 개인정보 평문 미저장·미로깅.
 // 핵심 로직은 store 인터페이스에 의존 → D1(운영)과 메모리(테스트)에서 동일 동작.
 
-const CORS = env => ({
-  'Access-Control-Allow-Origin': (env && env.ALLOW_ORIGIN) || '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type'
-});
-const json = (env, body, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS(env) } });
+// CORS: ALLOW_ORIGIN은 콤마 구분 화이트리스트(또는 "*"). Origin 헤더가 없는 요청
+// (curl, 하니스, 서버 간 호출)은 차단하지 않고 그냥 CORS 헤더 없이 통과시킨다 —
+// CORS는 브라우저 강제 정책이지 서버 인증이 아니므로 여기서 막을 이유가 없다.
+function CORS(env, request) {
+  const list = String((env && env.ALLOW_ORIGIN) || '*').split(',').map(s => s.trim()).filter(Boolean);
+  const headers = {
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Agency-Token'
+  };
+  if (list.includes('*')) {
+    headers['Access-Control-Allow-Origin'] = '*';
+    return headers;
+  }
+  const origin = request && request.headers && request.headers.get('Origin');
+  if (origin && list.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Vary'] = 'Origin';
+  }
+  return headers;
+}
+const json = (env, request, body, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS(env, request) } });
+
+// 입력 길이 상한(방어적 검증). 초과 시 400.
+const MAX_STR = 200;            // 일반 문자열 필드(기관명·부서·연월·검색어·이메일 등)
+const MAX_PUBKEY = 8 * 1024;    // 공개키(SPKI base64)
+const MAX_CIPHERTEXT = 200 * 1024; // 암호 blob 직렬화(JSON.stringify) 바이트 근사
+const MAX_LEDGER_BLOB = 1024 * 1024; // 암호화 원장 백업 blob(base64 문자열) 상한 ~1MB
+function tooLong(v, max) { return typeof v === 'string' && v.length > max; }
+function validAmount(v) { const n = Number(v); return Number.isSafeInteger(n) && n >= 0 && n <= 1e13; }
+function validCount(v) { const n = Number(v); return Number.isSafeInteger(n) && n >= 0 && n <= 100000; }
 
 function uuid() {
   return (globalThis.crypto && crypto.randomUUID)
     ? crypto.randomUUID()
     : 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+// ── 서버측 소유 증명 인증(챌린지-응답)용 crypto 유틸. PROTOCOL.md §2와 동일한 인코딩. ──
+const subtle = globalThis.crypto.subtle;
+const encU = new TextEncoder(), decU = new TextDecoder();
+function b64(buf) { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
+function unb64(s) { const x = atob(s), u = new Uint8Array(x.length); for (let i = 0; i < x.length; i++) u[i] = x.charCodeAt(i); return u.buffer; }
+async function sha256hex(str) {
+  const h = await subtle.digest('SHA-256', encU.encode(str));
+  return Array.from(new Uint8Array(h)).map(v => v.toString(16).padStart(2, '0')).join('');
+}
+function randomB64(nBytes) {
+  const b = new Uint8Array(nBytes);
+  crypto.getRandomValues(b);
+  return b64(b.buffer);
+}
+function randomOtp6() {
+  const arr = new Uint32Array(1);
+  crypto.getRandomValues(arr);
+  return String(100000 + (arr[0] % 900000));
+}
+// RSA-OAEP-2048/SHA-256 평문 상한 = 256 - 2*32 - 2 = 190바이트. token_b64(44자)는 여유롭게 들어감.
+async function encryptChallenge(publicKeySpkiB64, tokenB64) {
+  const pub = await subtle.importKey('spki', unb64(publicKeySpkiB64), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+  const ct = await subtle.encrypt({ name: 'RSA-OAEP' }, pub, encU.encode(tokenB64));
+  return b64(ct);
+}
+// 보호 엔드포인트 공통 인증 검사: SHA-256(auth_token)이 해당 restaurant_id의 미만료 챌린지와
+// 일치하면 그 챌린지 행을 삭제(1회용)하고 true. 아니면 false → 호출부에서 401 auth_required.
+async function verifyAuth(store, restaurant_id, auth_token) {
+  if (!auth_token || !restaurant_id) return false;
+  const token_hash = await sha256hex(String(auth_token));
+  return await store.consumeChallenge(String(restaurant_id), token_hash);
+}
+// 기관 OTP 인증 토큰 검증(소비하지 않음 — 24시간 재사용 가능).
+async function verifyAgencyToken(store, token) {
+  if (!token) return null;
+  const token_hash = await sha256hex(String(token));
+  const row = await store.getAgencyToken(token_hash);
+  if (!row || row.expires_at < Date.now()) return null;
+  return row;
+}
+function isAgencyEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 0) return false;
+  const domain = e.slice(at + 1);
+  return domain === 'go.kr' || domain.endsWith('.go.kr') || domain === 'korea.kr' || domain.endsWith('.korea.kr');
+}
+
+// ── 레이트 리밋(베스트 에포트) ──
+// Cloudflare Workers Rate Limiting 바인딩은 wrangler.toml에서 `[[unsafe.bindings]]
+// type="ratelimit"`로 선언 가능하지만 이 프로젝트의 compatibility_date/플랜에서 안정적으로
+// 검증하지 못해(문서상으로도 계정·플랜 제약이 있어) per-isolate 메모리 Map으로 대체한다.
+// 한계(주석으로 명시): Workers는 요청마다 다른 isolate로 라우팅될 수 있어 이 Map은 전역 카운터가
+// 아니다 — 완전한 보장이 아닌 베스트 에포트. 운영에서는 Cloudflare 대시보드의
+// Rate Limiting Rule(요청 기반, 전역 집계)을 병행 적용할 것을 권장(PROTOCOL.md §6).
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 60;
+const rateLimitMap = new Map();
+function checkRateLimit(request) {
+  const ip = request.headers.get('CF-Connecting-IP');
+  if (!ip) return true; // 헤더 없는 요청(로컬·하니스·서버간 호출)은 대상 밖
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(ip, { windowStart: now, count: 1 });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= RATE_LIMIT_MAX;
 }
 
 // 공공 음식점 조회서비스 프록시 (지역 필수). 키는 서버 시크릿.
@@ -70,98 +165,241 @@ async function defaultSearch(env, region, q) {
 export async function handle(request, env, store) {
   const url = new URL(request.url);
   const path = url.pathname;
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS(env) });
+  const j = (body, status = 200) => json(env, request, body, status);
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS(env, request) });
+  if (!checkRateLimit(request)) return j({ error: 'rate_limited' }, 429);
 
   try {
     if (path === '/api/register-key' && request.method === 'POST') {
       const b = await request.json();
-      if (!b.restaurant_id || !b.public_key) return json(env, { error: 'restaurant_id·public_key 필요' }, 400);
-      await store.registerKey({
-        restaurant_id: String(b.restaurant_id),
-        restaurant_name: String(b.restaurant_name || ''),
-        public_key: String(b.public_key),
-        registered_at: Date.now()
-      });
-      return json(env, { ok: true });
+      if (!b.restaurant_id || !b.public_key) return j({ error: 'restaurant_id·public_key 필요' }, 400);
+      const restaurant_id = String(b.restaurant_id);
+      const restaurant_name = String(b.restaurant_name || '');
+      const public_key = String(b.public_key);
+      if (tooLong(restaurant_id, MAX_STR) || tooLong(restaurant_name, MAX_STR) || tooLong(public_key, MAX_PUBKEY))
+        return j({ error: '입력 길이 초과' }, 400);
+      // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id에 '다른' 공개키로 재등록하려면
+      // 기존 키 소유를 증명(챌린지-응답)해야 한다. 동일 키 재등록은 앱 재시도(네트워크 실패 등)일
+      // 수 있으므로 인증 없이 200(멱등). 최초 등록은 선착순으로 인증 불요.
+      const existing = await store.getPublicKey(restaurant_id);
+      if (existing) {
+        if (existing.public_key === public_key) return j({ ok: true });
+        const authed = await verifyAuth(store, restaurant_id, b.auth_token);
+        if (!authed) return j({ error: 'auth_required' }, 401);
+        await store.updateKey({ restaurant_id, restaurant_name, public_key, registered_at: Date.now() });
+        return j({ ok: true });
+      }
+      await store.registerKey({ restaurant_id, restaurant_name, public_key, registered_at: Date.now() });
+      return j({ ok: true });
     }
 
     if (path === '/api/public-key' && request.method === 'GET') {
       const id = url.searchParams.get('restaurant_id') || '';
       const row = await store.getPublicKey(id);
-      if (!row) return json(env, { error: '등록된 공개키 없음' }, 404);
-      return json(env, { restaurant_id: row.restaurant_id, public_key: row.public_key });
+      if (!row) return j({ error: '등록된 공개키 없음' }, 404);
+      return j({ restaurant_id: row.restaurant_id, public_key: row.public_key });
+    }
+
+    // 소유 증명 챌린지 발급. 등록된 공개키로 무작위 토큰을 봉인해 돌려주고,
+    // 해시만 서버에 5분 보관한다(평문 토큰은 저장하지 않음).
+    if (path === '/api/challenge' && request.method === 'POST') {
+      const b = await request.json();
+      const restaurant_id = String(b.restaurant_id || '');
+      if (!restaurant_id) return j({ error: 'restaurant_id 필요' }, 400);
+      if (tooLong(restaurant_id, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      const row = await store.getPublicKey(restaurant_id);
+      if (!row) return j({ error: '등록된 공개키 없음' }, 404);
+      const token_b64 = randomB64(32);
+      const token_hash = await sha256hex(token_b64);
+      await store.createChallenge({ restaurant_id, token_hash, expires_at: Date.now() + 5 * 60 * 1000 });
+      const challenge_ct = await encryptChallenge(row.public_key, token_b64);
+      return j({ challenge_ct });
     }
 
     // 음식점 주인 등록 해제 (선금 받기 중단). 공개키 삭제 → 담당자가 더는 전송 불가.
+    // 소유 증명(auth_token) 필요.
     if (path === '/api/deregister' && request.method === 'POST') {
       const b = await request.json();
-      if (!b.restaurant_id) return json(env, { error: 'restaurant_id 필요' }, 400);
-      await store.deregisterKey(String(b.restaurant_id));
-      return json(env, { ok: true });
+      const restaurant_id = String(b.restaurant_id || '');
+      if (!restaurant_id) return j({ error: 'restaurant_id 필요' }, 400);
+      const authed = await verifyAuth(store, restaurant_id, b.auth_token);
+      if (!authed) return j({ error: 'auth_required' }, 401);
+      await store.deregisterKey(restaurant_id);
+      return j({ ok: true });
     }
 
     // 담당자 웹: 후보 음식점 중 '선금 받기 가능(등록된)' 목록만 반환.
     if (path === '/api/registered' && request.method === 'GET') {
       const ids = (url.searchParams.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean);
-      return json(env, await store.registeredAmong(ids));
+      return j(await store.registeredAmong(ids));
     }
 
     if (path === '/api/restaurants' && request.method === 'GET') {
       const region = url.searchParams.get('region') || '';
       const q = url.searchParams.get('q') || '';
-      if (!region && !q) return json(env, { error: '지역 또는 가게 이름이 필요합니다' }, 400);
+      if (!region && !q) return j({ error: '지역 또는 가게 이름이 필요합니다' }, 400);
+      if (tooLong(region, MAX_STR) || tooLong(q, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
       const search = env.searchRestaurants || defaultSearch;
       const list = await search(env, region, q);
-      return json(env, list);
+      return j(list);
     }
 
     if (path === '/api/submit' && request.method === 'POST') {
       const b = await request.json();
       const s = b.summary, blob = b.blob, consent = b.consent;
-      if (!s || !blob || !blob.ciphertext) return json(env, { error: 'summary·blob 필요' }, 400);
+      if (!s || !blob || !blob.ciphertext) return j({ error: 'summary·blob 필요' }, 400);
       // 평문 PII 방어: ciphertext는 객체(암호 blob)여야 하며, 알려진 평문 필드가 오면 거부
       if (typeof blob.ciphertext !== 'object' || !blob.ciphertext.ct || !blob.ciphertext.encKey)
-        return json(env, { error: 'ciphertext 형식 오류(암호 blob 아님)' }, 400);
+        return j({ error: 'ciphertext 형식 오류(암호 blob 아님)' }, 400);
+      const institution = String(s.institution || ''), department = String(s.department || '');
+      const restaurant_id = String(s.restaurant_id || ''), restaurant_name = String(s.restaurant_name || '');
+      const year_month = String(s.year_month || ''), batch_hash = String(s.batch_hash || '');
+      const blob_restaurant_id = String(blob.restaurant_id || s.restaurant_id || '');
+      if ([institution, department, restaurant_id, restaurant_name, year_month, batch_hash, blob_restaurant_id]
+        .some(v => tooLong(v, MAX_STR)))
+        return j({ error: '입력 길이 초과' }, 400);
+      const ciphertextStr = JSON.stringify(blob.ciphertext);
+      if (ciphertextStr.length > MAX_CIPHERTEXT) return j({ error: '입력 길이 초과' }, 400);
+      // 금액/인원 검증: Number()|0 은 NaN·음수·32비트 랩어라운드를 조용히 0/오값으로 만드는 버그였음.
+      if (!validAmount(s.total_amount)) return j({ error: 'total_amount 유효하지 않음' }, 400);
+      if (!validCount(s.member_count)) return j({ error: 'member_count 유효하지 않음' }, 400);
+      const total_amount = Number(s.total_amount), member_count = Number(s.member_count);
+
+      // 기관 OTP 인증(단계적 활성화): REQUIRE_AGENCY_AUTH="1"이면 X-Agency-Token 필수.
+      // 아니면 토큰이 없어도 허용하되, 있으면 검증 후 consent_log에 이메일 '해시'만 남긴다.
+      const agencyToken = request.headers.get('X-Agency-Token') || '';
+      let agencyRow = null;
+      if (agencyToken) agencyRow = await verifyAgencyToken(store, agencyToken);
+      if (env.REQUIRE_AGENCY_AUTH === '1' && !agencyRow) return j({ error: 'agency_auth_required' }, 401);
+
+      // 중복 제출 방지(멱등): 동일 (restaurant_id, batch_hash) 조합이 이미 있으면 새로 만들지 않고 기존 id 반환.
+      if (batch_hash) {
+        const dup = await store.findSummaryByBatch(restaurant_id, batch_hash);
+        if (dup) return j({ summary_id: dup.id });
+      }
+
       const summary_id = uuid();
       await store.insertSummary({
         id: summary_id,
-        institution: String(s.institution || ''), department: String(s.department || ''),
-        restaurant_id: String(s.restaurant_id || ''), restaurant_name: String(s.restaurant_name || ''),
-        year_month: String(s.year_month || ''),
-        total_amount: Number(s.total_amount) | 0, member_count: Number(s.member_count) | 0,
-        batch_hash: String(s.batch_hash || ''), status: 'PENDING', created_at: Date.now()
+        institution, department, restaurant_id, restaurant_name, year_month,
+        total_amount, member_count,
+        batch_hash, status: 'PENDING', created_at: Date.now()
       });
       await store.insertBlob({
-        id: uuid(), summary_id, restaurant_id: String(blob.restaurant_id || s.restaurant_id || ''),
-        ciphertext: JSON.stringify(blob.ciphertext), delivered: 0, created_at: Date.now()
+        id: uuid(), summary_id, restaurant_id: blob_restaurant_id,
+        ciphertext: ciphertextStr, delivered: 0, created_at: Date.now()
       });
-      if (consent) await store.insertConsent({
-        id: uuid(), institution: String(consent.institution || ''),
-        department: String(consent.department || ''), year_month: String(consent.year_month || ''),
-        consented_at: Date.now()
-      });
-      return json(env, { summary_id });
+      if (consent) {
+        const cInstitution = String(consent.institution || ''), cDepartment = String(consent.department || '');
+        const cYearMonth = String(consent.year_month || '');
+        if ([cInstitution, cDepartment, cYearMonth].some(v => tooLong(v, MAX_STR)))
+          return j({ error: '입력 길이 초과' }, 400);
+        await store.insertConsent({
+          id: uuid(), institution: cInstitution, department: cDepartment, year_month: cYearMonth,
+          agency_email_hash: agencyRow ? await sha256hex(agencyRow.email) : null,
+          consented_at: Date.now()
+        });
+      }
+      return j({ summary_id });
     }
 
     if (path === '/api/inbox' && request.method === 'GET') {
       const id = url.searchParams.get('restaurant_id') || '';
-      if (!id) return json(env, { error: 'restaurant_id 필요' }, 400);
+      if (!id) return j({ error: 'restaurant_id 필요' }, 400);
       const items = await store.inbox(id);
-      return json(env, items);
+      return j(items);
     }
 
     if (path === '/api/approve' && request.method === 'POST') {
       const b = await request.json();
       const status = b.status === 'APPROVED' ? 'APPROVED' : b.status === 'REJECTED' ? 'REJECTED' : null;
-      if (!b.summary_id || !status) return json(env, { error: 'summary_id·status 필요' }, 400);
-      await store.setStatus(String(b.summary_id), status);
-      if (status === 'APPROVED') await store.markDelivered(String(b.summary_id));
-      return json(env, { ok: true });
+      if (!b.summary_id || !status || !b.restaurant_id) return j({ error: 'summary_id·status·restaurant_id 필요' }, 400);
+      const summary_id = String(b.summary_id), restaurant_id = String(b.restaurant_id);
+      const existing = await store.getSummary(summary_id);
+      if (!existing) return j({ error: 'not_found' }, 404);
+      if (existing.restaurant_id !== restaurant_id) return j({ error: 'restaurant_mismatch' }, 403);
+      // 소유 증명(auth_token) 필요 — 챌린지를 발급받은 그 음식점만 승인/거절 가능.
+      const authed = await verifyAuth(store, restaurant_id, b.auth_token);
+      if (!authed) return j({ error: 'auth_required' }, 401);
+      // 상태 전이 가드: PENDING → (APPROVED|REJECTED) 만 허용. 이미 처리된 건 재처리 방지.
+      const changed = await store.setStatus(summary_id, status);
+      if (!changed) return j({ error: 'already_processed' }, 409);
+      if (status === 'APPROVED') await store.markDelivered(summary_id);
+      return j({ ok: true });
     }
 
-    return json(env, { error: 'not found' }, 404);
+    // ── 암호화 원장 클라우드 백업 (zero-knowledge). blob은 클라이언트가 자기 공개키로
+    // 하이브리드 암호화한 base64 — 서버는 복호화할 수 없다. 소유 증명 필요. ──
+    if (path === '/api/ledger-backup' && request.method === 'POST') {
+      const b = await request.json();
+      const restaurant_id = String(b.restaurant_id || '');
+      const blob = b.blob, blob_hash = String(b.blob_hash || '');
+      if (!restaurant_id || typeof blob !== 'string' || !blob) return j({ error: 'restaurant_id·blob 필요' }, 400);
+      if (tooLong(restaurant_id, MAX_STR) || tooLong(blob_hash, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      if (blob.length > MAX_LEDGER_BLOB) return j({ error: 'blob 크기 초과(1MB)' }, 400);
+      const authed = await verifyAuth(store, restaurant_id, b.auth_token);
+      if (!authed) return j({ error: 'auth_required' }, 401);
+      await store.upsertLedgerBackup({ restaurant_id, blob, blob_hash, updated_at: Date.now() });
+      return j({ ok: true });
+    }
+
+    if (path === '/api/ledger-backup/get' && request.method === 'POST') {
+      const b = await request.json();
+      const restaurant_id = String(b.restaurant_id || '');
+      if (!restaurant_id) return j({ error: 'restaurant_id 필요' }, 400);
+      const authed = await verifyAuth(store, restaurant_id, b.auth_token);
+      if (!authed) return j({ error: 'auth_required' }, 401);
+      const row = await store.getLedgerBackup(restaurant_id);
+      if (!row) return j({ error: 'not_found' }, 404);
+      return j({ blob: row.blob, blob_hash: row.blob_hash, updated_at: row.updated_at });
+    }
+
+    // ── 기관 OTP 인증 인프라 (단계적 활성화). 실제 이메일 발송은 아직 미구현. ──
+    if (path === '/api/agency/request-otp' && request.method === 'POST') {
+      const b = await request.json();
+      const email = String(b.email || '').trim();
+      if (!email) return j({ error: 'email 필요' }, 400);
+      if (tooLong(email, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      if (!isAgencyEmail(email)) return j({ error: 'invalid_domain' }, 400);
+      const now = Date.now();
+      const existing = await store.getAgencyOtp(email);
+      if (existing && existing.created_at && now - existing.created_at < 60 * 1000)
+        return j({ error: 'rate_limited' }, 429);
+      const otp = randomOtp6();
+      const otp_hash = await sha256hex(otp);
+      await store.upsertAgencyOtp({ email, otp_hash, expires_at: now + 10 * 60 * 1000, attempts: 0, created_at: now });
+      // TODO: EMAIL 바인딩 연결 — Cloudflare Email Sending/Workers 이메일 라우팅으로 OTP를
+      // 실제 발송하도록 교체(PROTOCOL.md §7 업그레이드 경로 참조). 현재는 AUTH_MODE=dev일 때만
+      // 응답에 평문 OTP를 포함(개발·파일럿 전용, 운영에서는 절대 노출 금지).
+      if (env.AUTH_MODE === 'dev') return j({ ok: true, dev_otp: otp });
+      return j({ ok: true });
+    }
+
+    if (path === '/api/agency/verify-otp' && request.method === 'POST') {
+      const b = await request.json();
+      const email = String(b.email || '').trim();
+      const otp = String(b.otp || '');
+      if (!email || !otp) return j({ error: 'email·otp 필요' }, 400);
+      if (tooLong(email, MAX_STR) || tooLong(otp, 20)) return j({ error: '입력 길이 초과' }, 400);
+      const row = await store.getAgencyOtp(email);
+      if (!row || row.expires_at < Date.now()) return j({ error: 'invalid_otp' }, 401);
+      if (row.attempts >= 5) return j({ error: 'too_many_attempts' }, 429);
+      const otp_hash = await sha256hex(otp);
+      if (otp_hash !== row.otp_hash) {
+        await store.incrementAgencyOtpAttempts(email);
+        return j({ error: 'invalid_otp' }, 401);
+      }
+      await store.deleteAgencyOtp(email);
+      const token = randomB64(32);
+      const token_hash = await sha256hex(token);
+      await store.createAgencyToken({ token_hash, email, expires_at: Date.now() + 24 * 60 * 60 * 1000 });
+      return j({ token });
+    }
+
+    return j({ error: 'not found' }, 404);
   } catch (e) {
-    return json(env, { error: String((e && e.message) || e) }, 500);
+    console.error(e);
+    return json(env, request, { error: 'internal' }, 500);
   }
 }
 
@@ -169,8 +407,15 @@ export async function handle(request, env, store) {
 export function makeD1Store(DB) {
   return {
     async registerKey(r) {
-      await DB.prepare('INSERT INTO public_key_registry (restaurant_id,restaurant_name,public_key,registered_at) VALUES (?,?,?,?) ON CONFLICT(restaurant_id) DO UPDATE SET restaurant_name=excluded.restaurant_name, public_key=excluded.public_key, registered_at=excluded.registered_at')
+      // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id는 handle()에서 사전 차단하므로
+      // 여기서는 신규 삽입만 수행(다른 키로의 재등록은 updateKey를 통해서만 가능).
+      await DB.prepare('INSERT INTO public_key_registry (restaurant_id,restaurant_name,public_key,registered_at) VALUES (?,?,?,?)')
         .bind(r.restaurant_id, r.restaurant_name, r.public_key, r.registered_at).run();
+    },
+    async updateKey(r) {
+      // 소유 증명(챌린지-응답) 통과 후에만 handle()에서 호출됨.
+      await DB.prepare('UPDATE public_key_registry SET restaurant_name=?, public_key=?, registered_at=? WHERE restaurant_id=?')
+        .bind(r.restaurant_name, r.public_key, r.registered_at, r.restaurant_id).run();
     },
     async getPublicKey(id) {
       return await DB.prepare('SELECT restaurant_id,public_key FROM public_key_registry WHERE restaurant_id=?').bind(id).first();
@@ -193,8 +438,15 @@ export function makeD1Store(DB) {
         .bind(b.id, b.summary_id, b.restaurant_id, b.ciphertext, b.delivered, b.created_at).run();
     },
     async insertConsent(c) {
-      await DB.prepare('INSERT INTO consent_log (id,institution,department,year_month,consented_at) VALUES (?,?,?,?,?)')
-        .bind(c.id, c.institution, c.department, c.year_month, c.consented_at).run();
+      await DB.prepare('INSERT INTO consent_log (id,institution,department,year_month,agency_email_hash,consented_at) VALUES (?,?,?,?,?,?)')
+        .bind(c.id, c.institution, c.department, c.year_month, c.agency_email_hash || null, c.consented_at).run();
+    },
+    async findSummaryByBatch(restaurant_id, batch_hash) {
+      return await DB.prepare('SELECT id FROM deposit_summary WHERE restaurant_id=? AND batch_hash=? LIMIT 1')
+        .bind(restaurant_id, batch_hash).first();
+    },
+    async getSummary(id) {
+      return await DB.prepare('SELECT id, restaurant_id, status FROM deposit_summary WHERE id=?').bind(id).first();
     },
     async inbox(restaurant_id) {
       const r = await DB.prepare("SELECT s.id as summary_id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.batch_hash, s.status, b.ciphertext FROM deposit_summary s JOIN encrypted_blob b ON b.summary_id=s.id WHERE s.restaurant_id=? AND s.status='PENDING' ORDER BY s.created_at").bind(restaurant_id).all();
@@ -205,10 +457,70 @@ export function makeD1Store(DB) {
       }));
     },
     async setStatus(summary_id, status) {
-      await DB.prepare('UPDATE deposit_summary SET status=? WHERE id=?').bind(status, summary_id).run();
+      // 상태 전이 가드: PENDING인 건만 전이 가능. 영향 row 0이면 이미 처리된 것.
+      // processed_at: TTL 정리(30일) 기준 시각.
+      const r = await DB.prepare("UPDATE deposit_summary SET status=?, processed_at=? WHERE id=? AND status='PENDING'")
+        .bind(status, Date.now(), summary_id).run();
+      return !!(r && r.meta && r.meta.changes > 0);
     },
     async markDelivered(summary_id) {
       await DB.prepare('UPDATE encrypted_blob SET delivered=1 WHERE summary_id=?').bind(summary_id).run();
+    },
+    // ── 소유 증명 챌린지 ──
+    async createChallenge(c) {
+      await DB.prepare('INSERT INTO auth_challenge (restaurant_id,token_hash,expires_at) VALUES (?,?,?)')
+        .bind(c.restaurant_id, c.token_hash, c.expires_at).run();
+    },
+    async consumeChallenge(restaurant_id, token_hash) {
+      // 단일 DELETE로 조회+소비를 원자적으로 수행(경쟁 상태 방지).
+      const now = Date.now();
+      const r = await DB.prepare('DELETE FROM auth_challenge WHERE restaurant_id=? AND token_hash=? AND expires_at>?')
+        .bind(restaurant_id, token_hash, now).run();
+      return !!(r && r.meta && r.meta.changes > 0);
+    },
+    // ── 암호화 원장 백업 ──
+    async upsertLedgerBackup(b) {
+      await DB.prepare('INSERT INTO ledger_backup (restaurant_id,blob,blob_hash,updated_at) VALUES (?,?,?,?) ON CONFLICT(restaurant_id) DO UPDATE SET blob=excluded.blob, blob_hash=excluded.blob_hash, updated_at=excluded.updated_at')
+        .bind(b.restaurant_id, b.blob, b.blob_hash, b.updated_at).run();
+    },
+    async getLedgerBackup(restaurant_id) {
+      return await DB.prepare('SELECT blob, blob_hash, updated_at FROM ledger_backup WHERE restaurant_id=?').bind(restaurant_id).first();
+    },
+    // ── 기관 OTP ──
+    async getAgencyOtp(email) {
+      return await DB.prepare('SELECT email, otp_hash, expires_at, attempts, created_at FROM agency_otp WHERE email=?').bind(email).first();
+    },
+    async upsertAgencyOtp(o) {
+      await DB.prepare('DELETE FROM agency_otp WHERE email=?').bind(o.email).run();
+      await DB.prepare('INSERT INTO agency_otp (email,otp_hash,expires_at,attempts,created_at) VALUES (?,?,?,?,?)')
+        .bind(o.email, o.otp_hash, o.expires_at, o.attempts, o.created_at).run();
+    },
+    async incrementAgencyOtpAttempts(email) {
+      await DB.prepare('UPDATE agency_otp SET attempts=attempts+1 WHERE email=?').bind(email).run();
+    },
+    async deleteAgencyOtp(email) {
+      await DB.prepare('DELETE FROM agency_otp WHERE email=?').bind(email).run();
+    },
+    async createAgencyToken(t) {
+      await DB.prepare('INSERT INTO agency_token (token_hash,email,expires_at) VALUES (?,?,?)')
+        .bind(t.token_hash, t.email, t.expires_at).run();
+    },
+    async getAgencyToken(token_hash) {
+      return await DB.prepare('SELECT email, expires_at FROM agency_token WHERE token_hash=?').bind(token_hash).first();
+    },
+    // ── TTL 정리(개인정보 최소화 목적). cron에서 호출. ──
+    async cleanupTTL(now) {
+      const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+      const rows = await DB.prepare("SELECT id FROM deposit_summary WHERE status IN ('APPROVED','REJECTED') AND processed_at IS NOT NULL AND processed_at < ?").bind(cutoff).all();
+      const ids = (rows.results || []).map(r => r.id);
+      for (const id of ids) {
+        await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id=?').bind(id).run();
+        await DB.prepare('DELETE FROM deposit_summary WHERE id=?').bind(id).run();
+      }
+      await DB.prepare('DELETE FROM auth_challenge WHERE expires_at<?').bind(now).run();
+      await DB.prepare('DELETE FROM agency_otp WHERE expires_at<?').bind(now).run();
+      await DB.prepare('DELETE FROM agency_token WHERE expires_at<?').bind(now).run();
+      return { deletedSummaries: ids.length };
     }
   };
 }
@@ -217,28 +529,89 @@ export function makeD1Store(DB) {
 export default {
   async fetch(request, env) {
     return handle(request, env, makeD1Store(env.DB));
+  },
+  // 개인정보 최소화 목적 TTL cron: 처리 완료(APPROVED/REJECTED) 후 30일 지난 집계·암호 blob과
+  // 만료된 인증 챌린지/기관 OTP/기관 토큰을 정리한다. 서버는 zero-knowledge이므로 원장 진실은
+  // 항상 음식점 기기에 있다 — 이 정리는 서버 보관 데이터를 최소화할 뿐 데이터 손실이 아니다.
+  async scheduled(event, env, ctx) {
+    const store = makeD1Store(env.DB);
+    ctx.waitUntil((async () => {
+      const result = await store.cleanupTTL(Date.now());
+      console.log('TTL cleanup', result);
+    })());
   }
 };
 
 // ── 메모리 store (테스트) ──
 export function makeMemoryStore() {
   const keys = new Map(), summaries = [], blobs = [], consents = [];
+  const challenges = [], ledgerBackups = new Map(), agencyOtps = new Map(), agencyTokens = new Map();
   return {
-    _dump: () => ({ keys, summaries, blobs, consents }),
+    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, agencyOtps, agencyTokens }),
+    // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id는 handle()에서 사전 차단하므로
+    // 여기서는 신규 삽입만 수행(다른 키로의 재등록은 updateKey를 통해서만 가능).
     async registerKey(r) { keys.set(r.restaurant_id, r); },
+    async updateKey(r) { keys.set(r.restaurant_id, r); },
     async getPublicKey(id) { return keys.get(id) || null; },
     async deregisterKey(id) { keys.delete(id); },
     async registeredAmong(ids) { return ids.filter(id => keys.has(id)); },
     async insertSummary(s) { summaries.push(s); },
     async insertBlob(b) { blobs.push(b); },
     async insertConsent(c) { consents.push(c); },
+    async findSummaryByBatch(restaurant_id, batch_hash) {
+      const s = summaries.find(x => x.restaurant_id === restaurant_id && x.batch_hash === batch_hash);
+      return s ? { id: s.id } : null;
+    },
+    async getSummary(id) {
+      const s = summaries.find(x => x.id === id);
+      return s ? { id: s.id, restaurant_id: s.restaurant_id, status: s.status } : null;
+    },
     async inbox(restaurant_id) {
       return summaries.filter(s => s.restaurant_id === restaurant_id && s.status === 'PENDING').map(s => {
         const b = blobs.find(x => x.summary_id === s.id);
         return { summary_id: s.id, summary: { institution: s.institution, department: s.department, restaurant_id: s.restaurant_id, restaurant_name: s.restaurant_name, year_month: s.year_month, total_amount: s.total_amount, member_count: s.member_count, batch_hash: s.batch_hash }, ciphertext: b ? JSON.parse(b.ciphertext) : null, status: s.status };
       });
     },
-    async setStatus(id, status) { const s = summaries.find(x => x.id === id); if (s) s.status = status; },
-    async markDelivered(id) { const b = blobs.find(x => x.summary_id === id); if (b) b.delivered = 1; }
+    // 상태 전이 가드: PENDING인 건만 전이 가능. 처리 성공 여부(boolean)를 반환.
+    async setStatus(id, status) {
+      const s = summaries.find(x => x.id === id && x.status === 'PENDING');
+      if (!s) return false;
+      s.status = status;
+      s.processed_at = Date.now();
+      return true;
+    },
+    async markDelivered(id) { const b = blobs.find(x => x.summary_id === id); if (b) b.delivered = 1; },
+    // ── 소유 증명 챌린지 ──
+    async createChallenge(c) { challenges.push({ ...c }); },
+    async consumeChallenge(restaurant_id, token_hash) {
+      const now = Date.now();
+      const idx = challenges.findIndex(c => c.restaurant_id === restaurant_id && c.token_hash === token_hash && c.expires_at > now);
+      if (idx === -1) return false;
+      challenges.splice(idx, 1);
+      return true;
+    },
+    // ── 암호화 원장 백업 ──
+    async upsertLedgerBackup(b) { ledgerBackups.set(b.restaurant_id, b); },
+    async getLedgerBackup(restaurant_id) { return ledgerBackups.get(restaurant_id) || null; },
+    // ── 기관 OTP ──
+    async getAgencyOtp(email) { return agencyOtps.get(email) || null; },
+    async upsertAgencyOtp(o) { agencyOtps.set(o.email, o); },
+    async incrementAgencyOtpAttempts(email) { const o = agencyOtps.get(email); if (o) o.attempts++; },
+    async deleteAgencyOtp(email) { agencyOtps.delete(email); },
+    async createAgencyToken(t) { agencyTokens.set(t.token_hash, t); },
+    async getAgencyToken(token_hash) { return agencyTokens.get(token_hash) || null; },
+    // ── TTL 정리 ──
+    async cleanupTTL(now) {
+      const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+      const toDelete = summaries.filter(s => (s.status === 'APPROVED' || s.status === 'REJECTED') && s.processed_at && s.processed_at < cutoff);
+      toDelete.forEach(s => {
+        const bi = blobs.findIndex(b => b.summary_id === s.id); if (bi !== -1) blobs.splice(bi, 1);
+        const si = summaries.indexOf(s); if (si !== -1) summaries.splice(si, 1);
+      });
+      for (let i = challenges.length - 1; i >= 0; i--) if (challenges[i].expires_at < now) challenges.splice(i, 1);
+      for (const [email, o] of agencyOtps) if (o.expires_at < now) agencyOtps.delete(email);
+      for (const [th, t] of agencyTokens) if (t.expires_at < now) agencyTokens.delete(th);
+      return { deletedSummaries: toDelete.length };
+    }
   };
 }

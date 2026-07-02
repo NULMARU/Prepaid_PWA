@@ -2,19 +2,30 @@ name = "prepaid-relay"
 main = "src/worker.js"
 compatibility_date = "2026-06-01"
 
-# 담당자 웹/음식점 앱 출처. 배포 시 실제 도메인으로 좁히세요(보안).
+# 담당자 웹/음식점 앱 출처(콤마 구분 화이트리스트). Origin 헤더 없는 요청(curl 등 서버간 호출)은 차단되지 않음.
 [vars]
-ALLOW_ORIGIN = "*"
+ALLOW_ORIGIN = "https://nulmaru.github.io,https://prepaid-agency.pages.dev"
 # data.go.kr 행정안전부_식품_일반음식점 조회서비스 (/info 오퍼레이션)
 PUBLIC_API_BASE = "https://apis.data.go.kr/1741000/general_restaurants/info"
 PUBLIC_API_REGION_PARAM = "cond[OPN_ATMY_GRP_CD::EQ]"   # 개방자치단체코드(지역)
 PUBLIC_API_NAME_PARAM = "cond[BPLC_NM::LIKE]"           # 사업장명 포함 검색
+# 개발·파일럿 전용: "dev"면 /api/agency/request-otp 응답에 평문 dev_otp를 포함한다.
+# 운영 배포에서는 반드시 제거하거나 "dev" 이외 값으로 바꿀 것(OTP 우회 방지).
+AUTH_MODE = "dev"
+# "1"이면 /api/submit이 유효한 X-Agency-Token 헤더를 요구한다. 기관 이메일 발송 인프라
+# 준비 전까지는 "0"(비활성)으로 두고, 준비되면 "1"로 전환(단계적 활성화).
+REQUIRE_AGENCY_AUTH = "0"
 
 # D1 바인딩. 아래 database_id는 `wrangler d1 create prepaid-relay` 후 출력값으로 교체.
 [[d1_databases]]
 binding = "DB"
 database_name = "prepaid-relay"
 database_id = "13cf43c0-5d02-45bd-b00e-032285d5323c"
+
+# TTL 정리 cron: 매일 UTC 18:17(KST 새벽 03:17)에 실행 — 처리 완료 30일 경과 데이터,
+# 만료된 인증 챌린지/기관 OTP/기관 토큰을 삭제(개인정보 최소화 목적).
+[triggers]
+crons = ["17 18 * * *"]
 
 # 비밀키는 파일에 두지 말고 CLI로 등록 (data.go.kr "Decoding(일반)" 키 사용):
 #   wrangler secret put PUBLIC_API_KEY

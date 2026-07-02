@@ -43,14 +43,19 @@ batch_hash = SHA-256(hex)
 
 | 메서드·경로 | 요청 | 응답 | 비고 |
 |---|---|---|---|
-| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key}` | `{ok:true}` | 공개키 upsert (음식점 등록) |
-| `POST /api/deregister` | `{restaurant_id}` | `{ok:true}` | 음식점 주인 등록 해제(선금 받기 중단) → 공개키 삭제 |
+| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?}` | `{ok:true}` | 공개키 등록. 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1) |
+| `POST /api/challenge` | `{restaurant_id}` | `{challenge_ct}` / 404 | 소유 증명 챌린지 발급(§4.1) |
+| `POST /api/deregister` | `{restaurant_id, auth_token}` | `{ok:true}` / 401 | 음식점 주인 등록 해제(선금 받기 중단) → 공개키 삭제. 인증 필요 |
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key}` / 404 | 담당자 웹이 암호화 전 조회 |
 | `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` | 담당자 웹: '선금 받기 가능' 표시용 |
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
-| `POST /api/submit` | `{summary, blob, consent}` (아래) | `{summary_id}` | 부서·음식점 단위 1건 |
+| `POST /api/submit` | `{summary, blob, consent}` (아래) + 선택 헤더 `X-Agency-Token` | `{summary_id}` | 부서·음식점 단위 1건(§4.3) |
 | `GET /api/inbox?restaurant_id=` | — | `[{summary_id, summary, ciphertext, status}]` | 음식점 앱 폴링(PENDING만) |
-| `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED"}` | `{ok:true}` | 승인/거절, blob delivered 표시 |
+| `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절, blob delivered 표시. 인증 필요 |
+| `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash}` | `{ok:true}` | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요 |
+| `POST /api/ledger-backup/get` | `{restaurant_id, auth_token}` | `{blob, blob_hash, updated_at}` / 404 | 백업 조회. 인증 필요 |
+| `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?}` | 기관 이메일 OTP 발급(§4.4) |
+| `POST /api/agency/verify-otp` | `{email, otp}` | `{token}` / 401 | OTP 검증 → 24시간 기관 토큰 발급 |
 
 `POST /api/submit` 본문:
 ```json
@@ -63,6 +68,74 @@ batch_hash = SHA-256(hex)
 }
 ```
 
+### 4.1 소유 증명 인증 (챌린지-응답)
+
+승인/거절, 등록 해제, 다른 키로의 재등록, 원장 백업 업/다운로드는 "그 음식점 개인키를 실제로
+갖고 있다"는 증명(`auth_token`)을 요구한다. 흐름:
+
+1. 클라이언트가 `POST /api/challenge {restaurant_id}` 호출.
+2. 서버: 등록된 공개키가 있으면 32바이트 무작위 토큰을 생성해 `token_b64=base64(토큰)`으로 만들고,
+   `SHA-256(token_b64)`만 D1(`auth_challenge`)에 5분 TTL로 저장(평문 토큰은 저장하지 않음).
+   응답으로 `challenge_ct = base64(RSA-OAEP-2048/SHA-256(UTF8(token_b64), 등록된 공개키))`를 반환.
+   (RSA-OAEP-2048 평문 상한 190바이트 — `token_b64`는 44자이므로 직접 봉인 가능, 하이브리드 불필요.)
+3. 클라이언트가 자신의 개인키로 `challenge_ct`를 복호화해 `token_b64` 문자열을 얻고, 이를 그대로
+   보호 엔드포인트의 `auth_token` 필드에 실어 보낸다.
+4. 서버는 `SHA-256(auth_token)`이 해당 `restaurant_id`의 미만료 챌린지와 일치하면 그 챌린지 행을
+   즉시 삭제(1회용)하고 요청을 진행한다. 불일치·만료·미제공 시 `401 {error:'auth_required'}`.
+
+`POST /api/approve`는 body에 `restaurant_id`도 함께 받아 summary의 `restaurant_id`와 일치하는지
+검증한다(불일치 시 `403 {error:'restaurant_mismatch'}`) — 다른 음식점의 챌린지로 엉뚱한 summary를
+승인하는 것을 막기 위함.
+
+### 4.2 암호화 원장 클라우드 백업
+
+음식점 기기가 유실되어도 복구할 수 있도록, 클라이언트가 **자기 공개키로 하이브리드 암호화한**
+원장 blob(base64, 최대 1MB)을 서버에 보관할 수 있다. 서버는 이 blob을 복호화할 수 없다
+(zero-knowledge 불변식 유지 — §0). `restaurant_id`당 최신본 1행만 유지(upsert).
+
+### 4.3 `/api/submit`과 기관 인증
+
+`env.REQUIRE_AGENCY_AUTH==='1'`이면 `X-Agency-Token` 헤더가 유효한 기관 토큰이어야 하며,
+없거나 무효하면 `401 {error:'agency_auth_required'}`. 비활성(`'0'`, 기본값)이면 토큰 없이도
+제출을 허용하되, 유효한 토큰이 있으면 검증 후 `consent_log.agency_email_hash`에 **이메일의
+SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음).
+
+### 4.4 기관 OTP 인증
+
+- `POST /api/agency/request-otp {email}`: `.go.kr`/`.korea.kr` 도메인만 허용. 6자리 OTP를
+  생성해 해시만 저장(10분 TTL, 5회 시도 제한, 이메일당 60초 재요청 제한). 실제 이메일 발송은
+  **이번 구현에 포함되지 않는다** — `worker.js`의 `// TODO: EMAIL 바인딩 연결` 참조.
+  업그레이드 경로: Cloudflare Email Sending(또는 Email Routing) 바인딩을 `wrangler.toml`에
+  추가하고, OTP 생성 직후 발송 코드로 교체한다. `env.AUTH_MODE==='dev'`인 동안에만 응답에
+  `dev_otp`(평문)를 포함해 이메일 없이 개발·파일럿 테스트가 가능하다 — **운영 전환 시 반드시
+  `AUTH_MODE`를 `dev`가 아닌 값으로 바꿀 것.**
+- `POST /api/agency/verify-otp {email, otp}`: 성공 시 32바이트 토큰 발급, 24시간 유효
+  (`agency_token`). 이 토큰이 `X-Agency-Token` 헤더 값이 된다.
+
 ## 5. 상태 머신
 `deposit_summary.status`: `PENDING` →(approve)→ `APPROVED` / `REJECTED`.
 거절 시 음식점 앱은 복호화하지 않고 폐기. 승인 시에만 blob 복호화.
+`processed_at`(상태 전이 시각)은 TTL 정리(§6)의 기준이 된다.
+
+## 6. TTL 정리(cron) · 레이트 리밋
+
+- **TTL cron** (`wrangler.toml` `[triggers] crons`, 매일 UTC 18:17=KST 새벽 03:17): 개인정보
+  최소화 목적으로 ① `APPROVED`/`REJECTED` 후 30일 지난 `deposit_summary`+연결된
+  `encrypted_blob`을 삭제, ② 만료된 `auth_challenge`/`agency_otp`/`agency_token`을 삭제.
+  서버는 zero-knowledge이며 원장 진실은 항상 음식점 기기에 있으므로, 이 정리는 서버 보관
+  데이터를 줄이는 것일 뿐 데이터 손실이 아니다.
+- **레이트 리밋(베스트 에포트)**: `CF-Connecting-IP`당 분당 60회로 per-isolate 메모리 Map을
+  사용해 제한한다(초과 시 `429 {error:'rate_limited'}`). Cloudflare Workers는 요청마다 다른
+  isolate로 라우팅될 수 있어 이 Map은 전역 카운터가 아니며 **완전한 보장이 아니다**. 운영에서는
+  Cloudflare 대시보드의 Rate Limiting Rule(요청 기반, 전역 집계)을 **병행 적용**할 것을 권장한다.
+
+## 7. 컴플라이언스
+
+- **이 서버는 자금 이동·결제·정산 기능이 없으며, 앞으로도 추가하지 않는다.** 계좌번호·카드번호·
+  이체 API 연동, 잔액 보관, 정산 자동화 등은 전자금융거래법(전금법) 상 별도 인허가가 필요한
+  영역이므로 범위 밖이다. 이 서버가 하는 일은 오직 (1) 공개키 등록/조회, (2) 암호문 중계,
+  (3) 소유 증명 인증, (4) 최소한의 집계(총액·인원수) 보관뿐이다.
+- **암호문 외 개인정보를 저장하지 않는다.** 직원명·개인별 금액·전화번호는 서버 어디에도
+  평문으로 존재하지 않는다(§0). 기관 OTP 인증의 이메일도 해시로만 남긴다(§4.3).
+- 원장의 진실은 항상 음식점 기기에 있다(로컬 우선). 서버는 전송 중계와 백업 보관소일 뿐,
+  권위 있는 원장이 아니다.
