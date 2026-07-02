@@ -51,10 +51,11 @@ tr.err{background:#fdecea}
 .mode-card .rec{position:absolute;top:-10px;right:10px;background:var(--ok);color:#fff;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700}
 .group-card{border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px}
 .group-card .btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.group-card .btns button{min-height:36px;font-size:13px;flex:0 0 auto;padding:0 12px}
+.group-card .btns button,.group-card .btns a{min-height:36px;font-size:13px;flex:0 0 auto;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:#1f2937}
 .qr-wrap{margin-top:10px;text-align:center}
 .qr-wrap img{width:min(320px,90%);height:auto;image-rendering:pixelated;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px}
 .done-note{color:var(--ok);font-weight:700;font-size:13px;margin-top:6px}
+.contact-note{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -436,16 +437,22 @@ function showConsent(){
   $('agree').focus();
 }
 async function getPubKey(restaurant_id,cache){
-  let pub=cache.get(restaurant_id);
-  if(!pub){
+  let entry=cache.get(restaurant_id);
+  if(!entry){
     const r=await fetch(srv()+'/api/public-key?restaurant_id='+encodeURIComponent(restaurant_id));
     if(!r.ok)throw new Error('공개키 없음(음식점 앱에서 먼저 등록 필요)');
     const j=await r.json();
-    pub=await importPub(j.public_key);
-    cache.set(restaurant_id,pub);
+    const pub=await importPub(j.public_key);
+    // 구서버 호환: contact 필드가 없으면(undefined) null로 취급
+    const contact=(j&&typeof j.contact==='object'&&j.contact)?j.contact:null;
+    entry={pub,contact};
+    cache.set(restaurant_id,entry);
   }
-  return pub;
+  return entry;
 }
+// 연락처 형식 재검증(서버 응답을 그대로 신뢰하지 않음) — kakao_link는 open.kakao.com 시작만, email은 단순 형식만 허용
+function isValidKakaoLink(v){return typeof v==='string'&&/^https:\/\/open\.kakao\.com\//.test(v)}
+function isValidEmail(v){return typeof v==='string'&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
 // ── 5-A. 바로 보내기 (기존 /api/submit 경로) ──
 async function doSubmitRelay(){
   if(!navigator.onLine){alert('인터넷 연결을 확인해 주세요.');return}
@@ -455,8 +462,8 @@ async function doSubmitRelay(){
   const pubCache=new Map();let okN=0,failN=0;
   for(const g of groups.values()){
     try{
-      const pub=await getPubKey(g.restaurant_id,pubCache);
-      const blob=await encryptBlob(g.items,pub);
+      const entry=await getPubKey(g.restaurant_id,pubCache);
+      const blob=await encryptBlob(g.items,entry.pub);
       const bh=await batchHash(g.items);
       const total=g.items.reduce((s,i)=>s+i.amount,0);
       const body={summary:{institution:g.institution,department:g.department,restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,year_month,total_amount:total,member_count:g.items.length,batch_hash:bh},blob:{restaurant_id:g.restaurant_id,ciphertext:blob},consent:{institution:g.institution,department:g.department,year_month}};
@@ -478,9 +485,23 @@ function triggerDownload(blob,filename){
   const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-function renderDirectGroup(g,total,json,bytes,ym){
+function renderDirectGroup(g,total,json,bytes,ym,contact){
   const filename=fileNameFor(g.restaurant_name,ym);
   const canShareFiles=typeof navigator.canShare==='function';
+  const hasEmail=isValidEmail(contact&&contact.email);
+  const hasKakao=isValidKakaoLink(contact&&contact.kakao_link);
+  let contactBtns='',contactNotes='';
+  if(hasEmail){
+    const subject=encodeURIComponent('선금 명단 파일 – '+g.restaurant_name+' '+ym);
+    const mailtoHref='mailto:'+contact.email+'?subject='+subject;
+    contactBtns+=`<a href="${esc(mailtoHref)}" data-act="mail">이메일로 보내기</a>`;
+    contactNotes+='<div class="contact-note">먼저 [파일로 저장]한 뒤 메일에 첨부해 보내세요.</div>';
+  }
+  if(hasKakao){
+    contactBtns+=`<a href="${esc(contact.kakao_link)}" target="_blank" rel="noopener noreferrer" data-act="kakao">카톡으로 보내기</a>`;
+    contactNotes+='<div class="contact-note">먼저 [파일로 저장]한 뒤 오픈채팅에 파일을 첨부해 보내세요. 카카오톡 이용은 소속 기관 내규를 확인하세요.</div>';
+  }
+  const noContactNote=(!hasEmail&&!hasKakao)?'<div class="meta">이 가게는 아직 연락처를 등록하지 않았어요.</div>':'';
   const card=document.createElement('div');card.className='group-card';
   card.innerHTML=`<b>${esc(g.restaurant_name)}</b> · ${esc(g.department)} · ${g.items.length}명 · ${total.toLocaleString()}원`+
     `<div class="meta">파일 크기 약 ${(bytes/1024).toFixed(1)}KB</div>`+
@@ -488,7 +509,10 @@ function renderDirectGroup(g,total,json,bytes,ym){
       `<button type="button" data-act="save">파일로 저장</button>`+
       (canShareFiles?`<button type="button" data-act="share">공유하기</button>`:'')+
       `<button type="button" data-act="qr"${bytes>2500?' disabled':''}>QR 보기</button>`+
+      contactBtns+
     `</div>`+
+    contactNotes+
+    noContactNote+
     (canShareFiles?'':'<div class="meta">이 브라우저는 공유하기를 지원하지 않습니다. 파일 저장 후 이메일에 첨부하세요.</div>')+
     (bytes>2500?'<div class="warn" style="font-size:12px;margin-top:4px">인원이 많아 QR로는 전달할 수 없어요. 파일을 이용하세요.</div>':'')+
     `<div class="qr-wrap hide"></div>`+
@@ -536,14 +560,14 @@ async function doSubmitDirect(){
   const pubCache=new Map();let okN=0,failN=0;
   for(const g of groups){
     try{
-      const pub=await getPubKey(g.restaurant_id,pubCache);
-      const ciphertext=await encryptBlob(g.items,pub);
+      const entry=await getPubKey(g.restaurant_id,pubCache);
+      const ciphertext=await encryptBlob(g.items,entry.pub);
       const bh=await batchHash(g.items);
       const total=g.items.reduce((s,i)=>s+i.amount,0);
       const fileObj={v:1,type:'direct-transfer',restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,institution:g.institution,department:g.department,year_month,summary:{total_amount:total,member_count:g.items.length,batch_hash:bh},ciphertext};
       const json=JSON.stringify(fileObj);
       const bytes=enc.encode(json).length;
-      renderDirectGroup(g,total,json,bytes,year_month);
+      renderDirectGroup(g,total,json,bytes,year_month,entry.contact);
       okN++;log('✅ '+g.restaurant_name+' / '+g.department+' ('+g.items.length+'명, '+total.toLocaleString()+'원) — 파일 준비 완료');
     }catch(e){failN++;log('❌ '+g.restaurant_name+' / '+g.department+': '+e.message)}
   }

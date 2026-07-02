@@ -45,8 +45,9 @@ batch_hash = SHA-256(hex)
 |---|---|---|---|
 | `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?}` | `{ok:true}` | 공개키 등록. 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1) |
 | `POST /api/challenge` | `{restaurant_id}` | `{challenge_ct}` / 404 | 소유 증명 챌린지 발급(§4.1) |
-| `POST /api/deregister` | `{restaurant_id, auth_token}` | `{ok:true}` / 401 | 음식점 주인 등록 해제(선금 받기 중단) → 공개키 삭제. 인증 필요 |
-| `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key}` / 404 | 담당자 웹이 암호화 전 조회 |
+| `POST /api/deregister` | `{restaurant_id, auth_token}` | `{ok:true}` / 401 | 음식점 주인 등록 해제(선금 받기 중단) → 공개키 삭제(연락처도 함께 삭제). 인증 필요 |
+| `POST /api/contact` | `{restaurant_id, auth_token, kakao_link, email}` | `{ok:true}` / 400/401/404 | 업무용 연락처 등록·수정·삭제(§4.5). 인증 필요 |
+| `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. `contact`는 미등록 시 각 필드 `null` |
 | `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` | 담당자 웹: '선금 받기 가능' 표시용 |
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 선택 헤더 `X-Agency-Token` | `{summary_id}` | 부서·음식점 단위 1건(§4.3) |
@@ -111,6 +112,18 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
   `AUTH_MODE`를 `dev`가 아닌 값으로 바꿀 것.**
 - `POST /api/agency/verify-otp {email, otp}`: 성공 시 32바이트 토큰 발급, 24시간 유효
   (`agency_token`). 이 토큰이 `X-Agency-Token` 헤더 값이 된다.
+
+### 4.5 업무용 연락처 (선택)
+
+연락처는 음식점 주인이 직접 등록·삭제하는 선택적 사업장 연락 정보다(카카오 오픈채팅 링크는
+전화번호·개인 프로필이 비노출되는 형식만 허용) — 담당자가 승인/거절 전에 문의할 수 있는
+채널을 제공하되, 전화번호 등 개인 식별 정보는 서버에 두지 않는다는 §0 불변식을 유지한다.
+`POST /api/contact`는 소유 증명(`auth_token`, §4.1)을 요구하며, `kakao_link`는 비어 있으면
+필드를 삭제(NULL)하고 값이 있으면 `https://open.kakao.com/`로 시작하고 200자 이하여야
+한다(`400 {error:'invalid_kakao_link'}`). `email`도 마찬가지로 비어 있으면 삭제하고 값이
+있으면 기본 이메일 형식(200자 이하)이어야 한다(`400 {error:'invalid_email'}`). 미등록
+`restaurant_id`는 `404`. 등록된 연락처는 `GET /api/public-key` 응답의 `contact` 필드로
+노출되며, `POST /api/deregister`로 등록을 해제하면 공개키와 함께 즉시 삭제된다.
 
 ## 5. 상태 머신
 `deposit_summary.status`: `PENDING` →(approve)→ `APPROVED` / `REJECTED`, 또는

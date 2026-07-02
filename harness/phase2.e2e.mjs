@@ -404,6 +404,57 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(cleanup2.deletedSummaries >= 1, '보존 테스트: 30일 지난 EXPIRED 비식별 요약도 TTL cron에서 삭제 대상에 포함');
   ok(!store._dump().summaries.some(s => s.id === sjExpire.summary_id), '보존 테스트: 30일 경과 후 EXPIRED summary 행 자체도 제거됨(30일 보관 정책 그대로 적용)');
 
+  // 18) 업무용 연락처(§4.5): 카톡 오픈채팅 링크·공식 접수 이메일(둘 다 선택, 소유 증명 필요)
+  const RID9 = 'MGT-0009';
+  const kp9 = await genKeyPair();
+  const spki9 = b64(await subtle.exportKey('spki', kp9.publicKey));
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID9, restaurant_name: '연락처테스트', public_key: spki9 });
+  ok(r.status === 200, 'contact: 사전 공개키 등록 200');
+
+  r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RID9, kakao_link: 'https://open.kakao.com/o/abc123' });
+  ok(r.status === 401, 'contact: auth_token 없이 401(auth_required)');
+
+  const tok9 = await getAuthToken(store, env, RID9, kp9.privateKey);
+  r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RID9, auth_token: tok9, kakao_link: 'https://notkakao.example/o/abc' });
+  ok(r.status === 400, 'contact: open.kakao.com 아닌 카톡 링크 400(invalid_kakao_link)');
+
+  const tok9b = await getAuthToken(store, env, RID9, kp9.privateKey);
+  r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RID9, auth_token: tok9b, email: 'not-an-email' });
+  ok(r.status === 400, 'contact: 형식 어긋난 이메일 400(invalid_email)');
+
+  const tok9c = await getAuthToken(store, env, RID9, kp9.privateKey);
+  r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RID9, auth_token: tok9c, kakao_link: 'https://open.kakao.com/o/abc123', email: 'owner@restaurant.example' });
+  ok(r.status === 200, 'contact: 정상 등록(카톡+이메일) 200');
+
+  r = await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RID9);
+  const pk9 = await r.json();
+  ok(pk9.contact && pk9.contact.kakao_link === 'https://open.kakao.com/o/abc123' && pk9.contact.email === 'owner@restaurant.example', 'contact: public-key 응답에 등록된 연락처 노출');
+
+  // 미등록 음식점 연락처 등록은 auth_token 자체가 발급될 수 없어 401로 먼저 걸러짐(§4.1 전제).
+  r = await call(store, env, 'GET', '/api/public-key?restaurant_id=MGT-NOPE-CONTACT');
+  const pk9x = await r.json();
+  ok(r.status === 404 && !('contact' in pk9x), 'contact: 미등록 restaurant_id의 public-key 조회는 여전히 404(연락처 필드 없음)');
+
+  const tok9d = await getAuthToken(store, env, RID9, kp9.privateKey);
+  r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RID9, auth_token: tok9d, kakao_link: '', email: '' });
+  ok(r.status === 200, 'contact: 빈 문자열로 삭제 요청 200');
+  r = await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RID9);
+  const pk9b = await r.json();
+  ok(pk9b.contact.kakao_link === null && pk9b.contact.email === null, 'contact: 빈 문자열 제출 후 연락처가 null로 삭제됨');
+
+  // deregister 시 연락처도 함께 소멸(같은 행이므로 행 삭제로 자동 삭제) — 재등록 후 연락처가 비어있는지로 확인.
+  const tok9e = await getAuthToken(store, env, RID9, kp9.privateKey);
+  r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RID9, auth_token: tok9e, kakao_link: 'https://open.kakao.com/o/xyz789' });
+  ok(r.status === 200, 'contact: deregister 전 연락처 재등록 200');
+  const tok9f = await getAuthToken(store, env, RID9, kp9.privateKey);
+  r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RID9, auth_token: tok9f });
+  ok(r.status === 200, 'contact: deregister 200');
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID9, restaurant_name: '연락처테스트', public_key: spki9 });
+  ok(r.status === 200, 'contact: deregister 후 재등록(신규 취급) 200');
+  r = await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RID9);
+  const pk9c = await r.json();
+  ok(pk9c.contact.kakao_link === null && pk9c.contact.email === null, 'contact: deregister로 이전 연락처가 소멸(재등록 후 null)');
+
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

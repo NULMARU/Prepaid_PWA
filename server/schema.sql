@@ -4,7 +4,9 @@ CREATE TABLE IF NOT EXISTS public_key_registry (
   restaurant_id   TEXT PRIMARY KEY,
   restaurant_name TEXT,
   public_key      TEXT NOT NULL,       -- SPKI base64
-  registered_at   INTEGER NOT NULL
+  registered_at   INTEGER NOT NULL,
+  contact_kakao   TEXT,                -- 업무용 카카오 오픈채팅 링크(선택, https://open.kakao.com/ 로 시작)
+  contact_email   TEXT                 -- 업무용 공식 접수 이메일(선택)
 );
 
 CREATE TABLE IF NOT EXISTS deposit_summary (

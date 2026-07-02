@@ -60,3 +60,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_summary_batch ON deposit_summary(restauran
 -- status에 'EXPIRED' 값이 추가되지만 CHECK 제약이 없는 컬럼이라 스키마 변경 불요(코드 레벨 처리).
 -- PENDING 72시간 만료 스캔(inbox 이중 방어·TTL cron)을 위한 인덱스만 추가한다.
 CREATE INDEX IF NOT EXISTS idx_summary_status_created ON deposit_summary(status, created_at);
+
+-- ── 2026-07(3차) 추가: 음식점 "업무용 연락처"(선택) — 카카오 오픈채팅 링크·공식 접수 이메일 ──
+-- 음식점 주인이 직접 등록·삭제하는 선택적 사업장 연락 정보. 전화번호·개인 프로필은 저장하지 않는다.
+ALTER TABLE public_key_registry ADD COLUMN contact_kakao TEXT;
+ALTER TABLE public_key_registry ADD COLUMN contact_email TEXT;
