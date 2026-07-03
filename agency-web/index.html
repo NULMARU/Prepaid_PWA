@@ -564,9 +564,17 @@ function triggerDownload(blob,filename){
   const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
+function qrFileNameFor(restaurantName,ym){return '선금명단QR_'+safeFileName(restaurantName)+'_'+ym+'.gif'}
+function dataUrlToBlob(dataUrl){
+  const m=/^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+  if(!m)throw new Error('invalid data url');
+  const bin=atob(m[2]);
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+  return new Blob([bytes],{type:m[1]});
+}
 function renderDirectGroup(g,total,json,bytes,ym,contact){
   const filename=fileNameFor(g.restaurant_name,ym);
-  const canShareFiles=typeof navigator.canShare==='function';
   const hasEmail=isValidEmail(contact&&contact.email);
   const hasKakao=isValidKakaoLink(contact&&contact.kakao_link);
   let contactBtns='',contactNotes='';
@@ -586,31 +594,16 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
     `<div class="meta">파일 크기 약 ${(bytes/1024).toFixed(1)}KB</div>`+
     `<div class="btns">`+
       `<button type="button" data-act="save">파일로 저장</button>`+
-      (canShareFiles?`<button type="button" data-act="share">공유하기</button>`:'')+
       `<button type="button" data-act="qr"${bytes>2500?' disabled':''}>QR 보기</button>`+
       contactBtns+
     `</div>`+
     contactNotes+
     noContactNote+
-    (canShareFiles?'':'<div class="meta">이 브라우저는 공유하기를 지원하지 않습니다. 파일 저장 후 이메일에 첨부하세요.</div>')+
     (bytes>2500?'<div class="warn" style="font-size:12px;margin-top:4px">인원이 많아 QR로는 전달할 수 없어요. 파일을 이용하세요.</div>':'')+
     `<div class="qr-wrap hide"></div>`+
     `<div class="done-note">✅ 이 명단은 서버에 저장되지 않았습니다</div>`;
   const blob=new Blob([json],{type:'application/json'});
   card.querySelector('[data-act="save"]').addEventListener('click',()=>triggerDownload(blob,filename));
-  const shareBtn=card.querySelector('[data-act="share"]');
-  if(shareBtn){
-    shareBtn.addEventListener('click',async()=>{
-      try{
-        const file=new File([blob],filename,{type:'application/json'});
-        if(navigator.canShare({files:[file]})){
-          await navigator.share({files:[file],title:'선입금 명단('+g.restaurant_name+')',text:filename});
-        }else{
-          alert('이 브라우저는 파일 공유를 지원하지 않습니다. 파일 저장 후 이메일에 첨부해 주세요.');
-        }
-      }catch(e){if(e&&e.name!=='AbortError')alert('공유 실패: '+e.message)}
-    });
-  }
   const qrBtn=card.querySelector('[data-act="qr"]');
   const qrWrap=card.querySelector('.qr-wrap');
   if(qrBtn&&!qrBtn.disabled){
@@ -623,9 +616,46 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
         const n=qr.getModuleCount();
         const cell=Math.max(3,Math.min(8,Math.floor(600/(n+8))));
         const url=qr.createDataURL(cell,cell*4);
-        qrWrap.innerHTML='<img src="'+url+'" alt="선입금 명단 QR 코드"><div class="meta">음식점 앱의 [QR로 받기]로 찍어 주세요</div>';
+        qrWrap.innerHTML='<img src="'+url+'" alt="선입금 명단 QR 코드">'+
+          '<div class="meta">음식점 앱의 [QR로 받기]로 찍어 주세요</div>'+
+          '<div class="btns" style="justify-content:center">'+
+            '<button type="button" data-act="qr-save">QR 이미지로 저장</button>'+
+            '<button type="button" data-act="qr-print">인쇄</button>'+
+          '</div>'+
+          '<div class="contact-note" style="margin-top:8px;text-align:left">'+
+            'QR은 사장님 폰이 아닌 <b>다른 화면·종이</b>에 있어야 찍을 수 있어요. '+
+            '① 방문 시 이 화면을 그대로 보여주기 ② 인쇄해서 전달 ③ 내 휴대폰에 이미지를 저장해 가서 보여주기.<br>'+
+            '사장님 휴대폰으로 직접 보내실 거라면 QR 대신 [파일로 저장] 후 이메일로 첨부하세요.'+
+          '</div>';
         qrWrap.classList.remove('hide');
         qrBtn.textContent='QR 닫기';
+        const hiCell=8,hiMargin=hiCell*4;
+        const hiUrl=qr.createDataURL(hiCell,hiMargin);
+        const qrFilename=qrFileNameFor(g.restaurant_name,ym);
+        qrWrap.querySelector('[data-act="qr-save"]').addEventListener('click',()=>{
+          triggerDownload(dataUrlToBlob(hiUrl),qrFilename);
+        });
+        qrWrap.querySelector('[data-act="qr-print"]').addEventListener('click',()=>{
+          const w=window.open('','_blank');
+          if(!w){alert('팝업이 차단되었습니다. 인쇄를 하려면 팝업 차단을 해제해 주세요.');return}
+          w.document.write(
+            '<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>선입금 명단 QR 인쇄</title>'+
+            '<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center;padding:40px}'+
+            'img{width:320px;height:320px;image-rendering:pixelated}'+
+            'h1{font-size:20px;margin:0 0 4px}'+
+            'p{font-size:14px;color:#374151;margin:4px 0}'+
+            '.instr{margin-top:20px;font-size:16px;font-weight:700}</style></head><body>'+
+            '<h1>'+esc(g.restaurant_name)+'</h1>'+
+            '<p>'+esc(g.institution||'')+(g.department?' · '+esc(g.department):'')+'</p>'+
+            '<p>'+esc(ym)+'</p>'+
+            '<img src="'+hiUrl+'" alt="선입금 명단 QR 코드">'+
+            '<div class="instr">선입금대장 앱의 [QR로 받기]로 찍어 주세요</div>'+
+            '</body></html>'
+          );
+          w.document.close();
+          w.focus();
+          w.print();
+        });
       }catch(e){qrWrap.innerHTML='<div class="bad">QR 생성 실패: '+esc(e.message)+'</div>';qrWrap.classList.remove('hide')}
     });
   }
