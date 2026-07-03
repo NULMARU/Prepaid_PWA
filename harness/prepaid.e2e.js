@@ -103,15 +103,18 @@ async function main() {
     acceptDownloads: true,
     viewport: { width: 390, height: 844 },
     isMobile: true,
-    hasTouch: true
+    hasTouch: true,
+    // Android UA so the SMS-app-open feature (iOS/Android only, desktop is silently skipped) is exercised.
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36'
   });
   const page = await context.newPage();
   const dialogs = [];
   const consoleProblems = [];
+  let promptAnswer = '초기화';
 
   page.on('dialog', async dialog => {
     dialogs.push({ type: dialog.type(), message: dialog.message() });
-    if (dialog.type() === 'prompt') await dialog.accept('초기화');
+    if (dialog.type() === 'prompt') await dialog.accept(promptAnswer);
     else await dialog.accept();
   });
   page.on('pageerror', err => consoleProblems.push(err.message));
@@ -132,6 +135,14 @@ async function main() {
       await assert(bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), `${icon.src} should be a PNG file`);
     }
 
+    // 전화번호는 이 기기(로컬)에만 저장 — 기관 승인/직접전달로 만들어지는 직원, 클라우드 백업 페이로드에는 절대 포함되면 안 된다 (코드 검사).
+    const indexSrc = await fsp.readFile(path.join(root, 'index.html'), 'utf8');
+    const relaySection = indexSrc.slice(indexSrc.indexOf('async function relayApprove'), indexSrc.indexOf('// ── 직접 전달'));
+    await assert(relaySection.includes("phone:'',phoneConsent:false"), 'employees created from relay-approved institution batches must never carry a phone number');
+    const directSection = indexSrc.slice(indexSrc.indexOf('async function processDirectTransfer'), indexSrc.indexOf('async function onDirectTransferFile'));
+    await assert(directSection.includes("phone:'',phoneConsent:false"), 'employees created from direct-transfer institution batches must never carry a phone number');
+    await assert(indexSrc.includes('stripPhonesForCloud'), 'cloud backup builder must sanitize phone fields before encrypting the payload for the server');
+
     await assert(await count(page, '[data-a="setup-search"]') === 0, 'public shop search button must be removed');
     await assert(await count(page, '[data-a="setup-source"]') === 0, 'public API source toggle must be removed');
     await assert(await count(page, '[data-a="voice-shop"]') === 0, 'shop-search voice button must be removed');
@@ -142,6 +153,8 @@ async function main() {
     await page.locator('[data-a="setup-manual-save"]').click();
     await page.locator('[data-a="setup-next"]').click();
     await page.waitForSelector('#agencySelectSetup');
+    // ① 신규 설치는 기본 부서 0개로 시작해야 한다(사무실/관리팀/현장팀/영업팀 같은 하드코딩 기본값 제거).
+    await assert(await page.locator('.dept-tag').count() === 0, 'a fresh install should start with zero default departments');
     await assert((await page.locator('#agencySelectSetup').inputValue()) === 'gwangjin', 'region address "광진구 구의동" should auto-select 광진구청 agency');
     await page.locator('[data-a="agency-add-all"][data-ctx="setup"]').click();
     await assert(await page.locator('.dept-tag', { hasText: '보건의료과' }).count() > 0, 'agency departments should be added during setup');
@@ -176,14 +189,77 @@ async function main() {
     await assert((await page.locator('.agency-current-name').textContent()).includes('광진구청'), 'setup agency should be reflected as current agency');
     await page.locator('#agencySelectSettings').selectOption('gangnam');
     await page.waitForFunction(() => document.querySelector('.agency-current-name')?.textContent.includes('강남구청'));
+    // 보조 경로로 유지된 기존 개별등록 모달
     await page.locator('[data-a="add-employee"]').click();
     await page.locator('#empDept').fill('Dept A');
     await page.locator('#empName').fill('User A');
     await page.locator('#empOpen').fill('27000');
     await page.locator('[data-a="save-employee"]').click();
+    await page.waitForTimeout(150);
+
+    // ② 직원 목록 관리 하단의 인라인 빠른 등록 폼: 부서 자동 생성 + 직원 생성 + 초기 충전(기존 open 트랜잭션 로직 재사용)
+    await assert(await count(page, '[data-a="quick-add-employee"]') === 1, 'inline quick-add form should replace the standalone employee-registration section');
+    await assert(await count(page, '.section-title:has-text("직원 등록")') === 0, 'the old standalone "직원 등록" section must be removed');
+    await assert((await page.locator('.section-title', { hasText: '직원 목록 관리' }).count()) === 1, '직원 관리 section should be renamed to 직원 목록 관리');
+    await page.locator('#quickAddDept').fill('Dept Q');
+    await page.locator('#quickAddName').fill('User Q');
+    await page.locator('#quickAddOpen').fill('12000');
+    await page.locator('[data-a="quick-add-employee"]').click();
+    await page.waitForTimeout(150);
+    await assert(await page.locator('.dept-tags .dept-tag', { hasText: 'Dept Q' }).count() > 0, 'quick add should auto-create the missing department');
+
+    const afterQuickAdd = await readDb(page);
+    const empA = afterQuickAdd.employees.find(e => e.name === 'User A');
+    const empQ = afterQuickAdd.employees.find(e => e.name === 'User Q');
+    await assert(Boolean(empA) && Boolean(empQ), 'both the modal-registered and the quick-added employee should be saved');
+    const openTxQ = afterQuickAdd.transactions.find(tx => tx.employeeId === empQ.id && tx.type === 'open');
+    await assert(Boolean(openTxQ) && Number(openTxQ.amount) === 12000, 'quick add initial balance should be recorded via the existing charge (open) transaction logic');
+
+    // ③ 직원 목록 관리 행에서 전화번호 등록 + 문자 안내 동의 (이 폰에만 저장)
+    await page.locator(`[data-a="toggle-dept"][data-dept="Dept Q"]`).click();
+    promptAnswer = '01099998888';
+    await page.locator(`[data-a="emp-phone-edit"][data-id="${empQ.id}"]`).click();
+    promptAnswer = '초기화';
+    await page.waitForTimeout(150);
+    const afterPhone = await readDb(page);
+    const empQAfterPhone = afterPhone.employees.find(e => e.id === empQ.id);
+    await assert(Boolean(empQAfterPhone.phone) && empQAfterPhone.phoneConsent === true, 'registering a phone number should store it locally and default the SMS-consent checkbox on');
+    await assert(!/0109999/.test(JSON.stringify(afterPhone.employees)), 'the phone number must be stored encrypted, never as raw digits, in IndexedDB');
 
     await page.locator('[data-a="screen"][data-screen="home"]').click();
-    await page.locator('[data-a="use"]').click();
+
+    // ④ 전화번호가 없는 직원은 사용 등록 창에 문자 안내 영역 자체가 표시되지 않아야 한다
+    await page.locator('#searchInput').fill('User A');
+    await page.locator(`[data-a="use"][data-id="${empA.id}"]`).click();
+    const noPhoneModalText = await page.locator('.modal').innerText();
+    await assert(!noPhoneModalText.includes('문자 안내'), 'usage modal must not show the SMS section for an employee with no registered phone/consent');
+    await page.locator('[data-a="close-modal"]').click();
+    await page.locator('#searchInput').fill('');
+
+    // ③ 전화+동의가 등록된 직원은 번호가 자동으로 채워져 표시되어야 한다
+    await page.locator('#searchInput').fill('User Q');
+    await page.locator(`[data-a="use"][data-id="${empQ.id}"]`).click();
+    const phoneModalText = await page.locator('.modal').innerText();
+    await assert(phoneModalText.includes('문자 안내') && phoneModalText.includes('010-9999-8888'), 'usage modal should auto-fill the registered phone number for a consenting employee');
+
+    // ⑤ 차감 저장 직후 sms: URI로 이동을 시도해야 한다(문자 앱 자동 오픈 시도, location 변경 감지)
+    await page.locator('#useAmount').fill('5000');
+    const smsBox = await page.locator('#signCanvas').boundingBox();
+    await page.mouse.move(smsBox.x + 30, smsBox.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(smsBox.x + 110, smsBox.y + 45, { steps: 5 });
+    await page.mouse.move(smsBox.x + 210, smsBox.y + 100, { steps: 5 });
+    await page.mouse.up();
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForTimeout(300);
+    const smsHref = await page.evaluate(() => window.__lastSmsHref || '');
+    await assert(smsHref.startsWith('sms:0109999'), 'saving a deduction for a phone+consent employee should attempt to navigate to an sms: URI');
+    await assert(smsHref.includes('body=') && decodeURIComponent(smsHref.split('body=')[1] || '').includes('5,000원'), 'the sms body should describe the amount used and the resulting balance');
+    await page.locator('#searchInput').fill('');
+
+    // 기존 사용 등록(차감) 플로우 — User A, 서명 포함
+    await page.locator('#searchInput').fill('User A');
+    await page.locator(`[data-a="use"][data-id="${empA.id}"]`).click();
     await page.locator('#useAmount').fill('9000');
     const box = await page.locator('#signCanvas').boundingBox();
     await page.mouse.move(box.x + 30, box.y + 80);
@@ -194,18 +270,20 @@ async function main() {
     await page.mouse.up();
     await page.locator('[data-a="save-use"]').click();
     await page.waitForTimeout(300);
+    await page.locator('#searchInput').fill('');
 
     const data = await readDb(page);
-    const balance = data.transactions.reduce((sum, tx) => sum + (tx.type === 'use' ? -Number(tx.amount || 0) : Number(tx.amount || 0)), 0);
-    await assert(data.employees.length === 1, 'employee should be saved');
-    await assert(data.transactions.map(tx => tx.type).join(',') === 'open,use', 'open and use transactions should be saved');
-    await assert(balance === 18000, 'balance should be 18000 after one use');
-    await assert(Boolean(data.transactions.find(tx => tx.type === 'use').signatureData), 'use transaction should contain signature data');
+    await assert(data.employees.length === 2, 'both employees (modal + quick add) should be saved');
+    const balanceOf = eid => data.transactions.filter(tx => tx.employeeId === eid).reduce((sum, tx) => sum + (tx.type === 'use' ? -Number(tx.amount || 0) : Number(tx.amount || 0)), 0);
+    await assert(data.transactions.filter(tx => tx.employeeId === empA.id).map(tx => tx.type).join(',') === 'open,use', 'User A should carry an open + use transaction');
+    await assert(balanceOf(empA.id) === 18000, 'User A balance should be 18000 after one use');
+    await assert(Boolean(data.transactions.find(tx => tx.employeeId === empA.id && tx.type === 'use').signatureData), 'use transaction should contain signature data');
+    await assert(data.transactions.filter(tx => tx.employeeId === empQ.id).map(tx => tx.type).join(',') === 'open,use', 'User Q should carry an open (quick add) + use (sms deduction) transaction');
+    await assert(balanceOf(empQ.id) === 7000, 'User Q balance should be 7000 after the 5000 use');
     // 다자간 확장(beta.7): tx 무결성 체인 + 키페어
-    const useTx = data.transactions.find(tx => tx.type === 'use');
-    const openTx = data.transactions.find(tx => tx.type === 'open');
+    const useTx = data.transactions.find(tx => tx.employeeId === empA.id && tx.type === 'use');
+    const openTx = data.transactions.find(tx => tx.employeeId === empA.id && tx.type === 'open');
     await assert(Boolean(useTx.txHash) && Boolean(openTx.txHash), 'transactions should carry integrity txHash');
-    await assert(useTx.prevHash === openTx.txHash, 'use transaction prevHash should chain to the open transaction');
     const metaMap = (data.meta || []).reduce((a, r) => (a[r.key] = r.value, a), {});
     await assert(Boolean(metaMap.pubKey) && Boolean(metaMap.privKeyWrapped) && Boolean(metaMap.deviceSecret), 'keypair should be generated and private key wrapped');
     // 페이지 함수로 체인 무결성 재검증 (verifyChain은 IIFE 내부이므로 동일 알고리즘으로 재계산)
@@ -219,6 +297,18 @@ async function main() {
       return true;
     }, data.transactions);
     await assert(chainOk, 'integrity hash chain should recompute and verify');
+
+    // ⑥ 클라우드 백업(서버 전송) 페이로드를 실제로 만들어 복호화한 뒤 전화번호가 전혀 없는지 덤프에서 확인한다
+    const cloudCheck = await page.evaluate(async () => {
+      const hooks = window.__prepaidTestHooks;
+      if (!hooks) return { dump: '', hasHooks: false };
+      const blob = await hooks.buildCloudBackupBlob();
+      const core = await hooks.decryptBlob(blob);
+      return { dump: JSON.stringify(core), hasHooks: true };
+    });
+    await assert(cloudCheck.hasHooks, 'test hooks for cloud backup verification should be exposed');
+    await assert(!/"phone"/.test(cloudCheck.dump) && !/"phoneConsent"/.test(cloudCheck.dump), 'cloud backup payload must not include phone/phoneConsent fields for any employee');
+    await assert(!cloudCheck.dump.includes('0109999') && !cloudCheck.dump.includes('01099998888'), 'cloud backup payload must not leak raw phone digits');
 
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     const capturedDownloads = [];
