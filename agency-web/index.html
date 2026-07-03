@@ -157,7 +157,7 @@ qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
 </script>
 <script>
 (()=>{'use strict';
-const S={authed:false,token:null,email:'',otpMode:null,restaurants:[],rows:null,valid:false,groups:null,mode:null,lastList:[],registered:new Set(),excluded:new Set(JSON.parse(localStorage.getItem('agency-excluded')||'[]'))};
+const S={authed:false,token:null,email:'',otpMode:null,restaurants:[],rows:null,rawRows:null,fileErrors:[],fileWarnings:[],valid:false,groups:null,mode:null,lastList:[],registered:new Set(),excluded:new Set(JSON.parse(localStorage.getItem('agency-excluded')||'[]'))};
 function saveExcluded(){localStorage.setItem('agency-excluded',JSON.stringify([...S.excluded]))}
 const $=id=>document.getElementById(id);
 const subtle=window.crypto.subtle;
@@ -296,12 +296,12 @@ function renderResults(){
     if(a==='select'){if(!S.restaurants.find(r=>r.restaurant_id===id))S.restaurants.push({restaurant_id:id,name:b.dataset.name})}
     else if(a==='exclude'){S.excluded.add(id);saveExcluded();S.restaurants=S.restaurants.filter(r=>r.restaurant_id!==id)}
     else if(a==='unexclude'){S.excluded.delete(id);saveExcluded()}
-    renderSelected();renderResults();revalidate();
+    renderSelected();renderResults();validateAndRenderCsv();
   }));
 }
 function renderSelected(){
   $('selected').innerHTML=S.restaurants.length?S.restaurants.map((r,i)=>`<span class="pill">${esc(r.name)}<button data-i="${i}">×</button></span>`).join(''):'<span class="meta">없음</span>';
-  $('selected').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{S.restaurants.splice(+b.dataset.i,1);renderSelected();renderResults();revalidate()}));
+  $('selected').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{S.restaurants.splice(+b.dataset.i,1);renderSelected();renderResults();validateAndRenderCsv()}));
 }
 
 // ── 3. CSV 파싱·검증 (스펙 §2.1·§3.2) ──
@@ -340,46 +340,83 @@ function decodeCsvBuffer(buf){
   if(eucText!=null&&countReplacementChars(eucText)<utf8Bad)return{text:eucText,encoding:'euc-kr'};
   return{text:utf8Text,encoding:'utf-8'};
 }
+// 음식점명 대조용 정규화: 앞뒤·연속 공백만 정리(과도한 퍼지매칭은 하지 않음 — 오배송 방지)
+function normName(s){return String(s==null?'':s).trim().replace(/\s+/g,' ')}
 $('csv').addEventListener('change',async e=>{
   const file=e.target.files&&e.target.files[0];if(!file)return;
   const buf=await file.arrayBuffer();
   let decoded;
-  try{decoded=decodeCsvBuffer(buf)}catch(err){$('csvResult').innerHTML='<div class="bad">인코딩 인식 실패: '+esc(err.message)+'</div>';return}
+  try{decoded=decodeCsvBuffer(buf)}catch(err){
+    S.rawRows=null;S.fileErrors=['인코딩 인식 실패: '+err.message];S.fileWarnings=[];
+    validateAndRenderCsv();return;
+  }
   const text=decoded.text;
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
-  const errors=[],warnings=[];
-  if(!lines.length){errors.push('파일 내용이 비어 있습니다.')}
+  const fileErrors=[],warnings=[];
   if(decoded.encoding==='euc-kr')warnings.push('EUC-KR(공공기관 엑셀 기본 저장 형식)로 인식해 자동 변환했습니다.');
   const firstLine=lines[0]||'';
   const delim=(!firstLine.includes(',')&&firstLine.includes('\t'))?'\t':',';
   const header=parseLine(firstLine,delim).map(h=>h.replace(/\s/g,''));
-  if(COLS.join(',')!==header.join(',')){errors.push('컬럼 헤더 불일치. 기대: '+COLS.join(','))}
-  const rows=[];const dupSet=new Set();
-  for(let i=1;i<lines.length;i++){
-    const f=parseLine(lines[i],delim);if(f.every(x=>!x))continue;
-    const o={rest:f[0]||'',inst:f[1]||'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||''};
-    const amt=parseWon(o.amount);
-    let err='';
-    if(!o.rest||!o.inst||!o.dept||!o.name||!o.payer)err='필수 컬럼 공란';
-    else if(!(amt>0))err='선금금액 정수>0 아님';
-    else{const k=o.rest+'|'+o.dept+'|'+o.name;if(dupSet.has(k))err='(음식점,부서,직원명) 중복';dupSet.add(k)}
-    rows.push({...o,amount:amt,line:i+1,err});
+  let rawRows=null;
+  if(!lines.length){
+    fileErrors.push('파일 내용이 비어 있습니다.');
+  }else if(COLS.join(',')!==header.join(',')){
+    fileErrors.push('컬럼 헤더 불일치. 기대: '+COLS.join(','));
+  }else{
+    rawRows=[];const dupSet=new Set();
+    for(let i=1;i<lines.length;i++){
+      const f=parseLine(lines[i],delim);if(f.every(x=>!x))continue;
+      const o={rest:f[0]||'',inst:f[1]||'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||''};
+      const amt=parseWon(o.amount);
+      let structErr='';
+      if(!o.rest||!o.inst||!o.dept||!o.name||!o.payer)structErr='필수 컬럼 공란';
+      else if(!(amt>0))structErr='선금금액 정수>0 아님';
+      else{const k=o.rest+'|'+o.dept+'|'+o.name;if(dupSet.has(k))structErr='(음식점,부서,직원명) 중복';dupSet.add(k)}
+      rawRows.push({...o,amount:amt,line:i+1,structErr});
+    }
+    if(!rawRows.length)fileErrors.push('데이터 행이 없습니다. 헤더 아래에 최소 1행을 입력하세요.');
   }
-  // 양방향 음식점 매칭
-  const selNames=new Set(S.restaurants.map(r=>r.name));
-  const csvNames=new Set(rows.map(r=>r.rest));
-  rows.forEach(r=>{if(!r.err&&!selNames.has(r.rest))r.err='선택하지 않은 음식점명'});
-  S.restaurants.forEach(r=>{if(!csvNames.has(r.name))errors.push('선택 음식점 "'+r.name+'"이 CSV에 없음')});
-
+  S.rawRows=rawRows;S.fileErrors=fileErrors;S.fileWarnings=warnings;
+  validateAndRenderCsv();
+});
+// CSV 원본(S.rawRows)과 현재 선택된 음식점(S.restaurants)을 대조해 매번 다시 검증·렌더링.
+// 파일을 새로 올리지 않아도(2단계 선택/해제만 바뀌어도) 호출되어야 4단계가 조용히 막히지 않는다.
+function validateAndRenderCsv(){
+  if(S.rawRows==null){
+    const errHtml=(S.fileErrors||[]).map(e=>'<div class="bad">⛔ '+esc(e)+'</div>').join('');
+    const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn">⚠️ '+esc(w)+'</div>').join('');
+    $('csvResult').innerHTML=errHtml+warnHtml;
+    S.rows=null;S.valid=false;
+    revalidate();
+    return;
+  }
+  const selNames=new Set(S.restaurants.map(r=>normName(r.name)));
+  const csvNames=new Set(S.rawRows.map(r=>normName(r.rest)));
+  const rows=S.rawRows.map(r=>{
+    let err=r.structErr;
+    if(!err&&!selNames.has(normName(r.rest)))err='선택하지 않은 음식점명';
+    return {...r,err};
+  });
+  const errors=[...(S.fileErrors||[])];
+  let guidance='';
+  if(!S.restaurants.length){
+    guidance='<div class="bad" style="font-size:14px;font-weight:700;margin:8px 0">⛔ 먼저 2단계에서 음식점을 선택해 주세요. 선택하면 이 명단이 자동으로 다시 확인됩니다.</div>';
+  }else{
+    S.restaurants.forEach(r=>{if(!csvNames.has(normName(r.name)))errors.push('선택 음식점 "'+r.name+'"이 CSV에 없음')});
+    const mismatchNames=[...new Set(rows.filter(r=>r.err==='선택하지 않은 음식점명').map(r=>r.rest))];
+    if(mismatchNames.length){
+      guidance='<div class="bad" style="font-size:14px;font-weight:700;margin:8px 0">⛔ 명단의 음식점명 '+mismatchNames.map(n=>'"'+esc(n)+'"').join(', ')+'이(가) 선택한 가게(' +S.restaurants.map(r=>'"'+esc(r.name)+'"').join(', ')+ ')와 달라요. 2단계에서 정확한 이름의 가게를 선택했는지, 또는 CSV의 음식점명을 선택한 가게 이름과 똑같이 맞췄는지 확인하세요.</div>';
+    }
+  }
   const rowErr=rows.some(r=>r.err);
   S.rows=rows;S.valid=!errors.length&&!rowErr&&rows.length>0&&S.restaurants.length>0;
   const tbl='<table><thead><tr><th>음식점명</th><th>기관명</th><th>부서명</th><th>직원명</th><th>선금금액</th><th>입금자명</th></tr></thead><tbody>'+
     rows.map(r=>`<tr class="${r.err?'err':''}"${r.err?' title="'+esc(r.err)+'"':''}><td>${esc(r.rest)}</td><td>${esc(r.inst)}</td><td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount||'-'}</td><td>${esc(r.payer)}</td></tr>`).join('')+'</tbody></table>';
   const errHtml=errors.map(e=>'<div class="bad">⛔ '+esc(e)+'</div>').join('');
-  const warnHtml=warnings.map(w=>'<div class="warn">⚠️ '+esc(w)+'</div>').join('');
-  $('csvResult').innerHTML=errHtml+warnHtml+tbl;
+  const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn">⚠️ '+esc(w)+'</div>').join('');
+  $('csvResult').innerHTML=errHtml+warnHtml+tbl+guidance;
   revalidate();
-});
+}
 function buildGroups(){
   const idByName=new Map(S.restaurants.map(r=>[r.name,r.restaurant_id]));
   const groups=new Map();
