@@ -92,6 +92,7 @@ async function readDb(page) {
 }
 
 async function main() {
+  await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
   const chromePath = findChrome();
   const browser = await chromium.launch({
@@ -136,19 +137,36 @@ async function main() {
     await assert(await count(page, '[data-a="voice-shop"]') === 0, 'shop-search voice button must be removed');
 
     await page.locator('#setupManualName').fill('Harness Shop');
-    await page.locator('#setupManualAddr').fill('Seoul Test Road 1');
+    await page.locator('#setupManualAddr').fill('광진구 구의동');
     await page.locator('#setupManualTel').fill('02-111-2222');
     await page.locator('[data-a="setup-manual-save"]').click();
     await page.locator('[data-a="setup-next"]').click();
     await page.waitForSelector('#agencySelectSetup');
-    await page.locator('#agencySelectSetup').selectOption('gwangjin');
+    await assert((await page.locator('#agencySelectSetup').inputValue()) === 'gwangjin', 'region address "광진구 구의동" should auto-select 광진구청 agency');
     await page.locator('[data-a="agency-add-all"][data-ctx="setup"]').click();
     await assert(await page.locator('.dept-tag', { hasText: '보건의료과' }).count() > 0, 'agency departments should be added during setup');
+    await page.locator('[data-a="setup-to-contact"]').click();
+    await page.waitForSelector('#setupContactKakao');
+    await page.locator('#setupContactKakao').fill('https://open.kakao.com/o/sHarness');
+    await page.locator('#setupContactEmail').fill('owner@harness-shop.example');
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'onboarding-contact.png') }).catch(() => {});
     await page.locator('[data-a="setup-complete"]').click();
 
     for (const key of ['1', '2', '3', '4', '1', '2', '3', '4']) {
       await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
     }
+
+    await page.waitForSelector('[data-a="guide-dismiss"]');
+    await assert(await count(page, '[data-a="guide-add-employee"]') === 1, 'setup completion guide should offer employee registration path');
+    await assert(await count(page, '[data-a="guide-start-agency"]') === 1, 'setup completion guide should offer agency onboarding path');
+    await page.waitForTimeout(3200); // let the "PIN set" toast fade before the completion screenshot
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'onboarding-complete.png') }).catch(() => {});
+    await page.locator('[data-a="guide-dismiss"]').click();
+
+    const setupMeta = await readDb(page);
+    const setupMetaMap = (setupMeta.meta || []).reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(setupMetaMap.contactKakaoLink === 'https://open.kakao.com/o/sHarness', 'contact kakao link entered during onboarding should be saved locally');
+    await assert(setupMetaMap.contactEmail === 'owner@harness-shop.example', 'contact email entered during onboarding should be saved locally');
 
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await assert(await count(page, '[data-a="new-month"]') === 0, 'new-month action must be removed');
@@ -239,8 +257,13 @@ async function main() {
       }
     }
     await assert(await count(page, '[data-a="pin-reset"]') === 1, 'app reset should appear after five PIN failures');
+    const dialogsBeforeReset = dialogs.length;
     await page.locator('[data-a="pin-reset"]').click();
     await page.waitForTimeout(500);
+    const resetDialogs = dialogs.slice(dialogsBeforeReset);
+    const resetConfirms = resetDialogs.filter(d => d.type === 'confirm');
+    await assert(resetConfirms.length === 2, `reset from lock screen should use exactly two confirm() dialogs, got ${resetConfirms.length}`);
+    await assert(!resetDialogs.some(d => d.type === 'prompt'), 'reset from lock screen must not require a typed-text prompt');
     await assert(await count(page, '#setupManualName') === 1, 'app should return to setup after lock-screen reset');
     const wiped = await readDb(page);
     await assert(wiped.employees.length === 0 && wiped.transactions.length === 0, 'lock-screen reset should wipe local data');

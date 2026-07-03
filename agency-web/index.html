@@ -70,7 +70,7 @@ tr.err{background:#fdecea}
 <li data-n="5" id="step-5">보내기</li>
 </ol>
 
-<div class="card">
+<div class="card hide" id="serverCard">
 <h2>0. 서버 주소</h2>
 <label for="server" class="sr-only">서버 주소</label>
 <input id="server" placeholder="https://prepaid-relay.<계정>.workers.dev (또는 http://localhost:8787)">
@@ -107,7 +107,7 @@ tr.err{background:#fdecea}
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
 <div class="step-help">직원명·선금금액이 담긴 CSV 파일을 올리면 자동으로 형식을 확인합니다.</div>
-<div class="meta">컬럼(고정): 음식점명,기관명,부서명,직원명,선금금액,입금자명 · UTF-8 BOM 권장</div>
+<div class="meta">컬럼(고정): 음식점명,기관명,부서명,직원명,선금금액,입금자명 · 엑셀에서 그냥 'CSV로 저장'한 파일도 그대로 올리시면 됩니다(인코딩 자동 인식).</div>
 <button id="csvTemplateBtn" type="button" style="margin-top:8px">CSV 양식 다운로드</button>
 <label for="csv" class="sr-only">CSV 파일 선택</label>
 <input type="file" id="csv" accept=".csv" style="padding-top:8px">
@@ -314,22 +314,49 @@ $('csvTemplateBtn').addEventListener('click',()=>{
   const a=document.createElement('a');a.href=url;a.download='선입금대장_CSV양식.csv';document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
-function parseLine(line){const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===','&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
+function parseLine(line,delim){delim=delim||',';const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===delim&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
 function parseWon(v){const s=String(v==null?'':v).replace(/,/g,'').replace(/원/g,'').replace(/\s/g,'').trim();if(!s)return NaN;const n=Number(s);return Number.isInteger(n)?n:NaN}
+// ── CSV 인코딩 자동 감지: BOM→UTF-8 확정 / UTF-8(fatal) 시도 실패 시 EUC-KR / UTF-8 성공해도 치환문자(U+FFFD) 있으면 EUC-KR과 비교해 적은 쪽 채택 ──
+function countReplacementChars(s){let n=0;for(let i=0;i<s.length;i++)if(s.charCodeAt(i)===0xFFFD)n++;return n}
+function decodeCsvBuffer(buf){
+  const u=new Uint8Array(buf);
+  const hasBom=u.length>=3&&u[0]===0xEF&&u[1]===0xBB&&u[2]===0xBF;
+  if(hasBom){
+    let text=new TextDecoder('utf-8').decode(buf);
+    if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+    return{text,encoding:'utf-8'};
+  }
+  let utf8Text=null,utf8Ok=false;
+  try{utf8Text=new TextDecoder('utf-8',{fatal:true}).decode(buf);utf8Ok=true}catch{utf8Ok=false}
+  if(!utf8Ok){
+    // UTF-8로 디코드 불가 → EUC-KR(CP949)로 시도
+    return{text:new TextDecoder('euc-kr').decode(buf),encoding:'euc-kr'};
+  }
+  const utf8Bad=countReplacementChars(utf8Text);
+  if(utf8Bad===0)return{text:utf8Text,encoding:'utf-8'};
+  // UTF-8 디코드는 성공했지만 치환문자가 있음 → EUC-KR과 비교해 더 나은 쪽 채택
+  let eucText=null;
+  try{eucText=new TextDecoder('euc-kr').decode(buf)}catch{}
+  if(eucText!=null&&countReplacementChars(eucText)<utf8Bad)return{text:eucText,encoding:'euc-kr'};
+  return{text:utf8Text,encoding:'utf-8'};
+}
 $('csv').addEventListener('change',async e=>{
   const file=e.target.files&&e.target.files[0];if(!file)return;
-  const buf=await file.arrayBuffer();let text,bom=false;
-  const u=new Uint8Array(buf);if(u[0]===0xEF&&u[1]===0xBB&&u[2]===0xBF)bom=true;
-  try{text=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch{try{text=new TextDecoder('euc-kr').decode(buf)}catch{$('csvResult').innerHTML='<div class="bad">인코딩 인식 실패</div>';return}}
-  if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+  const buf=await file.arrayBuffer();
+  let decoded;
+  try{decoded=decodeCsvBuffer(buf)}catch(err){$('csvResult').innerHTML='<div class="bad">인코딩 인식 실패: '+esc(err.message)+'</div>';return}
+  const text=decoded.text;
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
   const errors=[],warnings=[];
-  if(!bom)warnings.push('UTF-8 BOM이 아닙니다(관공서 엑셀 저장 시 한글 깨짐 위험).');
-  const header=parseLine(lines[0]).map(h=>h.replace(/\s/g,''));
+  if(!lines.length){errors.push('파일 내용이 비어 있습니다.')}
+  if(decoded.encoding==='euc-kr')warnings.push('EUC-KR(공공기관 엑셀 기본 저장 형식)로 인식해 자동 변환했습니다.');
+  const firstLine=lines[0]||'';
+  const delim=(!firstLine.includes(',')&&firstLine.includes('\t'))?'\t':',';
+  const header=parseLine(firstLine,delim).map(h=>h.replace(/\s/g,''));
   if(COLS.join(',')!==header.join(',')){errors.push('컬럼 헤더 불일치. 기대: '+COLS.join(','))}
   const rows=[];const dupSet=new Set();
   for(let i=1;i<lines.length;i++){
-    const f=parseLine(lines[i]);if(f.every(x=>!x))continue;
+    const f=parseLine(lines[i],delim);if(f.every(x=>!x))continue;
     const o={rest:f[0]||'',inst:f[1]||'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||''};
     const amt=parseWon(o.amount);
     let err='';

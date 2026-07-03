@@ -205,7 +205,7 @@ const DEFAULT_RELAY='https://prepaid-relay.sulsul-plus.workers.dev';
 const DEFAULT_ORG='기관/단체';
 const DEFAULT_DEPTS=['사무실','관리팀','현장팀','영업팀'];
 const COMMON_DEPTS=[...DEFAULT_DEPTS];
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],agencyData:null,agencyError:'',agencySelected:'',webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,agencyData:null,agencyError:'',agencySelected:'',webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 let repo,signPad=null,modalOpenKey=null,modalReturnFocus=null,modalKeydownHandler=null,qrStream=null,qrDetector=null,qrLoopActive=false;
 document.addEventListener('click',onClick);document.addEventListener('input',onInput);document.addEventListener('change',onInput);qs('restoreFile').addEventListener('change',onRestoreFile);qs('csvFile').addEventListener('change',onCsvFile);qs('directTransferFile').addEventListener('change',onDirectTransferFile);
 let composing=false;document.addEventListener('compositionstart',()=>{composing=true});document.addEventListener('compositionend',(e)=>{composing=false;onInput(e)});
@@ -281,7 +281,12 @@ function combinedDeptLabel(institution,dept){institution=str(institution);dept=s
 async function decryptBlob(blob){const priv=await getPrivateKey();if(!priv)throw new Error('가게 열쇠가 없습니다');const raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(blob.encKey));const aesKey=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['decrypt']);const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(b64ToBuf(blob.iv))},aesKey,b64ToBuf(blob.ct));return JSON.parse(new TextDecoder().decode(pt))}
 async function batchHashOf(items){return hash(items.map(i=>i.name+'|'+i.dept+'|'+num(i.amount)).sort().join('\n'))}
 function relayRegistered(){return !!str(state.data.meta.restaurantId)}
-async function relayRegister(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 선택하세요.');return}if(!state.data.meta.pubKey){await ensureKeyPair()}setBusy('우리 가게를 등록하는 중입니다.');try{const r=await fetch(base+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey})});const j=await r.json();clearBusy();if(!r.ok)throw new Error(j.error||'등록 실패');state.data.meta.relayRegisteredAt=now();await repo.apply({meta:{relayRegisteredAt:state.data.meta.relayRegisteredAt}});render();toast('우리 가게를 등록했습니다. 이제 기관 신청을 받을 수 있어요.')}catch(e){console.error(e);clearBusy();toast('등록 오류: '+(e.message||''))}}
+async function relayRegister(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 선택하세요.');return}if(!state.data.meta.pubKey){await ensureKeyPair()}setBusy('우리 가게를 등록하는 중입니다.');try{const r=await fetch(base+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey})});const j=await r.json();clearBusy();if(!r.ok)throw new Error(j.error||'등록 실패');state.data.meta.relayRegisteredAt=now();await repo.apply({meta:{relayRegisteredAt:state.data.meta.relayRegisteredAt}});render();
+// 온보딩에서 미리 입력해둔 연락처(카톡/이메일)가 있으면 기관 등록 성공 직후 자동으로 서버에 등록(스펙 §수정3-2)
+const savedKakao=str(state.data.meta.contactKakaoLink),savedEmail=str(state.data.meta.contactEmail);
+if(savedKakao||savedEmail){try{await relayContactSave({kakao:savedKakao,email:savedEmail,successToast:'우리 가게를 등록했습니다. 연락처도 함께 등록했어요.'})}catch(e2){console.error('auto contact save',e2);toast('우리 가게를 등록했습니다. 이제 기관 신청을 받을 수 있어요.')}}
+else{toast('우리 가게를 등록했습니다. 이제 기관 신청을 받을 수 있어요.')}
+}catch(e){console.error(e);clearBusy();toast('등록 오류: '+(e.message||''))}}
 // 가게 검색: 이름은 서버(LOCALDATA) 프록시로 조회하고, "구명+동명" 지역어는 결과 주소를 클라이언트에서
 // 토큰 매칭으로 좁힌다(서울 구·동 코드 매핑이 이 파일에 없으므로 코드는 만들지 않고 이름 검색+주소 필터만 사용).
 async function relaySearchStores(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const q=str(qs('storeName')&&qs('storeName').value),regionText=str(qs('storeRegion')&&qs('storeRegion').value);if(!q){toast('가게 이름을 입력하세요.');return}state.modal.q=q;state.modal.region=regionText;state.modal.searching=true;render();try{const r=await fetch(relayBase()+'/api/restaurants?q='+encodeURIComponent(q));const list=await r.json();state.modal.searching=false;state.modal.searched=true;const all=Array.isArray(list)?list:[];const tokens=regionText.split(/\s+/).map(str).filter(Boolean);const filtered=tokens.length?all.filter(x=>tokens.every(t=>str(x.address).includes(t))):all;state.modal.results=filtered;state.modal.regionFilteredOut=tokens.length>0&&all.length>0&&filtered.length===0;render();if(!Array.isArray(list))toast(list.error||'검색 오류')}catch(e){console.error(e);state.modal.searching=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
@@ -289,7 +294,7 @@ async function relayPickStore(id,name){state.data.meta.restaurantId=str(id);stat
 async function relayStop(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('선금 받기를 중단할까요?\n\n· 더는 기관에서 새 신청을 받지 않습니다(등록 해제).\n· 이미 등록된 직원 명단·잔액은 그대로 유지됩니다.'))return;setBusy('등록을 해제하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/deregister',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'해제 실패')}state.data.meta.restaurantId='';state.data.meta.relayStoreName='';state.data.meta.relayRegisteredAt=null;await repo.apply({meta:{restaurantId:'',relayStoreName:'',relayRegisteredAt:null}});clearBusy();render();toast('선금 받기를 중단했습니다.')}catch(e){console.error(e);clearBusy();toast('중단 처리 오류: '+(e.message||''))}}
 // 가게 연락처(카톡 오픈채팅/이메일) — 기관 담당자 화면에서 [카톡으로 보내기]·[이메일로 보내기] 버튼을 켜는 선택 항목
 function isKakaoOpenLink(v){return /^https:\/\/open\.kakao\.com\//.test(str(v))}
-async function relayContactSave(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 등록하세요.');return}const kakao=str(qs('contactKakao')&&qs('contactKakao').value),email=str(qs('contactEmail')&&qs('contactEmail').value);if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}setBusy('연락처를 저장하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:kakao,email})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'저장 실패');state.data.meta.contactKakaoLink=kakao;state.data.meta.contactEmail=email;await repo.apply({meta:{contactKakaoLink:kakao,contactEmail:email}});render();toast('가게 연락처를 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처 저장 오류: '+(e.message||''))}}
+async function relayContactSave(opts){opts=opts&&typeof opts==='object'?opts:{};if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 등록하세요.');return}const kakao=typeof opts.kakao==='string'?opts.kakao:str(qs('contactKakao')&&qs('contactKakao').value),email=typeof opts.email==='string'?opts.email:str(qs('contactEmail')&&qs('contactEmail').value);if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}setBusy('연락처를 저장하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:kakao,email})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'저장 실패');state.data.meta.contactKakaoLink=kakao;state.data.meta.contactEmail=email;await repo.apply({meta:{contactKakaoLink:kakao,contactEmail:email}});render();toast(opts.successToast||'가게 연락처를 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처 저장 오류: '+(e.message||''))}}
 async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('등록된 연락처를 지울까요?\n\n담당자 화면에서 카톡·이메일 전달 버튼이 사라집니다.'))return;setBusy('연락처를 지우는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:'',email:''})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'해제 실패');state.data.meta.contactKakaoLink='';state.data.meta.contactEmail='';await repo.apply({meta:{contactKakaoLink:'',contactEmail:''}});render();toast('가게 연락처 등록을 해제했습니다.')}catch(e){console.error(e);clearBusy();toast('등록 해제 오류: '+(e.message||''))}}
 async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}setBusy('신청을 불러오는 중입니다.');try{const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid));const items=await r.json();clearBusy();if(!Array.isArray(items))throw new Error(items.error||'수신 오류');state.modal={type:'inbox',items};render();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
 async function relayReject(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const item=(state.modal&&state.modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!window.confirm(`${item.summary.department} 신청을 거절할까요? (열어보지 않고 폐기)`))return;setBusy('처리 중입니다.');try{const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'REJECTED',restaurant_id:rid,auth_token:authToken})});state.modal.items=state.modal.items.filter(x=>x.summary_id!==sid);clearBusy();render();toast('거절했습니다.')}catch(e){console.error(e);clearBusy();toast('처리 오류: '+(e.message||''))}}
@@ -353,6 +358,8 @@ function deptField(id,label,value,ph){const depts=state.data.meta.departments||[
 
 async function loadAgencyData(force){try{const res=await fetch('./agency-departments.json'+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();if(!data||!Array.isArray(data.agencies))throw new Error('형식 오류');state.agencyData=data;state.agencyError='';const savedOrg=str(state.data&&state.data.meta&&state.data.meta.orgName);const matched=savedOrg&&data.agencies.find(a=>a.name===savedOrg);if(matched)state.agencySelected=matched.id;else if(!state.agencySelected&&data.agencies[0])state.agencySelected=data.agencies[0].id;return true}catch(e){console.error('agency data:',e);state.agencyError='기관 부서 목록을 불러올 수 없습니다.';return false}}
 function selectedAgency(){const list=state.agencyData&&state.agencyData.agencies||[];return list.find(a=>a.id===state.agencySelected)||list[0]||null}
+// 가게 지역(주소)에서 "OO구"를 뽑아 내장 구청 데이터와 자동 매칭 (스펙 §수정3-1). 매칭 실패(서울 외 등) 시 조용히 건너뜀.
+function matchAgencyByRegion(text){text=str(text);if(!text)return null;const list=(state.agencyData&&state.agencyData.agencies)||[];for(const a of list){const nm=a.name||'';if(!nm.endsWith('구청'))continue;const district=nm.slice(0,-1);if(text.includes(district))return a}return null}
 function deptTarget(ctx){return ctx==='setup'?state.setupDepts:(state.data.meta.departments||[])}
 async function setDeptTarget(ctx,list){const clean=[...new Set(list.map(str).filter(Boolean))];if(ctx==='setup'){state.setupDepts=clean;render();return}state.data.meta.departments=clean;await repo.apply({meta:{departments:clean}});render()}
 async function saveSelectedAgencyName(){const agency=selectedAgency();if(!agency||!repo)return;if(state.data.meta.orgName===agency.name)return;state.data.meta.orgName=agency.name;await repo.apply({meta:{orgName:agency.name}})}
@@ -394,22 +401,48 @@ const h=await hash(pin);
 if(h===state.data.meta.pinHash){state.pinInput='';state.pinLocked=false;state.pinFails=0;state.pinMsg='';render()}
 else{state.pinFails++;state.pinInput='';state.pinMsg=`비밀번호가 틀렸습니다. (${state.pinFails}회)`;render()}}}
 
-async function pinReset(){const typed=window.prompt('PIN을 잊은 경우 보안을 위해 PIN만 초기화할 수 없습니다.\n\n앱을 초기화하면 직원, 거래, 서명, 백업 기록, PIN이 모두 삭제됩니다.\n계속하려면 "초기화"를 입력하세요.','');
-if(typed===null)return;if(str(typed)!=='초기화'){toast('초기화 문구가 일치하지 않습니다.');return}
-setBusy('앱을 초기화하는 중입니다.');try{await wipeLocalData();clearBusy();render();window.alert('초기화 완료\n\n모든 로컬 데이터가 삭제되었습니다. 새로 설정해 주세요.')}catch(err){console.error(err);clearBusy();toast('초기화 중 오류가 발생했습니다.')}}
+// PIN 분실 복구 경로의 초기화도 설정 화면과 동일한 안내창 2회 확인으로 통일(스펙 §수정6)
+async function pinReset(){
+const ok=await confirmWipeWithBackup('PIN만 따로 초기화할 수는 없어요(보안).\n\n모든 장부·직원 기록이 지워집니다. 계속할까요?');
+if(!ok)return;
+setBusy('앱을 초기화하는 중입니다.');
+try{await wipeLocalData();clearBusy();render();window.alert('✅ 초기화 완료\n\n모든 로컬 데이터가 삭제되었습니다. 새로 설정해 주세요.')}catch(err){console.error(err);clearBusy();toast('초기화 중 오류가 발생했습니다.')}}
 
-// ── 초기 설정 화면 ──
-function setupScreenHtml(){return state.setupStep===1?setupStep1Html():setupStep2Html()}
+// ── 초기 설정 화면 (스펙 §수정4: 1화면 1메시지, 선택 항목은 전부 [나중에 하기] 가능) ──
+function setupScreenHtml(){if(state.setupStep===2)return setupStep2Html();if(state.setupStep===3)return setupStep3Html();return setupStep1Html()}
 
 function setupStep1Html(){
 const sel=state.setupSelected;
 const selHtml=sel?'<div class="card setup-selected"><div style="font-size:17px;font-weight:800;margin-bottom:4px">'+esc(sel.name)+'</div><div style="font-size:13px;color:var(--muted);line-height:1.5">'+esc(sel.addr)+'</div>'+(sel.tel?'<div style="font-size:13px;color:var(--primary);margin-top:2px">'+esc(sel.tel)+'</div>':'')+'</div>':'';
-var manualSection='<div class="card"><div class="form"><div class="field"><label>음식점 이름</label><input id="setupManualName" placeholder="예: 맛있는식당"></div><div class="field"><label>주소</label><input id="setupManualAddr" placeholder="예: 서울시 ○○구 ○○로 123"></div><div class="field"><label>전화번호</label><input id="setupManualTel" placeholder="예: 02-123-4567"></div><button class="btn-primary" data-a="setup-manual-save">입력 완료</button></div></div>';
-return '<div class="setup"><div class="setup-head"><div class="setup-step">1 / 2</div><h1>우리 가게 등록</h1><p>가게 정보를 직접 입력합니다</p></div>'+manualSection+selHtml+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-skip" style="flex:1">건너뛰기</button>'+(sel?'<button class="btn-primary" data-a="setup-next" style="flex:1">다음</button>':'')+'</div></div>'}
+var manualSection='<div class="card"><div class="form"><div class="field"><label>음식점 이름</label><input id="setupManualName" placeholder="예: 맛있는식당"></div><div class="field"><label>주소(지역)</label><input id="setupManualAddr" placeholder="예: 광진구 구의동"></div><div class="field"><label>전화번호</label><input id="setupManualTel" placeholder="예: 02-123-4567"></div><button class="btn-primary" data-a="setup-manual-save">입력 완료</button></div></div>';
+return '<div class="setup"><div class="setup-head"><div class="setup-step">1 / 3</div><h1>우리 가게 등록</h1><p>가게 정보를 직접 입력합니다<br>주소의 구 이름으로 담당 구청을 자동으로 찾아드려요</p></div>'+manualSection+selHtml+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-skip" style="flex:1">건너뛰기</button>'+(sel?'<button class="btn-primary" data-a="setup-next" style="flex:1">다음</button>':'')+'</div></div>'}
 
 function setupStep2Html(){
 const tags=state.setupDepts.map(function(d,i){return '<span class="dept-tag">'+esc(d)+'<button data-a="setup-remove-dept" data-idx="'+i+'">×</button></span>'}).join('');
-return '<div class="setup"><div class="setup-head"><div class="setup-step">2 / 2</div><h1>부서 목록 설정</h1><p>기관을 선택해 필요한 과를 복수 선택하세요<br>나중에 설정에서 변경할 수 있습니다</p></div><div class="card">'+agencyPickerHtml('setup')+'</div><div class="card"><div style="line-height:2.2;margin-bottom:12px">'+(tags||'<span style="color:var(--muted)">부서가 없습니다</span>')+'</div><div style="display:flex;gap:8px"><input id="setupNewDept" placeholder="부서명 입력" style="min-height:44px"><button class="btn-secondary" data-a="setup-add-dept" style="min-height:44px;min-width:60px;flex-shrink:0">추가</button></div></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back" style="flex:1">이전</button><button class="btn-primary" data-a="setup-complete" style="flex:1">완료</button></div></div>'}
+return '<div class="setup"><div class="setup-head"><div class="setup-step">2 / 3</div><h1>부서 목록 설정</h1><p>기관을 선택해 필요한 과를 복수 선택하세요<br>나중에 설정에서 변경할 수 있습니다</p></div><div class="card">'+agencyPickerHtml('setup')+'</div><div class="card"><div style="line-height:2.2;margin-bottom:12px">'+(tags||'<span style="color:var(--muted)">부서가 없습니다</span>')+'</div><div style="display:flex;gap:8px"><input id="setupNewDept" placeholder="부서명 입력" style="min-height:44px"><button class="btn-secondary" data-a="setup-add-dept" style="min-height:44px;min-width:60px;flex-shrink:0">추가</button></div></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back" style="flex:1">이전</button><button class="btn-primary" data-a="setup-to-contact" style="flex:1">다음</button></div></div>'}
+
+// 연락처(선택·권장) — 구청 담당자가 명단 파일을 보낼 곳. 반드시 건너뛰기 허용(스펙 §수정3-2)
+function setupStep3Html(){
+return '<div class="setup"><div class="setup-head"><div class="setup-step">3 / 3</div><h1>연락처 (선택·권장)</h1><p>구청 담당자가 명단 파일을 보낼 곳이에요.<br>지금 몰라도 돼요 — 나중에 설정에서 등록할 수 있습니다.</p></div><div class="card"><div class="form"><div class="field"><label for="setupContactKakao">카카오톡 오픈채팅 링크</label><input id="setupContactKakao" type="url" placeholder="https://open.kakao.com/o/..." value="'+esc(state.data.meta.contactKakaoLink||'')+'"></div><div class="meta" style="font-size:11px;margin-top:-6px">카카오톡 &gt; 오픈채팅 만들기에서 링크를 복사해 붙여넣으세요. 전화번호가 드러나지 않아요.</div><div class="field"><label for="setupContactEmail">접수 이메일</label><input id="setupContactEmail" type="email" placeholder="예: office@restaurant.com" value="'+esc(state.data.meta.contactEmail||'')+'"></div></div></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back2" style="flex:1">이전</button><button class="btn" data-a="setup-contact-skip" style="flex:1">나중에 하기</button><button class="btn-primary" data-a="setup-complete" style="flex:1">완료</button></div></div>'}
+
+// 최초 설정 완료 안내(스펙 §수정4): PIN 설정 직후 딱 한 번, 두 갈래로 다음 행동을 안내
+function setupGuideHtml(){
+return '<div class="setup"><div class="setup-head"><h1>완료</h1><p>이제 직원을 등록하거나, 구청 선금 받기를 시작하세요.</p></div><div class="section-actions" style="max-width:420px;margin:0 auto"><button class="btn-primary action-btn" data-a="guide-add-employee"><span class="action-icon">＋</span><div><strong>직원 등록하기</strong><span>직원과 초기 선입금을 등록합니다</span></div></button><button class="btn-secondary action-btn" data-a="guide-start-agency"><span class="action-icon">🏛</span><div><strong>구청 선금 받기 시작</strong><span>우리 가게를 등록해 기관 신청을 받습니다</span></div></button></div><div style="text-align:center;margin-top:16px"><button class="btn" data-a="guide-dismiss" style="min-height:40px;padding:0 16px;font-size:13px">나중에 할게요 (홈으로)</button></div></div>'}
+
+// 초기 설정 완료 처리 — 연락처는 선택이며, 채워졌으면 로컬(meta)에만 저장(스펙 §수정3-2). 서버 등록은 기관 등록 성공 시 relayRegister()에서 자동 처리.
+async function finishSetup(kakao,email){
+kakao=str(kakao);email=str(email);
+if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}
+if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}
+const agency=selectedAgency();const agencyDepts=new Set(agency&&agency.departments||[]);const usedAgency=state.setupDepts.some(v=>agencyDepts.has(v));
+state.data.meta.departments=[].concat(state.setupDepts);
+state.data.meta.orgName=usedAgency&&agency?agency.name:(state.data.meta.orgName||DEFAULT_ORG);
+state.data.meta.contactKakaoLink=kakao;
+state.data.meta.contactEmail=email;
+state.data.meta.setupComplete=true;
+await repo.apply({meta:{shopName:state.data.meta.shopName||'',shopAddr:state.data.meta.shopAddr||'',shopTel:state.data.meta.shopTel||'',orgName:state.data.meta.orgName,departments:state.data.meta.departments,contactKakaoLink:kakao,contactEmail:email,setupComplete:true}});
+state.setupStep=1;state.setupGuide=true;
+render();toast('초기 설정 완료')}
 
 // 음성 인식(STT) — 어르신·바쁜 매장을 위한 이름 음성 검색 (Web Speech API)
 function voiceSearch(){
@@ -428,6 +461,8 @@ function render(){if(!state.loaded){qs('app').innerHTML='<div class="app"><div c
 if(!state.data.meta.setupComplete){qs('app').innerHTML=setupScreenHtml()+overlaysHtml();return}
 // PIN 잠금 화면
 if(state.pinLocked){qs('app').innerHTML=pinScreenHtml()+overlaysHtml();return}
+// 최초 설정 완료 직후 1회 안내 화면
+if(state.setupGuide){qs('app').innerHTML=setupGuideHtml()+overlaysHtml();return}
 const fa=document.activeElement,fid=fa&&fa.id,ss=fa&&fa.selectionStart,se=fa&&fa.selectionEnd;
 const d=derive();qs('app').innerHTML=`<div class="app">${topBar()}<div class="stack">${banners()}${screenHtml(d)}</div>${navHtml()}</div>${modalHtml(d)}${overlaysHtml()}`;
 if(state.modal&&state.modal.type==='usage')initSignPad();else signPad=null;
@@ -534,18 +569,24 @@ const clickActions={
 'cloud-backup-restore':async()=>{await relayRestoreFromCloud()},
 'change-pin':()=>{state.pinMode='change';state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMsg='';state.pinFails=0;render()},
 'voice-search':()=>{voiceSearch()},
-'setup-next':()=>{if(state.setupSelected){state.data.meta.shopName=state.setupSelected.name;state.data.meta.shopAddr=state.setupSelected.addr;state.data.meta.shopTel=state.setupSelected.tel;state.setupDepts=[].concat(COMMON_DEPTS);state.setupStep=2;render()}},
+'setup-next':()=>{if(state.setupSelected){state.data.meta.shopName=state.setupSelected.name;state.data.meta.shopAddr=state.setupSelected.addr;state.data.meta.shopTel=state.setupSelected.tel;state.setupDepts=[].concat(COMMON_DEPTS);const matched=matchAgencyByRegion(state.setupSelected.addr);if(matched)state.agencySelected=matched.id;state.setupStep=2;render()}},
 'setup-manual-save':()=>{var mn=str(qs('setupManualName')&&qs('setupManualName').value);var ma=str(qs('setupManualAddr')&&qs('setupManualAddr').value);var mt=str(qs('setupManualTel')&&qs('setupManualTel').value);if(!mn){toast('음식점 이름을 입력하세요.');return}state.setupSelected={idx:-1,name:mn,addr:ma,tel:mt,type:'직접입력'};render()},
 'setup-skip':()=>{state.setupDepts=[].concat(COMMON_DEPTS);state.setupStep=2;render()},
 'setup-back':()=>{state.setupStep=1;render()},
+'setup-to-contact':()=>{state.setupStep=3;render()},
+'setup-back2':()=>{state.setupStep=2;render()},
 'setup-add-dept':()=>{var inp=qs('setupNewDept');var v=str(inp&&inp.value);if(!v){toast('부서명을 입력하세요.');return}if(state.setupDepts.indexOf(v)>=0){toast('이미 추가된 부서입니다.');return}state.setupDepts.push(v);render()},
 'setup-remove-dept':(el)=>{var ri=Number(el.dataset.idx);if(ri>=0&&ri<state.setupDepts.length){state.setupDepts.splice(ri,1);render()}},
-'setup-complete':async()=>{const agency=selectedAgency();const agencyDepts=new Set(agency&&agency.departments||[]);const usedAgency=state.setupDepts.some(v=>agencyDepts.has(v));state.data.meta.departments=[].concat(state.setupDepts);state.data.meta.orgName=usedAgency&&agency?agency.name:(state.data.meta.orgName||DEFAULT_ORG);state.data.meta.setupComplete=true;await repo.apply({meta:{shopName:state.data.meta.shopName||'',shopAddr:state.data.meta.shopAddr||'',shopTel:state.data.meta.shopTel||'',orgName:state.data.meta.orgName,departments:state.data.meta.departments,setupComplete:true}});render();toast('초기 설정 완료')},
+'setup-complete':async()=>{const kakao=str(qs('setupContactKakao')&&qs('setupContactKakao').value);const email=str(qs('setupContactEmail')&&qs('setupContactEmail').value);await finishSetup(kakao,email)},
+'setup-contact-skip':async()=>{await finishSetup('','')},
 'agency-refresh':async()=>{setBusy('기관 부서 목록을 새로고침하는 중입니다.');await loadAgencyData(true);clearBusy();render();toast(state.agencyError||'기관 부서 목록을 새로 불러왔습니다.')},
 'agency-dept-toggle':async(el)=>{const ctx=el.dataset.ctx||'settings',dept=str(el.dataset.dept);if(ctx==='settings')await saveSelectedAgencyName();const list=deptTarget(ctx).filter(v=>v!==dept);if(el.checked)list.push(dept);await setDeptTarget(ctx,list)},
 'agency-add-all':async(el)=>{const ctx=el.dataset.ctx||'settings',agency=selectedAgency();if(ctx==='settings')await saveSelectedAgencyName();if(agency)await setDeptTarget(ctx,deptTarget(ctx).concat(agency.departments||[]))},
 'agency-remove-all':async(el)=>{const ctx=el.dataset.ctx||'settings',agency=selectedAgency();if(ctx==='settings')await saveSelectedAgencyName();if(agency){const rm=new Set(agency.departments||[]);await setDeptTarget(ctx,deptTarget(ctx).filter(v=>!rm.has(v)))}},
-'full-reset':async()=>{await fullReset()}
+'full-reset':async()=>{await fullReset()},
+'guide-add-employee':()=>{state.setupGuide=false;state.screen='settings';state.modal={type:'employee',mode:'add'};render()},
+'guide-start-agency':()=>{state.setupGuide=false;state.screen='settings';state.modal={type:'store-search'};render()},
+'guide-dismiss':()=>{state.setupGuide=false;state.screen='home';render()}
 };
 async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;const fn=clickActions[el.dataset.a];if(fn)await fn(el)}
 async function onInput(e){if(e.target.id==='searchInput'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('기관명 저장 오류');return}}render()}}
@@ -688,38 +729,27 @@ await repo.apply({employees:emps,transactions:txs});emps.forEach(upsertEmp);txs.
 // ── 전체 초기화 ──
 function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[],setupComplete:false}}}
 async function clearAppCachesAndWorker(){if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}}
-function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[]}
+function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false}
 async function wipeLocalData(){const empty=emptyAppData();await repo.replaceAll(empty);await clearAppCachesAndWorker();resetUiAfterWipe(empty);return empty}
+// 전체 초기화 확인 절차(스펙 §수정6): 개발자용 문자 입력 대신 안내창 2회 확인으로 단순화.
+// 1차 confirm → 자동 최종 백업 다운로드(실패해도 진행 여부는 2차 confirm에서 사용자가 선택) → 2차 confirm → 실행.
+async function confirmWipeWithBackup(introMsg){
+if(!window.confirm(introMsg))return false;
+let backupOk=false;
+try{await exportBackup(true,{silent:true,skipConfirm:true});backupOk=true}catch(e){console.error('final backup failed:',e)}
+const second='정말 지울까요? 지운 기록은 되돌릴 수 없어요.\n(백업 파일이 있으면 나중에 되살릴 수 있어요)'+(backupOk?'\n\n✅ 최종 백업 파일을 저장했습니다.':'\n\n⚠️ 자동 백업에 실패했습니다. 그래도 계속할까요?');
+if(!window.confirm(second))return false;
+return true}
 async function fullReset(){
-// Step 1: 1차 확인
 const ac=state.data.employees.filter(v=>!v.isDeleted).length;
 const tc=state.data.transactions.length;
-if(!window.confirm('⚠️ 전체 초기화\n\n현재 데이터가 모두 삭제됩니다.\n• 직원 정보 : '+ac+'명\n• 거래 내역 : '+tc+'건 (서명 이미지 포함)\n• PIN 비밀번호\n\n먼저 자동으로 최종 백업 파일을 저장한 뒤 초기화합니다.\n계속하시겠습니까?'))return;
-// Step 2: 자동 최종 백업
-let backupOk=false;
-try{await exportBackup(true);backupOk=true}catch(e){console.error('final backup failed:',e)}
-if(!backupOk){toast('백업 실패. 초기화가 취소되었습니다.');return}
-// Step 3: 백업 확인
-const fn=backupFileName(true);
-if(!window.confirm('✅ 백업 파일이 다운로드 폴더에 저장되었습니다.\n\n파일명: '+fn+'\n\n이 파일이 실제로 저장되었는지 확인한 뒤 "확인"을 누르세요.\n초기화 이후에는 앱 내에서 복구할 수 없습니다.'))return;
-// Step 4: PIN 입력 확인 (PIN 미설정 시 빈값 엔터 허용)
-const storedPin=state.data.meta.pinHash||'';
-const pinMsg=storedPin?'정말로 초기화하시려면 현재 PIN 번호(4자리)를 입력하세요.':'PIN이 설정되어 있지 않습니다.\n그대로 엔터를 누르면 초기화가 진행됩니다.';
-const typed=window.prompt(pinMsg,'');
-if(typed===null)return;
-if(storedPin){
-const typedHash=await hash(typed);
-if(typedHash!==storedPin){toast('PIN이 일치하지 않아 초기화가 취소되었습니다.');return}
-}else{
-if(typed!==''){toast('PIN이 설정되어 있지 않습니다. 빈칸 상태로 확인해 주세요.');return}
-}
-// Step 5: 삭제 실행
+const ok=await confirmWipeWithBackup(`모든 장부·직원 기록이 지워집니다. 계속할까요?\n\n· 직원 정보 ${ac}명\n· 거래 내역 ${tc}건`);
+if(!ok)return;
 setBusy('초기화 중입니다.');
 try{
 await wipeLocalData();
 clearBusy();render();
-// Step 6: 완료 안내
-window.alert('✅ 초기화 완료\n\n모든 앱 데이터가 삭제되었습니다.\n\n완전히 정리하시려면 추가로:\n1. 홈 화면에서 "선입금대장" 아이콘을 길게 눌러 삭제\n2. Chrome 설정 → 개인정보 보호 → 사이트 설정에서\n   이 앱의 사이트 데이터 삭제')
+window.alert('✅ 초기화 완료\n\n모든 앱 데이터가 삭제되었습니다.')
 }catch(err){console.error(err);clearBusy();toast('초기화 중 오류가 발생했습니다.')}}
 
 // ── 부서 관리 ──
@@ -780,13 +810,17 @@ ${state.qrAvailable?`<button class="btn-secondary action-btn" data-a="qr-scan-op
 </div>
 </div>
 <div class="card settings-card">
-<div class="section-head"><div><div class="section-title">클라우드 백업 (암호화)</div><div class="section-kicker">기기 분실·파손에 대비해 암호화된 장부를 서버에 보관합니다</div></div></div>
-<div class="meta">서버는 내용을 볼 수 없습니다(암호화)</div>
-<div class="meta">마지막 클라우드 백업: ${esc(state.data.meta.lastCloudBackupAt?dt(state.data.meta.lastCloudBackupAt):'없음')}</div>
+<div class="section-head"><div><div class="section-title">📱 폰 분실 대비 금고 (잠금 백업)</div><div class="section-kicker">내용을 잠근 채로 보관해서 서버도, 개발자도 절대 열어볼 수 없어요</div></div></div>
+<div class="meta" style="line-height:1.6">폰을 잃어버렸을 때 새 폰에서 되찾는 용도예요.</div>
+<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">자세히</summary>
+<div class="stack" style="margin-top:8px">
+<div class="meta">마지막 금고 저장: ${esc(state.data.meta.lastCloudBackupAt?dt(state.data.meta.lastCloudBackupAt):'없음')}</div>
 <div class="section-actions">
-<button class="btn-primary action-btn" data-a="cloud-backup-now"><span class="action-icon">☁</span><div><strong>지금 백업</strong><span>암호화한 장부를 서버에 저장합니다</span></div></button>
-<button class="btn action-btn" data-a="cloud-backup-restore"><span class="action-icon">↺</span><div><strong>복원</strong><span>서버에 저장된 암호화 백업을 이 기기로 불러옵니다</span></div></button>
+<button class="btn-primary action-btn" data-a="cloud-backup-now"><span class="action-icon">🔒</span><div><strong>지금 금고에 저장</strong><span>내용을 잠근 채로 서버에 보관합니다</span></div></button>
+<button class="btn action-btn" data-a="cloud-backup-restore"><span class="action-icon">↺</span><div><strong>새 폰에서 되찾기</strong><span>금고에 보관된 내용을 이 기기로 불러옵니다</span></div></button>
 </div>
+</div>
+</details>
 </div>`:`<div class="card settings-card">
 <div class="section-head"><div><div class="section-title">기관 단체 선금 받기</div><div class="section-kicker">구청·기관에서 직원 식대 선금을 보내오면 여기서 받습니다</div></div></div>
 <div class="meta" style="margin-bottom:10px">기관 신청을 받으려면 <b>우리 가게를 한 번만 등록</b>하면 됩니다. 등록 후에는 앱으로 바로 받거나, 파일·QR로 받을 수 있어요.</div>
