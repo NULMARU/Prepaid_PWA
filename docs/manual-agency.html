@@ -1,0 +1,141 @@
+<title>선입금대장 — 기관 담당자 안내서</title>
+<style>
+:root{--primary:#1a5fb4;--primary-dark:#134a8f;--text:#1c2532;--muted:#5b6672;--line:#e3e8ee;--bg-soft:#f4f7fb;--warn:#b7791f;--warn-soft:#fff4e5;}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:var(--text);line-height:1.75;font-size:15.5px;max-width:820px;margin:0 auto;padding:24px 20px 90px;background:#fff}
+h1{font-size:26px;font-weight:700;color:var(--primary-dark);margin:0 0 6px}
+h2{font-size:20px;font-weight:700;color:var(--primary-dark);margin:44px 0 14px;padding-top:12px;border-top:2px solid var(--line);scroll-margin-top:14px}
+h2 .num{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;font-size:14px;margin-right:8px;vertical-align:middle}
+h3{font-size:16.5px;font-weight:700;margin:22px 0 8px}
+p{margin:10px 0}
+.lead{color:var(--muted);margin-bottom:20px}
+.toc{background:var(--bg-soft);border-radius:12px;padding:18px 20px;margin:24px 0 34px}
+.toc h2{margin:0 0 10px;font-size:17px;border:none;padding:0}
+.toc ol{margin:0;padding-left:22px}
+.toc li{margin:6px 0}
+.toc a{color:var(--primary-dark);text-decoration:none;font-weight:600}
+.toc a:hover{text-decoration:underline}
+.step{background:var(--bg-soft);border-radius:12px;padding:16px 18px;margin:12px 0;position:relative}
+.step .step-num{position:absolute;top:-13px;left:16px;background:var(--primary);color:#fff;font-weight:700;font-size:14px;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(26,95,180,.3)}
+.step-body{padding-top:4px}
+.step-title{font-weight:700;font-size:15.5px;margin-bottom:4px}
+.btn{display:inline-block;background:var(--primary);color:#fff !important;border-radius:7px;padding:4px 12px;font-weight:600;font-size:14.5px;text-decoration:none;margin:1px}
+.btn-secondary{display:inline-block;background:#fff;color:var(--primary) !important;border:1.5px solid var(--primary);border-radius:7px;padding:2.5px 10px;font-weight:600;font-size:14.5px;margin:1px}
+.field{display:inline-block;background:#fff;border:1.5px dashed #9fb3cc;border-radius:7px;padding:2px 9px;font-size:14.5px;color:var(--primary-dark);font-weight:600;margin:1px}
+.callout{background:var(--warn-soft);border-left:4px solid var(--warn);border-radius:6px;padding:12px 15px;margin:16px 0;font-weight:600;color:#7a5209;font-size:14.5px}
+.tip{background:#eef6ff;border-left:4px solid var(--primary);border-radius:6px;padding:12px 15px;margin:16px 0;font-size:14.5px}
+.card-list{list-style:none;padding:0;margin:14px 0}
+.card-list li{background:var(--bg-soft);border-radius:9px;padding:10px 13px;margin:7px 0}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}
+th{background:var(--bg-soft)}
+.qa dt{font-weight:700;color:var(--primary-dark);margin-top:12px}
+.qa dd{margin:3px 0 0}
+.top-link{position:fixed;right:16px;bottom:16px;background:var(--primary);color:#fff;border-radius:22px;padding:9px 15px;font-weight:600;text-decoration:none;box-shadow:0 3px 10px rgba(0,0,0,.2);font-size:13px}
+code{background:var(--bg-soft);padding:2px 6px;border-radius:4px;font-size:14px}
+hr{border:none;border-top:1.5px solid var(--line);margin:32px 0}
+footer{color:var(--muted);font-size:12.5px;margin-top:36px;text-align:center}
+@media print{
+  body{font-size:11.5pt;max-width:none;padding:0}
+  .top-link{display:none}
+  h2{page-break-before:always;border-top:none}
+  h2:first-of-type{page-break-before:avoid}
+  .toc{page-break-after:always}
+  .step{page-break-inside:avoid}
+  a[href]::after{content:" (" attr(href) ")";font-size:9pt;color:var(--muted)}
+  .toc a::after{content:""}
+}
+@media (max-width:480px){
+  body{font-size:15px;padding:18px 14px 76px}
+  h1{font-size:22px}
+  h2{font-size:18px}
+}
+</style>
+
+<h1>선입금대장 — 기관 담당자 안내서</h1>
+<p class="lead">직원 식대 선입금 명단을 음식점에 안전하게 전달하는 도구입니다. 아래 순서를 따라 진행해 주십시오.</p>
+
+<nav class="toc" aria-label="목차">
+<h2>목차</h2>
+<ol>
+<li><a href="#intro">개요·접속</a></li>
+<li><a href="#step1">1단계 본인 확인</a></li>
+<li><a href="#step2">2단계 음식점 찾기</a></li>
+<li><a href="#step3">3단계 명단 만들기</a></li>
+<li><a href="#step4">4단계 확인</a></li>
+<li><a href="#step5">5단계 보내기</a></li>
+<li><a href="#privacy">개인정보·보안 요약</a></li>
+<li><a href="#after">보낸 후 할 일</a></li>
+<li><a href="#contact">문의</a></li>
+</ol>
+</nav>
+
+<h2 id="intro"><span class="num">1</span>개요·접속</h2>
+<p>아래 주소로 브라우저에서 바로 접속하십시오. 별도의 설치는 필요하지 않습니다.</p>
+<p><code>https://prepaid-agency.pages.dev</code></p>
+<p>본 서비스는 결제·이체 기능이 없는 <b>전달 도구</b>입니다. 선금 이체는 기관에서 음식점 계좌로 직접 진행하시기 바랍니다.</p>
+
+<h2 id="step1"><span class="num">2</span>1단계 본인 확인</h2>
+<div class="step"><div class="step-num">1</div><div class="step-body">기관 이메일(<code>.go.kr</code> 또는 <code>.korea.kr</code>)을 입력합니다.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body"><span class="btn">인증번호 받기</span>를 누릅니다.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">받은 인증번호 6자리를 입력하고 <span class="btn">확인</span>을 누릅니다.</div></div>
+<div class="callout">※ 현재 파일럿 기간에는 인증번호가 자동으로 입력됩니다. 정식 운영 시에는 이메일로 발송됩니다.</div>
+
+<h2 id="step2"><span class="num">3</span>2단계 음식점 찾기</h2>
+<p>음식점 이름과 지역(예: <code>광진구 구의동</code>)으로 검색합니다.</p>
+<div class="tip"><b>앱을 설치·등록한 음식점만 검색 결과에 나타납니다.</b> 원하는 음식점이 보이지 않으면, 해당 음식점에 앱 설치를 먼저 안내해 주십시오. (음식점용 안내문: <a href="manual-restaurant.html">manual-restaurant.html</a>)</div>
+
+<h2 id="step3"><span class="num">4</span>3단계 명단 만들기</h2>
+<div class="step"><div class="step-num">1</div><div class="step-body"><span class="btn-secondary">CSV 양식 다운로드</span>를 눌러 양식을 내려받습니다.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">엑셀에서 다음 항목(순서 고정)을 작성합니다: <code>음식점명, 기관명, 부서명, 직원명, 선금금액, 입금자명</code></div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">엑셀에서 그냥 'CSV로 저장'해도 됩니다 — 형식은 자동으로 인식됩니다.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">작성한 파일을 업로드합니다.</div></div>
+<p>문제가 있으면 표 아래에 원인과 해결 방법이 표시됩니다.</p>
+
+<h2 id="step4"><span class="num">5</span>4단계 확인</h2>
+<p>부서별 합계가 <b>실제 이체하실 금액</b>과 일치하는지 마지막으로 대조하십시오.</p>
+
+<h2 id="step5"><span class="num">6</span>5단계 보내기</h2>
+<p>전송 방법은 두 가지입니다. 잘 모르시겠으면 <b>바로 보내기</b>를 사용하십시오.</p>
+
+<table>
+<thead><tr><th>방식</th><th>설명</th></tr></thead>
+<tbody>
+<tr>
+<td><b>바로 보내기</b><br><span class="tip" style="display:inline-block;margin:4px 0 0;padding:4px 8px">추천</span></td>
+<td>암호화된 명단을 서버를 거쳐 음식점 앱으로 보냅니다. 음식점이 받는 즉시 서버에서 삭제되며, 받지 않으면 최대 3일 후 자동 삭제됩니다.</td>
+</tr>
+<tr>
+<td><b>직접 전달</b></td>
+<td>
+서버에 저장되지 않습니다. 아래 중 하나를 선택합니다.
+<ul>
+<li><span class="btn-secondary">파일로 저장</span> → 이메일 첨부 (권장 1순위)</li>
+<li><span class="btn-secondary">카톡으로 보내기</span> (소속 기관 내규를 먼저 확인)</li>
+<li>QR: 화면 보여주기 · <span class="btn-secondary">인쇄</span> · <span class="btn-secondary">QR 이미지로 저장</span> — QR은 사장님 폰이 아닌 다른 화면·종이에 있어야 찍을 수 있습니다.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="privacy"><span class="num">7</span>개인정보·보안 요약</h2>
+<ul class="card-list">
+<li>명단은 브라우저에서 암호화되어 해당 음식점만 열람할 수 있습니다. 서버·운영자는 열람할 수 없습니다.</li>
+<li>전화번호는 수집하지 않습니다.</li>
+<li>직원 본인의 사전 동의 확보는 기관의 책임입니다. (동의 문구는 전송 시 표시되는 파일럿 배지를 참고하십시오. 법률 검토 후 확정됩니다.)</li>
+</ul>
+<p>자세한 내용은 <a href="PRIVACY_POLICY.md">개인정보처리방침(초안)</a>을 확인하십시오.</p>
+
+<h2 id="after"><span class="num">8</span>보낸 후 할 일</h2>
+<ul class="card-list">
+<li>음식점에 전달 사실을 알려 주십시오.</li>
+<li>완료 화면을 캡처해 내부 기록으로 보관해 주십시오.</li>
+<li>음식점이 3일 안에 받지 않으면 자동으로 삭제되므로, 필요하면 다시 보내 주십시오.</li>
+</ul>
+
+<h2 id="contact"><span class="num">9</span>문의</h2>
+<p>[문의처: 담당 부서 연락처를 기재해 주십시오]</p>
+
+<footer>선입금대장 — 기관 담당자 안내서</footer>
+<a class="top-link" href="#top" onclick="window.scrollTo({top:0,behavior:'smooth'});return false">맨 위로</a>
