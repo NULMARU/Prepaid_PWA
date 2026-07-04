@@ -79,7 +79,7 @@ tr.err{background:#fdecea}
 
 <div class="card" id="authCard">
 <h2>1단계 · 본인 확인</h2>
-<div class="step-help">기관 이메일로 인증번호를 받아 확인합니다. 명단 작성 전 한 번만 하면 됩니다.</div>
+<div class="step-help">아래에 기관 이메일을 입력해 인증번호를 받으세요. 명단 작성 전 한 번만 확인하면 됩니다.</div>
 <div id="authStep1">
 <label for="email" class="sr-only">기관 이메일</label>
 <div class="row"><input id="email" type="email" autocomplete="email" placeholder="이름@기관.go.kr"><button class="btn-primary" id="authBtn" style="flex:0 0 140px">인증번호 받기</button></div>
@@ -89,7 +89,7 @@ tr.err{background:#fdecea}
 <div class="row"><input id="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="인증번호 6자리"><button class="btn-primary" id="otpBtn" style="flex:0 0 100px">확인</button></div>
 <button type="button" id="resendBtn" style="min-height:auto;border:none;background:none;color:var(--primary);padding:4px 0 0;font-weight:600;text-decoration:underline">인증번호 재요청</button>
 </div>
-<div class="meta" id="authMsg">.go.kr / .korea.kr 기관 이메일만 허용.</div>
+<div class="meta" id="authMsg">기관 이메일(.go.kr 또는 .korea.kr)만 사용할 수 있습니다.</div>
 </div>
 
 <div class="card hide" id="searchCard">
@@ -106,8 +106,8 @@ tr.err{background:#fdecea}
 
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
-<div class="step-help">직원명·선금금액이 담긴 CSV 파일을 올리면 자동으로 형식을 확인합니다.</div>
-<div class="meta">컬럼(고정): 음식점명,기관명,부서명,직원명,선금금액,입금자명 · 엑셀에서 그냥 'CSV로 저장'한 파일도 그대로 올리시면 됩니다(인코딩 자동 인식).</div>
+<div class="step-help">아래에 직원명·선금금액이 담긴 CSV(엑셀 저장 파일)를 올려 주세요. 형식은 자동으로 확인됩니다.</div>
+<div class="meta">항목(순서 고정): 음식점명, 기관명, 부서명, 직원명, 선금금액, 입금자명 · 엑셀에서 그냥 'CSV로 저장'한 파일도 그대로 올리시면 됩니다(인코딩 자동 인식).</div>
 <button id="csvTemplateBtn" type="button" style="margin-top:8px">CSV 양식 다운로드</button>
 <label for="csv" class="sr-only">CSV 파일 선택</label>
 <input type="file" id="csv" accept=".csv" style="padding-top:8px">
@@ -116,13 +116,14 @@ tr.err{background:#fdecea}
 
 <div class="card hide" id="confirmCard">
 <h2>4단계 · 확인</h2>
-<div class="step-help">보내기 전에 음식점·부서별 인원과 금액이 맞는지 마지막으로 확인하세요.</div>
+<div class="step-help">아래 부서별 합계가 실제 이체하실 금액과 일치하는지 마지막으로 확인하세요.</div>
 <div id="confirmBox"></div>
 </div>
 
 <div class="card hide" id="submitCard">
 <h2>5단계 · 보내기</h2>
 <div class="step-help">전송 방법을 고른 뒤, 제3자 제공 동의를 확인하면 안전하게 보내기가 시작됩니다.</div>
+<div class="meta" style="margin-bottom:8px">잘 모르겠으면 <b>바로 보내기</b>를 사용하세요.</div>
 <div class="row" id="modeCards" style="align-items:stretch">
 <div class="mode-card" data-mode="relay" tabindex="0" role="button" aria-pressed="false">
 <span class="rec">추천</span>
@@ -255,7 +256,7 @@ $('searchBtn').addEventListener('click',async()=>{
     const r=await fetch(srv()+'/api/restaurants?q='+encodeURIComponent(q));
     const list=await r.json();
     if(!Array.isArray(list)){$('results').innerHTML='<div class="bad">'+(list.error||'검색 오류')+'</div>';return}
-    if(!list.length){$('results').innerHTML='<div class="meta">결과 없음</div>';S.lastList=[];return}
+    if(!list.length){$('results').innerHTML='<div class="meta">검색 결과가 없습니다. 음식점 이름을 다시 확인하거나 다르게 입력해 보세요.</div>';S.lastList=[];return}
     const capped=list.slice(0,50);
     let reg=[];try{reg=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(capped.map(x=>x.restaurant_id).join(','))).then(x=>x.json())}catch(e){}
     S.registered=new Set(Array.isArray(reg)?reg:[]);
@@ -361,7 +362,7 @@ $('csv').addEventListener('change',async e=>{
   if(!lines.length){
     fileErrors.push('파일 내용이 비어 있습니다.');
   }else if(COLS.join(',')!==header.join(',')){
-    fileErrors.push('컬럼 헤더 불일치. 기대: '+COLS.join(','));
+    fileErrors.push('첫 줄(항목명)이 CSV 양식과 다릅니다. 기대: '+COLS.join(','));
   }else{
     rawRows=[];const dupSet=new Set();
     for(let i=1;i<lines.length;i++){
@@ -369,7 +370,7 @@ $('csv').addEventListener('change',async e=>{
       const o={rest:f[0]||'',inst:f[1]||'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||''};
       const amt=parseWon(o.amount);
       let structErr='';
-      if(!o.rest||!o.inst||!o.dept||!o.name||!o.payer)structErr='필수 컬럼 공란';
+      if(!o.rest||!o.inst||!o.dept||!o.name||!o.payer)structErr='필수 항목 공란';
       else if(!(amt>0))structErr='선금금액 정수>0 아님';
       else{const k=o.rest+'|'+o.dept+'|'+o.name;if(dupSet.has(k))structErr='(음식점,부서,직원명) 중복';dupSet.add(k)}
       rawRows.push({...o,amount:amt,line:i+1,structErr});
@@ -430,15 +431,18 @@ function buildGroups(){
 function currentYearMonth(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function renderConfirm(){
   const groups=[...buildGroups().values()];
-  if(!groups.length){$('confirmBox').innerHTML='<div class="meta">확인할 명단이 없습니다.</div>';return}
+  if(!groups.length){$('confirmBox').innerHTML='<div class="meta">확인할 명단이 없습니다. 1~3단계를 다시 확인해 주세요.</div>';return}
   const totalPeople=groups.reduce((s,g)=>s+g.items.length,0);
   const totalAmount=groups.reduce((s,g)=>s+g.items.reduce((a,i)=>a+i.amount,0),0);
   const rows=groups.map(g=>{
     const amt=g.items.reduce((a,i)=>a+i.amount,0);
-    return `<tr><td>${esc(g.restaurant_name)}</td><td>${esc(g.department)}</td><td>${g.items.length}명</td><td>${amt.toLocaleString()}원</td></tr>`;
+    return `<tr><td>${esc(g.restaurant_name)}</td><td>${esc(g.department)}</td><td>${g.items.length}명</td><td><b>${amt.toLocaleString()}원</b></td></tr>`;
   }).join('');
   $('confirmBox').innerHTML='<table><thead><tr><th>음식점</th><th>부서</th><th>인원</th><th>선금 합계</th></tr></thead><tbody>'+rows+'</tbody></table>'+
-    '<div class="meta" style="margin-top:8px">총 '+groups.length+'건 · '+totalPeople+'명 · '+totalAmount.toLocaleString()+'원</div>';
+    '<div style="margin-top:10px;padding:10px 12px;background:#eef2ff;border:1px solid var(--primary);border-radius:8px">'+
+    '<div style="font-weight:700;font-size:14px">총 합계 '+totalAmount.toLocaleString()+'원 <span style="font-weight:400;color:var(--muted);font-size:12px">('+groups.length+'건 · '+totalPeople+'명)</span></div>'+
+    '<div class="meta" style="margin-top:4px">이체하실 금액과 같은지 확인하세요.</div>'+
+    '</div>';
 }
 function computeStep(){
   if(!S.authed)return 1;
@@ -501,10 +505,15 @@ function showConsent(){
   <h2 id="consentTitle">제3자 제공 동의 (직원명·선금)</h2>
   <div class="pilot-badge">⚠ 파일럿 테스트 모드 — 동의 문구는 법률 검토 후 확정됩니다</div>
   <div class="muted-box">
-  ① 제공받는 자: ${names}<br>② 제공 목적: 선금 식대 잔액 관리 및 사용 확인<br>
-  ③ 제공 항목: <b>직원명, 선금 금액</b> (전화번호 제외)<br>④ 보유 기간: 해당 월 정산 종료 시까지<br>
-  ⑤ 거부 권리 및 불이익 고지 · ⑥ 대상 직원 본인 사전 동의 확보 확인<br>
-  <span class="meta">※ 문구는 법률 검토(출시 게이트) 후 확정됩니다.</span>
+  <ul style="margin:0;padding-left:0;list-style:none">
+  <li style="margin-bottom:6px">① 제공받는 자: ${names}</li>
+  <li style="margin-bottom:6px">② 제공 목적: 선금 식대 잔액 관리 및 사용 확인</li>
+  <li style="margin-bottom:6px">③ 제공 항목: <b>직원명, 선금 금액</b> (전화번호 제외)</li>
+  <li style="margin-bottom:6px">④ 보유 기간: 해당 월 정산 종료 시까지</li>
+  <li style="margin-bottom:6px">⑤ 거부 권리 및 불이익 고지</li>
+  <li style="margin-bottom:0">⑥ 대상 직원 본인 사전 동의 확보 확인</li>
+  </ul>
+  <div class="meta" style="margin-top:8px">※ 문구는 법률 검토(출시 게이트) 후 확정됩니다.</div>
   </div>
   <label style="margin-top:10px"><input type="checkbox" id="agree" style="width:auto;min-height:auto"> 위 내용을 확인했고 직원 본인 동의를 확보했습니다</label>
   <div class="row" style="margin-top:12px"><button id="cancelC">취소</button><button class="btn-primary" id="okC" disabled>동의·전송</button></div>
@@ -554,7 +563,7 @@ async function doSubmitRelay(){
       okN++;log('✅ '+g.restaurant_name+' / '+g.department+' ('+g.items.length+'명, '+total.toLocaleString()+'원) → '+j.summary_id);
     }catch(e){failN++;log('❌ '+g.restaurant_name+' / '+g.department+': '+e.message)}
   }
-  log('\n완료: 성공 '+okN+' · 실패 '+failN+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).');
+  log('\n완료: 성공 '+okN+' · 실패 '+failN+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).\n\n다음 할 일: 음식점에 전화 등으로 전달 사실을 알려 주시고, 이 화면(또는 위 로그)을 캡처해 기관 내부 기록으로 보관하세요.');
 }
 // ── 5-B. 직접 전달 (서버에 올리지 않음 — 파일/공유/QR) ──
 function safeFileName(s){return String(s==null?'':s).replace(/[\\/:*?"<>|]/g,'_').replace(/\s+/g,'_')}
@@ -680,7 +689,7 @@ async function doSubmitDirect(){
       okN++;log('✅ '+g.restaurant_name+' / '+g.department+' ('+g.items.length+'명, '+total.toLocaleString()+'원) — 파일 준비 완료');
     }catch(e){failN++;log('❌ '+g.restaurant_name+' / '+g.department+': '+e.message)}
   }
-  log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.');
+  log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.\n\n다음 할 일: 위 카드에서 파일 저장 또는 이메일·카톡·QR로 음식점에 전달한 뒤, 전달 사실을 기관 내부 기록으로 보관하세요.');
 }
 function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 updateStepper();
