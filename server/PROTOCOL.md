@@ -45,9 +45,9 @@ batch_hash = SHA-256(hex)
 |---|---|---|---|
 | `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?}` | `{ok:true}` | 공개키 등록. 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1) |
 | `POST /api/challenge` | `{restaurant_id}` | `{challenge_ct}` / 404 | 소유 증명 챌린지 발급(§4.1) |
-| `POST /api/deregister` | `{restaurant_id, auth_token}` | `{ok:true}` / 401 | 음식점 주인 등록 해제(선금 받기 중단) → 공개키 삭제(연락처도 함께 삭제). 인증 필요 |
+| `POST /api/deregister` | `{restaurant_id, auth_token}` | `{ok:true}` / 401 | 음식점 주인 등록 해제(선금 받기 중단) → 공개키 삭제(연락처·원장 클라우드 백업도 함께 삭제, §4.2). 인증 필요 |
 | `POST /api/contact` | `{restaurant_id, auth_token, kakao_link, email}` | `{ok:true}` / 400/401/404 | 업무용 연락처 등록·수정·삭제(§4.5). 인증 필요 |
-| `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. `contact`는 미등록 시 각 필드 `null` |
+| `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. `contact`는 미등록 시 각 필드 `null`. IP당 분당 20회로 별도 레이트리밋(§6.3) |
 | `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` | 담당자 웹: '선금 받기 가능' 표시용 |
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 선택 헤더 `X-Agency-Token` | `{summary_id}` | 부서·음식점 단위 1건(§4.3) |
@@ -55,6 +55,7 @@ batch_hash = SHA-256(hex)
 | `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절. 상태 전이 성공 시 암호문(`encrypted_blob`) 즉시 파기(§6). 인증 필요 |
 | `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash}` | `{ok:true}` | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요 |
 | `POST /api/ledger-backup/get` | `{restaurant_id, auth_token}` | `{blob, blob_hash, updated_at}` / 404 | 백업 조회. 인증 필요 |
+| `POST /api/ledger-backup/delete` | `{restaurant_id, auth_token}` | `{ok:true}` / 401/404 | 백업 삭제(예: 기기를 되찾아 클라우드 백업이 더 이상 필요 없을 때). 인증 필요 |
 | `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?}` | 기관 이메일 OTP 발급(§4.4) |
 | `POST /api/agency/verify-otp` | `{email, otp}` | `{token}` / 401 | OTP 검증 → 24시간 기관 토큰 발급 |
 
@@ -93,6 +94,10 @@ batch_hash = SHA-256(hex)
 음식점 기기가 유실되어도 복구할 수 있도록, 클라이언트가 **자기 공개키로 하이브리드 암호화한**
 원장 blob(base64, 최대 1MB)을 서버에 보관할 수 있다. 서버는 이 blob을 복호화할 수 없다
 (zero-knowledge 불변식 유지 — §0). `restaurant_id`당 최신본 1행만 유지(upsert).
+`POST /api/ledger-backup/delete`로 직접 지울 수도 있고(인증 필요, 없으면 404), `POST
+/api/deregister`로 등록을 해제하면 공개키와 함께 **자동으로도** 삭제된다 — 공개키가 없으면
+소유 증명(챌린지-응답, §4.1) 자체를 더는 발급받을 수 없어 백업을 되찾을 길이 없어지므로,
+서버에 죽은 채로 남기지 않고 즉시 정리한다.
 
 ### 4.3 `/api/submit`과 기관 인증
 
@@ -107,11 +112,22 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
   생성해 해시만 저장(10분 TTL, 5회 시도 제한, 이메일당 60초 재요청 제한). 실제 이메일 발송은
   **이번 구현에 포함되지 않는다** — `worker.js`의 `// TODO: EMAIL 바인딩 연결` 참조.
   업그레이드 경로: Cloudflare Email Sending(또는 Email Routing) 바인딩을 `wrangler.toml`에
-  추가하고, OTP 생성 직후 발송 코드로 교체한다. `env.AUTH_MODE==='dev'`인 동안에만 응답에
-  `dev_otp`(평문)를 포함해 이메일 없이 개발·파일럿 테스트가 가능하다 — **운영 전환 시 반드시
-  `AUTH_MODE`를 `dev`가 아닌 값으로 바꿀 것.**
+  추가하고, OTP 생성 직후 발송 코드로 교체한다.
+  - `env.AUTH_MODE` 세 값: `"dev"`(로컬 개발 전용 — 응답에 `dev_otp`(평문)를 포함해 이메일 없이
+    테스트 가능. **운영 배포 절대 금지**), `"pilot"`(베타 운영값 — `dev_otp`를 포함하지 **않음**),
+    `"prod"`(실제 이메일 발송 구현 후 사용 — 아직 미구현이므로 사용하지 않음).
+  - **정직성 원칙(감사 항목 1)**: 어떤 응답에도 평문 OTP가 실려나가서는 안 되므로 `dev_otp`는
+    `AUTH_MODE==='dev'`일 때만 포함한다. `wrangler.toml`의 베타 운영값은 `AUTH_MODE="pilot"`이며,
+    이 모드에서는 이메일 발송 인프라가 없어 담당자가 실제로 OTP를 받을 방법이 없다. 이 상태에서
+    "인증됨"이라고 표시하면 거짓이므로, agency-web은 서버가 실제 이메일 소유를 검증하지 못한
+    경우(OTP를 받을 수 없어 검증을 완료할 수 없는 pilot 요청-OTP 응답, 그리고 구버전 서버
+    호환용 fallback 경로) "✅ 인증됨" 대신 "기관 이메일 형식 확인됨 (파일럿 — 정식 이메일
+    인증은 준비 중)"이라고 정직하게 표시하고, 실제 OTP 검증 단계를 건너뛴다. `REQUIRE_AGENCY_AUTH`는
+    이 인프라 공백 동안 `"0"`을 유지하므로(§4.3) 제출 자체는 막히지 않는다.
 - `POST /api/agency/verify-otp {email, otp}`: 성공 시 32바이트 토큰 발급, 24시간 유효
-  (`agency_token`). 이 토큰이 `X-Agency-Token` 헤더 값이 된다.
+  (`agency_token`). 이 토큰이 `X-Agency-Token` 헤더 값이 된다. (`AUTH_MODE==='pilot'`에서는
+  담당자가 실제 OTP 값을 알 방법이 없으므로 이 엔드포인트가 정상 호출되는 경우가 드물다 —
+  위 정직성 원칙 참조.)
 
 ### 4.5 업무용 연락처 (선택)
 
@@ -139,6 +155,9 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
 암호문(`encrypted_blob`)은 **음식점이 수령(승인/거절)하는 즉시 파기**되며, 수령하지 않은
 경우에도 **최대 72시간(3일) 후 자동 파기**된다. 개인을 식별할 수 없는 요약 정보
 (`deposit_summary`의 총액·인원수·해시·상태)만 처리 완료 후 30일간 보관 후 삭제된다.
+`consent_log`(기관·부서·연월·기관 이메일의 SHA-256 해시)는 180일 후 TTL cron이 삭제한다
+(§6.3). 이메일 해시에 salt/pepper를 추가하는 것은 이번 범위 밖이며 향후 개선 제안으로만
+남긴다(무차별 대입으로 `.go.kr` 이메일 후보를 역산하는 것을 더 어렵게 하는 목적).
 
 이와 별도로 담당자 웹에는 **무보관 모드("직접 전달")**가 존재한다 — 담당자가 암호화한 blob을
 서버로 전송하지 않고 파일·QR 등으로 음식점에 직접 전달하는 경로로, 이 경로에서는 명단(암호문
@@ -169,13 +188,19 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
   최소화 목적으로 ① 72시간 지난 `PENDING`을 `EXPIRED`로 전이하며 `encrypted_blob`을 즉시 삭제
   (§6.2 — 승인/거절 건은 §6.1에서 이미 즉시 삭제되었으므로 이 단계는 대개 no-op),
   ② `APPROVED`/`REJECTED`/`EXPIRED` 후 30일 지난 `deposit_summary`(+ 혹시 남아있는
-  `encrypted_blob`)를 삭제, ③ 만료된 `auth_challenge`/`agency_otp`/`agency_token`을 삭제.
-  서버는 zero-knowledge이며 원장 진실은 항상 음식점 기기에 있으므로, 이 정리는 서버 보관
-  데이터를 줄이는 것일 뿐 데이터 손실이 아니다.
+  `encrypted_blob`)를 삭제, ③ 만료된 `auth_challenge`/`agency_otp`/`agency_token`을 삭제,
+  ④ 180일 지난 `consent_log`를 삭제(§6.0). 서버는 zero-knowledge이며 원장 진실은 항상 음식점
+  기기에 있으므로, 이 정리는 서버 보관 데이터를 줄이는 것일 뿐 데이터 손실이 아니다.
 - **레이트 리밋(베스트 에포트)**: `CF-Connecting-IP`당 분당 60회로 per-isolate 메모리 Map을
   사용해 제한한다(초과 시 `429 {error:'rate_limited'}`). Cloudflare Workers는 요청마다 다른
   isolate로 라우팅될 수 있어 이 Map은 전역 카운터가 아니며 **완전한 보장이 아니다**. 운영에서는
   Cloudflare 대시보드의 Rate Limiting Rule(요청 기반, 전역 집계)을 **병행 적용**할 것을 권장한다.
+  - **`GET /api/public-key`는 별도로 더 낮은 한도(IP당 분당 20회)를 추가 적용한다**(감사 항목
+    3) — 이 엔드포인트는 업무용 연락처(카톡 링크·이메일)까지 노출하므로 대량 수집(크롤링)
+    유인이 더 크다. 다만 이 역시 per-isolate 메모리 Map의 한계를 그대로 가지는 **베스트
+    에포트일 뿐 완전한 방어가 아니다** — 공격자가 여러 IP/isolate로 분산하면 우회 가능하다.
+    운영에서는 이 엔드포인트에 Cloudflare 대시보드 Rate Limiting Rule 또는 **Turnstile**을
+    병행 적용할 것을 권장한다.
 
 ## 7. 컴플라이언스
 

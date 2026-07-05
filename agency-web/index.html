@@ -192,11 +192,25 @@ function unlockAfterAuth(){
   $('searchCard').classList.remove('hide');$('csvCard').classList.remove('hide');
   revalidate();
 }
+// 정직성 원칙(감사 항목 1): 서버가 실제로 이메일 소유를 확인하지 못한 상태(구서버 호환
+// fallback, 또는 pilot 모드에서 이메일 발송 인프라 부재로 OTP를 받을 방법이 없는 경우)를
+// "✅ 인증됨"이라고 표시하면 사용자를 오도한다. 이 경우 공통으로 아래 문구를 사용한다.
+function formatOnlyMsg(e){return '<span class="warn">⚠ 기관 이메일 형식 확인됨 (파일럿 — 정식 이메일 인증은 준비 중) · '+esc(e)+'</span>'}
 function fallbackAuth(e){
   S.authed=true;S.otpMode='fallback';
   $('authStep1').classList.add('hide');
   $('authStep2').classList.add('hide');
-  $('authMsg').innerHTML='<span class="good">✅ 인증됨 · '+esc(e)+'</span>';
+  $('authMsg').innerHTML=formatOnlyMsg(e);
+  unlockAfterAuth();
+}
+// pilot 모드: 서버가 OTP를 발급은 하지만(REQUIRE_AGENCY_AUTH='0'이라 제출은 막히지 않음)
+// 실제 이메일 발송 인프라가 없어 담당자가 그 번호를 받을 방법이 없다. "이메일로 발송했습니다"라고
+// 거짓 안내하며 영원히 오지 않을 OTP를 기다리게 하는 대신, 형식 확인 수준으로만 정직하게 진행한다.
+function pilotFormatConfirm(e){
+  S.authed=true;S.otpMode='pilot';
+  $('authStep1').classList.add('hide');
+  $('authStep2').classList.add('hide');
+  $('authMsg').innerHTML=formatOnlyMsg(e);
   unlockAfterAuth();
 }
 async function requestOtp(){
@@ -211,16 +225,18 @@ async function requestOtp(){
     if(r.status===404||r.status===501){fallbackAuth(e);return}
     let j={};try{j=await r.json()}catch{}
     if(!r.ok){$('authMsg').innerHTML='<span class="bad">'+esc(j.error||('요청 실패('+r.status+')'))+'</span>';return}
-    S.otpMode='server';
-    $('authStep2').classList.remove('hide');
-    $('otp').value='';
     if(j.dev_otp){
+      // 로컬 개발(AUTH_MODE=dev) 전용 — 서버가 평문 OTP를 응답에 실어 보낸 경우에만 자동 입력.
+      S.otpMode='server';
+      $('authStep2').classList.remove('hide');
       $('otp').value=j.dev_otp;
       $('authMsg').innerHTML='<span class="pill" style="background:#fff4e5;color:var(--warn)">개발 모드</span> 인증번호가 자동 입력되었습니다: '+esc(j.dev_otp);
+      $('otp').focus();
     }else{
-      $('authMsg').innerHTML='<span class="good">인증번호를 이메일로 발송했습니다.</span> 받은 6자리를 입력하세요.';
+      // 파일럿/운영: 서버 응답에 OTP가 없다 = 이메일 발송 인프라가 아직 없어 사용자가 번호를
+      // 받을 방법이 없다는 뜻. 실제 검증 단계를 건너뛰고 정직하게 형식 확인만 표시한다.
+      pilotFormatConfirm(e);
     }
-    $('otp').focus();
   }catch(err){$('authMsg').innerHTML='<span class="bad">요청 실패: '+esc(err.message)+'</span>'}
   finally{$('authBtn').disabled=false;$('resendBtn').disabled=false}
 }
@@ -255,7 +271,7 @@ $('searchBtn').addEventListener('click',async()=>{
   try{
     const r=await fetch(srv()+'/api/restaurants?q='+encodeURIComponent(q));
     const list=await r.json();
-    if(!Array.isArray(list)){$('results').innerHTML='<div class="bad">'+(list.error||'검색 오류')+'</div>';return}
+    if(!Array.isArray(list)){$('results').innerHTML='<div class="bad">'+esc(list.error||'검색 오류')+'</div>';return}
     if(!list.length){$('results').innerHTML='<div class="meta">검색 결과가 없습니다. 음식점 이름을 다시 확인하거나 다르게 입력해 보세요.</div>';S.lastList=[];return}
     const capped=list.slice(0,50);
     let reg=[];try{reg=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(capped.map(x=>x.restaurant_id).join(','))).then(x=>x.json())}catch(e){}

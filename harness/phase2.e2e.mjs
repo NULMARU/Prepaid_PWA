@@ -265,6 +265,44 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const dumpLedger = store._dump();
   ok([...dumpLedger.ledgerBackups.values()].every(b => b.blob !== 'plaintext'), 'ledger-backup: 서버 저장본은 클라이언트 암호문 그대로(서버는 내용을 알지 못함)');
 
+  // 13b) ledger_backup 삭제 경로(감사 항목 2): deregister 시 백업도 함께 삭제
+  const RID6B = 'MGT-0006B';
+  const kp6B = await genKeyPair();
+  const spki6B = b64(await subtle.exportKey('spki', kp6B.publicKey));
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID6B, restaurant_name: '백업삭제테스트', public_key: spki6B });
+  ok(r.status === 200, 'ledger-backup 삭제: 사전 공개키 등록 200');
+  let tok6B = await getAuthToken(store, env, RID6B, kp6B.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup', { restaurant_id: RID6B, auth_token: tok6B, blob: 'YmFja3VwLTE=', blob_hash: 'hb-1' });
+  ok(r.status === 200, 'ledger-backup 삭제: 업로드 200');
+  const tok6Bd = await getAuthToken(store, env, RID6B, kp6B.privateKey);
+  r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RID6B, auth_token: tok6Bd });
+  ok(r.status === 200, 'ledger-backup 삭제: deregister 200');
+  // deregister로 공개키가 사라지면 더는 챌린지를 발급받을 수 없어(§4.1) 백업 조회 자체가 불가능해진다.
+  r = await call(store, env, 'POST', '/api/challenge', { restaurant_id: RID6B });
+  ok(r.status === 404, 'ledger-backup 삭제: deregister 후에는 챌린지 발급도 불가(공개키 없음 — 백업을 되찾을 길이 없음을 방증)');
+  ok(!store._dump().ledgerBackups.has(RID6B), 'ledger-backup 삭제: deregister 시 ledger_backup도 함께 삭제됨(D1/메모리)');
+
+  // POST /api/ledger-backup/delete: 무인증 401, 인증 후 200, 삭제 후 조회 404
+  const RID6C = 'MGT-0006C';
+  const kp6C = await genKeyPair();
+  const spki6C = b64(await subtle.exportKey('spki', kp6C.publicKey));
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID6C, restaurant_name: '백업삭제테스트2', public_key: spki6C });
+  ok(r.status === 200, 'ledger-backup/delete: 사전 공개키 등록 200');
+  const tok6C1 = await getAuthToken(store, env, RID6C, kp6C.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup', { restaurant_id: RID6C, auth_token: tok6C1, blob: 'YmFja3VwLTI=', blob_hash: 'hb-2' });
+  ok(r.status === 200, 'ledger-backup/delete: 업로드 200');
+  r = await call(store, env, 'POST', '/api/ledger-backup/delete', { restaurant_id: RID6C });
+  ok(r.status === 401, 'ledger-backup/delete: 무인증 401');
+  const tok6C2 = await getAuthToken(store, env, RID6C, kp6C.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup/delete', { restaurant_id: RID6C, auth_token: tok6C2 });
+  ok(r.status === 200, 'ledger-backup/delete: 인증 후 삭제 200');
+  const tok6C3 = await getAuthToken(store, env, RID6C, kp6C.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup/get', { restaurant_id: RID6C, auth_token: tok6C3 });
+  ok(r.status === 404, 'ledger-backup/delete: 삭제 후 조회 404');
+  const tok6C4 = await getAuthToken(store, env, RID6C, kp6C.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup/delete', { restaurant_id: RID6C, auth_token: tok6C4 });
+  ok(r.status === 404, 'ledger-backup/delete: 이미 없는 백업 재삭제 시도 404');
+
   // 14) 기관 OTP 인증(dev 플로우)
   r = await call(store, env, 'POST', '/api/agency/request-otp', { email: 'officer@example.com' });
   ok(r.status === 400, 'agency-otp: 비정부 도메인 400');
@@ -285,6 +323,19 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
 
   r = await call(store, env, 'POST', '/api/agency/verify-otp', { email: 'officer@seoul.go.kr', otp: rjOtp.dev_otp });
   ok(r.status === 401, 'agency-otp: OTP는 1회용(검증 성공 후 삭제) — 재검증 401');
+
+  // 14b) AUTH_MODE=pilot(감사 항목 1 — 베타 운영값): 어떤 응답에도 평문 OTP가 실려나가지 않음.
+  // dev와 달리 pilot·prod에서는 request-otp 응답에 dev_otp/otp 필드 자체가 없어야 한다.
+  const envPilot = { ...env, AUTH_MODE: 'pilot' };
+  r = await call(store, envPilot, 'POST', '/api/agency/request-otp', { email: 'pilot-officer@seoul.go.kr' });
+  const rjPilotOtp = await r.json();
+  ok(r.status === 200 && rjPilotOtp.ok === true && !('dev_otp' in rjPilotOtp) && !('otp' in rjPilotOtp),
+    'agency-otp: AUTH_MODE=pilot에서는 응답에 평문 OTP 필드가 전혀 없음(dev_otp/otp 모두 부재)');
+  const envProd = { ...env, AUTH_MODE: 'prod' };
+  r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: 'prod-officer@seoul.go.kr' });
+  const rjProdOtp = await r.json();
+  ok(r.status === 200 && rjProdOtp.ok === true && !('dev_otp' in rjProdOtp) && !('otp' in rjProdOtp),
+    'agency-otp: AUTH_MODE=prod에서도 응답에 평문 OTP 필드 없음');
 
   // 15) REQUIRE_AGENCY_AUTH=1일 때 /api/submit 게이트 + consent_log 이메일 해시 기록
   const envRequireAgency = { ...env, REQUIRE_AGENCY_AUTH: '1' };
@@ -327,6 +378,19 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(limited, '레이트 리밋: CF-Connecting-IP 존재 시 분당 60회 초과하면 429');
   const rrNoHeader = await handle(new Request('http://x/api/registered?ids=rl-test2', { method: 'GET' }), env, store);
   ok(rrNoHeader.status === 200, '레이트 리밋: CF-Connecting-IP 헤더 없는 요청(하니스 등)은 영향 없음');
+
+  // 16b) 연락처 크롤링 완화(감사 항목 3): /api/public-key는 더 낮은 한도(분당 20회)로 별도 제한.
+  // 전역 한도(60)보다 훨씬 낮으므로 25회 이내에 429가 나와야 한다(같은 20회 카운터가 전역
+  // 카운터와 별도임을 확인하기 위해 registered 엔드포인트에 쓰지 않은 새 IP를 사용).
+  let pkLimited = false;
+  for (let i = 0; i < 25; i++) {
+    const rr = await handle(new Request('http://x/api/public-key?restaurant_id=RL-PK-TEST', { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.50' } }), env, store);
+    if (rr.status === 429) { pkLimited = true; break; }
+  }
+  ok(pkLimited, 'public-key: 연락처 크롤링 완화 — 강화된 레이트리밋(분당 20회) 초과 시 429');
+  // 같은 IP라도 다른 엔드포인트(registered)는 public-key 전용 카운터의 영향을 받지 않는다.
+  const rrOtherEndpoint = await handle(new Request('http://x/api/registered?ids=rl-pk-other', { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.50' } }), env, store);
+  ok(rrOtherEndpoint.status === 200, 'public-key: 강화된 레이트리밋은 public-key 엔드포인트 전용(다른 엔드포인트는 영향 없음)');
 
   // 17) 데이터 보존 최소화(PROTOCOL.md §6): 수령 즉시 파기 + 미수령 72시간 자동 파기.
   // 시각 주입은 전역 Date.now()를 몽키패치하지 않고, store에 저장된 created_at/processed_at을
