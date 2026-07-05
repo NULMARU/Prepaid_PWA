@@ -90,6 +90,42 @@ async function verifyAgencyToken(store, token) {
   if (!row || row.expires_at < Date.now()) return null;
   return row;
 }
+// Resend REST API로 기관 OTP 이메일을 발송한다(Cloudflare Email Sending 대신 — Workers
+// 유료 플랜 없이도 쓸 수 있는 무료 이메일 API). env.RESEND_API_KEY는 `wrangler secret put`으로
+// 등록하는 비밀값이며 코드/파일에는 값을 두지 않는다. 반환값은 {ok:true} 또는
+// {ok:false, reason}(호출부가 reason만 로깅하고 이메일/코드 평문은 로깅하지 않는다).
+export async function sendOtpEmail(env, email, otp) {
+  const text = '[밥장부] 기관 담당자 본인확인용 인증번호: ' + otp + '\n\n' +
+    '유효시간: 10분\n' +
+    '본 인증번호는 기관 담당자 본인확인용입니다. 타인에게 알리지 마세요.\n' +
+    '본인이 요청하지 않았다면 이 메일을 무시하세요.';
+  const html = '<p>[밥장부] 기관 담당자 본인확인용 인증번호입니다.</p>' +
+    '<p style="font-size:28px;font-weight:bold;letter-spacing:4px;">' + otp + '</p>' +
+    '<p>유효시간: <b>10분</b></p>' +
+    '<p>본 인증번호는 기관 담당자 본인확인용입니다. <b>타인에게 알리지 마세요.</b></p>' +
+    '<p>본인이 요청하지 않았다면 이 메일을 무시하세요.</p>';
+  let res;
+  try {
+    res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + env.RESEND_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: '밥장부 <noreply@bapjangbu.com>',
+        to: [email],
+        subject: '[밥장부] 인증번호 ' + otp,
+        text,
+        html
+      })
+    });
+  } catch (e) {
+    return { ok: false, reason: (e && e.message) || 'fetch_error' };
+  }
+  if (!res.ok) return { ok: false, reason: 'resend_http_' + res.status };
+  return { ok: true };
+}
 function isAgencyEmail(email) {
   const e = String(email || '').trim().toLowerCase();
   const at = e.lastIndexOf('@');
@@ -426,8 +462,9 @@ export async function handle(request, env, store) {
     //   OTP는 생성·해시 저장하지만 발송하지 않고 {ok:true, sent:false}만 응답한다. agency-web은
     //   sent:false를 보고 "형식 확인됨(파일럿)" 수준으로만 진행(REQUIRE_AGENCY_AUTH='0' 유지로
     //   제출 자체는 막히지 않음).
-    // prod: Cloudflare Email Sending Workers 바인딩(env.EMAIL, wrangler.toml [[send_email]])으로
-    //   실제 발송. 감사 항목 1(정직성 원칙): 어떤 모드의 응답에도 평문 OTP가 실려나가서는 안 되므로
+    // prod: Resend REST API(env.RESEND_API_KEY secret, sendOtpEmail 헬퍼)로 실제 발송 —
+    //   Cloudflare Email Sending은 Workers 유료 플랜이 필요해 무료 대안인 Resend로 전환했다.
+    //   감사 항목 1(정직성 원칙): 어떤 모드의 응답에도 평문 OTP가 실려나가서는 안 되므로
     //   dev_otp는 AUTH_MODE==='dev'일 때만 포함하고, prod는 발송 성공 시 sent:true만 반환한다.
     if (path === '/api/agency/request-otp' && request.method === 'POST') {
       const b = await request.json();
@@ -444,24 +481,15 @@ export async function handle(request, env, store) {
       await store.upsertAgencyOtp({ email, otp_hash, expires_at: now + 10 * 60 * 1000, attempts: 0, created_at: now });
       if (env.AUTH_MODE === 'dev') return j({ ok: true, dev_otp: otp });
       if (env.AUTH_MODE === 'prod') {
-        try {
-          await env.EMAIL.send({
-            to: email,
-            from: { email: 'noreply@bapjangbu.com', name: '밥장부' },
-            subject: '[밥장부] 인증번호 ' + otp,
-            text: '[밥장부] 기관 담당자 본인확인용 인증번호: ' + otp + '\n\n' +
-              '유효시간: 10분\n' +
-              '본 인증번호는 기관 담당자 본인확인용입니다. 타인에게 알리지 마세요.\n' +
-              '본인이 요청하지 않았다면 이 메일을 무시하세요.',
-            html: '<p>[밥장부] 기관 담당자 본인확인용 인증번호입니다.</p>' +
-              '<p style="font-size:28px;font-weight:bold;letter-spacing:4px;">' + otp + '</p>' +
-              '<p>유효시간: <b>10분</b></p>' +
-              '<p>본 인증번호는 기관 담당자 본인확인용입니다. <b>타인에게 알리지 마세요.</b></p>' +
-              '<p>본인이 요청하지 않았다면 이 메일을 무시하세요.</p>'
-          });
-        } catch (e) {
-          // 개인정보 보호: 이메일 평문은 로깅하지 않는다. 실패 사유만 남긴다.
-          console.error('agency-otp email send failed: ' + (e && e.message ? e.message : 'unknown'));
+        if (!env.RESEND_API_KEY) {
+          // secret 미등록 상태로 prod 전환됨 — 발송 시도조차 하지 않고 명확히 알린다.
+          console.error('agency-otp email not configured: RESEND_API_KEY missing');
+          return j({ error: 'email_not_configured' }, 500);
+        }
+        const result = await sendOtpEmail(env, email, otp);
+        if (!result.ok) {
+          // 개인정보 보호: 이메일 평문·OTP는 로깅하지 않는다. 실패 사유만 남긴다.
+          console.error('agency-otp email send failed: ' + (result.reason || 'unknown'));
           return j({ error: 'email_send_failed' }, 500);
         }
         return j({ ok: true, sent: true });

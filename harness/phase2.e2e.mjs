@@ -332,29 +332,71 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(r.status === 200 && rjPilotOtp.ok === true && rjPilotOtp.sent === false && !('dev_otp' in rjPilotOtp) && !('otp' in rjPilotOtp),
     'agency-otp: AUTH_MODE=pilot에서는 응답에 평문 OTP 필드가 전혀 없고(dev_otp/otp 모두 부재) sent:false(미발송)');
 
-  // 14c) AUTH_MODE=prod: env.EMAIL(Cloudflare Email Sending 바인딩)로 실제 발송.
-  // EMAIL 스텁 — send() 호출 인자를 기록만 하고 resolve.
-  const makeEmailStub = () => { const calls = []; return { calls, send: async (msg) => { calls.push(msg); } }; };
-  const emailStub = makeEmailStub();
-  const envProd = { ...env, AUTH_MODE: 'prod', EMAIL: emailStub };
-  r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: 'prod-officer@seoul.go.kr' });
+  // 14c) AUTH_MODE=prod: Resend REST API(env.RESEND_API_KEY secret)로 실제 발송.
+  // globalThis.fetch를 이 블록 범위에서만 스텁하고 호출 직후 원래 fetch로 복원한다
+  // (다른 테스트가 실 네트워크 fetch에 의존하지 않는지 위에서 확인함 — searchRestaurants는
+  // 항상 env.searchRestaurants 목으로 주입되어 defaultSearch의 실 fetch 경로는 타지 않는다).
+  const realFetch = globalThis.fetch;
+  const makeFetchStub = (response) => ({
+    calls: [],
+    fn: async function (url, init) {
+      this.calls.push({ url, init });
+      if (response.reject) throw response.reject;
+      return { ok: response.ok, status: response.status };
+    }
+  });
+  const envProd = { ...env, AUTH_MODE: 'prod', RESEND_API_KEY: 'test-resend-key' };
+
+  // 14c-1) 정상 발송(fetch 2xx): fetch 정확히 1회, URL·Authorization·from/to·6자리 본문 확인,
+  // 응답은 sent:true이며 otp/dev_otp 없음.
+  let stub = makeFetchStub({ ok: true, status: 200 });
+  globalThis.fetch = stub.fn.bind(stub);
+  try {
+    r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: 'prod-officer@seoul.go.kr' });
+  } finally { globalThis.fetch = realFetch; }
   const rjProdOtp = await r.json();
   ok(r.status === 200 && rjProdOtp.ok === true && rjProdOtp.sent === true && !('dev_otp' in rjProdOtp) && !('otp' in rjProdOtp),
     'agency-otp: AUTH_MODE=prod에서도 응답에 평문 OTP 필드 없음(+ sent:true, 실제 발송)');
-  ok(emailStub.calls.length === 1, 'agency-otp: AUTH_MODE=prod → EMAIL.send가 정확히 1회 호출됨');
-  const sentMsg = emailStub.calls[0] || {};
-  ok(sentMsg.to === 'prod-officer@seoul.go.kr', 'agency-otp: EMAIL.send to = 요청 이메일');
-  ok(!!sentMsg.from && sentMsg.from.email === 'noreply@bapjangbu.com' && sentMsg.from.name === '밥장부',
-    'agency-otp: EMAIL.send from = noreply@bapjangbu.com(밥장부)');
-  ok(/\d{6}/.test(sentMsg.text || '') && /\d{6}/.test(sentMsg.html || ''),
-    'agency-otp: EMAIL.send 본문(text+html)에 6자리 인증번호 포함');
+  ok(stub.calls.length === 1, 'agency-otp: AUTH_MODE=prod → Resend fetch가 정확히 1회 호출됨');
+  const sentCall = stub.calls[0] || {};
+  ok(sentCall.url === 'https://api.resend.com/emails', 'agency-otp: Resend 호출 URL = https://api.resend.com/emails');
+  ok(!!sentCall.init && !!sentCall.init.headers && sentCall.init.headers['Authorization'] === 'Bearer test-resend-key',
+    'agency-otp: Resend 호출 Authorization 헤더 = Bearer RESEND_API_KEY');
+  const sentBody = sentCall.init && sentCall.init.body ? JSON.parse(sentCall.init.body) : {};
+  ok(sentBody.from === '밥장부 <noreply@bapjangbu.com>', 'agency-otp: Resend 발신자 = 밥장부 <noreply@bapjangbu.com>');
+  ok(Array.isArray(sentBody.to) && sentBody.to[0] === 'prod-officer@seoul.go.kr', 'agency-otp: Resend 수신자 = 요청 이메일');
+  ok(/\d{6}/.test(sentBody.text || '') && /\d{6}/.test(sentBody.html || ''),
+    'agency-otp: Resend 요청 본문(text+html)에 6자리 인증번호 포함');
 
-  // EMAIL.send가 예외를 던지면(발송 실패) 500 + email_send_failed, 평문 OTP는 어디에도 없음.
-  const envProdFail = { ...env, AUTH_MODE: 'prod', EMAIL: { send: async () => { throw new Error('smtp down'); } } };
-  r = await call(store, envProdFail, 'POST', '/api/agency/request-otp', { email: 'prod-officer-fail@seoul.go.kr' });
+  // 14c-2) Resend가 비2xx 응답 → 500 email_send_failed, 평문 OTP는 어디에도 없음.
+  stub = makeFetchStub({ ok: false, status: 500 });
+  globalThis.fetch = stub.fn.bind(stub);
+  try {
+    r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: 'prod-officer-fail@seoul.go.kr' });
+  } finally { globalThis.fetch = realFetch; }
   const rjProdFail = await r.json();
   ok(r.status === 500 && rjProdFail.error === 'email_send_failed' && !('dev_otp' in rjProdFail) && !('otp' in rjProdFail),
-    'agency-otp: AUTH_MODE=prod + EMAIL.send 예외 → 500 email_send_failed');
+    'agency-otp: AUTH_MODE=prod + Resend 비2xx 응답 → 500 email_send_failed');
+
+  // 14c-3) fetch 자체가 reject(네트워크 오류) → 500 email_send_failed.
+  globalThis.fetch = async () => { throw new Error('network down'); };
+  try {
+    r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: 'prod-officer-fail2@seoul.go.kr' });
+  } finally { globalThis.fetch = realFetch; }
+  const rjProdFail2 = await r.json();
+  ok(r.status === 500 && rjProdFail2.error === 'email_send_failed' && !('dev_otp' in rjProdFail2) && !('otp' in rjProdFail2),
+    'agency-otp: AUTH_MODE=prod + fetch reject(네트워크 오류) → 500 email_send_failed');
+
+  // 14c-4) RESEND_API_KEY 미설정 → 발송 시도 없이(fetch 미호출) 500 email_not_configured.
+  stub = makeFetchStub({ ok: true, status: 200 });
+  globalThis.fetch = stub.fn.bind(stub);
+  const envProdNoKey = { ...env, AUTH_MODE: 'prod' };
+  try {
+    r = await call(store, envProdNoKey, 'POST', '/api/agency/request-otp', { email: 'prod-officer-nokey@seoul.go.kr' });
+  } finally { globalThis.fetch = realFetch; }
+  const rjProdNoKey = await r.json();
+  ok(r.status === 500 && rjProdNoKey.error === 'email_not_configured' && stub.calls.length === 0,
+    'agency-otp: AUTH_MODE=prod + RESEND_API_KEY 미설정 → fetch 미호출, 500 email_not_configured');
 
   // 15) REQUIRE_AGENCY_AUTH=1일 때 /api/submit 게이트 + consent_log 이메일 해시 기록
   const envRequireAgency = { ...env, REQUIRE_AGENCY_AUTH: '1' };

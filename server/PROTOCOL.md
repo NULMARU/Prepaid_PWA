@@ -115,17 +115,24 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
       가능. **운영 배포 절대 금지.** 이메일 미발송.
     - `"pilot"`(베타 운영값): 응답 `{ok:true, sent:false}` — OTP는 생성·해시 저장하지만
       **발송하지 않는다**(이메일 발송 도메인 온보딩 전 단계). `dev_otp`/`otp` 필드는 포함하지 않음.
-    - `"prod"`: `env.EMAIL`(Cloudflare Email Sending Workers 바인딩, `wrangler.toml`
-      `[[send_email]] name="EMAIL"`)로 **실제 이메일을 발송**한다. 발신 주소는
-      `noreply@bapjangbu.com`(표시명 "밥장부"), 제목 `[밥장부] 인증번호 <6자리>`, 본문(text+html
-      둘 다)에 6자리 코드·유효시간(10분)·"기관 담당자 본인확인용, 타인에게 알리지 마세요" 안내를
-      한국어로 담는다. 발송 성공 시 응답 `{ok:true, sent:true}`이며 `otp`/`dev_otp`는 **절대**
-      포함하지 않는다. `env.EMAIL.send()`가 예외를 던지면 `500 {error:'email_send_failed'}`를
-      반환하고, 서버 로그에는 실패 사유만 남기며 이메일 주소 평문은 로깅하지 않는다.
-      **prod 전환 전 선행 조건**: `bapjangbu.com` 도메인을 Cloudflare Email Sending에
-      온보딩(`wrangler email sending enable bapjangbu.com`)하고 발송 인증(DNS 레코드)이
-      완료되어야 한다 — 완료 전에 `AUTH_MODE`를 `"prod"`로 바꾸면 모든 요청이
-      `email_send_failed`로 실패한다.
+    - `"prod"`: Resend REST API(`POST https://api.resend.com/emails`, `worker.js`의
+      `sendOtpEmail(env, email, otp)` 헬퍼)로 **실제 이메일을 발송**한다. Cloudflare Email
+      Sending은 Workers 유료 플랜이 필요해 쓰지 않고, 무료로 쓸 수 있는 Resend로 전환했다.
+      인증 헤더는 `Authorization: Bearer ${env.RESEND_API_KEY}`(wrangler secret, 코드/파일에
+      값을 두지 않음). 발신 주소는 `noreply@bapjangbu.com`(표시명 "밥장부"), 제목
+      `[밥장부] 인증번호 <6자리>`, 본문(text+html 둘 다)에 6자리 코드·유효시간(10분)·"기관
+      담당자 본인확인용, 타인에게 알리지 마세요" 안내를 한국어로 담는다.
+      - `env.RESEND_API_KEY`가 설정돼 있지 않으면 발송을 **시도조차 하지 않고**
+        `500 {error:'email_not_configured'}`를 반환한다.
+      - Resend 응답이 2xx가 아니거나 `fetch` 자체가 실패(reject)하면
+        `500 {error:'email_send_failed'}`를 반환하고, 서버 로그에는 실패 사유만 남기며
+        이메일 주소·OTP 평문은 로깅하지 않는다.
+      - 발송 성공(Resend 2xx) 시 응답 `{ok:true, sent:true}`이며 `otp`/`dev_otp`는 **절대**
+        포함하지 않는다.
+      **prod 전환 전 선행 조건**: `bapjangbu.com` 도메인을 Resend 대시보드에서 도메인
+      인증(DNS 레코드 등록)하고, `wrangler secret put RESEND_API_KEY`로 API 키를 등록해야
+      한다 — 완료 전에 `AUTH_MODE`를 `"prod"`로 바꾸면 모든 요청이 `email_not_configured`
+      또는 `email_send_failed`로 실패한다.
   - **정직성 원칙(감사 항목 1)**: 어떤 응답에도 평문 OTP가 실려나가서는 안 되므로 `dev_otp`는
     `AUTH_MODE==='dev'`일 때만 포함한다. `wrangler.toml`의 베타 운영값은 `AUTH_MODE="pilot"`이며,
     이 모드에서는 이메일 발송 인프라가 아직 온보딩 전이라 담당자가 실제로 OTP를 받을 방법이
