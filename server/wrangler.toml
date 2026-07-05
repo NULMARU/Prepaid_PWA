@@ -10,10 +10,13 @@ PUBLIC_API_BASE = "https://apis.data.go.kr/1741000/general_restaurants/info"
 PUBLIC_API_REGION_PARAM = "cond[OPN_ATMY_GRP_CD::EQ]"   # 개방자치단체코드(지역)
 PUBLIC_API_NAME_PARAM = "cond[BPLC_NM::LIKE]"           # 사업장명 포함 검색
 # AUTH_MODE 세 값: "dev"(로컬 개발 전용 — /api/agency/request-otp 응답에 평문 dev_otp 포함,
-# 절대 운영 배포 금지) · "pilot"(베타 운영값 — dev_otp 미노출. 단, 실제 이메일 발송 인프라가
-# 아직 없어 OTP를 이메일로 받을 방법이 없으므로 agency-web은 "정식 이메일 인증은 준비 중"이라고
-# 정직하게 표시하고 형식 확인 수준으로만 진행한다) · "prod"(실제 이메일 발송 구현 후 사용 —
-# 아직 미구현이므로 사용하지 않음). 베타 운영값: "pilot".
+# 절대 운영 배포 금지) · "pilot"(베타 운영값 — dev_otp 미노출, 응답 sent:false. 실제 이메일
+# 발송 인프라(도메인 온보딩)가 아직 없어 OTP를 이메일로 받을 방법이 없으므로 agency-web은
+# "정식 이메일 인증은 준비 중"이라고 정직하게 표시하고 형식 확인 수준으로만 진행한다) ·
+# "prod"(env.EMAIL 바인딩으로 실제 이메일 발송, 응답 sent:true — bapjangbu.com 도메인
+# 온보딩(email sending enable)과 발송 인증이 완료된 후에만 전환할 것). 베타 운영값: "pilot".
+# ※ 도메인 온보딩 + 발송 인증 완료 후 오케스트레이터가 "prod"로 전환·배포한다. 그 전까지는
+#    이 값을 "pilot"으로 유지 — EMAIL 바인딩이 있어도 AUTH_MODE!=='prod'면 호출되지 않는다.
 AUTH_MODE = "pilot"
 # "1"이면 /api/submit이 유효한 X-Agency-Token 헤더를 요구한다. 기관 이메일 발송 인프라(실제
 # OTP 이메일 전송)가 없는 한 "1"로 켜면 담당자가 토큰을 발급받을 방법이 없어 제출이 전면 막힌다.
@@ -25,6 +28,12 @@ REQUIRE_AGENCY_AUTH = "0"
 binding = "DB"
 database_name = "prepaid-relay"
 database_id = "13cf43c0-5d02-45bd-b00e-032285d5323c"
+
+# Cloudflare Email Sending 바인딩(기관 OTP 실제 발송, AUTH_MODE="prod"에서만 사용).
+# 발신 도메인 bapjangbu.com은 `wrangler email sending enable bapjangbu.com`으로 온보딩 후
+# 발송 인증(DNS 레코드) 완료가 선행되어야 한다 — 도메인 온보딩+발송 인증 완료 후 prod 전환.
+[[send_email]]
+name = "EMAIL"
 
 # TTL 정리 cron: 매일 UTC 18:17(KST 새벽 03:17)에 실행 — 처리 완료 30일 경과 데이터,
 # 만료된 인증 챌린지/기관 OTP/기관 토큰을 삭제(개인정보 최소화 목적).

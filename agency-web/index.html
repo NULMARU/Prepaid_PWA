@@ -224,7 +224,13 @@ async function requestOtp(){
     const r=await fetch(srv()+'/api/agency/request-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e})});
     if(r.status===404||r.status===501){fallbackAuth(e);return}
     let j={};try{j=await r.json()}catch{}
-    if(!r.ok){$('authMsg').innerHTML='<span class="bad">'+esc(j.error||('요청 실패('+r.status+')'))+'</span>';return}
+    if(!r.ok){
+      // 발송 실패(AUTH_MODE=prod에서 EMAIL.send 예외 등)는 형식확인으로 조용히 넘어가지 않고
+      // 명확히 재시도를 안내한다.
+      const msg=j.error==='email_send_failed'?'인증번호 발송에 실패했어요. 잠시 후 다시 시도해 주세요.':(j.error||('요청 실패('+r.status+')'));
+      $('authMsg').innerHTML='<span class="bad">'+esc(msg)+'</span>';
+      return;
+    }
     if(j.dev_otp){
       // 로컬 개발(AUTH_MODE=dev) 전용 — 서버가 평문 OTP를 응답에 실어 보낸 경우에만 자동 입력.
       S.otpMode='server';
@@ -232,9 +238,17 @@ async function requestOtp(){
       $('otp').value=j.dev_otp;
       $('authMsg').innerHTML='<span class="pill" style="background:#fff4e5;color:var(--warn)">개발 모드</span> 인증번호가 자동 입력되었습니다: '+esc(j.dev_otp);
       $('otp').focus();
+    }else if(j.sent===true){
+      // 운영(AUTH_MODE=prod): 실제로 이메일이 발송됨 — 담당자가 받은 6자리 인증번호를
+      // 직접 입력해야 하는 진짜 검증 단계로 진행한다(verifyOtp가 성공하면 S.token 저장).
+      S.otpMode='server';
+      $('authStep2').classList.remove('hide');
+      $('otp').value='';
+      $('authMsg').innerHTML='이메일로 받은 6자리 인증번호를 입력하세요 · '+esc(e);
+      $('otp').focus();
     }else{
-      // 파일럿/운영: 서버 응답에 OTP가 없다 = 이메일 발송 인프라가 아직 없어 사용자가 번호를
-      // 받을 방법이 없다는 뜻. 실제 검증 단계를 건너뛰고 정직하게 형식 확인만 표시한다.
+      // sent===false(파일럿) 또는 필드 부재(구서버 호환): 이메일 발송 인프라가 아직 없어
+      // 사용자가 번호를 받을 방법이 없다는 뜻. 실제 검증 단계를 건너뛰고 정직하게 형식 확인만 표시한다.
       pilotFormatConfirm(e);
     }
   }catch(err){$('authMsg').innerHTML='<span class="bad">요청 실패: '+esc(err.message)+'</span>'}

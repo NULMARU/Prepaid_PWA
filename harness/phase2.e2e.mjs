@@ -324,18 +324,37 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   r = await call(store, env, 'POST', '/api/agency/verify-otp', { email: 'officer@seoul.go.kr', otp: rjOtp.dev_otp });
   ok(r.status === 401, 'agency-otp: OTP는 1회용(검증 성공 후 삭제) — 재검증 401');
 
-  // 14b) AUTH_MODE=pilot(감사 항목 1 — 베타 운영값): 어떤 응답에도 평문 OTP가 실려나가지 않음.
-  // dev와 달리 pilot·prod에서는 request-otp 응답에 dev_otp/otp 필드 자체가 없어야 한다.
+  // 14b) AUTH_MODE=pilot(감사 항목 1 — 베타 운영값): 어떤 응답에도 평문 OTP가 실려나가지 않고,
+  // 이메일 발송 인프라가 아직 없음을 sent:false로 명시한다(미발송).
   const envPilot = { ...env, AUTH_MODE: 'pilot' };
   r = await call(store, envPilot, 'POST', '/api/agency/request-otp', { email: 'pilot-officer@seoul.go.kr' });
   const rjPilotOtp = await r.json();
-  ok(r.status === 200 && rjPilotOtp.ok === true && !('dev_otp' in rjPilotOtp) && !('otp' in rjPilotOtp),
-    'agency-otp: AUTH_MODE=pilot에서는 응답에 평문 OTP 필드가 전혀 없음(dev_otp/otp 모두 부재)');
-  const envProd = { ...env, AUTH_MODE: 'prod' };
+  ok(r.status === 200 && rjPilotOtp.ok === true && rjPilotOtp.sent === false && !('dev_otp' in rjPilotOtp) && !('otp' in rjPilotOtp),
+    'agency-otp: AUTH_MODE=pilot에서는 응답에 평문 OTP 필드가 전혀 없고(dev_otp/otp 모두 부재) sent:false(미발송)');
+
+  // 14c) AUTH_MODE=prod: env.EMAIL(Cloudflare Email Sending 바인딩)로 실제 발송.
+  // EMAIL 스텁 — send() 호출 인자를 기록만 하고 resolve.
+  const makeEmailStub = () => { const calls = []; return { calls, send: async (msg) => { calls.push(msg); } }; };
+  const emailStub = makeEmailStub();
+  const envProd = { ...env, AUTH_MODE: 'prod', EMAIL: emailStub };
   r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: 'prod-officer@seoul.go.kr' });
   const rjProdOtp = await r.json();
-  ok(r.status === 200 && rjProdOtp.ok === true && !('dev_otp' in rjProdOtp) && !('otp' in rjProdOtp),
-    'agency-otp: AUTH_MODE=prod에서도 응답에 평문 OTP 필드 없음');
+  ok(r.status === 200 && rjProdOtp.ok === true && rjProdOtp.sent === true && !('dev_otp' in rjProdOtp) && !('otp' in rjProdOtp),
+    'agency-otp: AUTH_MODE=prod에서도 응답에 평문 OTP 필드 없음(+ sent:true, 실제 발송)');
+  ok(emailStub.calls.length === 1, 'agency-otp: AUTH_MODE=prod → EMAIL.send가 정확히 1회 호출됨');
+  const sentMsg = emailStub.calls[0] || {};
+  ok(sentMsg.to === 'prod-officer@seoul.go.kr', 'agency-otp: EMAIL.send to = 요청 이메일');
+  ok(!!sentMsg.from && sentMsg.from.email === 'noreply@bapjangbu.com' && sentMsg.from.name === '밥장부',
+    'agency-otp: EMAIL.send from = noreply@bapjangbu.com(밥장부)');
+  ok(/\d{6}/.test(sentMsg.text || '') && /\d{6}/.test(sentMsg.html || ''),
+    'agency-otp: EMAIL.send 본문(text+html)에 6자리 인증번호 포함');
+
+  // EMAIL.send가 예외를 던지면(발송 실패) 500 + email_send_failed, 평문 OTP는 어디에도 없음.
+  const envProdFail = { ...env, AUTH_MODE: 'prod', EMAIL: { send: async () => { throw new Error('smtp down'); } } };
+  r = await call(store, envProdFail, 'POST', '/api/agency/request-otp', { email: 'prod-officer-fail@seoul.go.kr' });
+  const rjProdFail = await r.json();
+  ok(r.status === 500 && rjProdFail.error === 'email_send_failed' && !('dev_otp' in rjProdFail) && !('otp' in rjProdFail),
+    'agency-otp: AUTH_MODE=prod + EMAIL.send 예외 → 500 email_send_failed');
 
   // 15) REQUIRE_AGENCY_AUTH=1일 때 /api/submit 게이트 + consent_log 이메일 해시 기록
   const envRequireAgency = { ...env, REQUIRE_AGENCY_AUTH: '1' };

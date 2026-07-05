@@ -56,7 +56,7 @@ batch_hash = SHA-256(hex)
 | `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash}` | `{ok:true}` | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요 |
 | `POST /api/ledger-backup/get` | `{restaurant_id, auth_token}` | `{blob, blob_hash, updated_at}` / 404 | 백업 조회. 인증 필요 |
 | `POST /api/ledger-backup/delete` | `{restaurant_id, auth_token}` | `{ok:true}` / 401/404 | 백업 삭제(예: 기기를 되찾아 클라우드 백업이 더 이상 필요 없을 때). 인증 필요 |
-| `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?}` | 기관 이메일 OTP 발급(§4.4) |
+| `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?, sent?}` / 500 | 기관 이메일 OTP 발급(§4.4) |
 | `POST /api/agency/verify-otp` | `{email, otp}` | `{token}` / 401 | OTP 검증 → 24시간 기관 토큰 발급 |
 
 `POST /api/submit` 본문:
@@ -109,20 +109,31 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
 ### 4.4 기관 OTP 인증
 
 - `POST /api/agency/request-otp {email}`: `.go.kr`/`.korea.kr` 도메인만 허용. 6자리 OTP를
-  생성해 해시만 저장(10분 TTL, 5회 시도 제한, 이메일당 60초 재요청 제한). 실제 이메일 발송은
-  **이번 구현에 포함되지 않는다** — `worker.js`의 `// TODO: EMAIL 바인딩 연결` 참조.
-  업그레이드 경로: Cloudflare Email Sending(또는 Email Routing) 바인딩을 `wrangler.toml`에
-  추가하고, OTP 생성 직후 발송 코드로 교체한다.
-  - `env.AUTH_MODE` 세 값: `"dev"`(로컬 개발 전용 — 응답에 `dev_otp`(평문)를 포함해 이메일 없이
-    테스트 가능. **운영 배포 절대 금지**), `"pilot"`(베타 운영값 — `dev_otp`를 포함하지 **않음**),
-    `"prod"`(실제 이메일 발송 구현 후 사용 — 아직 미구현이므로 사용하지 않음).
+  생성해 해시만 저장(10분 TTL, 5회 시도 제한, 이메일당 60초 재요청 제한).
+  - `env.AUTH_MODE` 세 값 — 응답 분기가 서로 다르다:
+    - `"dev"`(로컬 개발 전용): 응답 `{ok:true, dev_otp}` — 평문 OTP를 포함해 이메일 없이 테스트
+      가능. **운영 배포 절대 금지.** 이메일 미발송.
+    - `"pilot"`(베타 운영값): 응답 `{ok:true, sent:false}` — OTP는 생성·해시 저장하지만
+      **발송하지 않는다**(이메일 발송 도메인 온보딩 전 단계). `dev_otp`/`otp` 필드는 포함하지 않음.
+    - `"prod"`: `env.EMAIL`(Cloudflare Email Sending Workers 바인딩, `wrangler.toml`
+      `[[send_email]] name="EMAIL"`)로 **실제 이메일을 발송**한다. 발신 주소는
+      `noreply@bapjangbu.com`(표시명 "밥장부"), 제목 `[밥장부] 인증번호 <6자리>`, 본문(text+html
+      둘 다)에 6자리 코드·유효시간(10분)·"기관 담당자 본인확인용, 타인에게 알리지 마세요" 안내를
+      한국어로 담는다. 발송 성공 시 응답 `{ok:true, sent:true}`이며 `otp`/`dev_otp`는 **절대**
+      포함하지 않는다. `env.EMAIL.send()`가 예외를 던지면 `500 {error:'email_send_failed'}`를
+      반환하고, 서버 로그에는 실패 사유만 남기며 이메일 주소 평문은 로깅하지 않는다.
+      **prod 전환 전 선행 조건**: `bapjangbu.com` 도메인을 Cloudflare Email Sending에
+      온보딩(`wrangler email sending enable bapjangbu.com`)하고 발송 인증(DNS 레코드)이
+      완료되어야 한다 — 완료 전에 `AUTH_MODE`를 `"prod"`로 바꾸면 모든 요청이
+      `email_send_failed`로 실패한다.
   - **정직성 원칙(감사 항목 1)**: 어떤 응답에도 평문 OTP가 실려나가서는 안 되므로 `dev_otp`는
     `AUTH_MODE==='dev'`일 때만 포함한다. `wrangler.toml`의 베타 운영값은 `AUTH_MODE="pilot"`이며,
-    이 모드에서는 이메일 발송 인프라가 없어 담당자가 실제로 OTP를 받을 방법이 없다. 이 상태에서
-    "인증됨"이라고 표시하면 거짓이므로, agency-web은 서버가 실제 이메일 소유를 검증하지 못한
-    경우(OTP를 받을 수 없어 검증을 완료할 수 없는 pilot 요청-OTP 응답, 그리고 구버전 서버
-    호환용 fallback 경로) "✅ 인증됨" 대신 "기관 이메일 형식 확인됨 (파일럿 — 정식 이메일
-    인증은 준비 중)"이라고 정직하게 표시하고, 실제 OTP 검증 단계를 건너뛴다. `REQUIRE_AGENCY_AUTH`는
+    이 모드에서는 이메일 발송 인프라가 아직 온보딩 전이라 담당자가 실제로 OTP를 받을 방법이
+    없다(`sent:false`로 이를 명시). 이 상태에서 "인증됨"이라고 표시하면 거짓이므로, agency-web은
+    서버가 실제 이메일 소유를 검증하지 못한 경우(`sent:false` 응답, 그리고 구버전 서버 호환용
+    fallback 경로) "✅ 인증됨" 대신 "기관 이메일 형식 확인됨 (파일럿 — 정식 이메일 인증은 준비
+    중)"이라고 정직하게 표시하고, 실제 OTP 검증 단계를 건너뛴다. `sent:true` 응답을 받으면(prod)
+    실제 OTP 입력 단계를 표시하고 `/api/agency/verify-otp`로 검증을 완료한다. `REQUIRE_AGENCY_AUTH`는
     이 인프라 공백 동안 `"0"`을 유지하므로(§4.3) 제출 자체는 막히지 않는다.
 - `POST /api/agency/verify-otp {email, otp}`: 성공 시 32바이트 토큰 발급, 24시간 유효
   (`agency_token`). 이 토큰이 `X-Agency-Token` 헤더 값이 된다. (`AUTH_MODE==='pilot'`에서는

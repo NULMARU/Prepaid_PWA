@@ -420,7 +420,15 @@ export async function handle(request, env, store) {
       return j({ ok: true });
     }
 
-    // ── 기관 OTP 인증 인프라 (단계적 활성화). 실제 이메일 발송은 아직 미구현. ──
+    // ── 기관 OTP 인증 인프라 (단계적 활성화, AUTH_MODE 3분기) ──
+    // dev: 로컬 개발 전용 — 응답에 평문 dev_otp 포함, 이메일 미발송.
+    // pilot: 이메일 발송 인프라를 아직 온보딩(도메인 인증) 전 단계로 잠가둔 베타 운영값 —
+    //   OTP는 생성·해시 저장하지만 발송하지 않고 {ok:true, sent:false}만 응답한다. agency-web은
+    //   sent:false를 보고 "형식 확인됨(파일럿)" 수준으로만 진행(REQUIRE_AGENCY_AUTH='0' 유지로
+    //   제출 자체는 막히지 않음).
+    // prod: Cloudflare Email Sending Workers 바인딩(env.EMAIL, wrangler.toml [[send_email]])으로
+    //   실제 발송. 감사 항목 1(정직성 원칙): 어떤 모드의 응답에도 평문 OTP가 실려나가서는 안 되므로
+    //   dev_otp는 AUTH_MODE==='dev'일 때만 포함하고, prod는 발송 성공 시 sent:true만 반환한다.
     if (path === '/api/agency/request-otp' && request.method === 'POST') {
       const b = await request.json();
       const email = String(b.email || '').trim();
@@ -434,15 +442,32 @@ export async function handle(request, env, store) {
       const otp = randomOtp6();
       const otp_hash = await sha256hex(otp);
       await store.upsertAgencyOtp({ email, otp_hash, expires_at: now + 10 * 60 * 1000, attempts: 0, created_at: now });
-      // TODO: EMAIL 바인딩 연결 — Cloudflare Email Sending/Workers 이메일 라우팅으로 OTP를
-      // 실제 발송하도록 교체(PROTOCOL.md §7 업그레이드 경로 참조). 감사 항목 1: 어떤 응답에도
-      // 평문 OTP가 실려나가서는 안 되므로, dev_otp는 AUTH_MODE==='dev'(로컬 개발 전용)일 때만
-      // 포함한다. "pilot"(베타 운영값)·"prod"는 dev_otp를 절대 포함하지 않는다 — pilot은 실제
-      // 이메일 발송 인프라가 아직 없어 담당자가 OTP를 받을 방법이 없으므로, agency-web이 이
-      // 사실을 "정식 이메일 인증은 준비 중"이라고 정직하게 표시하고 형식 확인 수준으로만
-      // 진행하도록 처리한다(REQUIRE_AGENCY_AUTH='0' 유지로 제출 자체는 막히지 않음).
       if (env.AUTH_MODE === 'dev') return j({ ok: true, dev_otp: otp });
-      return j({ ok: true });
+      if (env.AUTH_MODE === 'prod') {
+        try {
+          await env.EMAIL.send({
+            to: email,
+            from: { email: 'noreply@bapjangbu.com', name: '밥장부' },
+            subject: '[밥장부] 인증번호 ' + otp,
+            text: '[밥장부] 기관 담당자 본인확인용 인증번호: ' + otp + '\n\n' +
+              '유효시간: 10분\n' +
+              '본 인증번호는 기관 담당자 본인확인용입니다. 타인에게 알리지 마세요.\n' +
+              '본인이 요청하지 않았다면 이 메일을 무시하세요.',
+            html: '<p>[밥장부] 기관 담당자 본인확인용 인증번호입니다.</p>' +
+              '<p style="font-size:28px;font-weight:bold;letter-spacing:4px;">' + otp + '</p>' +
+              '<p>유효시간: <b>10분</b></p>' +
+              '<p>본 인증번호는 기관 담당자 본인확인용입니다. <b>타인에게 알리지 마세요.</b></p>' +
+              '<p>본인이 요청하지 않았다면 이 메일을 무시하세요.</p>'
+          });
+        } catch (e) {
+          // 개인정보 보호: 이메일 평문은 로깅하지 않는다. 실패 사유만 남긴다.
+          console.error('agency-otp email send failed: ' + (e && e.message ? e.message : 'unknown'));
+          return j({ error: 'email_send_failed' }, 500);
+        }
+        return j({ ok: true, sent: true });
+      }
+      // pilot(및 그 외 값): 발송 인프라 미가동 — 형식만 확인.
+      return j({ ok: true, sent: false });
     }
 
     if (path === '/api/agency/verify-otp' && request.method === 'POST') {
