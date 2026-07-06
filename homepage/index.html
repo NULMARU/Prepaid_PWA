@@ -4,7 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="밥장부(선입금대장) — 소규모 음식점의 단체·직원 식대 선입금을 종이 장부 없이 폰으로 안전하게 기록하는 무료 도구. 결제앱이 아닙니다.">
+<link rel="canonical" href="https://bapjangbu.com/">
 <title>밥장부(선입금대장) — 단체·직원 식대 선입금 기록 도구</title>
+<!-- Open Graph -->
+<meta property="og:title" content="밥장부(선입금대장) — 단체·직원 식대 선입금 기록 도구">
+<meta property="og:description" content="소규모 음식점의 단체·직원 식대를 종이 장부 없이 폰으로 안전하게 관리하는 무료 기록 도구.">
+<meta property="og:image" content="https://bapjangbu.com/og-image.png">
+<meta property="og:url" content="https://bapjangbu.com/">
+<meta property="og:type" content="website">
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="밥장부(선입금대장) — 단체·직원 식대 선입금 기록 도구">
+<meta name="twitter:description" content="소규모 음식점의 단체·직원 식대를 종이 장부 없이 폰으로 안전하게 관리하는 무료 기록 도구.">
+<meta name="twitter:image" content="https://bapjangbu.com/og-image.png">
 <style>
 :root{
   --primary:#1a5fb4;--primary-dark:#134a8f;--primary-soft:#eef4fb;
@@ -29,7 +41,13 @@ header.site .wrap{display:flex;align-items:center;justify-content:space-between;
 .brand small{font-weight:600;color:var(--muted);font-size:12px}
 .nav a{margin-left:16px;font-size:13.5px;text-decoration:none;color:var(--muted);font-weight:600}
 .nav a:hover{color:var(--primary-dark)}
-@media(max-width:640px){.nav{display:none}}
+@media(max-width:640px){
+  header.site .wrap{height:auto;flex-wrap:wrap;padding-top:8px;padding-bottom:8px;gap:2px 0}
+  .brand{flex:1 1 auto}
+  .nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 0;width:100%}
+  .nav a{margin-left:0;margin-right:14px;font-size:12.5px}
+  .nav a.sec{display:none}
+}
 
 /* hero */
 .hero{background:linear-gradient(160deg,#eef4fb 0%,#f7fafd 60%,#fff 100%);padding:56px 0 48px;text-align:center}
@@ -161,11 +179,11 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     <a class="brand" href="#top">밥장부 <small>선입금대장</small></a>
     <nav class="nav" aria-label="바로가기">
       <a href="#what">소개</a>
-      <a href="#flow">이용 흐름</a>
-      <a href="#privacy">개인정보</a>
+      <a href="#flow" class="sec">이용 흐름</a>
+      <a href="#privacy" class="sec">개인정보</a>
       <a href="#usage">사용법</a>
       <a href="#start">시작하기</a>
-      <a href="#feedback">의견</a>
+      <a href="#feedback" class="sec">의견</a>
     </nav>
   </div>
 </header>
@@ -222,12 +240,12 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     <h2>이런 분들을 위해 만들었습니다</h2>
     <div class="grid c2">
       <div class="card">
-        <div class="ic">🍚</div>
+        <div class="ic" aria-hidden="true">🍚</div>
         <h3>음식점 주인</h3>
         <p>단체·직원 식대를 미리 받고 매일 식사를 제공하는 소규모 식당. 폰 앱에 장부를 두고 차감만 하면 됩니다.</p>
       </div>
       <div class="card">
-        <div class="ic">🏛️</div>
+        <div class="ic" aria-hidden="true">🏛️</div>
         <h3>기관 부서 담당자</h3>
         <p>구청·주민센터 등에서 직원·이용자 식대를 음식점에 맡기고 명단을 안전하게 전달해야 하는 담당자.</p>
       </div>
@@ -244,24 +262,24 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     <div class="flow">
       <div class="step">
         <div class="n">1</div>
-        <div class="ic">🔐</div>
+        <div class="ic" aria-hidden="true">🔐</div>
         <h3>기관 담당자가 명단 전송</h3>
         <p>담당자가 웹에서 명단을 만들어 <b>암호화</b>한 뒤 음식점으로 보냅니다.</p>
       </div>
       <div class="step">
         <div class="n">2</div>
-        <div class="ic">📥</div>
+        <div class="ic" aria-hidden="true">📥</div>
         <h3>음식점이 수신·등록</h3>
         <p>음식점이 앱에서 명단을 받아 장부로 등록합니다. 잔액이 자동 계산됩니다.</p>
       </div>
       <div class="step">
         <div class="n">3</div>
-        <div class="ic">🍽️</div>
+        <div class="ic" aria-hidden="true">🍽️</div>
         <h3>매일 식사 때 차감</h3>
         <p>식사할 때마다 해당 인원을 눌러 장부에서 차감·기록합니다.</p>
       </div>
     </div>
-    <p class="emph">💡 선금 이체는 기관과 음식점이 계좌로 직접 진행합니다. 밥장부 앱은 <u>장부 기록만</u> 하며 돈을 다루지 않습니다.</p>
+    <p class="emph"><span aria-hidden="true">💡</span> 선금 이체는 기관과 음식점이 계좌로 직접 진행합니다. 밥장부 앱은 <u>장부 기록만</u> 하며 돈을 다루지 않습니다.</p>
   </div>
 </section>
 
@@ -273,37 +291,38 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     <p class="intro">개인정보를 최소한으로만 다루도록 설계했습니다. 서버와 운영자는 명단 내용을 볼 수 없습니다.</p>
     <div class="priv">
       <div class="item">
-        <div class="ic">🔒</div>
+        <div class="ic" aria-hidden="true">🔒</div>
         <div>
           <h3>브라우저에서 암호화</h3>
           <p>명단은 보내는 순간 브라우저에서 암호화되어, 지정한 음식점만 열람할 수 있습니다. 서버·운영자는 내용을 볼 수 없습니다.</p>
         </div>
       </div>
       <div class="item">
-        <div class="ic">📵</div>
+        <div class="ic" aria-hidden="true">📵</div>
         <div>
           <h3>전화번호 미수집</h3>
           <p>이용자 전화번호를 수집하지 않습니다. 장부에 필요한 최소 정보만 다룹니다.</p>
         </div>
       </div>
       <div class="item">
-        <div class="ic">🗑️</div>
+        <div class="ic" aria-hidden="true">🗑️</div>
         <div>
           <h3>서버 보관 최소화</h3>
           <p>음식점이 수령하면 서버에서 즉시 삭제하고, 미수령 명단도 최대 3일 후 자동 삭제됩니다. 직접전달 모드는 서버에 아예 보관하지 않습니다.</p>
         </div>
       </div>
       <div class="item">
-        <div class="ic">📱</div>
+        <div class="ic" aria-hidden="true">📱</div>
         <div>
           <h3>장부는 음식점 폰 안에</h3>
           <p>등록된 장부와 이용 내역은 음식점 폰(브라우저) 안에 보관됩니다. 별도 중앙 서버에 쌓이지 않습니다.</p>
         </div>
       </div>
     </div>
+    <p class="intro" style="margin-top:18px;margin-bottom:0">암호화된 명단은 Cloudflare 기반 중계 서버를 통해 전달될 수 있으며, 보관기간·국외이전 등 자세한 사항은 <a href="https://nulmaru.github.io/Prepaid_PWA/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에서 확인할 수 있습니다.</p>
     <p class="legal-links">
-      <a href="https://nulmaru.github.io/Prepaid_PWA/docs/PRIVACY_POLICY.md" target="_blank" rel="noopener">개인정보처리방침 →</a>
-      <a href="https://nulmaru.github.io/Prepaid_PWA/docs/TERMS.md" target="_blank" rel="noopener">이용약관 →</a>
+      <a href="https://nulmaru.github.io/Prepaid_PWA/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침 →</a>
+      <a href="https://nulmaru.github.io/Prepaid_PWA/docs/terms.html" target="_blank" rel="noopener">이용약관 →</a>
     </p>
   </div>
 </section>
@@ -329,7 +348,7 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
         <span class="role">기관 담당자</span>
         <h3>명단 만들어 음식점에 암호화 전송</h3>
         <ol>
-          <li>웹에서 기관 이메일로 본인 확인을 합니다.</li>
+          <li>기관 이메일로 받은 인증번호(OTP)로 본인 확인을 합니다.</li>
           <li>음식점을 찾아 이용자 명단·금액을 입력합니다.</li>
           <li>암호화해 전송하고, 선금은 음식점 계좌로 직접 이체합니다.</li>
         </ol>
@@ -346,8 +365,8 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     <h2>역할을 골라 바로 시작하세요</h2>
     <p class="intro">가입 절차나 비용 없이 바로 이용할 수 있습니다.</p>
     <div class="cta-row">
-      <a class="btn btn-white" href="https://prepaid-agency.pages.dev" target="_blank" rel="noopener">🏛️ 기관 담당자로 시작하기</a>
-      <a class="btn btn-outline" href="https://nulmaru.github.io/Prepaid_PWA/" target="_blank" rel="noopener">🍚 음식점 주인 · 앱 설치하기</a>
+      <a class="btn btn-white" href="https://prepaid-agency.pages.dev" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자로 시작하기</a>
+      <a class="btn btn-outline" href="https://nulmaru.github.io/Prepaid_PWA/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 주인 · 앱 설치하기</a>
     </div>
     <small>기관 담당자는 웹에서 바로 이용하고, 음식점은 폰에 앱을 설치해 사용합니다. (새 탭으로 열립니다)</small>
   </div>
@@ -360,6 +379,7 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     <h2>의견을 들려주세요</h2>
     <p class="intro">불편한 점, 필요한 기능, 문의 사항을 자유롭게 남겨 주세요.</p>
     <form class="form-card" id="fbForm" novalidate>
+      <input type="text" id="fbWebsite" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0">
       <div class="form-row">
         <label>어떤 분이신가요?</label>
         <div class="roles">
@@ -387,15 +407,14 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     <div class="cols">
       <div>
         <h4>운영</h4>
-        <p>운영자: 개인 개발자가 만든 <b>비영리·무료 파일럿 서비스</b>입니다.<br>
-        사업자가 아니며 사업자등록번호가 없습니다.</p>
+        <p>운영자: 개인 개발자가 만든 <b>비영리·무료 파일럿 서비스</b>입니다.</p>
         <p>문의: <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a></p>
       </div>
       <div>
         <h4>약관 · 데이터</h4>
         <p>
-          <a href="https://nulmaru.github.io/Prepaid_PWA/docs/PRIVACY_POLICY.md" target="_blank" rel="noopener">개인정보처리방침</a> ·
-          <a href="https://nulmaru.github.io/Prepaid_PWA/docs/TERMS.md" target="_blank" rel="noopener">이용약관</a>
+          <a href="https://nulmaru.github.io/Prepaid_PWA/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> ·
+          <a href="https://nulmaru.github.io/Prepaid_PWA/docs/terms.html" target="_blank" rel="noopener">이용약관</a>
         </p>
         <p>데이터 출처: 행정안전부 지방행정 인허가데이터</p>
       </div>
@@ -413,6 +432,8 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
   var counter = document.getElementById("fbCounter");
   var result = document.getElementById("fbResult");
   var submitBtn = document.getElementById("fbSubmit");
+  var honeypot = document.getElementById("fbWebsite");
+  var hideTimer = null;
 
   function updateCount(){
     var n = msg.value.length;
@@ -425,12 +446,24 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
   function showResult(text, ok){
     result.textContent = text;
     result.className = "form-msg " + (ok ? "ok" : "err");
+    if(hideTimer){ clearTimeout(hideTimer); hideTimer = null; }
+    if(ok){
+      hideTimer = setTimeout(function(){
+        result.className = "form-msg";
+        result.textContent = "";
+        hideTimer = null;
+      }, 4000);
+    }
   }
 
   form.addEventListener("submit", function(e){
     e.preventDefault();
+    if(hideTimer){ clearTimeout(hideTimer); hideTimer = null; }
     result.className = "form-msg";
     result.textContent = "";
+
+    // honeypot: 봇이 채우는 숨김 필드에 값이 있으면 조용히 중단
+    if(honeypot && honeypot.value){ return; }
 
     var text = msg.value.trim();
     if(!text){
