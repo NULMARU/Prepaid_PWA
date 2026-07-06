@@ -580,6 +580,95 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const pk9c = await r.json();
   ok(pk9c.contact.kakao_link === null && pk9c.contact.email === null, 'contact: deregister로 이전 연락처가 소멸(재등록 후 null)');
 
+  // 19) 비식별 집계 통계 + 관리자 통계 API + 피드백 수신
+  // 현재 연월(UTC) — 서버의 stats_counter 월별 발송 키 및 admin this_month와 동일 규칙.
+  const nowD = new Date();
+  const curYM = nowD.getUTCFullYear() + '-' + String(nowD.getUTCMonth() + 1).padStart(2, '0');
+  const envAdmin = { ...env, ADMIN_TOKEN: 'super-secret-admin-token' };
+
+  // 19-a) 관리자 API 미설정 → 503
+  r = await callH(store, env, 'GET', '/api/admin/stats', undefined, {});
+  ok(r.status === 503 && (await r.json()).error === 'admin_not_configured', 'admin/stats: ADMIN_TOKEN 미설정 시 503(admin_not_configured)');
+
+  // 19-b) 무토큰·오토큰 → 401
+  r = await callH(store, envAdmin, 'GET', '/api/admin/stats', undefined, {});
+  ok(r.status === 401 && (await r.json()).error === 'unauthorized', 'admin/stats: 토큰 없이 401(unauthorized)');
+  r = await callH(store, envAdmin, 'GET', '/api/admin/stats', undefined, { 'X-Admin-Token': 'wrong-token' });
+  ok(r.status === 401, 'admin/stats: 오토큰 401(상수시간 비교)');
+
+  // 19-c) submit 성공 시 비식별 집계 증가(seen_institution·sends·members/amount)
+  const RIDstat = 'MGT-STATS-1';
+  const kpStat = await genKeyPair();
+  const spkiStat = b64(await subtle.exportKey('spki', kpStat.publicKey));
+  const dumpS0 = store._dump();
+  const registrationsBefore = dumpS0.counters.get('registrations') || 0;
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDstat, restaurant_name: '집계테스트', public_key: spkiStat });
+  const dumpS1 = store._dump();
+  ok(dumpS1.seenRestaurants.has(RIDstat), '집계: register-key 신규 등록 시 seen_restaurant에 공개ID 기록');
+  ok((dumpS1.counters.get('registrations') || 0) === registrationsBefore + 1, '집계: 신규 등록 시 registrations 카운터 +1');
+
+  const sendsBefore = dumpS1.counters.get('sends') || 0;
+  const monthBefore = dumpS1.counters.get('sends_' + curYM) || 0;
+  const membersBefore = dumpS1.counters.get('members_total') || 0;
+  const amountBefore = dumpS1.counters.get('amount_total') || 0;
+  const pubStat = await subtle.importKey('spki', unb64(spkiStat), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+  const blobStat = await encryptBlob([{ name: 'A', dept: '집계부서', amount: 1000 }], pubStat);
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { institution: '집계기관', department: '집계부서', restaurant_id: RIDstat, restaurant_name: '집계테스트', year_month: curYM, total_amount: 1000, member_count: 5, batch_hash: 'h-stats-1' },
+    blob: { restaurant_id: RIDstat, ciphertext: blobStat }
+  });
+  ok(r.status === 200, '집계: 제출 200');
+  const dumpS2 = store._dump();
+  ok((dumpS2.counters.get('sends') || 0) === sendsBefore + 1, '집계: 제출 성공 시 sends 카운터 +1');
+  ok((dumpS2.counters.get('sends_' + curYM) || 0) === monthBefore + 1, '집계: 제출 성공 시 sends_현재월 카운터 +1');
+  ok(dumpS2.seenInstitutions.has('집계기관'), '집계: seen_institution에 기관명(비개인 조직정보) 기록');
+  ok((dumpS2.counters.get('members_total') || 0) === membersBefore + 5, '집계: members_total += member_count(집계값만)');
+  ok((dumpS2.counters.get('amount_total') || 0) === amountBefore + 1000, '집계: amount_total += total_amount(집계값만)');
+  // 불변식: 집계 어디에도 직원명·개인별 금액이 없다(조직정보·집계 카운터만).
+  ok(dumpS2.seenInstitutions.size >= 1 && ![...dumpS2.seenInstitutions].some(v => v === 'A'),
+    '집계: seen_institution에 직원명이 섞이지 않음(기관명만)');
+
+  // 19-d) 관리자 API 정상 200 + 구조·집계 반영
+  r = await callH(store, envAdmin, 'GET', '/api/admin/stats', undefined, { 'X-Admin-Token': 'super-secret-admin-token' });
+  const st = await r.json();
+  ok(r.status === 200 && st.restaurants && typeof st.restaurants.current === 'number' && typeof st.restaurants.total === 'number'
+    && typeof st.institutions_total === 'number' && typeof st.departments_total === 'number'
+    && st.sends && typeof st.sends.total === 'number' && typeof st.sends.this_month === 'number'
+    && typeof st.pending === 'number' && typeof st.members_total === 'number' && typeof st.amount_total === 'number'
+    && Array.isArray(st.feedback), 'admin/stats: 정상 토큰 200 + 계약 구조 일치');
+  ok(st.restaurants.total >= 1 && st.institutions_total >= 1 && st.sends.total >= 1 && st.sends.this_month >= 1,
+    'admin/stats: seen_restaurant·seen_institution·sends(총·이번달) 집계 반영');
+  // 개인정보 필드 부재 확인: 응답 어디에도 직원명·개인금액·이메일 평문이 없다.
+  const stStr = JSON.stringify(st);
+  ok(!stStr.includes('"name"') && !/officer@|@seoul\.go\.kr/.test(stStr), 'admin/stats: 응답에 개인 식별 필드(직원명·기관이메일) 없음');
+
+  // 19-e) 피드백 저장 → admin stats에 노출(최신순)
+  r = await call(store, env, 'POST', '/api/feedback', { role: '음식점', message: '수수료가 없어서 좋아요', contact: 'https://open.kakao.com/o/fb1' });
+  ok(r.status === 200 && (await r.json()).ok === true, 'feedback: 정상 저장 200(ok:true)');
+  r = await call(store, env, 'POST', '/api/feedback', { role: '기관', message: '엑셀 업로드가 편합니다' });
+  ok(r.status === 200, 'feedback: contact 없이도 저장 200');
+  // 두 피드백이 동일 ms에 저장될 수 있으므로 '수수료가…' 저장 시각을 명시적으로 과거로 되돌려
+  // 최신순 정렬(더 최근인 '엑셀…'이 앞)을 결정적으로 검증한다(다른 테스트의 시각 주입과 동일 기법).
+  store._dump().feedbacks.forEach(f => { if (f.message === '수수료가 없어서 좋아요') f.created_at -= 60 * 1000; });
+  r = await callH(store, envAdmin, 'GET', '/api/admin/stats', undefined, { 'X-Admin-Token': 'super-secret-admin-token' });
+  const st2 = await r.json();
+  ok(st2.feedback.some(f => f.message === '수수료가 없어서 좋아요' && f.role === '음식점'), 'feedback: admin stats feedback 배열에 최근 피드백 노출');
+  const idxNew = st2.feedback.findIndex(f => f.message === '엑셀 업로드가 편합니다');
+  const idxOld = st2.feedback.findIndex(f => f.message === '수수료가 없어서 좋아요');
+  ok(idxNew !== -1 && idxOld !== -1 && idxNew < idxOld, 'feedback: admin stats feedback는 최신순 정렬(더 최근 항목이 앞)');
+
+  // 19-f) 피드백 검증: role 화이트리스트·message/contact 길이
+  r = await call(store, env, 'POST', '/api/feedback', { role: '해커', message: 'x' });
+  ok(r.status === 400 && (await r.json()).error === 'invalid_role', 'feedback: 화이트리스트 밖 role 400(invalid_role)');
+  r = await call(store, env, 'POST', '/api/feedback', { role: '기관', message: '' });
+  ok(r.status === 400, 'feedback: 빈 message 400');
+  r = await call(store, env, 'POST', '/api/feedback', { role: '기관', message: 'a'.repeat(2001) });
+  ok(r.status === 400, 'feedback: message 2000자 초과 400');
+  r = await call(store, env, 'POST', '/api/feedback', { role: '기타', message: '정상', contact: 'a'.repeat(201) });
+  ok(r.status === 400, 'feedback: contact 200자 초과 400');
+  r = await call(store, env, 'POST', '/api/feedback', { role: '기타', message: '정상', contact: 'a'.repeat(200) });
+  ok(r.status === 200, 'feedback: 경계값(message 1자·contact 200자) 정상 저장 200');
+
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

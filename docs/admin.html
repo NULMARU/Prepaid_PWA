@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>밥장부 운영자 통계</title>
+<style>
+:root{
+  --primary:#1a5fb4;--primary-dark:#134a8f;--primary-soft:#eef4fb;
+  --text:#1c2532;--muted:#5b6672;--line:#e3e8ee;--bg-soft:#f4f7fb;
+  --ok:#1a7f4b;--warn:#b7791f;--warn-soft:#fff4e5;--err:#c0392b;
+}
+*{box-sizing:border-box}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
+  color:var(--text);line-height:1.6;font-size:15px;margin:0;background:var(--bg-soft);
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:900px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:21px;font-weight:800;color:var(--primary-dark);margin:0 0 4px}
+.tag{display:inline-block;background:var(--warn-soft);border:1px solid #f0dcb8;color:#7a5209;
+  border-radius:999px;padding:3px 12px;font-size:12px;font-weight:800;margin-bottom:8px}
+.note{color:var(--muted);font-size:13px;margin:0 0 20px}
+
+/* login */
+.login{background:#fff;border:1px solid var(--line);border-radius:16px;padding:26px 22px;max-width:420px;margin:36px auto}
+.login h2{font-size:18px;margin:0 0 14px;color:var(--primary-dark)}
+.login label{display:block;font-weight:700;font-size:13.5px;margin-bottom:6px}
+input[type=password]{width:100%;font-family:inherit;font-size:16px;border:1.5px solid var(--line);
+  border-radius:10px;padding:12px;background:#fff}
+input[type=password]:focus{outline:none;border-color:var(--primary)}
+.btn{background:var(--primary);color:#fff;border:none;border-radius:10px;padding:12px 22px;
+  font-size:15px;font-weight:800;cursor:pointer}
+.btn:hover{background:var(--primary-dark)}
+.btn:disabled{opacity:.6;cursor:default}
+.btn-ghost{background:#fff;color:var(--primary-dark);border:1.5px solid var(--line)}
+.btn-ghost:hover{background:var(--primary-soft)}
+.login .row{margin-top:16px}
+.msg{font-size:13.5px;font-weight:700;margin:12px 0 0;display:none}
+.msg.err{color:var(--err);display:block}
+.msg.info{color:var(--warn);display:block}
+
+/* dashboard */
+#dash{display:none}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.bar .actions{display:flex;gap:8px}
+.bar .btn,.bar .btn-ghost{padding:9px 16px;font-size:13.5px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:22px}
+@media(max-width:720px){.cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:440px){.cards{grid-template-columns:1fr}}
+.stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 16px}
+.stat .lbl{font-size:12.5px;color:var(--muted);font-weight:700;margin-bottom:6px}
+.stat .val{font-size:24px;font-weight:800;color:var(--primary-dark);line-height:1.2}
+.stat .sub{font-size:12.5px;color:var(--muted);margin-top:4px}
+
+h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
+.fb-list{display:flex;flex-direction:column;gap:10px}
+.fb{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 15px}
+.fb .head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.fb .role{background:var(--primary-soft);color:var(--primary-dark);border-radius:999px;
+  padding:2px 10px;font-size:12px;font-weight:800}
+.fb .time{font-size:12px;color:var(--muted)}
+.fb .body{font-size:14px;white-space:pre-wrap;word-break:break-word}
+.fb .contact{font-size:12.5px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+.empty{color:var(--muted);font-size:13.5px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tag">운영자 전용</div>
+  <h1>밥장부 운영자 통계</h1>
+  <p class="note">개인정보가 아닌 <b>집계 통계</b>만 표시됩니다. 명단·잔액 등 이용자 개인정보는 이 화면에서 볼 수 없습니다.</p>
+
+  <!-- 로그인 -->
+  <div class="login" id="login">
+    <h2>비밀번호 확인</h2>
+    <form id="loginForm">
+      <label for="pw">운영자 비밀번호</label>
+      <input type="password" id="pw" autocomplete="current-password" placeholder="ADMIN_TOKEN 입력">
+      <div class="row">
+        <button type="submit" class="btn" id="loginBtn">확인</button>
+      </div>
+      <p class="msg" id="loginMsg" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+
+  <!-- 대시보드 -->
+  <div id="dash">
+    <div class="bar">
+      <div style="font-size:13px;color:var(--muted)" id="updatedAt"></div>
+      <div class="actions">
+        <button class="btn-ghost btn" id="refreshBtn" type="button">새로고침</button>
+        <button class="btn-ghost btn" id="logoutBtn" type="button">로그아웃</button>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="stat"><div class="lbl">등록 음식점</div><div class="val" id="s-rest">–</div><div class="sub" id="s-rest-sub"></div></div>
+      <div class="stat"><div class="lbl">사용 기관 수</div><div class="val" id="s-inst">–</div></div>
+      <div class="stat"><div class="lbl">사용 부서 수</div><div class="val" id="s-dept">–</div></div>
+      <div class="stat"><div class="lbl">총 발송</div><div class="val" id="s-send">–</div><div class="sub" id="s-send-sub"></div></div>
+      <div class="stat"><div class="lbl">대기중 명단</div><div class="val" id="s-pending">–</div></div>
+      <div class="stat"><div class="lbl">누적 처리 인원 · 금액</div><div class="val" id="s-members">–</div><div class="sub" id="s-amount"></div></div>
+    </div>
+
+    <h2 class="sec">최근 의견</h2>
+    <div class="fb-list" id="fbList"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var RELAY = "https://prepaid-relay.sulsul-plus.workers.dev";
+  var KEY = "bapjangbu_admin_token";
+
+  var loginEl = document.getElementById("login");
+  var dashEl = document.getElementById("dash");
+  var loginForm = document.getElementById("loginForm");
+  var pwInput = document.getElementById("pw");
+  var loginBtn = document.getElementById("loginBtn");
+  var loginMsg = document.getElementById("loginMsg");
+
+  function showMsg(text, cls){
+    loginMsg.textContent = text;
+    loginMsg.className = "msg " + cls;
+  }
+  function clearMsg(){ loginMsg.textContent = ""; loginMsg.className = "msg"; }
+
+  function fmtNum(n){
+    var v = Number(n);
+    if(!isFinite(v)) return "0";
+    return v.toLocaleString("ko-KR");
+  }
+  function fmtTime(v){
+    if(!v) return "";
+    var d = new Date(typeof v === "number" ? v : String(v));
+    if(isNaN(d.getTime())) return String(v);
+    return d.toLocaleString("ko-KR");
+  }
+
+  function setText(id, text){ document.getElementById(id).textContent = text; }
+
+  function render(data){
+    data = data || {};
+    var rest = data.restaurants || {};
+    setText("s-rest", fmtNum(rest.current) + "곳");
+    setText("s-rest-sub", "현재 " + fmtNum(rest.current) + " / 누적 " + fmtNum(rest.total));
+    setText("s-inst", fmtNum(data.institutions_total) + "곳");
+    setText("s-dept", fmtNum(data.departments_total) + "곳");
+
+    var sends = data.sends || {};
+    setText("s-send", fmtNum(sends.total) + "건");
+    setText("s-send-sub", "누적 " + fmtNum(sends.total) + " · 이번 달 " + fmtNum(sends.this_month));
+    setText("s-pending", fmtNum(data.pending) + "건");
+    setText("s-members", fmtNum(data.members_total) + "명");
+    setText("s-amount", fmtNum(data.amount_total) + "원");
+
+    setText("updatedAt", "기준 시각: " + new Date().toLocaleString("ko-KR"));
+
+    var list = document.getElementById("fbList");
+    list.textContent = "";
+    var items = Array.isArray(data.feedback) ? data.feedback : [];
+    if(items.length === 0){
+      var empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "아직 접수된 의견이 없습니다.";
+      list.appendChild(empty);
+      return;
+    }
+    items.forEach(function(item){
+      item = item || {};
+      var card = document.createElement("div");
+      card.className = "fb";
+
+      var head = document.createElement("div");
+      head.className = "head";
+      var role = document.createElement("span");
+      role.className = "role";
+      role.textContent = item.role ? String(item.role) : "기타";
+      var time = document.createElement("span");
+      time.className = "time";
+      time.textContent = fmtTime(item.created_at);
+      head.appendChild(role);
+      head.appendChild(time);
+
+      var body = document.createElement("div");
+      body.className = "body";
+      body.textContent = item.message ? String(item.message) : "";
+
+      card.appendChild(head);
+      card.appendChild(body);
+
+      if(item.contact){
+        var contact = document.createElement("div");
+        contact.className = "contact";
+        contact.textContent = "연락처: " + String(item.contact);
+        card.appendChild(contact);
+      }
+      list.appendChild(card);
+    });
+  }
+
+  function showDash(){
+    loginEl.style.display = "none";
+    dashEl.style.display = "block";
+  }
+  function showLogin(){
+    dashEl.style.display = "none";
+    loginEl.style.display = "block";
+  }
+
+  function fetchStats(token){
+    return fetch(RELAY + "/api/admin/stats", {
+      method: "GET",
+      headers: { "X-Admin-Token": token }
+    }).then(function(res){
+      if(res.status === 401){
+        var e = new Error("unauthorized"); e.code = 401; throw e;
+      }
+      if(res.status === 503){
+        return res.json().catch(function(){ return {}; }).then(function(body){
+          var e = new Error("unavailable"); e.code = 503;
+          e.reason = body && body.error; throw e;
+        });
+      }
+      if(!res.ok){
+        var er = new Error("http"); er.code = res.status; throw er;
+      }
+      return res.json();
+    });
+  }
+
+  function attemptLogin(token, fromStored){
+    if(!token) return;
+    clearMsg();
+    loginBtn.disabled = true;
+    loginBtn.textContent = "확인 중...";
+    fetchStats(token).then(function(data){
+      sessionStorage.setItem(KEY, token);
+      showDash();
+      render(data);
+    }).catch(function(err){
+      if(!fromStored) sessionStorage.removeItem(KEY);
+      showLogin();
+      if(err.code === 401){
+        showMsg("비밀번호가 틀렸습니다. 다시 입력해 주세요.", "err");
+      } else if(err.code === 503){
+        if(err.reason === "admin_not_configured"){
+          showMsg("운영자 토큰(ADMIN_TOKEN)이 아직 설정되지 않았습니다.", "info");
+        } else {
+          showMsg("서버를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.", "info");
+        }
+      } else if(!navigator.onLine){
+        showMsg("인터넷 연결을 확인해 주세요.", "err");
+      } else {
+        showMsg("불러오지 못했습니다. 잠시 후 다시 시도해 주세요.", "err");
+      }
+    }).finally(function(){
+      loginBtn.disabled = false;
+      loginBtn.textContent = "확인";
+    });
+  }
+
+  loginForm.addEventListener("submit", function(e){
+    e.preventDefault();
+    attemptLogin(pwInput.value.trim(), false);
+  });
+
+  document.getElementById("refreshBtn").addEventListener("click", function(){
+    var token = sessionStorage.getItem(KEY);
+    if(!token){ showLogin(); return; }
+    fetchStats(token).then(render).catch(function(err){
+      if(err.code === 401){
+        sessionStorage.removeItem(KEY);
+        showLogin();
+        showMsg("세션이 만료되었습니다. 다시 로그인해 주세요.", "err");
+      } else {
+        alert("새로고침에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      }
+    });
+  });
+
+  document.getElementById("logoutBtn").addEventListener("click", function(){
+    sessionStorage.removeItem(KEY);
+    pwInput.value = "";
+    showLogin();
+    clearMsg();
+  });
+
+  // 세션 복원
+  var stored = sessionStorage.getItem(KEY);
+  if(stored){
+    attemptLogin(stored, true);
+  }
+})();
+</script>
+</body>
+</html>

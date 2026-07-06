@@ -8,7 +8,7 @@ function CORS(env, request) {
   const list = String((env && env.ALLOW_ORIGIN) || '*').split(',').map(s => s.trim()).filter(Boolean);
   const headers = {
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Agency-Token'
+    'Access-Control-Allow-Headers': 'Content-Type, X-Agency-Token, X-Admin-Token'
   };
   if (list.includes('*')) {
     headers['Access-Control-Allow-Origin'] = '*';
@@ -167,6 +167,32 @@ const PUBLIC_KEY_RATE_LIMIT_MAX = 20;
 const publicKeyRateLimitMap = new Map();
 function checkPublicKeyRateLimit(request) { return checkRateLimitWith(publicKeyRateLimitMap, request, PUBLIC_KEY_RATE_LIMIT_MAX); }
 
+// 관리자 통계 API(/api/admin/stats)는 브루트포스 방어를 위해 훨씬 낮은 한도(IP당 분당 10회)로
+// 별도 제한한다(전역 한도와 무관한 독립 카운터). per-isolate 한계는 위와 동일(§6.3).
+const ADMIN_RATE_LIMIT_MAX = 10;
+const adminRateLimitMap = new Map();
+function checkAdminRateLimit(request) { return checkRateLimitWith(adminRateLimitMap, request, ADMIN_RATE_LIMIT_MAX); }
+// 피드백 수신(/api/feedback)은 스팸 방지를 위해 IP당 분당 5회로 별도 제한한다(독립 카운터).
+const FEEDBACK_RATE_LIMIT_MAX = 5;
+const feedbackRateLimitMap = new Map();
+function checkFeedbackRateLimit(request) { return checkRateLimitWith(feedbackRateLimitMap, request, FEEDBACK_RATE_LIMIT_MAX); }
+
+// 상수시간 문자열 비교(관리자 토큰 검증용 타이밍 공격 방어). 길이 정보는 노출될 수 있으나
+// 랜덤 시크릿에서는 실질 위험이 낮다. 내용 비교는 XOR 누적으로 조기 반환 없이 수행한다.
+function timingSafeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const ab = encU.encode(a), bb = encU.encode(b);
+  if (ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
+// 현재 연월(UTC 기준) "YYYY-MM" — stats_counter의 월별 발송 카운터 키에 사용.
+function currentYearMonth(now) {
+  const d = now || new Date();
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+}
+
 // 공공 음식점 조회서비스 프록시 (지역 필수). 키는 서버 시크릿.
 // 기본값: data.go.kr 행정안전부_식품_일반음식점 조회서비스(apis.data.go.kr/1741000/general_restaurants).
 // serviceKey 는 반드시 "Decoding(일반)" 키를 사용(URL 재인코딩 이중처리 방지).
@@ -223,6 +249,9 @@ export async function handle(request, env, store) {
   const url = new URL(request.url);
   const path = url.pathname;
   const j = (body, status = 200) => json(env, request, body, status);
+  // 비식별 집계 통계 증가(베스트 에포트): 실패해도 본 기능이 깨지지 않도록 삼켜서 처리하며,
+  // 개인정보(직원명·개인금액·이메일)는 절대 기록·로깅하지 않는다(조직정보·공개ID·누적 카운터만).
+  const bumpStats = async (fn) => { try { await fn(); } catch (_) { /* 집계 실패 무시(개인정보 로깅 금지) */ } };
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS(env, request) });
   if (!checkRateLimit(request)) return j({ error: 'rate_limited' }, 429);
   // 연락처 크롤링 완화(감사 항목 3): public-key 조회만 더 낮은 한도로 추가 제한.
@@ -250,6 +279,11 @@ export async function handle(request, env, store) {
         return j({ ok: true });
       }
       await store.registerKey({ restaurant_id, restaurant_name, public_key, registered_at: Date.now() });
+      // 비식별 집계: 신규 등록된 음식점 공개ID(LOCALDATA mgtNo — 공개값)만 기록, 누적 등록 카운터 +1.
+      await bumpStats(async () => {
+        await store.noteRestaurant(restaurant_id);
+        await store.incrCounter('registrations', 1);
+      });
       return j({ ok: true });
     }
 
@@ -327,6 +361,7 @@ export async function handle(request, env, store) {
       if (tooLong(region, MAX_STR) || tooLong(q, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
       const search = env.searchRestaurants || defaultSearch;
       const list = await search(env, region, q);
+      await bumpStats(async () => { await store.incrCounter('searches', 1); });
       return j(list);
     }
 
@@ -386,6 +421,16 @@ export async function handle(request, env, store) {
           consented_at: Date.now()
         });
       }
+      // 비식별 집계(성공 제출만): 기관명(조직정보)·기관+부서 조합·발송 카운터·인원/금액 누적.
+      // 직원명·개인별 금액은 절대 저장하지 않는다 — summary의 집계값(총액·인원수)만 누적한다.
+      await bumpStats(async () => {
+        if (institution) await store.noteInstitution(institution);
+        if (institution || department) await store.noteDepartment(institution + '' + department);
+        await store.incrCounter('sends', 1);
+        if (year_month) await store.incrCounter('sends_' + year_month, 1);
+        await store.incrCounter('members_total', member_count);
+        await store.incrCounter('amount_total', total_amount);
+      });
       return j({ summary_id });
     }
 
@@ -519,6 +564,33 @@ export async function handle(request, env, store) {
       return j({ token });
     }
 
+    // ── 관리자 통계 API (비밀번호 보호, 비식별 집계만 노출) ──
+    // env.ADMIN_TOKEN(secret) 미설정이면 기능 자체를 잠근다(503). 토큰 불일치는 상수시간
+    // 비교로 401. 개인정보 필드는 응답에 없다(조직정보·공개ID·누적 카운터·피드백만).
+    if (path === '/api/admin/stats' && request.method === 'GET') {
+      if (!env.ADMIN_TOKEN) return j({ error: 'admin_not_configured' }, 503);
+      if (!checkAdminRateLimit(request)) return j({ error: 'rate_limited' }, 429);
+      const token = request.headers.get('X-Admin-Token') || '';
+      if (!timingSafeEqual(token, String(env.ADMIN_TOKEN))) return j({ error: 'unauthorized' }, 401);
+      const stats = await store.getStats(currentYearMonth());
+      return j(stats);
+    }
+
+    // ── 피드백 수신 API ──
+    // 자유 입력이므로 저장은 그대로 하되 응답·로그에 내용을 반영하지 않는다. 스팸 방지 레이트리밋.
+    if (path === '/api/feedback' && request.method === 'POST') {
+      if (!checkFeedbackRateLimit(request)) return j({ error: 'rate_limited' }, 429);
+      const b = await request.json();
+      const role = String(b.role || '');
+      const message = String(b.message || '');
+      const contact = b.contact != null ? String(b.contact) : '';
+      if (!['음식점', '기관', '기타'].includes(role)) return j({ error: 'invalid_role' }, 400);
+      if (message.length < 1 || message.length > 2000) return j({ error: 'invalid_message' }, 400);
+      if (contact.length > 200) return j({ error: 'invalid_contact' }, 400);
+      await store.insertFeedback({ id: uuid(), role, message, contact: contact || null, created_at: Date.now() });
+      return j({ ok: true });
+    }
+
     return j({ error: 'not found' }, 404);
   } catch (e) {
     console.error(e);
@@ -644,6 +716,36 @@ export function makeD1Store(DB) {
     async getAgencyToken(token_hash) {
       return await DB.prepare('SELECT email, expires_at FROM agency_token WHERE token_hash=?').bind(token_hash).first();
     },
+    // ── 비식별 집계 통계(조직정보·공개ID·누적 카운터·피드백만 — 개인정보 없음) ──
+    async noteInstitution(name) { await DB.prepare('INSERT OR IGNORE INTO seen_institution (name) VALUES (?)').bind(name).run(); },
+    async noteDepartment(key) { await DB.prepare('INSERT OR IGNORE INTO seen_department (key) VALUES (?)').bind(key).run(); },
+    async noteRestaurant(restaurant_id) { await DB.prepare('INSERT OR IGNORE INTO seen_restaurant (restaurant_id) VALUES (?)').bind(restaurant_id).run(); },
+    async incrCounter(name, by) {
+      await DB.prepare('INSERT INTO stats_counter (name,count) VALUES (?,?) ON CONFLICT(name) DO UPDATE SET count=count+?')
+        .bind(name, by, by).run();
+    },
+    async insertFeedback(f) {
+      await DB.prepare('INSERT INTO feedback (id,role,message,contact,created_at) VALUES (?,?,?,?,?)')
+        .bind(f.id, f.role, f.message, f.contact, f.created_at).run();
+    },
+    async getStats(currentYM) {
+      const num = async (sql) => { const r = await DB.prepare(sql).first(); return (r && r.c) || 0; };
+      const counter = async (name) => { const r = await DB.prepare('SELECT count FROM stats_counter WHERE name=?').bind(name).first(); return (r && r.count) || 0; };
+      const fb = await DB.prepare('SELECT role,message,contact,created_at FROM feedback ORDER BY created_at DESC LIMIT 50').all();
+      return {
+        restaurants: {
+          current: await num('SELECT COUNT(*) c FROM public_key_registry'),
+          total: await num('SELECT COUNT(*) c FROM seen_restaurant')
+        },
+        institutions_total: await num('SELECT COUNT(*) c FROM seen_institution'),
+        departments_total: await num('SELECT COUNT(*) c FROM seen_department'),
+        sends: { total: await counter('sends'), this_month: await counter('sends_' + currentYM) },
+        pending: await num("SELECT COUNT(*) c FROM deposit_summary WHERE status='PENDING'"),
+        members_total: await counter('members_total'),
+        amount_total: await counter('amount_total'),
+        feedback: (fb.results || []).map(f => ({ role: f.role, message: f.message, contact: f.contact, created_at: f.created_at }))
+      };
+    },
     // ── TTL 정리(개인정보 최소화 목적). cron에서 호출. ──
     async cleanupTTL(now) {
       // 1) 미수령 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 파기(§6). inbox 쿼리도
@@ -697,8 +799,11 @@ export default {
 export function makeMemoryStore() {
   const keys = new Map(), summaries = [], blobs = [], consents = [];
   const challenges = [], ledgerBackups = new Map(), agencyOtps = new Map(), agencyTokens = new Map();
+  // 비식별 집계 통계(하니스용 — D1과 동등 구조): 조직정보·공개ID 집합, 누적 카운터, 피드백.
+  const seenInstitutions = new Set(), seenDepartments = new Set(), seenRestaurants = new Set();
+  const counters = new Map(), feedbacks = [];
   return {
-    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, agencyOtps, agencyTokens }),
+    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, agencyOtps, agencyTokens, seenInstitutions, seenDepartments, seenRestaurants, counters, feedbacks }),
     // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id는 handle()에서 사전 차단하므로
     // 여기서는 신규 삽입만 수행(다른 키로의 재등록은 updateKey를 통해서만 가능).
     async registerKey(r) { keys.set(r.restaurant_id, r); },
@@ -772,6 +877,26 @@ export function makeMemoryStore() {
     async deleteAgencyOtp(email) { agencyOtps.delete(email); },
     async createAgencyToken(t) { agencyTokens.set(t.token_hash, t); },
     async getAgencyToken(token_hash) { return agencyTokens.get(token_hash) || null; },
+    // ── 비식별 집계 통계(조직정보·공개ID·누적 카운터·피드백만 — 개인정보 없음) ──
+    async noteInstitution(name) { seenInstitutions.add(name); },
+    async noteDepartment(key) { seenDepartments.add(key); },
+    async noteRestaurant(restaurant_id) { seenRestaurants.add(restaurant_id); },
+    async incrCounter(name, by) { counters.set(name, (counters.get(name) || 0) + by); },
+    async insertFeedback(f) { feedbacks.push({ ...f }); },
+    async getStats(currentYM) {
+      const feedback = feedbacks.slice().sort((a, b) => b.created_at - a.created_at).slice(0, 50)
+        .map(f => ({ role: f.role, message: f.message, contact: f.contact, created_at: f.created_at }));
+      return {
+        restaurants: { current: keys.size, total: seenRestaurants.size },
+        institutions_total: seenInstitutions.size,
+        departments_total: seenDepartments.size,
+        sends: { total: counters.get('sends') || 0, this_month: counters.get('sends_' + currentYM) || 0 },
+        pending: summaries.filter(s => s.status === 'PENDING').length,
+        members_total: counters.get('members_total') || 0,
+        amount_total: counters.get('amount_total') || 0,
+        feedback
+      };
+    },
     // ── TTL 정리 ──
     async cleanupTTL(now) {
       // 1) 미수령 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 파기(§6).

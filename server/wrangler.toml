@@ -4,7 +4,7 @@ compatibility_date = "2026-06-01"
 
 # 담당자 웹/음식점 앱 출처(콤마 구분 화이트리스트). Origin 헤더 없는 요청(curl 등 서버간 호출)은 차단되지 않음.
 [vars]
-ALLOW_ORIGIN = "https://nulmaru.github.io,https://prepaid-agency.pages.dev"
+ALLOW_ORIGIN = "https://nulmaru.github.io,https://prepaid-agency.pages.dev,https://bapjangbu.com,https://www.bapjangbu.com"
 # data.go.kr 행정안전부_식품_일반음식점 조회서비스 (/info 오퍼레이션)
 PUBLIC_API_BASE = "https://apis.data.go.kr/1741000/general_restaurants/info"
 PUBLIC_API_REGION_PARAM = "cond[OPN_ATMY_GRP_CD::EQ]"   # 개방자치단체코드(지역)
@@ -43,3 +43,7 @@ crons = ["17 18 * * *"]
 
 # 비밀키는 파일에 두지 말고 CLI로 등록 (data.go.kr "Decoding(일반)" 키 사용):
 #   wrangler secret put PUBLIC_API_KEY
+
+# 관리자 통계 API(/api/admin/stats, X-Admin-Token 헤더) 보호용 시크릿. 미설정이면 해당
+# 엔드포인트는 503 admin_not_configured로 잠긴다(기능 비활성). 값은 이 파일에 두지 말 것:
+#   wrangler secret put ADMIN_TOKEN

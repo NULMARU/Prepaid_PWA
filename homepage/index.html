@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="밥장부(선입금대장) — 소규모 음식점의 단체·직원 식대 선입금을 종이 장부 없이 폰으로 안전하게 기록하는 무료 도구. 결제앱이 아닙니다.">
+<title>밥장부(선입금대장) — 단체·직원 식대 선입금 기록 도구</title>
+<style>
+:root{
+  --primary:#1a5fb4;--primary-dark:#134a8f;--primary-soft:#eef4fb;
+  --text:#1c2532;--muted:#5b6672;--line:#e3e8ee;--bg-soft:#f4f7fb;
+  --ok:#1a7f4b;--ok-soft:#e8f6ee;--warn:#b7791f;--warn-soft:#fff4e5;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
+  color:var(--text);line-height:1.7;font-size:16px;margin:0;background:#fff;-webkit-text-size-adjust:100%;
+}
+.wrap{max-width:920px;margin:0 auto;padding:0 20px}
+h1,h2,h3{color:var(--primary-dark);line-height:1.3}
+a{color:var(--primary-dark)}
+img{max-width:100%}
+
+/* header */
+header.site{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(255,255,255,.94);backdrop-filter:saturate(180%) blur(8px);z-index:10}
+header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:56px}
+.brand{font-weight:800;color:var(--primary-dark);font-size:17px;text-decoration:none}
+.brand small{font-weight:600;color:var(--muted);font-size:12px}
+.nav a{margin-left:16px;font-size:13.5px;text-decoration:none;color:var(--muted);font-weight:600}
+.nav a:hover{color:var(--primary-dark)}
+@media(max-width:640px){.nav{display:none}}
+
+/* hero */
+.hero{background:linear-gradient(160deg,#eef4fb 0%,#f7fafd 60%,#fff 100%);padding:56px 0 48px;text-align:center}
+.hero h1{font-size:34px;font-weight:800;margin:0 0 6px}
+.hero .sub{font-size:20px;font-weight:700;color:var(--text);margin:0 0 14px}
+.hero p.lead{font-size:16.5px;color:var(--muted);max-width:640px;margin:0 auto 22px}
+.badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:0 0 26px}
+.badge{background:#fff;border:1.5px solid var(--line);border-radius:999px;padding:6px 14px;font-size:13.5px;font-weight:700;color:var(--primary-dark)}
+.badge.free{background:var(--ok-soft);border-color:#bfe6cf;color:var(--ok)}
+.cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-block;border-radius:10px;padding:13px 22px;font-weight:800;font-size:15.5px;text-decoration:none;cursor:pointer;border:2px solid var(--primary)}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-dark);border-color:var(--primary-dark)}
+.btn-outline{background:#fff;color:var(--primary-dark)}
+.btn-outline:hover{background:var(--primary-soft)}
+@media(max-width:640px){.hero h1{font-size:27px}.hero .sub{font-size:17px}.cta-row .btn{flex:1 1 100%}}
+
+/* sections */
+section{padding:44px 0;border-top:1px solid var(--line)}
+section h2{font-size:24px;font-weight:800;margin:0 0 6px}
+section .kicker{font-size:13px;font-weight:800;letter-spacing:.06em;color:var(--primary);text-transform:uppercase;margin:0 0 6px}
+section p.intro{color:var(--muted);font-size:16px;margin:0 0 22px;max-width:720px}
+
+/* cards */
+.grid{display:grid;gap:16px}
+.grid.c3{grid-template-columns:repeat(3,1fr)}
+.grid.c2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:760px){.grid.c3,.grid.c2{grid-template-columns:1fr}}
+.card{background:var(--bg-soft);border:1px solid var(--line);border-radius:14px;padding:20px 18px}
+.card .ic{font-size:26px;line-height:1;margin-bottom:10px}
+.card h3{font-size:17px;font-weight:800;margin:0 0 6px}
+.card p{margin:0;font-size:14.5px;color:var(--muted)}
+
+/* problem/solution */
+.ps{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.ps{grid-template-columns:1fr}}
+.ps .box{border-radius:14px;padding:20px}
+.ps .prob{background:var(--warn-soft);border:1px solid #f0dcb8}
+.ps .prob h3{color:#7a5209}
+.ps .sol{background:var(--ok-soft);border:1px solid #bfe6cf}
+.ps .sol h3{color:var(--ok)}
+.ps ul{margin:8px 0 0;padding-left:20px;font-size:14.5px}
+.ps li{margin:5px 0}
+
+/* workflow */
+.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:8px}
+@media(max-width:760px){.flow{grid-template-columns:1fr}}
+.flow .step{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:18px 16px;position:relative}
+.flow .step .n{position:absolute;top:-14px;left:16px;width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 2px 6px rgba(26,95,180,.3)}
+.flow .step .ic{font-size:24px;margin:6px 0 8px}
+.flow .step h3{font-size:15.5px;margin:0 0 5px}
+.flow .step p{margin:0;font-size:14px;color:var(--muted)}
+.emph{background:var(--primary-soft);border-left:4px solid var(--primary);border-radius:8px;padding:14px 16px;margin-top:20px;font-weight:700;font-size:15px;color:var(--primary-dark)}
+
+/* privacy */
+.priv{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+@media(max-width:760px){.priv{grid-template-columns:1fr}}
+.priv .item{display:flex;gap:14px;background:var(--bg-soft);border:1px solid var(--line);border-radius:14px;padding:18px}
+.priv .item .ic{font-size:26px;line-height:1.1;flex:0 0 auto}
+.priv .item h3{font-size:16px;margin:0 0 4px}
+.priv .item p{margin:0;font-size:14px;color:var(--muted)}
+.legal-links{margin-top:18px;font-size:14.5px}
+.legal-links a{font-weight:700;text-decoration:none;margin-right:16px}
+.legal-links a:hover{text-decoration:underline}
+
+/* usage */
+.usage{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.usage{grid-template-columns:1fr}}
+.usage .u{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:20px}
+.usage .u h3{font-size:17px;margin:0 0 4px}
+.usage .u .role{font-size:12.5px;font-weight:800;color:var(--primary);letter-spacing:.04em}
+.usage .u ol{margin:12px 0 14px;padding-left:20px;font-size:14.5px}
+.usage .u ol li{margin:6px 0}
+.usage .u a.more{display:inline-block;font-weight:700;text-decoration:none;font-size:14.5px;color:var(--primary-dark)}
+.usage .u a.more:hover{text-decoration:underline}
+
+/* start buttons */
+.start{background:linear-gradient(160deg,#134a8f,#1a5fb4);color:#fff;border-top:none}
+.start h2{color:#fff}
+.start p.intro{color:#dce8f6}
+.start .cta-row .btn{padding:16px 24px;font-size:16px}
+.start .btn-outline{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.7)}
+.start .btn-outline:hover{background:rgba(255,255,255,.18)}
+.start .btn-white{background:#fff;color:var(--primary-dark);border-color:#fff}
+.start .btn-white:hover{background:#eaf1fa}
+.start small{display:block;color:#cddcf0;font-size:12.5px;margin-top:14px}
+
+/* feedback form */
+.form-card{background:var(--bg-soft);border:1px solid var(--line);border-radius:16px;padding:22px 20px;max-width:640px}
+.form-row{margin:0 0 16px}
+.form-row label{display:block;font-weight:700;font-size:14.5px;margin-bottom:6px}
+.roles{display:flex;gap:8px;flex-wrap:wrap}
+.roles label{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:9px 14px;font-weight:600;font-size:14.5px;cursor:pointer;margin:0}
+.roles input{accent-color:var(--primary)}
+.roles label:has(input:checked){border-color:var(--primary);background:var(--primary-soft);color:var(--primary-dark)}
+textarea,input[type=text],input[type=email]{
+  width:100%;font-family:inherit;font-size:15px;color:var(--text);
+  border:1.5px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff;
+}
+textarea{min-height:120px;resize:vertical}
+textarea:focus,input:focus{outline:none;border-color:var(--primary)}
+.hint{font-size:12.5px;color:var(--muted);margin:6px 0 0}
+.counter{float:right;font-size:12.5px;color:var(--muted)}
+.counter.over{color:#c0392b;font-weight:700}
+.form-note{background:var(--warn-soft);border-left:4px solid var(--warn);border-radius:8px;padding:11px 14px;font-size:13.5px;color:#7a5209;margin:0 0 18px}
+.form-msg{margin:14px 0 0;font-size:14.5px;font-weight:700;display:none}
+.form-msg.ok{color:var(--ok);display:block}
+.form-msg.err{color:#c0392b;display:block}
+button.submit{background:var(--primary);color:#fff;border:none;border-radius:10px;padding:13px 26px;font-size:15.5px;font-weight:800;cursor:pointer}
+button.submit:hover{background:var(--primary-dark)}
+button.submit:disabled{opacity:.6;cursor:default}
+
+/* footer */
+footer.site{background:var(--bg-soft);border-top:1px solid var(--line);padding:34px 0;font-size:13px;color:var(--muted)}
+footer.site h4{color:var(--primary-dark);font-size:14px;margin:0 0 8px}
+footer.site a{color:var(--primary-dark);text-decoration:none}
+footer.site a:hover{text-decoration:underline}
+footer.site .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:20px}
+@media(max-width:640px){footer.site .cols{grid-template-columns:1fr}}
+footer.site .disclaimer{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;margin-bottom:16px}
+footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="#top">밥장부 <small>선입금대장</small></a>
+    <nav class="nav" aria-label="바로가기">
+      <a href="#what">소개</a>
+      <a href="#flow">이용 흐름</a>
+      <a href="#privacy">개인정보</a>
+      <a href="#usage">사용법</a>
+      <a href="#start">시작하기</a>
+      <a href="#feedback">의견</a>
+    </nav>
+  </div>
+</header>
+
+<!-- 1. 히어로 -->
+<section id="top" class="hero" style="border-top:none">
+  <div class="wrap">
+    <h1>밥장부 <span style="font-weight:700;color:var(--muted);font-size:.62em">(선입금대장)</span></h1>
+    <p class="sub">소규모 음식점의 단체·직원 식대 선입금을,<br>종이 장부 없이 폰으로 안전하게</p>
+    <p class="lead">기관이 미리 맡긴 식대를 음식점이 폰 앱의 장부로 관리하고, 식사할 때마다 차감해 기록합니다. 명단은 음식점 폰 안에서만 열립니다.</p>
+    <div class="badges">
+      <span class="badge free">완전 무료</span>
+      <span class="badge">결제앱 아님 · 이체·정산 기능 없음</span>
+      <span class="badge">설치 없이 웹 · 폰 앱</span>
+    </div>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#start">역할별로 시작하기</a>
+      <a class="btn btn-outline" href="#what">먼저 살펴보기</a>
+    </div>
+  </div>
+</section>
+
+<!-- 2. 무엇을·왜 -->
+<section id="what">
+  <div class="wrap">
+    <p class="kicker">무엇을 · 왜</p>
+    <h2>수기 외상장부의 부담을 덜어주는 기록 도구</h2>
+    <p class="intro">밥장부는 구청·주민센터 같은 기관이나 회사가 직원·이용자 식대를 음식점에 미리 맡길 때, 그 명단과 잔액을 종이 대신 폰으로 관리하도록 돕습니다. 돈을 주고받는 결제앱이 아니라, <b>누가 얼마를 언제 먹었는지 기록만</b> 하는 무료 장부입니다.</p>
+    <div class="ps">
+      <div class="box prob">
+        <h3>지금까지의 어려움</h3>
+        <ul>
+          <li>수기 외상장부는 분실·훼손되기 쉽고, 정산 때 금액 분쟁이 생깁니다.</li>
+          <li>기관이 이용자 명단(이름 등)을 종이·메신저로 넘기면 개인정보 유출 부담이 큽니다.</li>
+          <li>누가 며칠분을 남겼는지 매번 손으로 세야 합니다.</li>
+        </ul>
+      </div>
+      <div class="box sol">
+        <h3>밥장부의 해법</h3>
+        <ul>
+          <li>기관이 명단을 <b>브라우저에서 암호화</b>해 보내면, 해당 음식점 폰에서만 열립니다.</li>
+          <li>음식점은 앱에서 명단을 받아 장부로 등록하고, 식사할 때마다 한 번에 차감합니다.</li>
+          <li>잔액·이용 내역이 자동으로 계산되어 종이 장부와 계산 실수가 사라집니다.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. 사용 대상 -->
+<section id="who" style="background:var(--bg-soft)">
+  <div class="wrap">
+    <p class="kicker">사용 대상</p>
+    <h2>이런 분들을 위해 만들었습니다</h2>
+    <div class="grid c3">
+      <div class="card">
+        <div class="ic">🍚</div>
+        <h3>음식점 주인</h3>
+        <p>단체·직원 식대를 미리 받고 매일 식사를 제공하는 소규모 식당. 폰 앱에 장부를 두고 차감만 하면 됩니다.</p>
+      </div>
+      <div class="card">
+        <div class="ic">🏛️</div>
+        <h3>기관 부서 담당자</h3>
+        <p>구청·주민센터 등에서 직원·이용자 식대를 음식점에 맡기고 명단을 안전하게 전달해야 하는 담당자.</p>
+      </div>
+      <div class="card">
+        <div class="ic">🤝</div>
+        <h3>요식업 단체 (홍보 파트너)</h3>
+        <p>회원 음식점에 무료 도구를 알리려는 요식업중앙회 등 관계 단체. 도입·운영 부담이 없습니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. 워크플로 -->
+<section id="flow">
+  <div class="wrap">
+    <p class="kicker">이용 흐름</p>
+    <h2>3단계로 끝나는 흐름</h2>
+    <p class="intro">복잡한 정산 절차 없이, 명단 전달부터 매일 차감까지 이렇게 이어집니다.</p>
+    <div class="flow">
+      <div class="step">
+        <div class="n">1</div>
+        <div class="ic">🔐</div>
+        <h3>기관 담당자가 명단 전송</h3>
+        <p>담당자가 웹에서 명단을 만들어 <b>암호화</b>한 뒤 음식점으로 보냅니다.</p>
+      </div>
+      <div class="step">
+        <div class="n">2</div>
+        <div class="ic">📥</div>
+        <h3>음식점이 수신·등록</h3>
+        <p>음식점이 앱에서 명단을 받아 장부로 등록합니다. 잔액이 자동 계산됩니다.</p>
+      </div>
+      <div class="step">
+        <div class="n">3</div>
+        <div class="ic">🍽️</div>
+        <h3>매일 식사 때 차감</h3>
+        <p>식사할 때마다 해당 인원을 눌러 장부에서 차감·기록합니다.</p>
+      </div>
+    </div>
+    <p class="emph">💡 선금 이체는 기관과 음식점이 계좌로 직접 진행합니다. 밥장부 앱은 <u>장부 기록만</u> 하며 돈을 다루지 않습니다.</p>
+  </div>
+</section>
+
+<!-- 5. 개인정보·데이터 관리 -->
+<section id="privacy" style="background:var(--bg-soft)">
+  <div class="wrap">
+    <p class="kicker">개인정보 · 데이터 관리</p>
+    <h2>명단은 음식점 폰 안에서만 열립니다</h2>
+    <p class="intro">개인정보를 최소한으로만 다루도록 설계했습니다. 서버와 운영자는 명단 내용을 볼 수 없습니다.</p>
+    <div class="priv">
+      <div class="item">
+        <div class="ic">🔒</div>
+        <div>
+          <h3>브라우저에서 암호화</h3>
+          <p>명단은 보내는 순간 브라우저에서 암호화되어, 지정한 음식점만 열람할 수 있습니다. 서버·운영자는 내용을 볼 수 없습니다.</p>
+        </div>
+      </div>
+      <div class="item">
+        <div class="ic">📵</div>
+        <div>
+          <h3>전화번호 미수집</h3>
+          <p>이용자 전화번호를 수집하지 않습니다. 장부에 필요한 최소 정보만 다룹니다.</p>
+        </div>
+      </div>
+      <div class="item">
+        <div class="ic">🗑️</div>
+        <div>
+          <h3>서버 보관 최소화</h3>
+          <p>음식점이 수령하면 서버에서 즉시 삭제하고, 미수령 명단도 최대 3일 후 자동 삭제됩니다. 직접전달 모드는 서버에 아예 보관하지 않습니다.</p>
+        </div>
+      </div>
+      <div class="item">
+        <div class="ic">📱</div>
+        <div>
+          <h3>장부는 음식점 폰 안에</h3>
+          <p>등록된 장부와 이용 내역은 음식점 폰(브라우저) 안에 보관됩니다. 별도 중앙 서버에 쌓이지 않습니다.</p>
+        </div>
+      </div>
+    </div>
+    <p class="legal-links">
+      <a href="https://nulmaru.github.io/Prepaid_PWA/docs/PRIVACY_POLICY.md" target="_blank" rel="noopener">개인정보처리방침 →</a>
+      <a href="https://nulmaru.github.io/Prepaid_PWA/docs/TERMS.md" target="_blank" rel="noopener">이용약관 →</a>
+    </p>
+  </div>
+</section>
+
+<!-- 6. 사용 주체별 사용법 -->
+<section id="usage">
+  <div class="wrap">
+    <p class="kicker">사용법</p>
+    <h2>주체별 사용법 요약</h2>
+    <p class="intro">간단한 3단계 요약입니다. 자세한 설치·화면 안내는 각 안내서를 확인하세요.</p>
+    <div class="usage">
+      <div class="u">
+        <span class="role">음식점 주인</span>
+        <h3>앱 설치 후 명단 받아 차감</h3>
+        <ol>
+          <li>폰 브라우저에서 앱을 열고 홈 화면에 설치합니다.</li>
+          <li>기관이 보낸 명단을 앱에서 받아 장부로 등록합니다.</li>
+          <li>매일 식사 때 인원을 눌러 차감·기록합니다.</li>
+        </ol>
+        <a class="more" href="https://nulmaru.github.io/Prepaid_PWA/docs/manual-restaurant.html" target="_blank" rel="noopener">설치·사용법 자세히 →</a>
+      </div>
+      <div class="u">
+        <span class="role">기관 담당자</span>
+        <h3>명단 만들어 음식점에 암호화 전송</h3>
+        <ol>
+          <li>웹에서 기관 이메일로 본인 확인을 합니다.</li>
+          <li>음식점을 찾아 이용자 명단·금액을 입력합니다.</li>
+          <li>암호화해 전송하고, 선금은 음식점 계좌로 직접 이체합니다.</li>
+        </ol>
+        <a class="more" href="https://nulmaru.github.io/Prepaid_PWA/docs/manual-agency.html" target="_blank" rel="noopener">사용법 자세히 →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. 역할별 시작 버튼 -->
+<section id="start" class="start">
+  <div class="wrap">
+    <p class="kicker" style="color:#bcd4f0">시작하기</p>
+    <h2>역할을 골라 바로 시작하세요</h2>
+    <p class="intro">가입 절차나 비용 없이 바로 이용할 수 있습니다.</p>
+    <div class="cta-row">
+      <a class="btn btn-white" href="https://prepaid-agency.pages.dev" target="_blank" rel="noopener">🏛️ 기관 담당자로 시작하기</a>
+      <a class="btn btn-outline" href="https://nulmaru.github.io/Prepaid_PWA/" target="_blank" rel="noopener">🍚 음식점 주인 · 앱 설치하기</a>
+    </div>
+    <small>기관 담당자는 웹에서 바로 이용하고, 음식점은 폰에 앱을 설치해 사용합니다. (새 탭으로 열립니다)</small>
+  </div>
+</section>
+
+<!-- 8. 의견·피드백 폼 -->
+<section id="feedback">
+  <div class="wrap">
+    <p class="kicker">의견 · 피드백</p>
+    <h2>의견을 들려주세요</h2>
+    <p class="intro">불편한 점, 필요한 기능, 문의 사항을 자유롭게 남겨 주세요.</p>
+    <form class="form-card" id="fbForm" novalidate>
+      <p class="form-note">개인정보는 최소한만 적어주세요. 이름·연락처 등 민감한 정보는 되도록 남기지 마세요.</p>
+      <div class="form-row">
+        <label>어떤 분이신가요?</label>
+        <div class="roles">
+          <label><input type="radio" name="role" value="음식점" checked> 음식점</label>
+          <label><input type="radio" name="role" value="기관"> 기관</label>
+          <label><input type="radio" name="role" value="기타"> 기타</label>
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="fbMsg">의견 <span style="color:#c0392b">*</span> <span class="counter" id="fbCounter">0 / 2000</span></label>
+        <textarea id="fbMsg" name="message" maxlength="2000" required placeholder="의견을 입력해 주세요 (2000자 이내)"></textarea>
+      </div>
+      <div class="form-row">
+        <label for="fbContact">연락처 (선택)</label>
+        <input type="text" id="fbContact" name="contact" placeholder="답변을 원하시면 이메일 등 (선택)">
+        <p class="hint">답변이 필요할 때만 남겨 주세요. 남기지 않아도 됩니다.</p>
+      </div>
+      <button type="submit" class="submit" id="fbSubmit">보내기</button>
+      <p class="form-msg" id="fbResult" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+</section>
+
+<!-- 9. 푸터 -->
+<footer class="site">
+  <div class="wrap">
+    <div class="disclaimer">
+      본 서비스는 <b>결제·이체·정산 기능이 없는 무료 기록 도구</b>입니다. 실제 금전 거래는 기관과 음식점이 직접 진행합니다.
+    </div>
+    <div class="cols">
+      <div>
+        <h4>운영</h4>
+        <p>운영자: 개인 개발자가 만든 <b>비영리·무료 파일럿 서비스</b>입니다.<br>
+        사업자가 아니며 사업자등록번호가 없습니다.</p>
+        <p>문의: 위 <a href="#feedback">의견 폼</a>으로 남겨 주세요. <span style="color:var(--muted)">[대표 문의처 이메일: 미정]</span></p>
+      </div>
+      <div>
+        <h4>약관 · 데이터</h4>
+        <p>
+          <a href="https://nulmaru.github.io/Prepaid_PWA/docs/PRIVACY_POLICY.md" target="_blank" rel="noopener">개인정보처리방침</a> ·
+          <a href="https://nulmaru.github.io/Prepaid_PWA/docs/TERMS.md" target="_blank" rel="noopener">이용약관</a>
+        </p>
+        <p>데이터 출처: 행정안전부 지방행정 인허가데이터</p>
+      </div>
+    </div>
+    <div class="copy">© 2026 밥장부(선입금대장). 무료 파일럿 서비스.</div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var RELAY = "https://prepaid-relay.sulsul-plus.workers.dev";
+  var form = document.getElementById("fbForm");
+  var msg = document.getElementById("fbMsg");
+  var counter = document.getElementById("fbCounter");
+  var result = document.getElementById("fbResult");
+  var submitBtn = document.getElementById("fbSubmit");
+
+  function updateCount(){
+    var n = msg.value.length;
+    counter.textContent = n + " / 2000";
+    counter.classList.toggle("over", n > 2000);
+  }
+  msg.addEventListener("input", updateCount);
+  updateCount();
+
+  function showResult(text, ok){
+    result.textContent = text;
+    result.className = "form-msg " + (ok ? "ok" : "err");
+  }
+
+  form.addEventListener("submit", function(e){
+    e.preventDefault();
+    result.className = "form-msg";
+    result.textContent = "";
+
+    var text = msg.value.trim();
+    if(!text){
+      showResult("의견 내용을 입력해 주세요.", false);
+      msg.focus();
+      return;
+    }
+    if(text.length > 2000){
+      showResult("의견은 2000자 이내로 입력해 주세요.", false);
+      msg.focus();
+      return;
+    }
+    if(!navigator.onLine){
+      showResult("인터넷 연결이 없는 것 같습니다. 연결 후 다시 보내주세요.", false);
+      return;
+    }
+
+    var roleEl = form.querySelector('input[name="role"]:checked');
+    var payload = {
+      role: roleEl ? roleEl.value : "기타",
+      message: text,
+      contact: document.getElementById("fbContact").value.trim()
+    };
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "보내는 중...";
+
+    fetch(RELAY + "/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function(res){
+      if(!res.ok) throw new Error("status " + res.status);
+      return res;
+    }).then(function(){
+      showResult("의견 감사합니다. 소중히 참고하겠습니다.", true);
+      form.reset();
+      updateCount();
+    }).catch(function(){
+      showResult("전송에 실패했습니다. 잠시 후 다시 시도해 주세요.", false);
+    }).finally(function(){
+      submitBtn.disabled = false;
+      submitBtn.textContent = "보내기";
+    });
+  });
+})();
+</script>
+</body>
+</html>

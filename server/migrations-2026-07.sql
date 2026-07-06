@@ -65,3 +65,28 @@ CREATE INDEX IF NOT EXISTS idx_summary_status_created ON deposit_summary(status,
 -- 음식점 주인이 직접 등록·삭제하는 선택적 사업장 연락 정보. 전화번호·개인 프로필은 저장하지 않는다.
 ALTER TABLE public_key_registry ADD COLUMN contact_kakao TEXT;
 ALTER TABLE public_key_registry ADD COLUMN contact_email TEXT;
+
+-- ── 2026-07(4차) 추가: 비식별 집계 통계 + 피드백 수신 ──
+-- 개인정보(직원명·개인별 금액·이메일)는 저장하지 않는다 — 조직정보·공개ID·누적 카운터만.
+-- 전부 IF NOT EXISTS로 무손실이며 기존 데이터에 영향 없음. 관리자 통계 API(/api/admin/stats)의 재료.
+CREATE TABLE IF NOT EXISTS seen_institution (
+  name TEXT PRIMARY KEY               -- 기관명(조직정보, 비개인)
+);
+CREATE TABLE IF NOT EXISTS seen_department (
+  key  TEXT PRIMARY KEY               -- "기관명부서명" 조합(조직정보, 비개인)
+);
+CREATE TABLE IF NOT EXISTS seen_restaurant (
+  restaurant_id TEXT PRIMARY KEY      -- 음식점 공개ID(LOCALDATA mgtNo — 공개값)
+);
+CREATE TABLE IF NOT EXISTS stats_counter (
+  name  TEXT PRIMARY KEY,             -- sends, sends_YYYY-MM, registrations, searches, members_total, amount_total 등
+  count INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS feedback (
+  id         TEXT PRIMARY KEY,
+  role       TEXT,                    -- '음식점'|'기관'|'기타'
+  message    TEXT,                    -- 자유 입력 본문(응답·로그에 내용 반영 금지)
+  contact    TEXT,                    -- 선택 회신 채널(자유 입력)
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at);

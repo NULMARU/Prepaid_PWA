@@ -58,6 +58,8 @@ batch_hash = SHA-256(hex)
 | `POST /api/ledger-backup/delete` | `{restaurant_id, auth_token}` | `{ok:true}` / 401/404 | 백업 삭제(예: 기기를 되찾아 클라우드 백업이 더 이상 필요 없을 때). 인증 필요 |
 | `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?, sent?}` / 500 | 기관 이메일 OTP 발급(§4.4) |
 | `POST /api/agency/verify-otp` | `{email, otp}` | `{token}` / 401 | OTP 검증 → 24시간 기관 토큰 발급 |
+| `GET /api/admin/stats` | 헤더 `X-Admin-Token` | `{restaurants, institutions_total, …, feedback[]}` / 401/503/429 | 비식별 집계 통계(관리자 전용, §8) |
+| `POST /api/feedback` | `{role, message, contact?}` | `{ok:true}` / 400/429 | 피드백 수신(§8.3) |
 
 `POST /api/submit` 본문:
 ```json
@@ -241,3 +243,65 @@ batch_hash = SHA-256(hex)
   일절 저장되지 않는다(구현은 담당자 웹 클라이언트 측 — 서버 코드 변경 없음).
 - 원장의 진실은 항상 음식점 기기에 있다(로컬 우선). 서버는 전송 중계와 백업 보관소일 뿐,
   권위 있는 원장이 아니다.
+
+## 8. 비식별 집계 통계 · 관리자 API · 피드백
+
+운영 현황 파악을 위해 **개인을 식별할 수 없는 집계·조직 정보만** 수집한다. 직원명·개인별
+금액·전화번호·이메일 평문/해시는 이 통계 어디에도 저장하지 않는다(§0 불변식 유지). 통계
+증가 로직은 모두 `try/catch`로 감싸 실패해도 본 기능이 깨지지 않게 하며, 개인정보를 로깅하지
+않는다.
+
+### 8.1 집계 대상 테이블 (모두 비개인)
+
+- `seen_institution(name)` — 기관명(조직정보). 중복 없이 몇 개 기관이 사용했는지.
+- `seen_department(key)` — "기관명부서명" 조합(조직정보). 부서 단위 사용 폭.
+- `seen_restaurant(restaurant_id)` — 음식점 공개ID(LOCALDATA `mgtNo` — 공개값). 누적 등록 음식점 수.
+- `stats_counter(name, count)` — 누적 카운터. `sends`(총 발송), `sends_YYYY-MM`(월별 발송),
+  `registrations`(신규 등록), `searches`(검색), `members_total`(집계 인원 누적),
+  `amount_total`(집계 금액 누적).
+- `feedback(id, role, message, contact, created_at)` — 사용자 피드백(§8.3).
+
+증가 시점(성공 시에만):
+- `POST /api/submit` 성공: `seen_institution(institution)`·`seen_department(institution+department)`
+  INSERT OR IGNORE, `sends`+1·`sends_${year_month}`+1·`members_total`+=member_count·
+  `amount_total`+=total_amount. **직원명·개인별 금액은 저장하지 않고 summary의 집계값만 누적.**
+- `POST /api/register-key` 신규 등록(기존에 없던 `restaurant_id`): `seen_restaurant` INSERT OR
+  IGNORE, `registrations`+1. (다른 키로의 재등록·동일 키 재시도는 신규가 아니므로 카운트 안 함.)
+- `GET /api/restaurants` 검색: `searches`+1.
+
+### 8.2 관리자 통계 API
+
+`GET /api/admin/stats`, 헤더 `X-Admin-Token`:
+- `env.ADMIN_TOKEN`(wrangler secret) 미설정 → `503 {error:'admin_not_configured'}`(기능 잠금).
+- 토큰 불일치 → `401 {error:'unauthorized'}`(상수시간 비교로 타이밍 공격 방어).
+- 브루트포스 방어를 위해 IP당 분당 10회 별도 레이트리밋(`429 {error:'rate_limited'}`).
+- 성공 시 JSON(개인정보 필드 없음):
+
+```json
+{
+  "restaurants": { "current": 0, "total": 0 },
+  "institutions_total": 0,
+  "departments_total": 0,
+  "sends": { "total": 0, "this_month": 0 },
+  "pending": 0,
+  "members_total": 0,
+  "amount_total": 0,
+  "feedback": [ { "role": "음식점", "message": "…", "contact": "…", "created_at": 0 } ]
+}
+```
+
+- `restaurants.current` = `public_key_registry` 행수(현재 등록 유지 중), `restaurants.total` =
+  `seen_restaurant` 행수(역대 누적, 해제해도 유지).
+- `sends.this_month`는 **서버가 계산한 현재 UTC 연월**(`sends_YYYY-MM`) 카운터.
+- `feedback`은 최근 50개, 최신순.
+- `admin.html`은 `nulmaru.github.io`에서 서빙되어 이미 `ALLOW_ORIGIN`에 포함(CORS는
+  `X-Admin-Token` 헤더 허용).
+
+### 8.3 피드백 수신 API
+
+`POST /api/feedback` body `{role, message, contact?}`:
+- `role`: `'음식점'|'기관'|'기타'` 화이트리스트(그 외 `400 {error:'invalid_role'}`).
+- `message`: 1~2000자 필수(범위 밖 `400 {error:'invalid_message'}`).
+- `contact`: 선택, 0~200자(초과 `400 {error:'invalid_contact'}`).
+- 스팸 방지로 IP당 분당 5회 레이트리밋(`429`). 성공 시 `200 {ok:true}`.
+- **주의**: 자유 입력이므로 저장은 그대로 하되, 응답·서버 로그에 입력 내용을 반영하지 않는다.
