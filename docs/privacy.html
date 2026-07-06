@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개인정보처리방침 · 밥장부(선입금대장)</title>
+<style>
+:root{--primary:#1a5fb4;--primary-dark:#134a8f;--primary-soft:#eef4fb;
+  --text:#1c2532;--muted:#5b6672;--line:#e3e8ee;--bg-soft:#f4f7fb;}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
+  color:var(--text);line-height:1.75;font-size:16px;margin:0;background:var(--bg-soft);
+  -webkit-text-size-adjust:100%;}
+.wrap{max-width:760px;margin:0 auto;padding:28px 18px 72px}
+.brand{font-size:13px;font-weight:800;color:var(--primary);letter-spacing:.02em;margin:0 0 6px}
+h1{font-size:24px;font-weight:800;color:var(--primary-dark);margin:0 0 10px;line-height:1.3}
+.meta{color:var(--muted);font-size:13.5px;margin:0 0 24px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 22px 8px;
+  box-shadow:0 1px 2px rgba(20,74,143,.04)}
+section{margin:0 0 20px}
+h2{font-size:16.5px;font-weight:800;color:var(--primary-dark);margin:0 0 8px;
+  display:flex;align-items:baseline;gap:8px}
+h2 .num{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;
+  background:var(--primary-soft);color:var(--primary-dark);border-radius:7px;font-size:13px;font-weight:800;padding:0 6px}
+section p{margin:0;color:var(--text);font-size:15px}
+.foot{color:var(--muted);font-size:12.5px;margin-top:26px;text-align:center}
+@media(max-width:480px){.wrap{padding:20px 14px 56px}h1{font-size:21px}.card{padding:18px 16px 6px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="brand">밥장부(선입금대장)</p>
+  <h1>개인정보처리방침</h1>
+  <p class="meta">시행일 2026-07-06 · 운영자 널마루 · 문의 nullmaru@naver.com</p>
+
+  <div class="card">
+    <section>
+      <h2><span class="num">1</span>처리 목적</h2>
+      <p>기관 담당자가 암호화하여 전송한 식대 명단을 지정 음식점에 중계하고, 음식점이 선택한 암호화 장부 백업을 보관합니다.</p>
+    </section>
+    <section>
+      <h2><span class="num">2</span>처리 항목</h2>
+      <p>(1) 수신 음식점의 공개키로 암호화된 명단 — 운영자는 복호화할 수 없습니다. (2) 총액·인원수, 무결성 검증용 해시, 인증용 이메일의 해시값(평문 미보관), 접속기록. (3) 음식점이 파일 수신용으로 직접 등록한 연락처(카카오톡 오픈채팅 링크·접수 이메일) — 선택 사항, 언제든 삭제 가능. 오픈채팅 링크는 전화번호·개인 프로필이 노출되지 않는 형식만 허용합니다.</p>
+    </section>
+    <section>
+      <h2><span class="num">3</span>보유 기간</h2>
+      <p>암호화된 명단은 음식점 수령(승인/거절) 즉시 삭제, 미수령 시에도 최대 3일(72시간) 후 자동 삭제. 요약 정보(총액·인원수·해시)는 30일 보관 후 삭제. 「직접 전달」 방식은 명단이 서버에 일절 저장되지 않음. 암호화 장부 백업은 음식점이 갱신·삭제할 때까지 보관(음식점이 직접 관리).</p>
+    </section>
+    <section>
+      <h2><span class="num">4</span>처리위탁 및 국외이전</h2>
+      <p>서비스 운영을 위해 Cloudflare, Inc.(미국)의 클라우드 인프라(Workers/D1)에 데이터 처리를 위탁하며, 암호화된 데이터가 국외(미국 등 Cloudflare 리전)에 보관될 수 있습니다. 이전되는 항목·시점·보유기간은 위 2·3항과 같습니다. (개인정보 보호법 §26, §28-8에 따른 공개)</p>
+    </section>
+    <section>
+      <h2><span class="num">5</span>안전성 확보조치</h2>
+      <p>종단간 공개키 암호화(운영자 복호화 불가), 전송구간 TLS, 소유 증명 기반 접근통제, 수령 즉시 파기 및 미수령분 자동 파기.</p>
+    </section>
+    <section>
+      <h2><span class="num">6</span>정보주체의 권리</h2>
+      <p>열람·정정·삭제 요구는 명단을 등록한 소속 기관 또는 해당 음식점에 요청하십시오. 운영자는 데이터를 복호화할 수 없어 개별 열람을 제공할 수 없으며, 삭제 요청 시 해당 암호문을 삭제합니다.</p>
+    </section>
+    <section>
+      <h2><span class="num">7</span>만 14세 미만 아동</h2>
+      <p>본 서비스는 기관 임직원의 식대 관리를 목적으로 하며, 만 14세 미만 아동의 개인정보를 대상으로 하지 않습니다.</p>
+    </section>
+    <section>
+      <h2><span class="num">8</span>개인정보 보호책임자</h2>
+      <p>널마루 / nullmaru@naver.com</p>
+    </section>
+    <section>
+      <h2><span class="num">9</span>방침 변경</h2>
+      <p>본 방침은 변경될 수 있으며, 변경 시 앱 내 공지합니다.</p>
+    </section>
+  </div>
+
+  <p class="foot">밥장부(선입금대장) · 시행일 2026-07-06</p>
+</div>
+</body>
+</html>

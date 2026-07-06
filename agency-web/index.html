@@ -166,6 +166,11 @@ const enc=new TextEncoder(),dec=new TextDecoder();
 function srv(){return ($('server').value||'').trim().replace(/\/$/,'')}
 function log(m){const el=$('log');el.classList.remove('hide');el.textContent+=m+'\n';el.scrollTop=el.scrollHeight}
 
+// ── 이용약관·개인정보처리방침 동의(최초 1회) ──
+const TERMS_URL='https://nulmaru.github.io/Prepaid_PWA/docs/terms.html',PRIVACY_URL='https://nulmaru.github.io/Prepaid_PWA/docs/privacy.html';
+const TERMS_KEY='bapjangbu_terms_agreed';
+function hasAgreedTerms(){return !!localStorage.getItem(TERMS_KEY)}
+
 // ── 서버 주소 기억 ──
 const DEFAULT_SERVER='https://prepaid-relay.sulsul-plus.workers.dev';
 $('server').value=localStorage.getItem('relay-server')||DEFAULT_SERVER;
@@ -214,6 +219,7 @@ function pilotFormatConfirm(e){
   unlockAfterAuth();
 }
 async function requestOtp(){
+  if(!hasAgreedTerms()){showTermsGate();return}
   const e=($('email').value||'').trim().toLowerCase();
   if(!validAgencyEmail(e)){$('authMsg').innerHTML='<span class="bad">기관 이메일(.go.kr/.korea.kr)이 아닙니다.</span>';return}
   if(!srv()){$('authMsg').innerHTML='<span class="bad">서버 주소를 입력하세요.</span>';return}
@@ -528,6 +534,40 @@ function closeConsent(){
   document.removeEventListener('keydown',trapFocus);
   if(lastFocused&&typeof lastFocused.focus==='function')lastFocused.focus();
 }
+// ── 최초 1회 이용약관·개인정보처리방침 동의 게이트(재방문 시 자동 통과) ──
+// 매 전송마다 뜨는 '제3자 제공 동의'(showConsent)와는 별개의 일회성 동의다.
+function termsTrap(e){
+  if(e.key!=='Tab')return; // Escape 무시 — 동의 전에는 닫을 수 없음
+  const modal=$('modalRoot').querySelector('.modal');if(!modal)return;
+  const f=[...modal.querySelectorAll('input,button,a')].filter(x=>!x.disabled);
+  if(!f.length)return;
+  const first=f[0],last=f[f.length-1];
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+}
+function showTermsGate(){
+  if(hasAgreedTerms())return;
+  lastFocused=document.activeElement;
+  $('modalRoot').innerHTML=`<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="termsTitle">
+  <h2 id="termsTitle">이용약관 · 개인정보처리방침 동의</h2>
+  <div class="step-help">담당자 도구를 이용하려면 아래 약관에 동의해 주세요. 한 번만 확인하면 됩니다.</div>
+  <label style="margin-top:10px"><input type="checkbox" id="termsAgree" style="width:auto;min-height:auto"> <b>이용약관</b> 및 <b>개인정보처리방침</b>에 동의합니다</label>
+  <div class="meta" style="margin-top:8px"><a href="${TERMS_URL}" target="_blank" rel="noopener">이용약관 보기</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">개인정보처리방침 보기</a></div>
+  <div class="row" style="margin-top:12px"><button class="btn-primary" id="termsOk" disabled>동의하고 시작</button></div>
+  </div></div>`;
+  $('termsAgree').addEventListener('change',e=>$('termsOk').disabled=!e.target.checked);
+  $('termsOk').addEventListener('click',()=>{
+    if(!$('termsAgree').checked)return;
+    localStorage.setItem(TERMS_KEY,String(Date.now()));
+    $('modalRoot').innerHTML='';
+    document.removeEventListener('keydown',termsTrap);
+    if($('authBtn'))$('authBtn').disabled=false;
+    $('email').focus();
+  });
+  document.addEventListener('keydown',termsTrap);
+  if($('authBtn'))$('authBtn').disabled=true; // 미동의 시 인증 진행 불가
+  $('termsAgree').focus();
+}
 function showConsent(){
   lastFocused=document.activeElement;
   const names=S.restaurants.map(r=>esc(r.name)).join(', ');
@@ -723,6 +763,8 @@ async function doSubmitDirect(){
 }
 function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 updateStepper();
+// 최초 방문이면 약관 동의 게이트를 먼저 띄운다(동의 전 인증 진행 불가). 재방문 시 자동 통과.
+if(!hasAgreedTerms()){$('authBtn').disabled=true;showTermsGate();}
 })();
 </script>
 </body>

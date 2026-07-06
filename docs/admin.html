@@ -55,15 +55,21 @@ input[type=password]:focus{outline:none;border-color:var(--primary)}
 .stat .sub{font-size:12.5px;color:var(--muted);margin-top:4px}
 
 h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
-.fb-list{display:flex;flex-direction:column;gap:10px}
-.fb{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 15px}
-.fb .head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
-.fb .role{background:var(--primary-soft);color:var(--primary-dark);border-radius:999px;
-  padding:2px 10px;font-size:12px;font-weight:800}
-.fb .time{font-size:12px;color:var(--muted)}
-.fb .body{font-size:14px;white-space:pre-wrap;word-break:break-word}
-.fb .contact{font-size:12.5px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
-.empty{color:var(--muted);font-size:13.5px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;text-align:center}
+.fb-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;background:#fff;
+  border:1px solid var(--line);border-radius:12px}
+.fb-table{width:100%;border-collapse:collapse;font-size:14px;min-width:520px}
+.fb-table th,.fb-table td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);
+  vertical-align:top}
+.fb-table thead th{background:var(--primary-soft);color:var(--primary-dark);font-weight:800;
+  font-size:12.5px;white-space:nowrap}
+.fb-table tbody tr:last-child td{border-bottom:none}
+.fb-table td.time{color:var(--muted);font-size:12.5px;white-space:nowrap}
+.fb-table td.role{white-space:nowrap}
+.fb-table td.role span{display:inline-block;background:var(--primary-soft);color:var(--primary-dark);
+  border-radius:999px;padding:2px 10px;font-size:12px;font-weight:800}
+.fb-table td.msg{white-space:pre-wrap;word-break:break-word;min-width:180px}
+.fb-table td.contact{color:var(--muted);font-size:12.5px;word-break:break-word}
+.fb-table td.empty{color:var(--muted);font-size:13.5px;text-align:center;padding:18px}
 </style>
 </head>
 <body>
@@ -105,7 +111,9 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
     </div>
 
     <h2 class="sec">최근 의견</h2>
-    <div class="fb-list" id="fbList"></div>
+    <div class="fb-scroll"><table class="fb-table"><thead><tr>
+      <th>시간</th><th>역할</th><th>내용</th><th>연락처</th>
+    </tr></thead><tbody id="fbBody"></tbody></table></div>
   </div>
 </div>
 
@@ -159,46 +167,56 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
 
     setText("updatedAt", "기준 시각: " + new Date().toLocaleString("ko-KR"));
 
-    var list = document.getElementById("fbList");
-    list.textContent = "";
-    var items = Array.isArray(data.feedback) ? data.feedback : [];
+    var body = document.getElementById("fbBody");
+    body.textContent = "";
+    var items = Array.isArray(data.feedback) ? data.feedback.slice() : [];
+    // 최신순 정렬
+    items.sort(function(a, b){
+      var ta = new Date((a && a.created_at) || 0).getTime();
+      var tb = new Date((b && b.created_at) || 0).getTime();
+      if(isNaN(ta)) ta = 0;
+      if(isNaN(tb)) tb = 0;
+      return tb - ta;
+    });
+
     if(items.length === 0){
-      var empty = document.createElement("div");
-      empty.className = "empty";
-      empty.textContent = "아직 접수된 의견이 없습니다.";
-      list.appendChild(empty);
+      var emptyRow = document.createElement("tr");
+      var emptyCell = document.createElement("td");
+      emptyCell.className = "empty";
+      emptyCell.colSpan = 4;
+      emptyCell.textContent = "아직 의견이 없습니다";
+      emptyRow.appendChild(emptyCell);
+      body.appendChild(emptyRow);
       return;
     }
+
     items.forEach(function(item){
       item = item || {};
-      var card = document.createElement("div");
-      card.className = "fb";
+      var tr = document.createElement("tr");
 
-      var head = document.createElement("div");
-      head.className = "head";
-      var role = document.createElement("span");
-      role.className = "role";
-      role.textContent = item.role ? String(item.role) : "기타";
-      var time = document.createElement("span");
-      time.className = "time";
-      time.textContent = fmtTime(item.created_at);
-      head.appendChild(role);
-      head.appendChild(time);
+      var tdTime = document.createElement("td");
+      tdTime.className = "time";
+      tdTime.textContent = fmtTime(item.created_at);
 
-      var body = document.createElement("div");
-      body.className = "body";
-      body.textContent = item.message ? String(item.message) : "";
+      var tdRole = document.createElement("td");
+      tdRole.className = "role";
+      var roleBadge = document.createElement("span");
+      roleBadge.textContent = item.role ? String(item.role) : "기타";
+      tdRole.appendChild(roleBadge);
 
-      card.appendChild(head);
-      card.appendChild(body);
+      var tdMsg = document.createElement("td");
+      tdMsg.className = "msg";
+      tdMsg.textContent = item.message ? String(item.message) : "";
 
-      if(item.contact){
-        var contact = document.createElement("div");
-        contact.className = "contact";
-        contact.textContent = "연락처: " + String(item.contact);
-        card.appendChild(contact);
-      }
-      list.appendChild(card);
+      var tdContact = document.createElement("td");
+      tdContact.className = "contact";
+      tdContact.textContent = item.contact ? String(item.contact) : "–";
+
+      tr.appendChild(tdTime);
+      tr.appendChild(tdRole);
+      tr.appendChild(tdMsg);
+      tr.appendChild(tdContact);
+      body.appendChild(tr);
     });
   }
 

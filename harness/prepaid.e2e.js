@@ -162,6 +162,10 @@ async function main() {
     await page.waitForSelector('#setupContactKakao');
     await page.locator('#setupContactKakao').fill('https://open.kakao.com/o/sHarness');
     await page.locator('#setupContactEmail').fill('owner@harness-shop.example');
+    // 약관 동의 게이트: 미체크 시 완료 버튼 비활성, 체크 시 활성화되어야 한다
+    await assert(await page.locator('#setupCompleteBtn').isDisabled(), 'complete button must be disabled until terms are agreed');
+    await page.locator('#setupTermsChk').check();
+    await assert(!(await page.locator('#setupCompleteBtn').isDisabled()), 'complete button should enable after agreeing to terms');
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'onboarding-contact.png') }).catch(() => {});
     await page.locator('[data-a="setup-complete"]').click();
 
@@ -180,6 +184,9 @@ async function main() {
     const setupMetaMap = (setupMeta.meta || []).reduce((a, r) => (a[r.key] = r.value, a), {});
     await assert(setupMetaMap.contactKakaoLink === 'https://open.kakao.com/o/sHarness', 'contact kakao link entered during onboarding should be saved locally');
     await assert(setupMetaMap.contactEmail === 'owner@harness-shop.example', 'contact email entered during onboarding should be saved locally');
+    await assert(typeof setupMetaMap.termsAgreedAt === 'number' && setupMetaMap.termsAgreedAt > 0, 'terms agreement timestamp should be saved after onboarding');
+    // 약관 동의 이력이 있으므로 홈 진입 시 일회성 약관 모달이 뜨지 않아야 한다
+    await assert(await count(page, '[data-a="terms-agree"]') === 0, 'no one-time terms modal should appear once termsAgreedAt is set');
 
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await assert(await count(page, '[data-a="new-month"]') === 0, 'new-month action must be removed');

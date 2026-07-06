@@ -220,7 +220,7 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
   <div class="wrap">
     <p class="kicker">사용 대상</p>
     <h2>이런 분들을 위해 만들었습니다</h2>
-    <div class="grid c3">
+    <div class="grid c2">
       <div class="card">
         <div class="ic">🍚</div>
         <h3>음식점 주인</h3>
@@ -230,11 +230,6 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
         <div class="ic">🏛️</div>
         <h3>기관 부서 담당자</h3>
         <p>구청·주민센터 등에서 직원·이용자 식대를 음식점에 맡기고 명단을 안전하게 전달해야 하는 담당자.</p>
-      </div>
-      <div class="card">
-        <div class="ic">🤝</div>
-        <h3>요식업 단체 (홍보 파트너)</h3>
-        <p>회원 음식점에 무료 도구를 알리려는 요식업중앙회 등 관계 단체. 도입·운영 부담이 없습니다.</p>
       </div>
     </div>
   </div>
@@ -365,7 +360,6 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     <h2>의견을 들려주세요</h2>
     <p class="intro">불편한 점, 필요한 기능, 문의 사항을 자유롭게 남겨 주세요.</p>
     <form class="form-card" id="fbForm" novalidate>
-      <p class="form-note">개인정보는 최소한만 적어주세요. 이름·연락처 등 민감한 정보는 되도록 남기지 마세요.</p>
       <div class="form-row">
         <label>어떤 분이신가요?</label>
         <div class="roles">
@@ -375,13 +369,8 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
         </div>
       </div>
       <div class="form-row">
-        <label for="fbMsg">의견 <span style="color:#c0392b">*</span> <span class="counter" id="fbCounter">0 / 2000</span></label>
-        <textarea id="fbMsg" name="message" maxlength="2000" required placeholder="의견을 입력해 주세요 (2000자 이내)"></textarea>
-      </div>
-      <div class="form-row">
-        <label for="fbContact">연락처 (선택)</label>
-        <input type="text" id="fbContact" name="contact" placeholder="답변을 원하시면 이메일 등 (선택)">
-        <p class="hint">답변이 필요할 때만 남겨 주세요. 남기지 않아도 됩니다.</p>
+        <label for="fbMsg">의견 <span style="color:#c0392b">*</span> <span class="counter" id="fbCounter">0 / 500</span></label>
+        <textarea id="fbMsg" name="message" maxlength="500" required placeholder="의견을 입력해 주세요 (500자 이내)"></textarea>
       </div>
       <button type="submit" class="submit" id="fbSubmit">보내기</button>
       <p class="form-msg" id="fbResult" role="status" aria-live="polite"></p>
@@ -400,7 +389,7 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
         <h4>운영</h4>
         <p>운영자: 개인 개발자가 만든 <b>비영리·무료 파일럿 서비스</b>입니다.<br>
         사업자가 아니며 사업자등록번호가 없습니다.</p>
-        <p>문의: 위 <a href="#feedback">의견 폼</a>으로 남겨 주세요. <span style="color:var(--muted)">[대표 문의처 이메일: 미정]</span></p>
+        <p>문의: <a href="mailto:nullmaru@naver.com">nullmaru@naver.com</a></p>
       </div>
       <div>
         <h4>약관 · 데이터</h4>
@@ -427,8 +416,8 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
 
   function updateCount(){
     var n = msg.value.length;
-    counter.textContent = n + " / 2000";
-    counter.classList.toggle("over", n > 2000);
+    counter.textContent = n + " / 500";
+    counter.classList.toggle("over", n > 500);
   }
   msg.addEventListener("input", updateCount);
   updateCount();
@@ -449,8 +438,8 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
       msg.focus();
       return;
     }
-    if(text.length > 2000){
-      showResult("의견은 2000자 이내로 입력해 주세요.", false);
+    if(text.length > 500){
+      showResult("의견은 500자 이내로 입력해 주세요.", false);
       msg.focus();
       return;
     }
@@ -462,8 +451,7 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:14px;font-size:12
     var roleEl = form.querySelector('input[name="role"]:checked');
     var payload = {
       role: roleEl ? roleEl.value : "기타",
-      message: text,
-      contact: document.getElementById("fbContact").value.trim()
+      message: text
     };
 
     submitBtn.disabled = true;
