@@ -50,7 +50,7 @@ batch_hash = SHA-256(hex)
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. `contact`는 미등록 시 각 필드 `null`. IP당 분당 20회로 별도 레이트리밋(§6.3) |
 | `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` | 담당자 웹: '선금 받기 가능' 표시용 |
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
-| `POST /api/submit` | `{summary, blob, consent}` (아래) + 선택 헤더 `X-Agency-Token` | `{summary_id}` | 부서·음식점 단위 1건(§4.3) |
+| `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | `{summary_id}` / 401 | 부서·음식점 단위 1건(§4.3) |
 | `GET /api/inbox?restaurant_id=` | — | `[{summary_id, summary, ciphertext, status}]` | 음식점 앱 폴링(PENDING만) |
 | `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절. 상태 전이 성공 시 암호문(`encrypted_blob`) 즉시 파기(§6). 인증 필요 |
 | `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash}` | `{ok:true}` | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요 |
@@ -102,9 +102,15 @@ batch_hash = SHA-256(hex)
 ### 4.3 `/api/submit`과 기관 인증
 
 `env.REQUIRE_AGENCY_AUTH==='1'`이면 `X-Agency-Token` 헤더가 유효한 기관 토큰이어야 하며,
-없거나 무효하면 `401 {error:'agency_auth_required'}`. 비활성(`'0'`, 기본값)이면 토큰 없이도
-제출을 허용하되, 유효한 토큰이 있으면 검증 후 `consent_log.agency_email_hash`에 **이메일의
-SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음).
+없거나 무효하면 `401 {error:'agency_auth_required'}`. 비활성(`'0'`)이면 토큰 없이도
+제출을 허용한다. 어느 쪽이든 유효한 토큰이 있으면 검증 후 `consent_log.agency_email_hash`에
+**이메일의 SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음).
+
+**운영 상태(2026-07~)**: `REQUIRE_AGENCY_AUTH="1"`(필수). OTP 이메일 인증(Resend,
+`AUTH_MODE="prod"`)이 라이브에서 `.go.kr` 실주소로 발송·검증까지 정상 확인되어 기관
+제출 인증을 필수화했다. 담당자 웹은 `/api/agency/verify-otp`로 받은 토큰을 자동으로
+`X-Agency-Token`에 첨부하므로 정상 사용자 흐름은 영향이 없고, 인증 없는 제출만 차단된다.
+직접전달 모드는 서버를 경유하지 않으므로 이 게이트와 무관하다.
 
 ### 4.4 기관 OTP 인증
 
@@ -140,8 +146,10 @@ SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음)
     서버가 실제 이메일 소유를 검증하지 못한 경우(`sent:false` 응답, 그리고 구버전 서버 호환용
     fallback 경로) "✅ 인증됨" 대신 "기관 이메일 형식 확인됨 (파일럿 — 정식 이메일 인증은 준비
     중)"이라고 정직하게 표시하고, 실제 OTP 검증 단계를 건너뛴다. `sent:true` 응답을 받으면(prod)
-    실제 OTP 입력 단계를 표시하고 `/api/agency/verify-otp`로 검증을 완료한다. `REQUIRE_AGENCY_AUTH`는
-    이 인프라 공백 동안 `"0"`을 유지하므로(§4.3) 제출 자체는 막히지 않는다.
+    실제 OTP 입력 단계를 표시하고 `/api/agency/verify-otp`로 검증을 완료한다. 운영 서버는
+    이제 `AUTH_MODE="prod"`(실제 이메일 발송) + `REQUIRE_AGENCY_AUTH="1"`(제출 시 토큰 필수)
+    이므로 담당자는 verify-otp로 받은 토큰으로만 제출할 수 있다(§4.3의 운영 상태 참조).
+    위 `"pilot"` 관련 설명은 인프라 온보딩 전 단계의 fallback 동작 기록이다.
 - `POST /api/agency/verify-otp {email, otp}`: 성공 시 32바이트 토큰 발급, 24시간 유효
   (`agency_token`). 이 토큰이 `X-Agency-Token` 헤더 값이 된다. (`AUTH_MODE==='pilot'`에서는
   담당자가 실제 OTP 값을 알 방법이 없으므로 이 엔드포인트가 정상 호출되는 경우가 드물다 —
