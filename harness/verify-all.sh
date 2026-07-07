@@ -5,8 +5,8 @@
 set -u
 cd "$(dirname "$0")/.."
 RELAY="${RELAY:-https://prepaid-relay.sulsul-plus.workers.dev}"
-PAGES="${PAGES:-https://prepaid-agency.pages.dev}"
-APP="${APP:-https://nulmaru.github.io/Prepaid_PWA/index.html}"
+PAGES="${PAGES:-https://agency.bapjangbu.com}"
+APP="${APP:-https://app.bapjangbu.com/}"
 pass=0; fail=0
 ok(){ if [ "$1" = "0" ]; then echo "  ✅ $2"; pass=$((pass+1)); else echo "  ❌ $2"; fail=$((fail+1)); fi; }
 
