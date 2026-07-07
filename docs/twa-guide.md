@@ -6,7 +6,7 @@
 
 ## 0. 전제
 
-- 래핑 대상은 음식점 주인 앱(루트 `index.html`, GitHub Pages 배포): `https://nulmaru.github.io/Prepaid_PWA/`
+- 래핑 대상은 음식점 주인 앱(루트 `index.html`, GitHub Pages 배포): `https://app.bapjangbu.com/`
 - `manifest.json`(웹 앱 매니페스트)과 아이콘(`icons/icon-192.png`, `icons/icon-512.png`)은 이미 루트에 존재합니다.
 - 담당자 웹(`agency-web/`)은 데스크톱 브라우저 대상이라 TWA 패키징 대상이 아닙니다.
 
@@ -20,7 +20,7 @@
 
 ```bash
 npm install -g @bubblewrap/cli
-bubblewrap init --manifest=https://nulmaru.github.io/Prepaid_PWA/manifest.json
+bubblewrap init --manifest=https://app.bapjangbu.com/manifest.json
 ```
 
 `init`은 대화형으로 `twa/twa-manifest.json`과 동등한 설정을 다시 물어봅니다. 이미 이 저장소에 있는
@@ -52,11 +52,11 @@ keytool -list -v -keystore android.keystore -alias android
 ## 4. assetlinks.json 배치 (PWA 리포 쪽 작업 — 별도 진행 필요)
 
 TWA가 "주소창 없는 신뢰된 앱"으로 보이려면, Android 앱이 이 웹사이트의 소유자임을 증명하는
-Digital Asset Links 파일을 **웹사이트(`nulmaru.github.io/Prepaid_PWA/`) 쪽에** 올려야 합니다.
+Digital Asset Links 파일을 **웹사이트(`app.bapjangbu.com/`) 쪽에** 올려야 합니다.
 
 - 이 작업 지시서는 루트 `index.html`을 수정할 수 없으므로, 실제 배치는 다른 작업(또는 사용자 본인)이 진행해야 합니다.
 - 배치 위치: 저장소 루트에 `.well-known/assetlinks.json` 파일을 추가하고 GitHub Pages로 배포되게 합니다.
-  최종 URL이 `https://nulmaru.github.io/Prepaid_PWA/.well-known/assetlinks.json`으로 접근 가능해야 합니다.
+  최종 URL이 `https://app.bapjangbu.com/.well-known/assetlinks.json`으로 접근 가능해야 합니다.
   (GitHub Pages는 정적 파일을 그대로 서빙하므로 `.well-known/assetlinks.json`을 루트에 커밋하면 됩니다.)
 - 파일 내용 예시(§3에서 얻은 SHA-256 지문과 §3에서 정한 `packageId`로 채움):
 

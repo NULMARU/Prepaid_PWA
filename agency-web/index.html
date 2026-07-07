@@ -144,7 +144,7 @@ tr.err{background:#fdecea}
 <footer class="compliance-footer">
 <div>이 서비스는 결제·이체 기능이 없으며 자금을 보관하지 않습니다. 명단은 브라우저에서 암호화되어 해당 음식점만 열람할 수 있고, 서버는 내용을 볼 수 없습니다. 전화번호는 수집하지 않습니다. 선입금의 발행·차감·잔액 관리의 주체와 책임은 각 음식점에 있습니다.</div>
 <div class="src">음식점 검색: 행정안전부 LOCALDATA 공공데이터 활용</div>
-<div class="src">관련 문서: <a href="https://nulmaru.github.io/Prepaid_PWA/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> · <a href="https://nulmaru.github.io/Prepaid_PWA/docs/terms.html" target="_blank" rel="noopener">이용약관</a></div>
+<div class="src">관련 문서: <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> · <a href="https://app.bapjangbu.com/docs/terms.html" target="_blank" rel="noopener">이용약관</a></div>
 </footer>
 
 <div id="modalRoot"></div>
@@ -167,7 +167,7 @@ function srv(){return ($('server').value||'').trim().replace(/\/$/,'')}
 function log(m){const el=$('log');el.classList.remove('hide');el.textContent+=m+'\n';el.scrollTop=el.scrollHeight}
 
 // ── 이용약관·개인정보처리방침 동의(최초 1회) ──
-const TERMS_URL='https://nulmaru.github.io/Prepaid_PWA/docs/terms.html',PRIVACY_URL='https://nulmaru.github.io/Prepaid_PWA/docs/privacy.html';
+const TERMS_URL='https://app.bapjangbu.com/docs/terms.html',PRIVACY_URL='https://app.bapjangbu.com/docs/privacy.html';
 const TERMS_KEY='bapjangbu_terms_agreed';
 function hasAgreedTerms(){return !!localStorage.getItem(TERMS_KEY)}
 
