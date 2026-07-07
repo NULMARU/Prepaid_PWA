@@ -10,3 +10,6 @@ docs/COMPLIANCE.md
 docs/STATUS.md
 docs/phase2-deploy.md
 .wrangler/
+
+# Claude Code 로컬 개발 설정(프로젝트 무관)
+.claude/
