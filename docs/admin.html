@@ -110,9 +110,9 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
       <div class="stat"><div class="lbl">누적 처리 인원 · 금액</div><div class="val" id="s-members">–</div><div class="sub" id="s-amount"></div></div>
     </div>
 
-    <h2 class="sec">최근 의견</h2>
+    <h2 class="sec">최근 의견 <span id="fbCount" style="font-weight:600;color:var(--muted);font-size:.72em"></span></h2>
     <div class="fb-scroll"><table class="fb-table"><thead><tr>
-      <th>시간</th><th>역할</th><th>내용</th><th>연락처</th>
+      <th>시간</th><th>역할</th><th>내용</th>
     </tr></thead><tbody id="fbBody"></tbody></table></div>
   </div>
 </div>
@@ -170,6 +170,7 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
     var body = document.getElementById("fbBody");
     body.textContent = "";
     var items = Array.isArray(data.feedback) ? data.feedback.slice() : [];
+    setText("fbCount", "(" + items.length + "건)");
     // 최신순 정렬
     items.sort(function(a, b){
       var ta = new Date((a && a.created_at) || 0).getTime();
@@ -183,7 +184,7 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
       var emptyRow = document.createElement("tr");
       var emptyCell = document.createElement("td");
       emptyCell.className = "empty";
-      emptyCell.colSpan = 4;
+      emptyCell.colSpan = 3;
       emptyCell.textContent = "아직 의견이 없습니다";
       emptyRow.appendChild(emptyCell);
       body.appendChild(emptyRow);
@@ -208,14 +209,9 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
       tdMsg.className = "msg";
       tdMsg.textContent = item.message ? String(item.message) : "";
 
-      var tdContact = document.createElement("td");
-      tdContact.className = "contact";
-      tdContact.textContent = item.contact ? String(item.contact) : "–";
-
       tr.appendChild(tdTime);
       tr.appendChild(tdRole);
       tr.appendChild(tdMsg);
-      tr.appendChild(tdContact);
       body.appendChild(tr);
     });
   }
