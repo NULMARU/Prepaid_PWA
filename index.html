@@ -12,8 +12,8 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>선입금대장</title>
 <style>
-:root{--bg:#f0f2f5;--card:#fff;--line:#e1e5ea;--text:#1b2838;--muted:#5f6d7e;--primary:#1a5276;--primary-soft:#e6f0f8;--primary-glow:rgba(26,82,118,.08);--danger:#c0392b;--danger-soft:#fef0ee;--warn:#c05621;--warn-soft:#fef6ee;--success:#0e7a46;--success-soft:#edf8f2;--shadow:0 1px 4px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.03);--shadow-md:0 4px 12px rgba(15,23,42,.08);--shadow-lg:0 12px 32px rgba(15,23,42,.12);--radius:14px}
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;padding:0;overscroll-behavior:none;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}body{min-height:100vh}button,input,select{font:inherit}button{border:none;cursor:pointer;border-radius:12px;min-height:52px;transition:transform .1s,opacity .12s}button:active{transform:scale(.97);opacity:.82}input,select{width:100%;min-height:52px;padding:13px 16px;border:1.5px solid var(--line);border-radius:12px;background:#fff;transition:border-color .2s,box-shadow .2s}input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-glow);outline:none}
+:root{--bg:#f0f2f5;--card:#fff;--line:#e1e5ea;--text:#1b2838;--muted:#5f6d7e;--primary:#1a5276;--primary-soft:#e6f0f8;--primary-glow:rgba(26,82,118,.12);--danger:#c0392b;--danger-soft:#fef0ee;--warn:#c05621;--warn-soft:#fef6ee;--success:#0e7a46;--success-soft:#edf8f2;--surface-warm:#fff7ea;--balance-grad:linear-gradient(135deg,#174579,#1e6e94);--accent-bar:linear-gradient(180deg,var(--primary),#2874a6);--shadow:0 1px 4px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.03);--shadow-md:0 4px 12px rgba(15,23,42,.08);--shadow-lg:0 12px 32px rgba(15,23,42,.12);--radius:14px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;padding:0;overscroll-behavior:none;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}body{min-height:100vh}button,input,select{font:inherit}button{border:none;cursor:pointer;border-radius:12px;min-height:52px;transition:transform .1s,opacity .12s}button:active{transform:scale(.97);opacity:.82}input,select{width:100%;min-height:52px;padding:13px 16px;border:1.5px solid var(--line);border-radius:12px;background:#fff;transition:border-color .2s,box-shadow .2s}input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 4px var(--primary-glow);outline:none}
 
 /* ─── 레이아웃 ─── */
 .app{max-width:900px;margin:0 auto;padding:16px 16px 90px}
@@ -35,11 +35,12 @@
 .stack{display:grid;gap:10px}
 .card{background:var(--card);border:1px solid rgba(225,229,234,.7);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
 .banner{border-left:4px solid}
-.banner.warn{background:var(--warn-soft);border-left-color:var(--warn)}
+.banner.warn{background:var(--surface-warm);border-left-color:var(--warn)}
 .banner.error{background:var(--danger-soft);border-left-color:var(--danger)}
 .settings-card{display:grid;gap:12px}
 .section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:2px}
-.section-title{font-size:20px;font-weight:800;line-height:1.25;color:var(--text)}
+.section-title{font-size:20px;font-weight:800;line-height:1.25;color:var(--text);position:relative;padding-left:12px}
+.section-title::before{content:"";position:absolute;left:0;top:.18em;bottom:.18em;width:4px;border-radius:999px;background:var(--accent-bar)}
 .section-kicker{font-size:12px;color:var(--muted);font-weight:700;line-height:1.5}
 .section-actions{display:grid;gap:8px}
 .action-btn{display:flex;gap:10px;align-items:flex-start;text-align:left;justify-content:flex-start;padding:13px 14px;min-height:58px}
@@ -81,8 +82,9 @@
 /* ─── 요약/액션 ─── */
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 .actions button{flex:1;min-width:100px;font-size:16px;font-weight:700}
-.summary{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:15px;font-weight:700;padding:6px 4px;background:var(--primary-soft);border-radius:10px;margin-top:4px}
-.summary .v{color:var(--primary);font-size:19px;letter-spacing:-.3px;font-weight:800}
+.summary{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:15px;font-weight:700;padding:14px 16px;background:var(--balance-grad);color:#fff;border:none;border-radius:12px;margin-top:4px;box-shadow:0 6px 18px rgba(23,69,121,.22)}
+.summary>div:first-child{opacity:.9}
+.summary .v{color:#fff;font-size:22px;letter-spacing:-.3px;font-weight:800}
 .empty{text-align:center;color:var(--muted);padding:32px 16px;line-height:1.7;font-size:15px}
 
 /* ─── 거래 이력 ─── */
@@ -119,6 +121,8 @@
 .modal-back{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:40;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
 .modal{width:min(100%,640px);max-height:calc(100vh - 32px);overflow:auto;background:#fff;border-radius:18px;box-shadow:var(--shadow-lg);padding:20px}
 .modal h2{margin:0 0 4px;font-size:20px;font-weight:800;letter-spacing:-.3px}
+.modal h2::after{content:"";display:block;width:34px;height:3px;margin-top:8px;border-radius:999px;background:var(--accent-bar)}
+.modal[style*="text-align:center"] h2::after{margin-left:auto;margin-right:auto}
 .help{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.6}
 .field{display:grid;gap:4px}
 .field label{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
