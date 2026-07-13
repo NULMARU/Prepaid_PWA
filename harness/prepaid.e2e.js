@@ -235,6 +235,11 @@ async function main() {
 
     await page.locator('[data-a="screen"][data-screen="home"]').click();
 
+    // 디자인 3종: 직원 아바타 배지 + 홈 퀵액션 2버튼이 홈에 존재해야 한다
+    await assert(await count(page, '.emp-avatar') >= 2, 'each employee card should render a first-letter avatar badge');
+    await assert(await count(page, '[data-a="quick-find-emp"]') === 1, 'home should offer a quick "find employee" action button');
+    await assert(await count(page, '[data-a="quick-history"]') === 1, 'home should offer a quick "view history" action button');
+
     // ④ 전화번호가 없는 직원은 사용 등록 창에 문자 안내 영역 자체가 표시되지 않아야 한다
     await page.locator('#searchInput').fill('User A');
     await page.locator(`[data-a="use"][data-id="${empA.id}"]`).click();
