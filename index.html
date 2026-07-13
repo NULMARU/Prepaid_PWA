@@ -228,7 +228,7 @@ const TERMS_URL='https://app.bapjangbu.com/docs/terms.html',PRIVACY_URL='https:/
 const DEFAULT_ORG='기관/단체';
 const DEFAULT_DEPTS=[];// 신규 설치 시 기본 부서 없음(스펙 수정1) — 기존 사용자의 저장된 부서 목록은 norm()에서 덮어쓰지 않음
 const COMMON_DEPTS=[...DEFAULT_DEPTS];
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,agencyData:null,agencyError:'',agencySelected:'',webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 let repo,signPad=null,modalOpenKey=null,modalReturnFocus=null,modalKeydownHandler=null,qrStream=null,qrDetector=null,qrLoopActive=false;
 document.addEventListener('click',onClick);document.addEventListener('input',onInput);document.addEventListener('change',onInput);qs('restoreFile').addEventListener('change',onRestoreFile);qs('csvFile').addEventListener('change',onCsvFile);qs('directTransferFile').addEventListener('change',onDirectTransferFile);
 let composing=false;document.addEventListener('compositionstart',()=>{composing=true});document.addEventListener('compositionend',(e)=>{composing=false;onInput(e)});
@@ -237,7 +237,7 @@ window.addEventListener('online',()=>{if(state.loaded)render()});window.addEvent
 document.addEventListener('keydown',function(e){if(e.key==='Enter'){if(e.target.id==='setupNewDept'){e.preventDefault();var b2=document.querySelector('[data-a="setup-add-dept"]');if(b2)b2.click()}if(e.target.id==='newDeptInput'){e.preventDefault();var b3=document.querySelector('[data-a="add-dept"]');if(b3)b3.click()}if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){e.preventDefault();var b4=document.querySelector('[data-a="setup-manual-save"]');if(b4)b4.click()}}});
 init();
 // 테스트/디버그 훅 — 서버로 아무것도 전송하지 않는 순수 로컬 함수 참조만 노출한다(자동화 검증용, §검증6).
-window.__prepaidTestHooks={buildCloudBackupBlob,decryptBlob};
+window.__prepaidTestHooks={buildCloudBackupBlob,decryptBlob,matchAgencyByRegion};
 
 // ── 유틸리티 ──
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
@@ -403,14 +403,61 @@ function clearBusy(){state.busy=''}
 function field(id,label,value,ph,type){return `<div class="field"><label for="${id}">${esc(label)}</label><input id="${id}" type="${type||'text'}" value="${esc(value)}" placeholder="${esc(ph||'')}"${type==='number'?' step="1"':''}></div>`}
 function deptField(id,label,value,ph){const depts=state.data.meta.departments||[];const chips=depts.map(d=>`<span class="dept-pick${value===d?' on':''}" data-a="pick-dept" data-dept="${esc(d)}">${esc(d)}</span>`).join('');return `<div class="field"><label for="${id}">${esc(label)}</label><input id="${id}" value="${esc(value)}" placeholder="${esc(ph||'')}"><div class="dept-picks">${chips}</div></div>`}
 
-async function loadAgencyData(force){try{const res=await fetch('./agency-departments.json'+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();if(!data||!Array.isArray(data.agencies))throw new Error('형식 오류');state.agencyData=data;state.agencyError='';const savedOrg=str(state.data&&state.data.meta&&state.data.meta.orgName);const matched=savedOrg&&data.agencies.find(a=>a.name===savedOrg);if(matched)state.agencySelected=matched.id;else if(!state.agencySelected&&data.agencies[0])state.agencySelected=data.agencies[0].id;return true}catch(e){console.error('agency data:',e);state.agencyError='기관 부서 목록을 불러올 수 없습니다.';return false}}
-function selectedAgency(){const list=state.agencyData&&state.agencyData.agencies||[];return list.find(a=>a.id===state.agencySelected)||list[0]||null}
-// 가게 지역(주소)에서 "OO구"를 뽑아 내장 구청 데이터와 자동 매칭 (스펙 §수정3-1). 매칭 실패(서울 외 등) 시 조용히 건너뜀.
-function matchAgencyByRegion(text){text=str(text);if(!text)return null;const list=(state.agencyData&&state.agencyData.agencies)||[];for(const a of list){const nm=a.name||'';if(!nm.endsWith('구청'))continue;const district=nm.slice(0,-1);if(text.includes(district))return a}return null}
+// ── 기관 데이터 v2: 전국 2단 계층(시·도 → 기관). 인덱스(agency-index.json) 로드 후 시·도별 부서 파일은 lazy fetch + 캐시. 실패 시 레거시(agency-departments.json) 폴백. ──
+function legacyToV2(legacy){return{schemaVersion:2,updatedAt:str(legacy.updatedAt),scope:str(legacy.scope),regions:[{code:'seoul',name:'서울',deptsFile:null,agencies:(legacy.agencies||[]).map(a=>({id:a.id,name:a.name}))}]}}
+function legacyDeptMap(legacy){const m={};(legacy.agencies||[]).forEach(a=>{m[a.id]=Array.isArray(a.departments)?a.departments:[]});return m}
+async function loadAgencyData(force){
+  // 1차: v2 인덱스
+  try{const res=await fetch('./agency-index.json'+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();if(!data||!Array.isArray(data.regions))throw new Error('형식 오류');state.agencyData=data;state.agencyError='';if(force)state.deptCache={};restoreAgencySelection();await ensureDeptsForRegion(state.regionSelected,force);return true}
+  catch(e){console.warn('agency-index v2 로드 실패 → 레거시 폴백 시도:',e&&e.message);}
+  // 2차: 레거시 폴백(서울 단일 시·도로 변환, 부서는 즉시 캐시)
+  try{const res=await fetch('./agency-departments.json'+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const legacy=await res.json();if(!legacy||!Array.isArray(legacy.agencies))throw new Error('형식 오류');state.agencyData=legacyToV2(legacy);state.deptCache={seoul:{updatedAt:str(legacy.updatedAt),source:'agency-departments.json',depts:legacyDeptMap(legacy),failed:false}};state.agencyError='';restoreAgencySelection();return true}
+  catch(e2){console.error('agency data:',e2);state.agencyError='기관 목록을 불러올 수 없습니다.';return false}
+}
+function regionList(){return(state.agencyData&&state.agencyData.regions)||[]}
+function selectedRegion(){const rs=regionList();return rs.find(r=>r.code===state.regionSelected)||rs[0]||null}
+function selectedAgency(){const r=selectedRegion();if(!r)return null;const list=r.agencies||[];return list.find(a=>a.id===state.agencySelected)||list[0]||null}
+// 저장된 orgName(기관명 문자열)으로 시·도+기관을 역추적해 초기 선택 복원. 없으면 서울(없으면 첫 시·도) 기본.
+function restoreAgencySelection(){const rs=regionList();if(!rs.length)return;const savedOrg=str(state.data&&state.data.meta&&state.data.meta.orgName);if(savedOrg){for(const r of rs){const a=(r.agencies||[]).find(x=>x.name===savedOrg);if(a){state.regionSelected=r.code;state.agencySelected=a.id;return}}}const curR=rs.find(r=>r.code===state.regionSelected);if(curR){if((curR.agencies||[]).some(a=>a.id===state.agencySelected))return;state.agencySelected=(curR.agencies&&curR.agencies[0]&&curR.agencies[0].id)||'';return}const def=rs.find(r=>r.code==='seoul')||rs[0];state.regionSelected=def.code;state.agencySelected=(def.agencies&&def.agencies[0]&&def.agencies[0].id)||''}
+// 시·도 부서 파일 lazy fetch + 메모리 캐시. 실패 시 실패 플래그를 남겨 UI에서 기본 목록 안내.
+async function ensureDeptsForRegion(code,force){code=str(code);if(!code)return true;if(!force&&state.deptCache[code])return true;const region=regionList().find(r=>r.code===code);if(!region)return false;if(!region.deptsFile&&state.deptCache[code])return true;const fileRef=region.deptsFile||('agency-depts/'+code+'.json');const url='./'+(fileRef.indexOf('/')>=0?fileRef:('agency-depts/'+fileRef));try{const res=await fetch(url+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();const depts=(data&&data.depts&&typeof data.depts==='object')?data.depts:{};state.deptCache[code]={updatedAt:str(data&&data.updatedAt),source:str(data&&data.source),depts,failed:false};return true}catch(e){console.error('depts load ('+code+'):',e&&e.message);state.deptCache[code]={updatedAt:'',source:'',depts:{},failed:true};return false}}
+// 선택 기관의 부서 목록: 부서 파일에 해당 agencyId가 있으면 그 목록, 없으면 COMMON_DEPTS 템플릿 폴백.
+function agencyDeptEntry(regionCode,agencyId){const cache=state.deptCache[regionCode];if(cache&&cache.depts&&Array.isArray(cache.depts[agencyId]))return cache.depts[agencyId];return null}
+function resolveAgencyDepts(regionCode,agencyId){return agencyDeptEntry(regionCode,agencyId)||COMMON_DEPTS}
+// ── 주소 → 시·도 별칭(전체명+축약형) ──
+const REGION_ALIASES=[
+{code:'seoul',names:['서울특별시','서울시','서울']},
+{code:'busan',names:['부산광역시','부산시','부산']},
+{code:'daegu',names:['대구광역시','대구시','대구']},
+{code:'incheon',names:['인천광역시','인천시','인천']},
+{code:'gwangju',names:['광주광역시','광주시','광주']},
+{code:'daejeon',names:['대전광역시','대전시','대전']},
+{code:'ulsan',names:['울산광역시','울산시','울산']},
+{code:'sejong',names:['세종특별자치시','세종시','세종']},
+{code:'gyeonggi',names:['경기도','경기']},
+{code:'gangwon',names:['강원특별자치도','강원도','강원']},
+{code:'chungbuk',names:['충청북도','충북']},
+{code:'chungnam',names:['충청남도','충남']},
+{code:'jeonbuk',names:['전북특별자치도','전라북도','전북']},
+{code:'jeonnam',names:['전라남도','전남']},
+{code:'gyeongbuk',names:['경상북도','경북']},
+{code:'gyeongnam',names:['경상남도','경남']},
+{code:'jeju',names:['제주특별자치도','제주도','제주']}
+];
+// 기관명에서 시군구 매칭 키 추출(끝의 '청' 제거): 광진구청→광진구, 중구청→중구, 고성군청→고성군
+function districtKey(name){name=str(name);if(/청$/.test(name))name=name.slice(0,-1);return name}
+// ① 주소에서 시·도 판별(긴 별칭 우선). 데이터 region.code 또는 region.name과 매칭.
+function detectRegionFromText(text){const rs=regionList();let best=null,bestLen=0;for(const entry of REGION_ALIASES){for(const nm of entry.names){if(nm.length>bestLen&&text.includes(nm)){const region=rs.find(r=>r.code===entry.code)||rs.find(r=>entry.names.includes(r.name));if(region){best=region;bestLen=nm.length}}}}for(const r of rs){if(r.name&&r.name.length>bestLen&&text.includes(r.name)){best=r;bestLen=r.name.length}}return best}
+// ② 특정 시·도 안에서 시군구명 매칭(광역청=첫 항목 제외, 긴 이름 우선)
+function matchAgencyInRegion(region,text){const cands=(region.agencies||[]).slice(1).map(a=>({a,key:districtKey(a.name)})).filter(x=>x.key).sort((x,y)=>y.key.length-x.key.length);for(const c of cands){if(text.includes(c.key))return c.a}return null}
+// ③ 시·도 판별 실패 시: 시군구명이 전국에서 유일할 때만 매칭(중복명은 포기)
+function matchUniqueDistrict(text){const map=new Map();for(const r of regionList()){(r.agencies||[]).slice(1).forEach(a=>{const k=districtKey(a.name);if(!k)return;if(!map.has(k))map.set(k,[]);map.get(k).push({region:r,agency:a})})}const keys=[...map.keys()].sort((a,b)=>b.length-a.length);for(const k of keys){if(text.includes(k)){const arr=map.get(k);return arr.length===1?arr[0]:null}}return null}
+// 가게 주소에서 시·도→시군구 2단계로 담당 기관 자동 매칭. 반환 {region,agency} 또는 null(오매칭보다 미매칭 우선).
+function matchAgencyByRegion(text){text=str(text);if(!text||!state.agencyData)return null;const region=detectRegionFromText(text);if(region){const agency=matchAgencyInRegion(region,text);return agency?{region,agency}:null}const uniq=matchUniqueDistrict(text);return uniq?{region:uniq.region,agency:uniq.agency}:null}
 function deptTarget(ctx){return ctx==='setup'?state.setupDepts:(state.data.meta.departments||[])}
 async function setDeptTarget(ctx,list){const clean=[...new Set(list.map(str).filter(Boolean))];if(ctx==='setup'){state.setupDepts=clean;render();return}state.data.meta.departments=clean;await repo.apply({meta:{departments:clean}});render()}
 async function saveSelectedAgencyName(){const agency=selectedAgency();if(!agency||!repo)return;if(state.data.meta.orgName===agency.name)return;state.data.meta.orgName=agency.name;await repo.apply({meta:{orgName:agency.name}})}
-function agencyPickerHtml(ctx){const data=state.agencyData,cur=selectedAgency(),target=deptTarget(ctx);if(!data)return `<div class="agency-tools"><div class="meta">${esc(state.agencyError||'기관 부서 목록을 준비하는 중입니다.')}</div><button class="btn" data-a="agency-refresh">목록 불러오기</button></div>`;const selectId=ctx==='setup'?'agencySelectSetup':'agencySelectSettings';const opts=data.agencies.map(a=>`<option value="${esc(a.id)}"${cur&&cur.id===a.id?' selected':''}>${esc(a.name)}</option>`).join('');const checks=cur&&cur.departments.length?cur.departments.map(d=>`<label class="dept-check"><input type="checkbox" data-a="agency-dept-toggle" data-ctx="${ctx}" data-dept="${esc(d)}"${target.includes(d)?' checked':''}>${esc(d)}</label>`).join(''):'<div class="meta">선택 가능한 과가 없습니다.</div>';return `<div class="agency-tools"><div class="field"><label for="${selectId}">기관 부서 불러오기</label><select id="${selectId}">${opts}</select></div><div class="agency-actions"><button class="btn-secondary" data-a="agency-add-all" data-ctx="${ctx}">선택 기관 과 전체 추가</button><button class="btn" data-a="agency-remove-all" data-ctx="${ctx}">선택 기관 과 제거</button><button class="btn" data-a="agency-refresh">목록 새로고침</button></div><div class="dept-checks">${checks}</div><div class="meta">기준: ${esc(data.updatedAt||'-')} · 동주민센터 제외 · 과 단위만 제공</div></div>`}
+function agencyPickerHtml(ctx){const data=state.agencyData;if(!data)return `<div class="agency-tools"><div class="meta">${esc(state.agencyError||'기관 목록을 준비하는 중입니다.')}</div><button class="btn" data-a="agency-refresh">목록 불러오기</button></div>`;const rs=regionList(),region=selectedRegion(),cur=selectedAgency(),target=deptTarget(ctx);const suffix=ctx==='setup'?'Setup':'Settings';const regionSelectId='regionSelect'+suffix,agencySelectId='agencySelect'+suffix;const regionOpts=rs.map(r=>`<option value="${esc(r.code)}"${region&&region.code===r.code?' selected':''}>${esc(r.name)}</option>`).join('');const agencyOpts=region?(region.agencies||[]).map(a=>`<option value="${esc(a.id)}"${cur&&cur.id===a.id?' selected':''}>${esc(a.name)}</option>`).join(''):'';const cache=region?state.deptCache[region.code]:null;const explicit=!!(region&&cur&&agencyDeptEntry(region.code,cur.id));const effectiveDepts=(region&&cur)?resolveAgencyDepts(region.code,cur.id):COMMON_DEPTS;const checks=effectiveDepts.length?effectiveDepts.map(d=>`<label class="dept-check"><input type="checkbox" data-a="agency-dept-toggle" data-ctx="${ctx}" data-dept="${esc(d)}"${target.includes(d)?' checked':''}>${esc(d)}</label>`).join(''):'<div class="meta">불러온 과 목록이 없어요. 아래에서 부서명을 직접 추가할 수 있어요.</div>';const failNote=(cache&&cache.failed)?'<div class="meta" style="color:var(--danger)">부서 목록을 불러오지 못해 기본 목록을 보여드려요.</div>':'';const basis=explicit&&cache&&(cache.updatedAt||cache.source)?('기준: '+esc(cache.updatedAt||'-')+(cache.source?' · '+esc(cache.source):'')):'기준: 기본 목록';return `<div class="agency-tools"><div class="meta" style="margin-bottom:8px">시·도를 고르고, 우리 가게와 거래하는 기관을 고르세요.</div><div class="field"><label for="${regionSelectId}">시·도</label><select id="${regionSelectId}" data-ctx="${ctx}">${regionOpts}</select></div><div class="field"><label for="${agencySelectId}">거래 기관</label><select id="${agencySelectId}" data-ctx="${ctx}">${agencyOpts}</select></div><div class="agency-actions"><button class="btn-secondary" data-a="agency-add-all" data-ctx="${ctx}">선택 기관 과 전체 추가</button><button class="btn" data-a="agency-remove-all" data-ctx="${ctx}">선택 기관 과 제거</button><button class="btn" data-a="agency-refresh">목록 새로고침</button></div>${failNote}<div class="dept-checks">${checks}</div><div class="meta">${basis} · 동주민센터 제외 · 과 단위만 제공</div></div>`}
 
 // ── PIN 잠금 화면 ──
 function pinScreenHtml(){
@@ -487,7 +534,7 @@ kakao=str(kakao);email=str(email);
 if(!state.setupTermsAgreed){toast('이용약관 및 개인정보처리방침에 동의해 주세요.');return}
 if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}
 if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}
-const agency=selectedAgency();const agencyDepts=new Set(agency&&agency.departments||[]);const usedAgency=state.setupDepts.some(v=>agencyDepts.has(v));
+const region=selectedRegion();const agency=selectedAgency();const agencyDeptSet=new Set((region&&agency)?resolveAgencyDepts(region.code,agency.id):[]);const usedAgency=state.setupDepts.some(v=>agencyDeptSet.has(v));
 state.data.meta.departments=[].concat(state.setupDepts);
 state.data.meta.orgName=usedAgency&&agency?agency.name:(state.data.meta.orgName||DEFAULT_ORG);
 state.data.meta.contactKakaoLink=kakao;
@@ -634,7 +681,7 @@ const clickActions={
 'cloud-backup-restore':async()=>{await relayRestoreFromCloud()},
 'change-pin':()=>{state.pinMode='change';state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMsg='';state.pinFails=0;render()},
 'voice-search':()=>{voiceSearch()},
-'setup-next':()=>{if(state.setupSelected){state.data.meta.shopName=state.setupSelected.name;state.data.meta.shopAddr=state.setupSelected.addr;state.data.meta.shopTel=state.setupSelected.tel;state.setupDepts=[].concat(COMMON_DEPTS);const matched=matchAgencyByRegion(state.setupSelected.addr);if(matched)state.agencySelected=matched.id;state.setupStep=2;render()}},
+'setup-next':async()=>{if(!state.setupSelected)return;state.data.meta.shopName=state.setupSelected.name;state.data.meta.shopAddr=state.setupSelected.addr;state.data.meta.shopTel=state.setupSelected.tel;state.setupDepts=[].concat(COMMON_DEPTS);const matched=matchAgencyByRegion(state.setupSelected.addr);if(matched){state.regionSelected=matched.region.code;state.agencySelected=matched.agency.id;await ensureDeptsForRegion(matched.region.code)}state.setupStep=2;render()},
 'setup-manual-save':()=>{var mn=str(qs('setupManualName')&&qs('setupManualName').value);var ma=str(qs('setupManualAddr')&&qs('setupManualAddr').value);var mt=str(qs('setupManualTel')&&qs('setupManualTel').value);if(!mn){toast('음식점 이름을 입력하세요.');return}state.setupSelected={idx:-1,name:mn,addr:ma,tel:mt,type:'직접입력'};render()},
 'setup-skip':()=>{state.setupDepts=[].concat(COMMON_DEPTS);state.setupStep=2;render()},
 'setup-back':()=>{state.setupStep=1;render()},
@@ -650,15 +697,16 @@ const clickActions={
 'terms-agree':async()=>{const chk=qs('termsChk');if(!chk||!chk.checked){toast('약관에 동의해 주세요.');return}const termsAgreedAt=now();state.data.meta.termsAgreedAt=termsAgreedAt;try{await repo.apply({meta:{termsAgreedAt}})}catch(err){console.error('terms save',err)}state.modal=null;render();toast('약관에 동의해 주셔서 감사합니다.')},
 'agency-refresh':async()=>{setBusy('기관 부서 목록을 새로고침하는 중입니다.');await loadAgencyData(true);clearBusy();render();toast(state.agencyError||'기관 부서 목록을 새로 불러왔습니다.')},
 'agency-dept-toggle':async(el)=>{const ctx=el.dataset.ctx||'settings',dept=str(el.dataset.dept);if(ctx==='settings')await saveSelectedAgencyName();const list=deptTarget(ctx).filter(v=>v!==dept);if(el.checked)list.push(dept);await setDeptTarget(ctx,list)},
-'agency-add-all':async(el)=>{const ctx=el.dataset.ctx||'settings',agency=selectedAgency();if(ctx==='settings')await saveSelectedAgencyName();if(agency)await setDeptTarget(ctx,deptTarget(ctx).concat(agency.departments||[]))},
-'agency-remove-all':async(el)=>{const ctx=el.dataset.ctx||'settings',agency=selectedAgency();if(ctx==='settings')await saveSelectedAgencyName();if(agency){const rm=new Set(agency.departments||[]);await setDeptTarget(ctx,deptTarget(ctx).filter(v=>!rm.has(v)))}},
+'agency-add-all':async(el)=>{const ctx=el.dataset.ctx||'settings',region=selectedRegion(),agency=selectedAgency();if(ctx==='settings')await saveSelectedAgencyName();if(region&&agency)await setDeptTarget(ctx,deptTarget(ctx).concat(resolveAgencyDepts(region.code,agency.id)))},
+'agency-remove-all':async(el)=>{const ctx=el.dataset.ctx||'settings',region=selectedRegion(),agency=selectedAgency();if(ctx==='settings')await saveSelectedAgencyName();if(region&&agency){const rm=new Set(resolveAgencyDepts(region.code,agency.id));await setDeptTarget(ctx,deptTarget(ctx).filter(v=>!rm.has(v)))}},
 'full-reset':async()=>{await fullReset()},
 'guide-add-employee':()=>{state.setupGuide=false;state.screen='settings';state.modal={type:'employee',mode:'add'};render()},
 'guide-start-agency':()=>{state.setupGuide=false;state.screen='settings';state.modal={type:'store-search'};render()},
 'guide-dismiss':()=>{state.setupGuide=false;state.screen='home';render()}
 };
 async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;const fn=clickActions[el.dataset.a];if(fn)await fn(el)}
-async function onInput(e){if(e.target.id==='searchInput'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('기관명 저장 오류');return}}render()}}
+async function onInput(e){if(e.target.id==='searchInput'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='regionSelectSetup'||e.target.id==='regionSelectSettings'){const isSettings=e.target.id==='regionSelectSettings';state.regionSelected=e.target.value||'';const region=selectedRegion();state.agencySelected=(region&&region.agencies&&region.agencies[0]&&region.agencies[0].id)||'';if(!state.deptCache[state.regionSelected]){setBusy('부서 목록을 불러오는 중입니다.');await ensureDeptsForRegion(state.regionSelected);clearBusy()}if(isSettings){try{await saveSelectedAgencyName()}catch(err){console.error(err)}}render();return}
+if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('기관명 저장 오류');return}}render()}}
 
 // ── CRUD ──
 async function saveEmployee(){const dept=str(qs('empDept')&&qs('empDept').value),name=str(qs('empName')&&qs('empName').value),note=str(qs('empNote')&&qs('empNote').value),t=now();if(!name){toast('직원명을 입력하세요.');return}if(state.modal.mode==='edit'){const old=state.data.employees.find(v=>v.id===state.modal.id);if(!old){toast('직원을 찾을 수 없습니다.');return}const dup=state.data.employees.find(v=>v.id!==old.id&&!v.isDeleted&&v.name===name&&v.dept===dept);if(dup){toast('같은 이름과 부서의 활성 직원이 이미 있습니다.');return}const next={...old,dept,name,note,updatedAt:t};try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;render();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);toast('직원 수정 중 오류')}}else{const hidden=state.data.employees.find(v=>v.isDeleted&&v.name===name&&v.dept===dept);if(hidden){toast('같은 이름의 숨김 직원이 있습니다. 설정에서 복원하세요.');return}const dup=state.data.employees.find(v=>!v.isDeleted&&v.name===name&&v.dept===dept);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${dept||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;const before=curBal;const tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'개별등록 추가 충전',note:note||'',createdAt:t});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;render();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);toast('충전 중 오류')}return}const emp={id:uid(),dept,name,note,isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;render();toast('직원을 등록했습니다.')}catch(err){console.error(err);toast('직원 등록 중 오류')}}}

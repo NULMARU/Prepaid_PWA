@@ -1,9 +1,11 @@
-const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.10';
+const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.11';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './manual.html',
+  './agency-index.json',
+  './agency-depts/seoul.json',
   './agency-departments.json',
   './icons/icon-192.png',
   './icons/icon-512.png'

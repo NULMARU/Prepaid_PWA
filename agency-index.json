@@ -1,0 +1,1110 @@
+{
+  "schemaVersion": 2,
+  "updatedAt": "2026-07-14",
+  "scope": "전국 광역·기초 자치단체(중앙정부 제외)",
+  "regions": [
+    {
+      "code": "seoul",
+      "name": "서울특별시",
+      "deptsFile": "agency-depts/seoul.json",
+      "agencies": [
+        {
+          "id": "seoul",
+          "name": "서울특별시청"
+        },
+        {
+          "id": "gangnam",
+          "name": "강남구청"
+        },
+        {
+          "id": "gangdong",
+          "name": "강동구청"
+        },
+        {
+          "id": "gangbuk",
+          "name": "강북구청"
+        },
+        {
+          "id": "gangseo",
+          "name": "강서구청"
+        },
+        {
+          "id": "gwanak",
+          "name": "관악구청"
+        },
+        {
+          "id": "gwangjin",
+          "name": "광진구청"
+        },
+        {
+          "id": "guro",
+          "name": "구로구청"
+        },
+        {
+          "id": "geumcheon",
+          "name": "금천구청"
+        },
+        {
+          "id": "nowon",
+          "name": "노원구청"
+        },
+        {
+          "id": "dobong",
+          "name": "도봉구청"
+        },
+        {
+          "id": "dongdaemun",
+          "name": "동대문구청"
+        },
+        {
+          "id": "dongjak",
+          "name": "동작구청"
+        },
+        {
+          "id": "mapo",
+          "name": "마포구청"
+        },
+        {
+          "id": "seodaemun",
+          "name": "서대문구청"
+        },
+        {
+          "id": "seocho",
+          "name": "서초구청"
+        },
+        {
+          "id": "seongdong",
+          "name": "성동구청"
+        },
+        {
+          "id": "seongbuk",
+          "name": "성북구청"
+        },
+        {
+          "id": "songpa",
+          "name": "송파구청"
+        },
+        {
+          "id": "yangcheon",
+          "name": "양천구청"
+        },
+        {
+          "id": "yeongdeungpo",
+          "name": "영등포구청"
+        },
+        {
+          "id": "yongsan",
+          "name": "용산구청"
+        },
+        {
+          "id": "eunpyeong",
+          "name": "은평구청"
+        },
+        {
+          "id": "jongno",
+          "name": "종로구청"
+        },
+        {
+          "id": "jung",
+          "name": "중구청"
+        },
+        {
+          "id": "jungnang",
+          "name": "중랑구청"
+        }
+      ]
+    },
+    {
+      "code": "busan",
+      "name": "부산광역시",
+      "deptsFile": "agency-depts/busan.json",
+      "agencies": [
+        {
+          "id": "busan-city",
+          "name": "부산광역시청"
+        },
+        {
+          "id": "busan-gangseo",
+          "name": "강서구청"
+        },
+        {
+          "id": "busan-geumjeong",
+          "name": "금정구청"
+        },
+        {
+          "id": "busan-gijang",
+          "name": "기장군청"
+        },
+        {
+          "id": "busan-nam",
+          "name": "남구청"
+        },
+        {
+          "id": "busan-dong",
+          "name": "동구청"
+        },
+        {
+          "id": "busan-dongnae",
+          "name": "동래구청"
+        },
+        {
+          "id": "busan-busanjin",
+          "name": "부산진구청"
+        },
+        {
+          "id": "busan-buk",
+          "name": "북구청"
+        },
+        {
+          "id": "busan-sasang",
+          "name": "사상구청"
+        },
+        {
+          "id": "busan-saha",
+          "name": "사하구청"
+        },
+        {
+          "id": "busan-seo",
+          "name": "서구청"
+        },
+        {
+          "id": "busan-suyeong",
+          "name": "수영구청"
+        },
+        {
+          "id": "busan-yeonje",
+          "name": "연제구청"
+        },
+        {
+          "id": "busan-yeongdo",
+          "name": "영도구청"
+        },
+        {
+          "id": "busan-jung",
+          "name": "중구청"
+        },
+        {
+          "id": "busan-haeundae",
+          "name": "해운대구청"
+        }
+      ]
+    },
+    {
+      "code": "daegu",
+      "name": "대구광역시",
+      "deptsFile": "agency-depts/daegu.json",
+      "agencies": [
+        {
+          "id": "daegu-city",
+          "name": "대구광역시청"
+        },
+        {
+          "id": "daegu-gunwi",
+          "name": "군위군청"
+        },
+        {
+          "id": "daegu-nam",
+          "name": "남구청"
+        },
+        {
+          "id": "daegu-dalseo",
+          "name": "달서구청"
+        },
+        {
+          "id": "daegu-dalseong",
+          "name": "달성군청"
+        },
+        {
+          "id": "daegu-dong",
+          "name": "동구청"
+        },
+        {
+          "id": "daegu-buk",
+          "name": "북구청"
+        },
+        {
+          "id": "daegu-seo",
+          "name": "서구청"
+        },
+        {
+          "id": "daegu-suseong",
+          "name": "수성구청"
+        },
+        {
+          "id": "daegu-jung",
+          "name": "중구청"
+        }
+      ]
+    },
+    {
+      "code": "incheon",
+      "name": "인천광역시",
+      "deptsFile": "agency-depts/incheon.json",
+      "agencies": [
+        {
+          "id": "incheon-city",
+          "name": "인천광역시청"
+        },
+        {
+          "id": "incheon-ganghwa",
+          "name": "강화군청"
+        },
+        {
+          "id": "incheon-geomdan",
+          "name": "검단구청"
+        },
+        {
+          "id": "incheon-gyeyang",
+          "name": "계양구청"
+        },
+        {
+          "id": "incheon-namdong",
+          "name": "남동구청"
+        },
+        {
+          "id": "incheon-michuhol",
+          "name": "미추홀구청"
+        },
+        {
+          "id": "incheon-bupyeong",
+          "name": "부평구청"
+        },
+        {
+          "id": "incheon-seohae",
+          "name": "서해구청"
+        },
+        {
+          "id": "incheon-yeonsu",
+          "name": "연수구청"
+        },
+        {
+          "id": "incheon-yeongjong",
+          "name": "영종구청"
+        },
+        {
+          "id": "incheon-ongjin",
+          "name": "옹진군청"
+        },
+        {
+          "id": "incheon-jemulpo",
+          "name": "제물포구청"
+        }
+      ]
+    },
+    {
+      "code": "gwangju",
+      "name": "광주광역시",
+      "deptsFile": "agency-depts/gwangju.json",
+      "agencies": [
+        {
+          "id": "gwangju-city",
+          "name": "광주광역시청"
+        },
+        {
+          "id": "gwangju-gwangsan",
+          "name": "광산구청"
+        },
+        {
+          "id": "gwangju-nam",
+          "name": "남구청"
+        },
+        {
+          "id": "gwangju-dong",
+          "name": "동구청"
+        },
+        {
+          "id": "gwangju-buk",
+          "name": "북구청"
+        },
+        {
+          "id": "gwangju-seo",
+          "name": "서구청"
+        }
+      ]
+    },
+    {
+      "code": "daejeon",
+      "name": "대전광역시",
+      "deptsFile": "agency-depts/daejeon.json",
+      "agencies": [
+        {
+          "id": "daejeon-city",
+          "name": "대전광역시청"
+        },
+        {
+          "id": "daejeon-daedeok",
+          "name": "대덕구청"
+        },
+        {
+          "id": "daejeon-dong",
+          "name": "동구청"
+        },
+        {
+          "id": "daejeon-seo",
+          "name": "서구청"
+        },
+        {
+          "id": "daejeon-yuseong",
+          "name": "유성구청"
+        },
+        {
+          "id": "daejeon-jung",
+          "name": "중구청"
+        }
+      ]
+    },
+    {
+      "code": "ulsan",
+      "name": "울산광역시",
+      "deptsFile": "agency-depts/ulsan.json",
+      "agencies": [
+        {
+          "id": "ulsan-city",
+          "name": "울산광역시청"
+        },
+        {
+          "id": "ulsan-nam",
+          "name": "남구청"
+        },
+        {
+          "id": "ulsan-dong",
+          "name": "동구청"
+        },
+        {
+          "id": "ulsan-buk",
+          "name": "북구청"
+        },
+        {
+          "id": "ulsan-ulju",
+          "name": "울주군청"
+        },
+        {
+          "id": "ulsan-jung",
+          "name": "중구청"
+        }
+      ]
+    },
+    {
+      "code": "sejong",
+      "name": "세종특별자치시",
+      "deptsFile": "agency-depts/sejong.json",
+      "agencies": [
+        {
+          "id": "sejong-city",
+          "name": "세종특별자치시청"
+        }
+      ]
+    },
+    {
+      "code": "gyeonggi",
+      "name": "경기도",
+      "deptsFile": "agency-depts/gyeonggi.json",
+      "agencies": [
+        {
+          "id": "gyeonggi-city",
+          "name": "경기도청"
+        },
+        {
+          "id": "gyeonggi-gapyeong",
+          "name": "가평군청"
+        },
+        {
+          "id": "gyeonggi-goyang",
+          "name": "고양시청"
+        },
+        {
+          "id": "gyeonggi-gwacheon",
+          "name": "과천시청"
+        },
+        {
+          "id": "gyeonggi-gwangmyeong",
+          "name": "광명시청"
+        },
+        {
+          "id": "gyeonggi-gwangju",
+          "name": "광주시청"
+        },
+        {
+          "id": "gyeonggi-guri",
+          "name": "구리시청"
+        },
+        {
+          "id": "gyeonggi-gunpo",
+          "name": "군포시청"
+        },
+        {
+          "id": "gyeonggi-gimpo",
+          "name": "김포시청"
+        },
+        {
+          "id": "gyeonggi-namyangju",
+          "name": "남양주시청"
+        },
+        {
+          "id": "gyeonggi-dongducheon",
+          "name": "동두천시청"
+        },
+        {
+          "id": "gyeonggi-bucheon",
+          "name": "부천시청"
+        },
+        {
+          "id": "gyeonggi-seongnam",
+          "name": "성남시청"
+        },
+        {
+          "id": "gyeonggi-suwon",
+          "name": "수원시청"
+        },
+        {
+          "id": "gyeonggi-siheung",
+          "name": "시흥시청"
+        },
+        {
+          "id": "gyeonggi-ansan",
+          "name": "안산시청"
+        },
+        {
+          "id": "gyeonggi-anseong",
+          "name": "안성시청"
+        },
+        {
+          "id": "gyeonggi-anyang",
+          "name": "안양시청"
+        },
+        {
+          "id": "gyeonggi-yangju",
+          "name": "양주시청"
+        },
+        {
+          "id": "gyeonggi-yangpyeong",
+          "name": "양평군청"
+        },
+        {
+          "id": "gyeonggi-yeoju",
+          "name": "여주시청"
+        },
+        {
+          "id": "gyeonggi-yeoncheon",
+          "name": "연천군청"
+        },
+        {
+          "id": "gyeonggi-osan",
+          "name": "오산시청"
+        },
+        {
+          "id": "gyeonggi-yongin",
+          "name": "용인시청"
+        },
+        {
+          "id": "gyeonggi-uiwang",
+          "name": "의왕시청"
+        },
+        {
+          "id": "gyeonggi-uijeongbu",
+          "name": "의정부시청"
+        },
+        {
+          "id": "gyeonggi-icheon",
+          "name": "이천시청"
+        },
+        {
+          "id": "gyeonggi-paju",
+          "name": "파주시청"
+        },
+        {
+          "id": "gyeonggi-pyeongtaek",
+          "name": "평택시청"
+        },
+        {
+          "id": "gyeonggi-pocheon",
+          "name": "포천시청"
+        },
+        {
+          "id": "gyeonggi-hanam",
+          "name": "하남시청"
+        },
+        {
+          "id": "gyeonggi-hwaseong",
+          "name": "화성시청"
+        }
+      ]
+    },
+    {
+      "code": "gangwon",
+      "name": "강원특별자치도",
+      "deptsFile": "agency-depts/gangwon.json",
+      "agencies": [
+        {
+          "id": "gangwon-city",
+          "name": "강원특별자치도청"
+        },
+        {
+          "id": "gangwon-gangneung",
+          "name": "강릉시청"
+        },
+        {
+          "id": "gangwon-goseong",
+          "name": "고성군청"
+        },
+        {
+          "id": "gangwon-donghae",
+          "name": "동해시청"
+        },
+        {
+          "id": "gangwon-samcheok",
+          "name": "삼척시청"
+        },
+        {
+          "id": "gangwon-sokcho",
+          "name": "속초시청"
+        },
+        {
+          "id": "gangwon-yanggu",
+          "name": "양구군청"
+        },
+        {
+          "id": "gangwon-yangyang",
+          "name": "양양군청"
+        },
+        {
+          "id": "gangwon-yeongwol",
+          "name": "영월군청"
+        },
+        {
+          "id": "gangwon-wonju",
+          "name": "원주시청"
+        },
+        {
+          "id": "gangwon-inje",
+          "name": "인제군청"
+        },
+        {
+          "id": "gangwon-jeongseon",
+          "name": "정선군청"
+        },
+        {
+          "id": "gangwon-cheorwon",
+          "name": "철원군청"
+        },
+        {
+          "id": "gangwon-chuncheon",
+          "name": "춘천시청"
+        },
+        {
+          "id": "gangwon-taebaek",
+          "name": "태백시청"
+        },
+        {
+          "id": "gangwon-pyeongchang",
+          "name": "평창군청"
+        },
+        {
+          "id": "gangwon-hongcheon",
+          "name": "홍천군청"
+        },
+        {
+          "id": "gangwon-hwacheon",
+          "name": "화천군청"
+        },
+        {
+          "id": "gangwon-hoengseong",
+          "name": "횡성군청"
+        }
+      ]
+    },
+    {
+      "code": "chungbuk",
+      "name": "충청북도",
+      "deptsFile": "agency-depts/chungbuk.json",
+      "agencies": [
+        {
+          "id": "chungbuk-city",
+          "name": "충청북도청"
+        },
+        {
+          "id": "chungbuk-goesan",
+          "name": "괴산군청"
+        },
+        {
+          "id": "chungbuk-danyang",
+          "name": "단양군청"
+        },
+        {
+          "id": "chungbuk-boeun",
+          "name": "보은군청"
+        },
+        {
+          "id": "chungbuk-yeongdong",
+          "name": "영동군청"
+        },
+        {
+          "id": "chungbuk-okcheon",
+          "name": "옥천군청"
+        },
+        {
+          "id": "chungbuk-eumseong",
+          "name": "음성군청"
+        },
+        {
+          "id": "chungbuk-jecheon",
+          "name": "제천시청"
+        },
+        {
+          "id": "chungbuk-jeungpyeong",
+          "name": "증평군청"
+        },
+        {
+          "id": "chungbuk-jincheon",
+          "name": "진천군청"
+        },
+        {
+          "id": "chungbuk-cheongju",
+          "name": "청주시청"
+        },
+        {
+          "id": "chungbuk-chungju",
+          "name": "충주시청"
+        }
+      ]
+    },
+    {
+      "code": "chungnam",
+      "name": "충청남도",
+      "deptsFile": "agency-depts/chungnam.json",
+      "agencies": [
+        {
+          "id": "chungnam-city",
+          "name": "충청남도청"
+        },
+        {
+          "id": "chungnam-gyeryong",
+          "name": "계룡시청"
+        },
+        {
+          "id": "chungnam-gongju",
+          "name": "공주시청"
+        },
+        {
+          "id": "chungnam-geumsan",
+          "name": "금산군청"
+        },
+        {
+          "id": "chungnam-nonsan",
+          "name": "논산시청"
+        },
+        {
+          "id": "chungnam-dangjin",
+          "name": "당진시청"
+        },
+        {
+          "id": "chungnam-boryeong",
+          "name": "보령시청"
+        },
+        {
+          "id": "chungnam-buyeo",
+          "name": "부여군청"
+        },
+        {
+          "id": "chungnam-seosan",
+          "name": "서산시청"
+        },
+        {
+          "id": "chungnam-seocheon",
+          "name": "서천군청"
+        },
+        {
+          "id": "chungnam-asan",
+          "name": "아산시청"
+        },
+        {
+          "id": "chungnam-yesan",
+          "name": "예산군청"
+        },
+        {
+          "id": "chungnam-cheonan",
+          "name": "천안시청"
+        },
+        {
+          "id": "chungnam-cheongyang",
+          "name": "청양군청"
+        },
+        {
+          "id": "chungnam-taean",
+          "name": "태안군청"
+        },
+        {
+          "id": "chungnam-hongseong",
+          "name": "홍성군청"
+        }
+      ]
+    },
+    {
+      "code": "jeonbuk",
+      "name": "전북특별자치도",
+      "deptsFile": "agency-depts/jeonbuk.json",
+      "agencies": [
+        {
+          "id": "jeonbuk-city",
+          "name": "전북특별자치도청"
+        },
+        {
+          "id": "jeonbuk-gochang",
+          "name": "고창군청"
+        },
+        {
+          "id": "jeonbuk-gunsan",
+          "name": "군산시청"
+        },
+        {
+          "id": "jeonbuk-gimje",
+          "name": "김제시청"
+        },
+        {
+          "id": "jeonbuk-namwon",
+          "name": "남원시청"
+        },
+        {
+          "id": "jeonbuk-muju",
+          "name": "무주군청"
+        },
+        {
+          "id": "jeonbuk-buan",
+          "name": "부안군청"
+        },
+        {
+          "id": "jeonbuk-sunchang",
+          "name": "순창군청"
+        },
+        {
+          "id": "jeonbuk-wanju",
+          "name": "완주군청"
+        },
+        {
+          "id": "jeonbuk-iksan",
+          "name": "익산시청"
+        },
+        {
+          "id": "jeonbuk-imsil",
+          "name": "임실군청"
+        },
+        {
+          "id": "jeonbuk-jangsu",
+          "name": "장수군청"
+        },
+        {
+          "id": "jeonbuk-jeonju",
+          "name": "전주시청"
+        },
+        {
+          "id": "jeonbuk-jeongeup",
+          "name": "정읍시청"
+        },
+        {
+          "id": "jeonbuk-jinan",
+          "name": "진안군청"
+        }
+      ]
+    },
+    {
+      "code": "jeonnam",
+      "name": "전라남도",
+      "deptsFile": "agency-depts/jeonnam.json",
+      "agencies": [
+        {
+          "id": "jeonnam-city",
+          "name": "전라남도청"
+        },
+        {
+          "id": "jeonnam-gangjin",
+          "name": "강진군청"
+        },
+        {
+          "id": "jeonnam-goheung",
+          "name": "고흥군청"
+        },
+        {
+          "id": "jeonnam-gokseong",
+          "name": "곡성군청"
+        },
+        {
+          "id": "jeonnam-gwangyang",
+          "name": "광양시청"
+        },
+        {
+          "id": "jeonnam-gurye",
+          "name": "구례군청"
+        },
+        {
+          "id": "jeonnam-naju",
+          "name": "나주시청"
+        },
+        {
+          "id": "jeonnam-damyang",
+          "name": "담양군청"
+        },
+        {
+          "id": "jeonnam-mokpo",
+          "name": "목포시청"
+        },
+        {
+          "id": "jeonnam-muan",
+          "name": "무안군청"
+        },
+        {
+          "id": "jeonnam-boseong",
+          "name": "보성군청"
+        },
+        {
+          "id": "jeonnam-suncheon",
+          "name": "순천시청"
+        },
+        {
+          "id": "jeonnam-sinan",
+          "name": "신안군청"
+        },
+        {
+          "id": "jeonnam-yeosu",
+          "name": "여수시청"
+        },
+        {
+          "id": "jeonnam-yeonggwang",
+          "name": "영광군청"
+        },
+        {
+          "id": "jeonnam-yeongam",
+          "name": "영암군청"
+        },
+        {
+          "id": "jeonnam-wando",
+          "name": "완도군청"
+        },
+        {
+          "id": "jeonnam-jangseong",
+          "name": "장성군청"
+        },
+        {
+          "id": "jeonnam-jangheung",
+          "name": "장흥군청"
+        },
+        {
+          "id": "jeonnam-jindo",
+          "name": "진도군청"
+        },
+        {
+          "id": "jeonnam-hampyeong",
+          "name": "함평군청"
+        },
+        {
+          "id": "jeonnam-haenam",
+          "name": "해남군청"
+        },
+        {
+          "id": "jeonnam-hwasun",
+          "name": "화순군청"
+        }
+      ]
+    },
+    {
+      "code": "gyeongbuk",
+      "name": "경상북도",
+      "deptsFile": "agency-depts/gyeongbuk.json",
+      "agencies": [
+        {
+          "id": "gyeongbuk-city",
+          "name": "경상북도청"
+        },
+        {
+          "id": "gyeongbuk-gyeongsan",
+          "name": "경산시청"
+        },
+        {
+          "id": "gyeongbuk-gyeongju",
+          "name": "경주시청"
+        },
+        {
+          "id": "gyeongbuk-goryeong",
+          "name": "고령군청"
+        },
+        {
+          "id": "gyeongbuk-gumi",
+          "name": "구미시청"
+        },
+        {
+          "id": "gyeongbuk-gimcheon",
+          "name": "김천시청"
+        },
+        {
+          "id": "gyeongbuk-mungyeong",
+          "name": "문경시청"
+        },
+        {
+          "id": "gyeongbuk-bonghwa",
+          "name": "봉화군청"
+        },
+        {
+          "id": "gyeongbuk-sangju",
+          "name": "상주시청"
+        },
+        {
+          "id": "gyeongbuk-seongju",
+          "name": "성주군청"
+        },
+        {
+          "id": "gyeongbuk-andong",
+          "name": "안동시청"
+        },
+        {
+          "id": "gyeongbuk-yeongdeok",
+          "name": "영덕군청"
+        },
+        {
+          "id": "gyeongbuk-yeongyang",
+          "name": "영양군청"
+        },
+        {
+          "id": "gyeongbuk-yeongju",
+          "name": "영주시청"
+        },
+        {
+          "id": "gyeongbuk-yeongcheon",
+          "name": "영천시청"
+        },
+        {
+          "id": "gyeongbuk-yecheon",
+          "name": "예천군청"
+        },
+        {
+          "id": "gyeongbuk-ulleung",
+          "name": "울릉군청"
+        },
+        {
+          "id": "gyeongbuk-uljin",
+          "name": "울진군청"
+        },
+        {
+          "id": "gyeongbuk-uiseong",
+          "name": "의성군청"
+        },
+        {
+          "id": "gyeongbuk-cheongdo",
+          "name": "청도군청"
+        },
+        {
+          "id": "gyeongbuk-cheongsong",
+          "name": "청송군청"
+        },
+        {
+          "id": "gyeongbuk-chilgok",
+          "name": "칠곡군청"
+        },
+        {
+          "id": "gyeongbuk-pohang",
+          "name": "포항시청"
+        }
+      ]
+    },
+    {
+      "code": "gyeongnam",
+      "name": "경상남도",
+      "deptsFile": "agency-depts/gyeongnam.json",
+      "agencies": [
+        {
+          "id": "gyeongnam-city",
+          "name": "경상남도청"
+        },
+        {
+          "id": "gyeongnam-geoje",
+          "name": "거제시청"
+        },
+        {
+          "id": "gyeongnam-geochang",
+          "name": "거창군청"
+        },
+        {
+          "id": "gyeongnam-goseong",
+          "name": "고성군청"
+        },
+        {
+          "id": "gyeongnam-gimhae",
+          "name": "김해시청"
+        },
+        {
+          "id": "gyeongnam-namhae",
+          "name": "남해군청"
+        },
+        {
+          "id": "gyeongnam-miryang",
+          "name": "밀양시청"
+        },
+        {
+          "id": "gyeongnam-sacheon",
+          "name": "사천시청"
+        },
+        {
+          "id": "gyeongnam-sancheong",
+          "name": "산청군청"
+        },
+        {
+          "id": "gyeongnam-yangsan",
+          "name": "양산시청"
+        },
+        {
+          "id": "gyeongnam-uiryeong",
+          "name": "의령군청"
+        },
+        {
+          "id": "gyeongnam-jinju",
+          "name": "진주시청"
+        },
+        {
+          "id": "gyeongnam-changnyeong",
+          "name": "창녕군청"
+        },
+        {
+          "id": "gyeongnam-changwon",
+          "name": "창원시청"
+        },
+        {
+          "id": "gyeongnam-tongyeong",
+          "name": "통영시청"
+        },
+        {
+          "id": "gyeongnam-hadong",
+          "name": "하동군청"
+        },
+        {
+          "id": "gyeongnam-haman",
+          "name": "함안군청"
+        },
+        {
+          "id": "gyeongnam-hamyang",
+          "name": "함양군청"
+        },
+        {
+          "id": "gyeongnam-hapcheon",
+          "name": "합천군청"
+        }
+      ]
+    },
+    {
+      "code": "jeju",
+      "name": "제주특별자치도",
+      "deptsFile": "agency-depts/jeju.json",
+      "agencies": [
+        {
+          "id": "jeju-city",
+          "name": "제주특별자치도청"
+        },
+        {
+          "id": "jeju-seogwipo",
+          "name": "서귀포시청"
+        },
+        {
+          "id": "jeju-jeju",
+          "name": "제주시청"
+        }
+      ]
+    }
+  ]
+}
