@@ -60,7 +60,7 @@ footer{color:var(--muted);font-size:12.5px;margin-top:36px;text-align:center}
 <ol>
 <li><a href="#intro">개요·접속</a></li>
 <li><a href="#step1">1단계 본인 확인</a></li>
-<li><a href="#step2">2단계 음식점 찾기</a></li>
+<li><a href="#step2">2단계 소속 기관·음식점</a></li>
 <li><a href="#step3">3단계 명단 만들기</a></li>
 <li><a href="#step4">4단계 확인</a></li>
 <li><a href="#step5">5단계 보내기</a></li>
@@ -81,13 +81,16 @@ footer{color:var(--muted);font-size:12.5px;margin-top:36px;text-align:center}
 <div class="step"><div class="step-num">3</div><div class="step-body">받은 인증번호 6자리를 입력하고 <span class="btn">확인</span>을 누릅니다.</div></div>
 <div class="callout">※ 현재 파일럿 기간에는 인증번호가 자동으로 입력됩니다. 정식 운영 시에는 이메일로 발송됩니다.</div>
 
-<h2 id="step2"><span class="num">3</span>2단계 음식점 찾기</h2>
-<p>음식점 이름과 지역(예: <code>광진구 구의동</code>)으로 검색합니다.</p>
-<div class="tip"><b>앱을 설치·등록한 음식점만 검색 결과에 나타납니다.</b> 원하는 음식점이 보이지 않으면, 해당 음식점에 앱 설치를 먼저 안내해 주십시오. (음식점용 안내문: <a href="manual-restaurant.html">manual-restaurant.html</a>)</div>
+<h2 id="step2"><span class="num">3</span>2단계 소속 기관·음식점</h2>
+<div class="step"><div class="step-num">1</div><div class="step-body"><span class="field">시·도</span>를 고른 뒤 <span class="field">소속 기관</span>을 선택합니다. (예: 서울특별시 → 광진구청)</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">소속 기관을 고르면 <b>그 기관 관할로 등록된 음식점 목록이 자동으로 나타납니다.</b> 가나다 순으로 정렬되며, 위쪽 칸에 이름을 입력해 목록을 좁힐 수 있습니다.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">보낼 음식점을 <b>체크</b>합니다. 여러 곳을 함께 선택할 수 있습니다. (특정 음식점을 뺄 때는 <span class="btn-secondary">제외</span>)</div></div>
+<div class="tip">여기서 고른 <b>소속 기관 이름</b>이 이후 명단에 자동으로 들어갑니다. 소속 기관을 선택하지 않으면 3단계(명단 만들기)로 넘어갈 수 없습니다.</div>
+<div class="callout">※ <b>앱을 설치·등록한 음식점만 목록에 나타납니다.</b> 원하는 음식점이 보이지 않으면 <span class="btn-secondary">목록에 없나요? 이름으로 검색</span>을 펼쳐 이름으로 찾을 수 있습니다. 그래도 없으면 해당 음식점에 앱 설치·(재)등록을 안내해 주십시오. (음식점용 안내문: <a href="manual-restaurant.html">manual-restaurant.html</a>)</div>
 
 <h2 id="step3"><span class="num">4</span>3단계 명단 만들기</h2>
 <div class="step"><div class="step-num">1</div><div class="step-body"><span class="btn-secondary">CSV 양식 다운로드</span>를 눌러 양식을 내려받습니다.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">엑셀에서 다음 항목(순서 고정)을 작성합니다: <code>음식점명, 기관명, 부서명, 직원명, 선금금액, 입금자명</code></div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">엑셀에서 다음 항목(순서 고정)을 작성합니다: <code>음식점명, 부서명, 직원명, 선금금액, 입금자명</code><br><span class="field" style="border-style:solid">기관명은 적지 않습니다</span> — 2단계에서 고른 소속 기관이 자동으로 들어갑니다.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">엑셀에서 그냥 'CSV로 저장'해도 됩니다 — 형식은 자동으로 인식됩니다.</div></div>
 <div class="step"><div class="step-num">4</div><div class="step-body">작성한 파일을 업로드합니다.</div></div>
 <p>문제가 있으면 표 아래에 원인과 해결 방법이 표시됩니다.</p>

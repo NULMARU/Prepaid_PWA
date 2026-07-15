@@ -26,6 +26,7 @@ const json = (env, request, body, status = 200) =>
 
 // 입력 길이 상한(방어적 검증). 초과 시 400.
 const MAX_STR = 200;            // 일반 문자열 필드(기관명·부서·연월·검색어·이메일 등)
+const MAX_DISTRICT = 100;       // 관할 지역(공개 사업장 정보, 예 "서울특별시 광진구")
 const MAX_PUBKEY = 8 * 1024;    // 공개키(SPKI base64)
 const MAX_CIPHERTEXT = 200 * 1024; // 암호 blob 직렬화(JSON.stringify) 바이트 근사
 const MAX_LEDGER_BLOB = 1024 * 1024; // 암호화 원장 백업 blob(base64 문자열) 상한 ~1MB
@@ -167,6 +168,11 @@ const PUBLIC_KEY_RATE_LIMIT_MAX = 20;
 const publicKeyRateLimitMap = new Map();
 function checkPublicKeyRateLimit(request) { return checkRateLimitWith(publicKeyRateLimitMap, request, PUBLIC_KEY_RATE_LIMIT_MAX); }
 
+// 등록 음식점 지역별 조회(/api/registered-list)도 대량 수집(크롤링) 유인이 있어 public-key와 동일한
+// 별도 낮은 한도(IP당 분당 20회)를 재사용 패턴으로 적용한다(독립 카운터). per-isolate 한계는 동일(§6.3).
+const registeredListRateLimitMap = new Map();
+function checkRegisteredListRateLimit(request) { return checkRateLimitWith(registeredListRateLimitMap, request, PUBLIC_KEY_RATE_LIMIT_MAX); }
+
 // 관리자 통계 API(/api/admin/stats)는 브루트포스 방어를 위해 훨씬 낮은 한도(IP당 분당 10회)로
 // 별도 제한한다(전역 한도와 무관한 독립 카운터). per-isolate 한계는 위와 동일(§6.3).
 const ADMIN_RATE_LIMIT_MAX = 10;
@@ -257,6 +263,9 @@ export async function handle(request, env, store) {
   // 연락처 크롤링 완화(감사 항목 3): public-key 조회만 더 낮은 한도로 추가 제한.
   if (path === '/api/public-key' && request.method === 'GET' && !checkPublicKeyRateLimit(request))
     return j({ error: 'rate_limited' }, 429);
+  // 등록 음식점 지역별 조회도 동일한 강화 한도(분당 20)로 별도 제한.
+  if (path === '/api/registered-list' && request.method === 'GET' && !checkRegisteredListRateLimit(request))
+    return j({ error: 'rate_limited' }, 429);
 
   try {
     if (path === '/api/register-key' && request.method === 'POST') {
@@ -265,20 +274,27 @@ export async function handle(request, env, store) {
       const restaurant_id = String(b.restaurant_id);
       const restaurant_name = String(b.restaurant_name || '');
       const public_key = String(b.public_key);
-      if (tooLong(restaurant_id, MAX_STR) || tooLong(restaurant_name, MAX_STR) || tooLong(public_key, MAX_PUBKEY))
+      // district(선택): 관할 지역(공개 사업장 정보, 예 "서울특별시 광진구"). 개인정보 아님(§0 허용).
+      const district = b.district != null ? String(b.district) : '';
+      if (tooLong(restaurant_id, MAX_STR) || tooLong(restaurant_name, MAX_STR) || tooLong(public_key, MAX_PUBKEY) || tooLong(district, MAX_DISTRICT))
         return j({ error: '입력 길이 초과' }, 400);
       // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id에 '다른' 공개키로 재등록하려면
       // 기존 키 소유를 증명(챌린지-응답)해야 한다. 동일 키 재등록은 앱 재시도(네트워크 실패 등)일
       // 수 있으므로 인증 없이 200(멱등). 최초 등록은 선착순으로 인증 불요.
+      // 어느 재등록 경로든 district가 오면 갱신한다(레거시/미채움 등록분을 앱 재등록으로 채울 수 있게).
       const existing = await store.getPublicKey(restaurant_id);
       if (existing) {
-        if (existing.public_key === public_key) return j({ ok: true });
+        if (existing.public_key === public_key) {
+          if (district) await store.setDistrict(restaurant_id, district);
+          return j({ ok: true });
+        }
         const authed = await verifyAuth(store, restaurant_id, b.auth_token);
         if (!authed) return j({ error: 'auth_required' }, 401);
         await store.updateKey({ restaurant_id, restaurant_name, public_key, registered_at: Date.now() });
+        if (district) await store.setDistrict(restaurant_id, district);
         return j({ ok: true });
       }
-      await store.registerKey({ restaurant_id, restaurant_name, public_key, registered_at: Date.now() });
+      await store.registerKey({ restaurant_id, restaurant_name, public_key, registered_at: Date.now(), district: district || null });
       // 비식별 집계: 신규 등록된 음식점 공개ID(LOCALDATA mgtNo — 공개값)만 기록, 누적 등록 카운터 +1.
       await bumpStats(async () => {
         await store.noteRestaurant(restaurant_id);
@@ -352,6 +368,18 @@ export async function handle(request, env, store) {
     if (path === '/api/registered' && request.method === 'GET') {
       const ids = (url.searchParams.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean);
       return j(await store.registeredAmong(ids));
+    }
+
+    // 담당자 웹: 특정 시도(+선택 시군구)의 '등록된(선금 받기 가능)' 음식점 목록.
+    // 공개 정보만 반환(id·이름·district — 연락처 미포함). district 없는(레거시) 등록분은 제외.
+    // 매칭: district가 sido로 시작하고, sigungu가 주어지면 district에 sigungu 포함. 이름 가나다 정렬.
+    if (path === '/api/registered-list' && request.method === 'GET') {
+      const sido = String(url.searchParams.get('sido') || '');
+      const sigungu = String(url.searchParams.get('sigungu') || '');
+      if (!sido) return j({ error: 'sido_required' }, 400);
+      if (tooLong(sido, MAX_STR) || tooLong(sigungu, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      const restaurants = await store.registeredByDistrict(sido, sigungu);
+      return j({ restaurants });
     }
 
     if (path === '/api/restaurants' && request.method === 'GET') {
@@ -604,8 +632,12 @@ export function makeD1Store(DB) {
     async registerKey(r) {
       // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id는 handle()에서 사전 차단하므로
       // 여기서는 신규 삽입만 수행(다른 키로의 재등록은 updateKey를 통해서만 가능).
-      await DB.prepare('INSERT INTO public_key_registry (restaurant_id,restaurant_name,public_key,registered_at) VALUES (?,?,?,?)')
-        .bind(r.restaurant_id, r.restaurant_name, r.public_key, r.registered_at).run();
+      await DB.prepare('INSERT INTO public_key_registry (restaurant_id,restaurant_name,public_key,registered_at,district) VALUES (?,?,?,?,?)')
+        .bind(r.restaurant_id, r.restaurant_name, r.public_key, r.registered_at, r.district != null ? r.district : null).run();
+    },
+    // 관할 지역(공개 사업장 정보) 갱신. 재등록 경로에서 district가 오면 호출(§ 등록 목록).
+    async setDistrict(restaurant_id, district) {
+      await DB.prepare('UPDATE public_key_registry SET district=? WHERE restaurant_id=?').bind(district, restaurant_id).run();
     },
     async updateKey(r) {
       // 소유 증명(챌린지-응답) 통과 후에만 handle()에서 호출됨.
@@ -629,6 +661,16 @@ export function makeD1Store(DB) {
       const ph = ids.map(() => '?').join(',');
       const r = await DB.prepare('SELECT restaurant_id FROM public_key_registry WHERE restaurant_id IN (' + ph + ')').bind(...ids).all();
       return (r.results || []).map(x => x.restaurant_id);
+    },
+    // 시도(+선택 시군구)로 등록 음식점 조회. district가 sido로 시작하고, sigungu가 주어지면
+    // district에 sigungu를 포함하는 행만. NULL district(레거시)는 제외. 이름 가나다 정렬(BINARY=한글 순서).
+    async registeredByDistrict(sido, sigungu) {
+      let sql = 'SELECT restaurant_id, restaurant_name, district FROM public_key_registry WHERE district IS NOT NULL AND district LIKE ?';
+      const params = [sido + '%'];
+      if (sigungu) { sql += ' AND district LIKE ?'; params.push('%' + sigungu + '%'); }
+      sql += ' ORDER BY restaurant_name';
+      const r = await DB.prepare(sql).bind(...params).all();
+      return (r.results || []).map(x => ({ restaurant_id: x.restaurant_id, restaurant_name: x.restaurant_name, district: x.district }));
     },
     async insertSummary(s) {
       await DB.prepare('INSERT INTO deposit_summary (id,institution,department,restaurant_id,restaurant_name,year_month,total_amount,member_count,batch_hash,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
@@ -812,9 +854,24 @@ export function makeMemoryStore() {
     // 아닌 병합으로 동일하게 동작시켜야 한다(연락처가 키 재등록 시 조용히 사라지면 안 됨).
     async updateKey(r) { keys.set(r.restaurant_id, { ...(keys.get(r.restaurant_id) || {}), ...r }); },
     async getPublicKey(id) { return keys.get(id) || null; },
+    // 관할 지역(공개 사업장 정보) 갱신 — D1 setDistrict와 동등(대상 없으면 no-op).
+    async setDistrict(restaurant_id, district) { const row = keys.get(restaurant_id); if (row) row.district = district; },
     // 연락처(contact_kakao/contact_email)도 같은 레코드에 있으므로 삭제로 함께 사라진다.
     async deregisterKey(id) { keys.delete(id); },
     async registeredAmong(ids) { return ids.filter(id => keys.has(id)); },
+    // 시도(+선택 시군구)로 등록 음식점 조회 — D1 registeredByDistrict와 동등. 레거시(district 없음) 제외, 이름 가나다 정렬.
+    async registeredByDistrict(sido, sigungu) {
+      const out = [];
+      for (const row of keys.values()) {
+        const d = row.district;
+        if (typeof d !== 'string' || !d) continue;
+        if (!d.startsWith(sido)) continue;
+        if (sigungu && !d.includes(sigungu)) continue;
+        out.push({ restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, district: d });
+      }
+      out.sort((a, b) => String(a.restaurant_name || '').localeCompare(String(b.restaurant_name || ''), 'ko'));
+      return out;
+    },
     // 업무용 연락처(선택) upsert. 대상이 없으면 false(호출부에서 404 사전 체크 후 호출하므로
     // 정상 경로에서는 발생하지 않지만 방어적으로 처리).
     async setContact(restaurant_id, contact) {

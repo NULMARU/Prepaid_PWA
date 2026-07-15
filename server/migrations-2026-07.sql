@@ -90,3 +90,9 @@ CREATE TABLE IF NOT EXISTS feedback (
   created_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at);
+
+-- ── 2026-07(5차) 추가: 음식점 관할 지역(선택) — 등록된 음식점 지역별 조회용 ──
+-- district는 "시도 전체명 + 시군구명"(예 "서울특별시 광진구") 형식의 공개 사업장 정보다.
+-- 개인정보가 아니므로 zero-knowledge 불변식(§0)을 위반하지 않는다(관할지역은 공개값 — 허용).
+-- 담당자 웹의 /api/registered-list?sido=&sigungu= 조회에 사용된다. 이미 적용된 D1에는 재실행 금지.
+ALTER TABLE public_key_registry ADD COLUMN district TEXT;

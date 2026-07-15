@@ -43,12 +43,13 @@ batch_hash = SHA-256(hex)
 
 | 메서드·경로 | 요청 | 응답 | 비고 |
 |---|---|---|---|
-| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?}` | `{ok:true}` | 공개키 등록. 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1) |
+| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?, district?}` | `{ok:true}` | 공개키 등록. 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1). 선택 필드 `district`(관할 지역, 공개 사업장 정보, ≤100자, 예 "서울특별시 광진구") 저장. **재등록(멱등·소유증명 경로 모두)에서 `district`가 오면 갱신**(레거시/미채움 등록분을 앱 재등록으로 채울 수 있게, §4.6) |
 | `POST /api/challenge` | `{restaurant_id}` | `{challenge_ct}` / 404 | 소유 증명 챌린지 발급(§4.1) |
 | `POST /api/deregister` | `{restaurant_id, auth_token}` | `{ok:true}` / 401 | 음식점 주인 등록 해제(선금 받기 중단) → 공개키 삭제(연락처·원장 클라우드 백업도 함께 삭제, §4.2). 인증 필요 |
 | `POST /api/contact` | `{restaurant_id, auth_token, kakao_link, email}` | `{ok:true}` / 400/401/404 | 업무용 연락처 등록·수정·삭제(§4.5). 인증 필요 |
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. `contact`는 미등록 시 각 필드 `null`. IP당 분당 20회로 별도 레이트리밋(§6.3) |
 | `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` | 담당자 웹: '선금 받기 가능' 표시용 |
+| `GET /api/registered-list?sido=&sigungu=` | — | `{restaurants:[{restaurant_id,restaurant_name,district}]}` / 400 | 시도(+선택 시군구)의 등록 음식점 목록(§4.6). `sido` 필수(없으면 `400 {error:'sido_required'}`). 공개 정보만(연락처 미포함), 레거시(district 없음) 제외, 이름 가나다 정렬. IP당 분당 20회 별도 레이트리밋(§6.3) |
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | `{summary_id}` / 401 | 부서·음식점 단위 1건(§4.3) |
 | `GET /api/inbox?restaurant_id=` | — | `[{summary_id, summary, ciphertext, status}]` | 음식점 앱 폴링(PENDING만) |
@@ -168,6 +169,25 @@ batch_hash = SHA-256(hex)
 있으면 기본 이메일 형식(200자 이하)이어야 한다(`400 {error:'invalid_email'}`). 미등록
 `restaurant_id`는 `404`. 등록된 연락처는 `GET /api/public-key` 응답의 `contact` 필드로
 노출되며, `POST /api/deregister`로 등록을 해제하면 공개키와 함께 즉시 삭제된다.
+
+### 4.6 관할 지역(선택) · 등록 음식점 지역별 조회
+
+음식점 앱은 `POST /api/register-key` 시 선택 필드 `district`(관할 지역, 예 "서울특별시 광진구")를
+함께 보낼 수 있다. `district`는 **가게 주소에서 유도한 공개 사업장 정보**(시도 전체명 + 시군구명)
+이므로 §0의 zero-knowledge 불변식을 위반하지 않는다(관할지역은 공개값이라 평문 저장 허용).
+서버는 이를 `public_key_registry.district`(≤100자)에 저장한다. **재등록 시 `district`가 오면
+갱신**한다 — 멱등 재등록(동일 키, 200)·소유증명 재등록(다른 키) 어느 경로든, 이미 등록된
+행(레거시·미채움 포함)이 앱 재등록으로 관할을 채울 수 있게 한다.
+
+담당자 웹은 `GET /api/registered-list?sido=<시도명>&sigungu=<시군구명>`으로 특정 지역의
+'등록된(선금 받기 가능)' 음식점을 조회한다.
+- 응답 `200 {"restaurants":[{"restaurant_id","restaurant_name","district"}]}`, 이름 가나다 정렬.
+- `sido` 필수(없으면 `400 {error:'sido_required'}`), `sigungu`는 선택(없으면 시도 전체).
+- 매칭: `district`가 `sido`로 시작하고, `sigungu`가 주어지면 `district`에 `sigungu`를 포함하는 행.
+- `district` 없는(레거시) 등록분은 결과에서 **제외**. 반환은 **공개 정보만**(id·이름·district —
+  연락처는 미포함).
+- 대량 수집(크롤링) 완화를 위해 `GET /api/public-key`와 동일한 강화 레이트리밋(IP당 분당 20회,
+  독립 카운터)을 적용한다(§6.3).
 
 ## 5. 상태 머신
 `deposit_summary.status`: `PENDING` →(approve)→ `APPROVED` / `REJECTED`, 또는

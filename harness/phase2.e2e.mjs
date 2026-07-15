@@ -669,6 +669,77 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   r = await call(store, env, 'POST', '/api/feedback', { role: '기타', message: '정상', contact: 'a'.repeat(200) });
   ok(r.status === 200, 'feedback: 경계값(message 1자·contact 200자) 정상 저장 200');
 
+  // 20) 관할 지역(district) 등록 + 지역별 조회(registered-list) — §4.6
+  // 공개 사업장 정보(관할지역)는 §0 zero-knowledge 불변식과 무관(공개값 — 평문 저장 허용).
+  const mkKey = async () => { const kp = await genKeyPair(); return { kp, spki: b64(await subtle.exportKey('spki', kp.publicKey)) }; };
+  const kA = await mkKey(), kB = await mkKey(), kC = await mkKey(), kD = await mkKey(), kE = await mkKey(), kL = await mkKey();
+
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-A', restaurant_name: '다라식당', public_key: kA.spki, district: '서울특별시 광진구' });
+  ok(r.status === 200, 'registered-list: district 포함 등록 200');
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-B', restaurant_name: '가나분식', public_key: kB.spki, district: '서울특별시 광진구' });
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-C', restaurant_name: '나다김밥', public_key: kC.spki, district: '서울특별시 광진구' });
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-D', restaurant_name: '성동식당', public_key: kD.spki, district: '서울특별시 성동구' });
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-E', restaurant_name: '분당한정식', public_key: kE.spki, district: '경기도 성남시' });
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-L', restaurant_name: '레거시광진', public_key: kL.spki }); // district 없음(레거시)
+
+  // 연락처를 등록해도 registered-list 응답에는 노출되지 않아야 함(공개 정보만) — 강한 검증용.
+  const tokB = await getAuthToken(store, env, 'D-B', kB.kp.privateKey);
+  await call(store, env, 'POST', '/api/contact', { restaurant_id: 'D-B', auth_token: tokB, kakao_link: 'https://open.kakao.com/o/dbcontact', email: 'db@example.example' });
+
+  // 20-a) sido+sigungu 조회 → 광진구 3곳만, 이름 가나다 정렬, 레거시 제외, 연락처 미포함
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시') + '&sigungu=' + encodeURIComponent('광진구'));
+  const rl = await r.json();
+  ok(r.status === 200 && Array.isArray(rl.restaurants), 'registered-list: 200 + restaurants 배열');
+  ok(rl.restaurants.length === 3, 'registered-list: sido+sigungu 매칭 3곳만(레거시 미포함)');
+  ok(rl.restaurants.map(x => x.restaurant_name).join(',') === '가나분식,나다김밥,다라식당', 'registered-list: 이름 가나다 정렬');
+  ok(rl.restaurants.every(x => x.district === '서울특별시 광진구'), 'registered-list: 반환 district가 조회 지역과 일치');
+  ok(!rl.restaurants.some(x => x.restaurant_id === 'D-L'), 'registered-list: district 없는 레거시 등록분은 미노출');
+  ok(rl.restaurants.every(x => Object.keys(x).sort().join(',') === 'district,restaurant_id,restaurant_name'),
+    'registered-list: 각 항목은 id·이름·district만(연락처 등 미포함 — 연락처 등록된 D-B도 노출 안 됨)');
+
+  // 20-b) sigungu 없이 sido 전체 → 서울 4곳(광진3+성동1), 다른 시도(경기)·레거시 제외
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시'));
+  const rlSido = await r.json();
+  ok(rlSido.restaurants.length === 4, 'registered-list: sigungu 없이 sido 전체 조회(서울 광진3+성동1=4)');
+  ok(rlSido.restaurants.some(x => x.restaurant_id === 'D-D') && !rlSido.restaurants.some(x => x.restaurant_id === 'D-E'),
+    'registered-list: 시도 전체는 다른 시군구 포함하되 다른 시도(경기)는 제외');
+
+  // 20-c) sido 누락 400
+  r = await call(store, env, 'GET', '/api/registered-list?sigungu=' + encodeURIComponent('광진구'));
+  ok(r.status === 400 && (await r.json()).error === 'sido_required', 'registered-list: sido 누락 400(sido_required)');
+
+  // 20-d) 같은 키 멱등 재등록으로 district 갱신(레거시 채우기)
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-L', restaurant_name: '레거시광진', public_key: kL.spki, district: '서울특별시 광진구' });
+  ok(r.status === 200, 'registered-list: 레거시 동일 키 재등록(district 포함) 200(멱등)');
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시') + '&sigungu=' + encodeURIComponent('광진구'));
+  ok((await r.json()).restaurants.some(x => x.restaurant_id === 'D-L' && x.district === '서울특별시 광진구'),
+    'registered-list: 동일 키 멱등 재등록으로 district가 채워져 목록에 노출됨');
+
+  // 20-e) 소유증명(다른 키) 재등록 경로에서도 district 갱신(광진→성동 이동)
+  const kA2 = await mkKey();
+  const tokA = await getAuthToken(store, env, 'D-A', kA.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-A', restaurant_name: '다라식당', public_key: kA2.spki, auth_token: tokA, district: '서울특별시 성동구' });
+  ok(r.status === 200, 'registered-list: 소유증명 후 다른 키 재등록(district 변경) 200');
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시') + '&sigungu=' + encodeURIComponent('성동구'));
+  ok((await r.json()).restaurants.some(x => x.restaurant_id === 'D-A' && x.district === '서울특별시 성동구'),
+    'registered-list: 소유증명 재등록 경로에서도 district 갱신(성동구 목록에 노출)');
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시') + '&sigungu=' + encodeURIComponent('광진구'));
+  ok(!(await r.json()).restaurants.some(x => x.restaurant_id === 'D-A'), 'registered-list: district 갱신 후 이전 시군구(광진구)에서는 제외');
+
+  // 20-f) district 길이 상한(100자) 초과 400
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'D-LEN', restaurant_name: 'x', public_key: kD.spki, district: '서'.repeat(101) });
+  ok(r.status === 400, 'registered-list: district 길이 상한(100자) 초과 400');
+
+  // 20-g) 레이트리밋: registered-list는 public-key와 동일한 강화 한도(분당 20)로 별도(독립 카운터) 제한
+  let rlLimited = false;
+  for (let i = 0; i < 25; i++) {
+    const rr = await handle(new Request('http://x/api/registered-list?sido=' + encodeURIComponent('서울특별시'), { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.77' } }), env, store);
+    if (rr.status === 429) { rlLimited = true; break; }
+  }
+  ok(rlLimited, 'registered-list: 강화된 레이트리밋(분당 20회) 초과 시 429');
+  const rlOther = await handle(new Request('http://x/api/registered?ids=rl-list-other', { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.77' } }), env, store);
+  ok(rlOther.status === 200, 'registered-list: 강화된 레이트리밋은 registered-list 전용(다른 엔드포인트 영향 없음)');
+
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
