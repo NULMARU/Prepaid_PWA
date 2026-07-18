@@ -31,4 +31,5 @@ python -m http.server 8765
 | `manual.html` | 사용자 매뉴얼 (인쇄용) |
 
 ## 라이선스
-© 2026 선입금대장
+© 2026 널마루(밥장부 · 선입금대장). All rights reserved.
+열람·검증용으로 공개된 저장소이며, 사전 서면 동의 없는 복제·수정·재배포·상업적 이용을 금지합니다. 자세한 내용은 [LICENSE](LICENSE) 참조. 문의: contact@bapjangbu.com
