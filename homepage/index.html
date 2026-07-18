@@ -3,218 +3,217 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="밥장부(선입금대장) — 소규모 음식점의 단체·직원 식대 선입금을 종이 장부 없이 폰으로 안전하게 기록하는 무료 도구. 결제앱이 아닙니다.">
+<meta name="description" content="단체 손님·직원 식대 선입금을 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다. 음식점 사장님도, 기관 담당자도 바로 시작하세요.">
 <link rel="canonical" href="https://bapjangbu.com/">
-<title>밥장부(선입금대장) — 단체·직원 식대 선입금 기록 도구</title>
+<title>밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로</title>
 <!-- Open Graph -->
-<meta property="og:title" content="밥장부(선입금대장) — 단체·직원 식대 선입금 기록 도구">
-<meta property="og:description" content="소규모 음식점의 단체·직원 식대를 종이 장부 없이 폰으로 안전하게 관리하는 무료 기록 도구.">
+<meta property="og:title" content="밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로">
+<meta property="og:description" content="단체 손님·직원 식대를 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다.">
 <meta property="og:image" content="https://bapjangbu.com/og-image.png">
 <meta property="og:url" content="https://bapjangbu.com/">
 <meta property="og:type" content="website">
 <!-- Twitter -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="밥장부(선입금대장) — 단체·직원 식대 선입금 기록 도구">
-<meta name="twitter:description" content="소규모 음식점의 단체·직원 식대를 종이 장부 없이 폰으로 안전하게 관리하는 무료 기록 도구.">
+<meta name="twitter:title" content="밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로">
+<meta name="twitter:description" content="단체 손님·직원 식대를 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다.">
 <meta name="twitter:image" content="https://bapjangbu.com/og-image.png">
 <style>
 :root{
-  /* ---- palette: restrained blue + faint warm accent ---- */
-  --primary:#1e4e86;        /* deep, trustworthy blue */
+  --primary:#1e4e86;
   --primary-dark:#173c66;
-  --primary-soft:#eef3fa;   /* pale blue tint */
+  --primary-soft:#eef3fa;
   --primary-tint:#f5f8fc;
-  --accent:#c0894f;         /* muted clay / amber — used very sparingly */
+  --accent:#c0894f;
   --accent-soft:#f7efe4;
   --accent-line:#ecdcc4;
-  --heading:#1b2635;        /* deep slate for titles */
-  --text:#1f2937;           /* slate body */
-  --muted:#516072;          /* muted slate */
-  --line:#e6e8ec;           /* hairline border */
-  --bg:#faf9f7;             /* warm off-white page */
-  --bg-soft:#f6f7f9;        /* cool soft band */
+  --heading:#1b2635;
+  --text:#1f2937;
+  --muted:#516072;
+  --line:#e6e8ec;
+  --bg:#faf9f7;
+  --bg-soft:#f6f7f9;
   --card:#ffffff;
   --ok:#1a7f4b;--ok-soft:#e9f6ef;--ok-line:#cfe8da;
   --warn:#b7791f;--warn-soft:#fbf3e4;--warn-line:#ecdcbb;
-  /* ---- spacing scale (4/8/12/16/24/32/48/64) ---- */
   --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--s12:48px;--s16:64px;
-  /* ---- radius ---- */
-  --r-sm:10px;--r:14px;--r-lg:16px;
-  /* ---- elevation: soft, low ---- */
+  --r-sm:10px;--r:14px;--r-lg:18px;
   --shadow-xs:0 1px 2px rgba(16,32,64,.05);
   --shadow-sm:0 2px 8px rgba(16,32,64,.05);
   --shadow:0 6px 22px rgba(16,32,64,.07);
+  --shadow-lg:0 14px 40px rgba(16,32,64,.12);
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{
   font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
-  color:var(--text);line-height:1.7;font-size:16px;margin:0;background:var(--bg);
+  color:var(--text);line-height:1.7;font-size:17px;margin:0;background:var(--bg);
   -webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
 }
-.wrap{max-width:920px;margin:0 auto;padding:0 20px}
+.wrap{max-width:860px;margin:0 auto;padding:0 20px}
 h1,h2,h3{color:var(--heading);line-height:1.3;letter-spacing:-.01em}
 a{color:var(--primary)}
 img{max-width:100%}
 
-/* scroll reveal — progressive, JS-gated so no-JS stays visible */
-.js-reveal .reveal{opacity:0;transform:translateY(14px);transition:opacity .55s ease,transform .55s cubic-bezier(.2,.7,.3,1)}
-.js-reveal .reveal.in{opacity:1;transform:none}
-
-/* ---------- header ---------- */
-header.site{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(250,249,247,.82);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px);z-index:10}
-header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
-.brand{font-weight:800;color:var(--heading);font-size:17px;text-decoration:none;letter-spacing:-.01em}
-.brand small{font-weight:600;color:var(--muted);font-size:12px;letter-spacing:0}
-.nav a{margin-left:20px;font-size:13.5px;text-decoration:none;color:var(--muted);font-weight:600;transition:color .15s}
-.nav a:hover{color:var(--primary)}
-@media(max-width:640px){
-  header.site .wrap{height:auto;flex-wrap:wrap;padding-top:8px;padding-bottom:8px;gap:2px 0}
-  .brand{flex:1 1 auto}
-  .nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 0;width:100%}
-  .nav a{margin-left:0;margin-right:14px;font-size:12.5px}
-  .nav a.sec{display:none}
+/* ---------- big buttons (elderly-friendly) ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border-radius:14px;padding:16px 24px;font-weight:800;font-size:18px;
+  min-height:54px;text-decoration:none;cursor:pointer;border:2px solid var(--primary);
+  transition:transform .16s ease,box-shadow .16s ease,background .16s ease,border-color .16s ease;
+  letter-spacing:-.01em;font-family:inherit;line-height:1.25;
 }
-
-/* ---------- hero ---------- */
-.hero{background:radial-gradient(120% 90% at 50% -10%,var(--primary-soft) 0%,var(--primary-tint) 42%,var(--bg) 100%);padding:76px 0 64px;text-align:center}
-.hero h1{font-size:44px;font-weight:800;margin:0 0 var(--s3);letter-spacing:-.025em}
-.hero .sub{font-size:21px;font-weight:700;color:var(--heading);margin:0 0 var(--s4);line-height:1.45}
-.hero p.lead{font-size:17px;color:var(--muted);max-width:600px;margin:0 auto var(--s6);line-height:1.75}
-.badges{display:flex;gap:var(--s2);justify-content:center;flex-wrap:wrap;margin:0 0 var(--s8)}
-.badge{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 15px;font-size:13px;font-weight:700;color:var(--text);box-shadow:var(--shadow-xs)}
-.badge.free{background:var(--ok-soft);border-color:var(--ok-line);color:var(--ok)}
-.cta-row{display:flex;gap:var(--s3);justify-content:center;flex-wrap:wrap}
-.btn{display:inline-block;border-radius:12px;padding:14px 26px;font-weight:800;font-size:15.5px;text-decoration:none;cursor:pointer;border:1.5px solid var(--primary);transition:transform .16s ease,box-shadow .16s ease,background .16s ease,border-color .16s ease;letter-spacing:-.01em}
 .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow-sm)}
 .btn-primary:hover{background:var(--primary-dark);border-color:var(--primary-dark);box-shadow:var(--shadow);transform:translateY(-1px)}
 .btn-outline{background:var(--card);color:var(--primary)}
 .btn-outline:hover{background:var(--primary-soft);transform:translateY(-1px)}
-@media(max-width:640px){.hero{padding:52px 0 44px}.hero h1{font-size:31px}.hero .sub{font-size:18px}.cta-row .btn{flex:1 1 100%}}
+.btn-lg{font-size:20px;padding:20px 26px;min-height:62px;width:100%}
+.btn-block{width:100%}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+
+/* ---------- header ---------- */
+header.site{border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:20;backdrop-filter:saturate(180%) blur(8px);-webkit-backdrop-filter:saturate(180%) blur(8px)}
+header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:58px}
+.brand{font-weight:800;color:var(--heading);font-size:19px;text-decoration:none;letter-spacing:-.01em}
+.brand small{font-weight:600;color:var(--muted);font-size:12px;letter-spacing:0}
+
+/* ---------- hero ---------- */
+.hero{background:radial-gradient(120% 90% at 50% -10%,var(--primary-soft) 0%,var(--primary-tint) 42%,var(--bg) 100%);padding:40px 0 44px;text-align:center}
+.hero h1{font-size:40px;font-weight:800;margin:0 0 var(--s3);letter-spacing:-.025em}
+.hero .sub{font-size:22px;font-weight:700;color:var(--heading);margin:0 auto var(--s4);line-height:1.45;max-width:520px}
+.chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:0 0 var(--s6)}
+.chip{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 15px;font-size:14px;font-weight:700;color:var(--text);box-shadow:var(--shadow-xs)}
+.chip.free{background:var(--ok-soft);border-color:var(--ok-line);color:var(--ok)}
+.hero-cta{display:flex;flex-direction:column;gap:12px;max-width:440px;margin:0 auto}
+.hero-hint{font-size:14px;color:var(--muted);margin:14px 0 0}
 
 /* ---------- sections ---------- */
 section{padding:var(--s16) 0;border-top:1px solid var(--line)}
 section h2{font-size:27px;font-weight:800;margin:0 0 var(--s2);letter-spacing:-.02em}
-section .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:800;letter-spacing:.13em;color:var(--primary);text-transform:uppercase;margin:0 0 var(--s3)}
+section .kicker{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:800;letter-spacing:.12em;color:var(--primary);text-transform:uppercase;margin:0 0 var(--s3)}
 section .kicker::before{content:"";width:18px;height:2px;background:var(--accent);border-radius:2px}
-section p.intro{color:var(--muted);font-size:16.5px;margin:0 0 var(--s8);max-width:680px;line-height:1.75}
-@media(max-width:640px){section{padding:var(--s12) 0}section h2{font-size:23px}}
+section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width:640px;line-height:1.7}
+@media(max-width:640px){section{padding:var(--s12) 0}section h2{font-size:23px}.hero h1{font-size:33px}.hero .sub{font-size:19px}}
 
-/* ---------- cards ---------- */
-.grid{display:grid;gap:var(--s4)}
-.grid.c3{grid-template-columns:repeat(3,1fr)}
-.grid.c2{grid-template-columns:repeat(2,1fr)}
-@media(max-width:760px){.grid.c3,.grid.c2{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 22px;box-shadow:var(--shadow-xs);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
-.card .ic{font-size:28px;line-height:1;margin-bottom:var(--s3)}
-.card h3{font-size:17.5px;font-weight:800;margin:0 0 var(--s2)}
-.card p{margin:0;font-size:14.5px;color:var(--muted);line-height:1.7}
-@media(hover:hover){.card:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:#dde1e7}}
+/* ---------- mini demo ---------- */
+.demo-wrap{text-align:center}
+.demo-label{font-size:18px;font-weight:800;color:var(--heading);margin:0 0 4px}
+.demo-note{font-size:14px;color:var(--muted);margin:0 0 var(--s6)}
+.phone{max-width:340px;margin:0 auto;background:#20242b;border-radius:34px;padding:12px;box-shadow:var(--shadow-lg)}
+.pscreen{background:var(--bg);border-radius:24px;overflow:hidden;text-align:left}
+.pbar{background:var(--primary);color:#fff;font-weight:800;font-size:16px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
+.pbar span{font-weight:600;font-size:12.5px;color:#cfe0f2}
+.plist{padding:10px 12px 4px}
+.prow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.prow .pname{font-weight:800;font-size:16px;color:var(--heading)}
+.prow .pbal{display:block;font-size:13.5px;color:var(--muted);font-weight:600;margin-top:2px}
+.prow.flash{animation:flash .8s ease}
+@keyframes flash{0%{background:var(--ok-soft)}100%{background:var(--card)}}
+.puse{background:var(--primary-soft);color:var(--primary);border:1.5px solid #cfe0f2;border-radius:10px;font-weight:800;font-size:15px;padding:10px 16px;min-height:44px;cursor:pointer;font-family:inherit;white-space:nowrap}
+.puse[aria-expanded="true"]{background:var(--primary);color:#fff;border-color:var(--primary)}
+.pamts{display:flex;gap:8px;padding:0 2px 10px}
+.pamt{flex:1;background:var(--card);border:1.5px solid var(--primary);color:var(--primary);border-radius:10px;font-weight:800;font-size:15px;padding:11px 6px;min-height:46px;cursor:pointer;font-family:inherit}
+.pamt:hover{background:var(--primary-soft)}
+.plog-wrap{background:var(--bg-soft);border-top:1px solid var(--line);padding:12px 14px 16px;min-height:96px}
+.plog-title{font-size:12.5px;font-weight:800;color:var(--muted);letter-spacing:.04em;margin:0 0 6px}
+.plog-empty{font-size:13.5px;color:var(--muted)}
+.plog{list-style:none;margin:0;padding:0}
+.plog li{font-size:13.5px;color:var(--text);padding:6px 0;border-bottom:1px dashed var(--line)}
+.plog li:last-child{border-bottom:none}
+.plog li b{color:var(--ok)}
+.demo-reset{margin:16px auto 0;display:inline-flex;align-items:center;gap:6px;background:var(--card);border:1.5px solid var(--line);color:var(--muted);border-radius:10px;font-weight:700;font-size:15px;padding:11px 20px;min-height:46px;cursor:pointer;font-family:inherit}
+.demo-reset:hover{border-color:var(--primary);color:var(--primary)}
+.demo-after{margin-top:var(--s8);text-align:center}
+.demo-after p{font-size:17px;font-weight:700;color:var(--heading);margin:0 0 14px}
+.demo-after .btn{max-width:440px;margin:0 auto}
 
-/* ---------- problem / solution ---------- */
-.ps{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
-@media(max-width:760px){.ps{grid-template-columns:1fr}}
-.ps .box{border-radius:var(--r);padding:24px 22px;border:1px solid var(--line);box-shadow:var(--shadow-xs)}
-.ps .box h3{font-size:16.5px;margin:0 0 var(--s2)}
-.ps .prob{background:var(--warn-soft);border-color:var(--warn-line)}
-.ps .prob h3{color:#7a5209}
-.ps .sol{background:var(--ok-soft);border-color:var(--ok-line)}
-.ps .sol h3{color:var(--ok)}
-.ps ul{margin:var(--s2) 0 0;padding-left:20px;font-size:14.5px}
-.ps li{margin:7px 0;line-height:1.65}
+/* ---------- steps ---------- */
+.steps{display:grid;gap:var(--s4);margin-top:var(--s6)}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;display:flex;gap:16px;align-items:flex-start;box-shadow:var(--shadow-xs)}
+.step .n{flex:0 0 auto;width:38px;height:38px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:17px}
+.step h3{font-size:18px;margin:0 0 4px}
+.step p{margin:0;font-size:15.5px;color:var(--muted);line-height:1.6}
+.acc{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
+.acc summary{cursor:pointer;font-weight:800;font-size:15.5px;color:var(--primary);padding:14px 16px;list-style:none}
+.acc summary::-webkit-details-marker{display:none}
+.acc summary::after{content:"▾";float:right;transition:transform .2s}
+.acc[open] summary::after{transform:rotate(180deg)}
+.acc-body{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:0 16px 16px}
+@media(max-width:560px){.acc-body{grid-template-columns:1fr}}
+.acc-col{background:var(--bg-soft);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.acc-col strong{display:block;font-size:15px;color:var(--heading);margin-bottom:6px}
+.acc-col p{margin:0;font-size:14.5px;color:var(--text);line-height:1.85}
+.more{display:inline-block;margin-top:16px;font-weight:800;text-decoration:none;font-size:16px;color:var(--primary)}
+.more:hover{text-decoration:underline}
+.sec-cta{margin-top:var(--s6)}
+.sec-cta .btn{max-width:440px}
 
-/* ---------- workflow ---------- */
-.flow{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s4);margin-top:var(--s6)}
-@media(max-width:760px){.flow{grid-template-columns:1fr;gap:28px;margin-top:28px}}
-@media(min-width:761px){
-  .flow::before{content:"";position:absolute;top:0;left:16.66%;right:16.66%;height:2px;background:repeating-linear-gradient(90deg,var(--line) 0,var(--line) 7px,transparent 7px,transparent 15px);z-index:0}
-}
-.flow .step{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px 20px 20px;position:relative;z-index:1;box-shadow:var(--shadow-xs);transition:transform .18s ease,box-shadow .18s ease}
-@media(hover:hover){.flow .step:hover{transform:translateY(-2px);box-shadow:var(--shadow)}}
-.flow .step .n{position:absolute;top:-16px;left:20px;width:34px;height:34px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 4px 10px rgba(30,78,134,.28);border:3px solid var(--bg)}
-.flow .step .ic{font-size:26px;margin:var(--s2) 0}
-.flow .step h3{font-size:16px;margin:0 0 var(--s1)}
-.flow .step p{margin:0;font-size:14px;color:var(--muted);line-height:1.65}
-.emph{background:var(--accent-soft);border:1px solid var(--accent-line);border-left:4px solid var(--accent);border-radius:var(--r-sm);padding:16px 18px;margin-top:var(--s8);font-weight:700;font-size:15px;color:#6b4a24;line-height:1.65}
+/* agency band */
+.agency{background:var(--bg-soft)}
 
-/* ---------- privacy ---------- */
-.priv{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--s4)}
-@media(max-width:760px){.priv{grid-template-columns:1fr}}
-.priv .item{display:flex;gap:var(--s4);background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px 20px;box-shadow:var(--shadow-xs);transition:transform .18s ease,box-shadow .18s ease}
-@media(hover:hover){.priv .item:hover{transform:translateY(-2px);box-shadow:var(--shadow)}}
-.priv .item .ic{font-size:24px;line-height:1;flex:0 0 auto;width:46px;height:46px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);border-radius:12px}
-.priv .item h3{font-size:16px;margin:0 0 var(--s1)}
-.priv .item p{margin:0;font-size:14px;color:var(--muted);line-height:1.7}
-.legal-links{margin-top:var(--s6);font-size:14.5px}
-.legal-links a{font-weight:700;text-decoration:none;margin-right:20px;color:var(--primary)}
-.legal-links a:hover{text-decoration:underline}
+/* ---------- safety ---------- */
+.safe{background:var(--primary-dark);color:#fff;border-top:none}
+.safe .kicker{color:#a9c5e6}
+.safe .kicker::before{background:var(--accent)}
+.safe h2{color:#fff}
+.safe .safe-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:var(--s4)}
+@media(max-width:640px){.safe .safe-grid{grid-template-columns:1fr}}
+.safe .s{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:16px 18px;display:flex;gap:14px;align-items:flex-start}
+.safe .s .ic{font-size:24px;line-height:1;flex:0 0 auto}
+.safe .s h3{color:#fff;font-size:16.5px;margin:0 0 3px}
+.safe .s p{margin:0;font-size:14.5px;color:#cfe0f2;line-height:1.6}
+.safe .relay{margin:var(--s6) 0 0;font-size:14px;color:#b9cfe8;line-height:1.7}
+.safe .relay a{color:#fff;font-weight:700}
 
-/* ---------- usage ---------- */
-.usage{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
-@media(max-width:760px){.usage{grid-template-columns:1fr}}
-.usage .u{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 22px;box-shadow:var(--shadow-xs)}
-.usage .u .role{display:inline-block;font-size:12px;font-weight:800;color:var(--primary);letter-spacing:.06em;background:var(--primary-soft);padding:4px 11px;border-radius:999px;margin-bottom:var(--s3)}
-.usage .u h3{font-size:17.5px;margin:0 0 var(--s1)}
-.usage .u ol{margin:var(--s3) 0 var(--s4);padding-left:20px;font-size:14.5px}
-.usage .u ol li{margin:7px 0;line-height:1.65}
-.usage .u a.more{display:inline-block;font-weight:700;text-decoration:none;font-size:14.5px;color:var(--primary)}
-.usage .u a.more:hover{text-decoration:underline}
-
-/* ---------- start (role CTA band) ---------- */
-.start{background:var(--primary-dark);color:#fff;border-top:none}
-.start .kicker{color:#a9c5e6}
-.start .kicker::before{background:var(--accent)}
-.start h2{color:#fff}
-.start p.intro{color:#cfe0f2}
-.start .cta-row{margin-top:var(--s2)}
-.start .cta-row .btn{padding:16px 26px;font-size:16px}
-.start .btn-outline{background:rgba(255,255,255,.06);color:#fff;border-color:rgba(255,255,255,.55)}
-.start .btn-outline:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.8)}
-.start .btn-white{background:#fff;color:var(--primary-dark);border-color:#fff}
-.start .btn-white:hover{background:#eef3fa}
-.start small{display:block;color:#b9cfe8;font-size:12.5px;margin-top:var(--s4);line-height:1.6}
+/* ---------- FAQ ---------- */
+.faq details{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;box-shadow:var(--shadow-xs)}
+.faq summary{cursor:pointer;font-weight:800;font-size:17px;color:var(--heading);padding:16px 18px;list-style:none;line-height:1.4}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";float:right;color:var(--primary);font-weight:800;font-size:20px;line-height:1}
+.faq details[open] summary::after{content:"–"}
+.faq details p{margin:0;padding:0 18px 16px;font-size:15.5px;color:var(--muted);line-height:1.7}
 
 /* ---------- feedback form ---------- */
-.form-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:28px 24px;max-width:640px;box-shadow:var(--shadow-sm)}
+.form-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:24px 22px;max-width:620px;box-shadow:var(--shadow-sm)}
 .form-row{margin:0 0 var(--s6)}
-.form-row label{display:block;font-weight:700;font-size:14.5px;margin-bottom:var(--s2);color:var(--heading)}
+.form-row label{display:block;font-weight:700;font-size:15.5px;margin-bottom:var(--s2);color:var(--heading)}
 .roles{display:flex;gap:var(--s2);flex-wrap:wrap}
-.roles label{display:inline-flex;align-items:center;gap:6px;background:var(--bg-soft);border:1.5px solid var(--line);border-radius:10px;padding:9px 15px;font-weight:600;font-size:14.5px;cursor:pointer;margin:0;transition:border-color .15s,background .15s}
-.roles input{accent-color:var(--primary)}
+.roles label{display:inline-flex;align-items:center;gap:6px;background:var(--bg-soft);border:1.5px solid var(--line);border-radius:10px;padding:11px 17px;font-weight:600;font-size:15.5px;cursor:pointer;margin:0;min-height:48px;transition:border-color .15s,background .15s}
+.roles input{accent-color:var(--primary);width:18px;height:18px}
 .roles label:has(input:checked){border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
-textarea,input[type=text],input[type=email]{
-  width:100%;font-family:inherit;font-size:15px;color:var(--text);
-  border:1.5px solid var(--line);border-radius:10px;padding:12px 13px;background:var(--card);transition:border-color .15s,box-shadow .15s;
-}
-textarea{min-height:130px;resize:vertical;line-height:1.6}
-textarea:focus,input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(30,78,134,.12)}
-.hint{font-size:12.5px;color:var(--muted);margin:6px 0 0}
-.counter{float:right;font-size:12.5px;color:var(--muted);font-weight:600}
+textarea{width:100%;font-family:inherit;font-size:16px;color:var(--text);border:1.5px solid var(--line);border-radius:10px;padding:13px;background:var(--card);transition:border-color .15s,box-shadow .15s;min-height:120px;resize:vertical;line-height:1.6}
+textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(30,78,134,.12)}
+.counter{float:right;font-size:13px;color:var(--muted);font-weight:600}
 .counter.over{color:#c0392b;font-weight:700}
-.form-note{background:var(--warn-soft);border-left:4px solid var(--warn);border-radius:10px;padding:11px 14px;font-size:13.5px;color:#7a5209;margin:0 0 18px}
-.form-msg{margin:var(--s4) 0 0;font-size:14.5px;font-weight:700;display:none}
+.form-msg{margin:var(--s4) 0 0;font-size:15.5px;font-weight:700;display:none}
 .form-msg.ok{color:var(--ok);display:block}
 .form-msg.err{color:#c0392b;display:block}
-button.submit{background:var(--primary);color:#fff;border:none;border-radius:12px;padding:14px 30px;font-size:15.5px;font-weight:800;cursor:pointer;transition:background .16s,transform .16s,box-shadow .16s;box-shadow:var(--shadow-sm)}
+button.submit{background:var(--primary);color:#fff;border:none;border-radius:12px;padding:15px 32px;font-size:18px;font-weight:800;cursor:pointer;min-height:54px;transition:background .16s,transform .16s,box-shadow .16s;box-shadow:var(--shadow-sm);font-family:inherit}
 button.submit:hover{background:var(--primary-dark);transform:translateY(-1px);box-shadow:var(--shadow)}
 button.submit:disabled{opacity:.6;cursor:default;transform:none;box-shadow:none}
 
 /* ---------- footer ---------- */
-footer.site{background:var(--bg-soft);border-top:1px solid var(--line);padding:var(--s12) 0 var(--s8);font-size:13px;color:var(--muted)}
-footer.site h4{color:var(--heading);font-size:14px;margin:0 0 var(--s2)}
+footer.site{background:var(--bg-soft);border-top:1px solid var(--line);padding:var(--s12) 0 var(--s12);font-size:13.5px;color:var(--muted)}
+footer.site h4{color:var(--heading);font-size:14.5px;margin:0 0 var(--s2)}
 footer.site a{color:var(--primary);text-decoration:none}
 footer.site a:hover{text-decoration:underline}
 footer.site .cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--s6);margin-bottom:var(--s6)}
 @media(max-width:640px){footer.site .cols{grid-template-columns:1fr}}
-footer.site .disclaimer{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:12.5px;margin-bottom:var(--s6);line-height:1.6}
-footer.site .copy{border-top:1px solid var(--line);padding-top:var(--s4);font-size:12px}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+footer.site .disclaimer{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13.5px;margin-bottom:var(--s6);line-height:1.6}
+footer.site .copy{border-top:1px solid var(--line);padding-top:var(--s4);font-size:12.5px}
+
+/* ---------- sticky mobile CTA ---------- */
+.stickybar{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:rgba(255,255,255,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-top:1px solid var(--line);box-shadow:0 -4px 18px rgba(16,32,64,.08);transform:translateY(140%);transition:transform .25s ease}
+.stickybar.show{transform:none}
+.stickybar .btn{width:100%;font-size:18px;min-height:56px}
+@media(min-width:761px){.stickybar{display:none}}
+body.has-sticky{padding-bottom:84px}
+@media(min-width:761px){body.has-sticky{padding-bottom:0}}
 
 /* ---------- reduced motion ---------- */
 @media (prefers-reduced-motion: reduce){
   html{scroll-behavior:auto}
-  .js-reveal .reveal{opacity:1 !important;transform:none !important;transition:none !important}
-  .btn,.card,.flow .step,.priv .item,button.submit,.roles label{transition:none !important}
+  .btn,.prow,button.submit,.roles label,.stickybar,.acc summary::after{transition:none !important}
+  .prow.flash{animation:none !important}
 }
 </style>
 </head>
@@ -223,205 +222,181 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:var(--s4);font-si
 <header class="site">
   <div class="wrap">
     <a class="brand" href="#top">밥장부 <small>선입금대장</small></a>
-    <nav class="nav" aria-label="바로가기">
-      <a href="#what">소개</a>
-      <a href="#flow" class="sec">이용 흐름</a>
-      <a href="#privacy" class="sec">개인정보</a>
-      <a href="#usage">사용법</a>
-      <a href="#start">시작하기</a>
-      <a href="#feedback" class="sec">의견</a>
-    </nav>
+    <a class="brand" href="#faq" style="font-size:14px;font-weight:700;color:var(--muted)">자주 묻는 질문</a>
   </div>
 </header>
 
 <!-- 1. 히어로 -->
 <section id="top" class="hero" style="border-top:none">
   <div class="wrap">
-    <h1>밥장부 <span style="font-weight:700;color:var(--muted);font-size:.62em">(선입금대장)</span></h1>
-    <p class="sub">소규모 음식점의 단체·직원 식대 선입금을,<br>종이 장부 없이 폰으로 안전하게</p>
-    <p class="lead">기관이 미리 맡긴 식대를 음식점이 폰 앱의 장부로 관리하고, 식사할 때마다 차감해 기록합니다. 명단은 음식점 폰 안에서만 열립니다.</p>
-    <div class="badges">
-      <span class="badge free">완전 무료</span>
-      <span class="badge">결제앱 아님 · 이체·정산 기능 없음</span>
-      <span class="badge">설치 없이 웹 · 폰 앱</span>
+    <h1>밥장부</h1>
+    <p class="sub">단체 손님·직원 식대 장부,<br>수첩 대신 폰으로</p>
+    <div class="chips">
+      <span class="chip free">완전 무료</span>
+      <span class="chip">결제앱 아님</span>
+      <span class="chip">내 폰에만 저장</span>
     </div>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="#start">역할별로 시작하기</a>
-      <a class="btn btn-outline" href="#what">먼저 살펴보기</a>
+    <div class="hero-cta">
+      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 사장님 — 지금 시작하기</a>
+      <a class="btn btn-outline" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자입니다</a>
+    </div>
+    <p class="hero-hint">가입 절차·비용 없이 바로 시작해요. (새 탭으로 열려요)</p>
+  </div>
+</section>
+
+<!-- 2. 미니 체험 -->
+<section id="try">
+  <div class="wrap demo-wrap">
+    <p class="demo-label"><span aria-hidden="true">👇</span> 직접 눌러보세요</p>
+    <p class="demo-note">아래는 예시 화면이에요. 아무 버튼이나 눌러봐도 괜찮아요.</p>
+
+    <div class="phone" id="demo">
+      <div class="pscreen">
+        <div class="pbar">행복식당 장부 <span>오늘</span></div>
+        <div class="plist" id="demoList"></div>
+        <div class="plog-wrap">
+          <p class="plog-title">오늘 기록</p>
+          <p class="plog-empty" id="demoEmpty">위에서 [사용]을 누르면 여기에 기록돼요.</p>
+          <ul class="plog" id="demoLog"></ul>
+        </div>
+      </div>
+    </div>
+    <button type="button" class="demo-reset" id="demoReset"><span aria-hidden="true">↺</span> 처음부터</button>
+    <p class="sr-only" id="demoLive" aria-live="polite"></p>
+
+    <div class="demo-after">
+      <p>실제 앱도 이만큼 쉬워요.</p>
+      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 지금 시작하기</a>
     </div>
   </div>
 </section>
 
-<!-- 2. 무엇을·왜 -->
-<section id="what">
+<!-- 3. 사장님 시작 3단계 -->
+<section id="owner">
   <div class="wrap">
-    <p class="kicker">무엇을 · 왜</p>
-    <h2>수기 외상장부의 부담을 덜어주는 기록 도구</h2>
-    <p class="intro">밥장부는 구청·주민센터 같은 기관이나 회사가 직원·이용자 식대를 음식점에 미리 맡길 때, 그 명단과 잔액을 종이 대신 폰으로 관리하도록 돕습니다. 돈을 주고받는 결제앱이 아니라, <b>누가 얼마를 언제 먹었는지 기록만</b> 하는 무료 장부입니다.</p>
-    <div class="ps">
-      <div class="box prob">
-        <h3>지금까지의 어려움</h3>
-        <ul>
-          <li>수기 외상장부는 분실·훼손되기 쉽고, 정산 때 금액 분쟁이 생깁니다.</li>
-          <li>기관이 이용자 명단(이름 등)을 종이·메신저로 넘기면 개인정보 유출 부담이 큽니다.</li>
-          <li>누가 며칠분을 남겼는지 매번 손으로 세야 합니다.</li>
-        </ul>
-      </div>
-      <div class="box sol">
-        <h3>밥장부의 해법</h3>
-        <ul>
-          <li>기관이 명단을 <b>브라우저에서 암호화</b>해 보내면, 해당 음식점 폰에서만 열립니다.</li>
-          <li>음식점은 앱에서 명단을 받아 장부로 등록하고, 식사할 때마다 한 번에 차감합니다.</li>
-          <li>잔액·이용 내역이 자동으로 계산되어 종이 장부와 계산 실수가 사라집니다.</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- 3. 사용 대상 -->
-<section id="who" style="background:var(--bg-soft)">
-  <div class="wrap">
-    <p class="kicker">사용 대상</p>
-    <h2>이런 분들을 위해 만들었습니다</h2>
-    <div class="grid c2">
-      <div class="card">
-        <div class="ic" aria-hidden="true">🍚</div>
-        <h3>음식점 주인</h3>
-        <p>단체·직원 식대를 미리 받고 매일 식사를 제공하는 소규모 식당. 폰 앱에 장부를 두고 차감만 하면 됩니다.</p>
-      </div>
-      <div class="card">
-        <div class="ic" aria-hidden="true">🏛️</div>
-        <h3>기관 부서 담당자</h3>
-        <p>구청·주민센터 등에서 직원·이용자 식대를 음식점에 맡기고 명단을 안전하게 전달해야 하는 담당자.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- 4. 워크플로 -->
-<section id="flow">
-  <div class="wrap">
-    <p class="kicker">이용 흐름</p>
-    <h2>3단계로 끝나는 흐름</h2>
-    <p class="intro">복잡한 정산 절차 없이, 명단 전달부터 매일 차감까지 이렇게 이어집니다.</p>
-    <div class="flow">
+    <p class="kicker">음식점 사장님</p>
+    <h2>3단계면 시작이에요</h2>
+    <div class="steps">
       <div class="step">
         <div class="n">1</div>
-        <div class="ic" aria-hidden="true">🔐</div>
-        <h3>기관 담당자가 명단 전송</h3>
-        <p>담당자가 웹에서 명단을 만들어 <b>암호화</b>한 뒤 음식점으로 보냅니다.</p>
+        <div>
+          <h3>버튼 눌러 앱 열기</h3>
+          <p>위의 [음식점 사장님 시작하기] 버튼을 누르면 앱이 열려요.</p>
+        </div>
       </div>
       <div class="step">
         <div class="n">2</div>
-        <div class="ic" aria-hidden="true">📥</div>
-        <h3>음식점이 수신·등록</h3>
-        <p>음식점이 앱에서 명단을 받아 장부로 등록합니다. 잔액이 자동 계산됩니다.</p>
+        <div>
+          <h3>홈 화면에 추가하기</h3>
+          <p>한 번 추가해 두면, 다음부터 앱처럼 바로 열려요.</p>
+          <details class="acc">
+            <summary><span aria-hidden="true">📲</span> 홈 화면에 추가하는 법 보기</summary>
+            <div class="acc-body">
+              <div class="acc-col">
+                <strong>아이폰 (사파리)</strong>
+                <p>1. 아래 공유 <span aria-hidden="true">⬆️</span> 버튼 누르기<br>2. '홈 화면에 추가' 고르기<br>3. '추가' 누르면 끝</p>
+              </div>
+              <div class="acc-col">
+                <strong>안드로이드 (크롬)</strong>
+                <p>1. 오른쪽 위 <span aria-hidden="true">⋮</span> 버튼 누르기<br>2. '홈 화면에 추가' 고르기<br>3. '추가' 누르면 끝</p>
+              </div>
+            </div>
+          </details>
+        </div>
       </div>
       <div class="step">
         <div class="n">3</div>
-        <div class="ic" aria-hidden="true">🍽️</div>
-        <h3>매일 식사 때 차감</h3>
-        <p>식사할 때마다 해당 인원을 눌러 장부에서 차감·기록합니다.</p>
+        <div>
+          <h3>가게 이름 넣으면 끝</h3>
+          <p>가게 이름만 넣으면 바로 장부를 쓸 수 있어요.</p>
+        </div>
       </div>
     </div>
-    <p class="emph"><span aria-hidden="true">💡</span> 선금 이체는 기관과 음식점이 계좌로 직접 진행합니다. 밥장부 앱은 <u>장부 기록만</u> 하며 돈을 다루지 않습니다.</p>
+    <a class="more" href="https://app.bapjangbu.com/docs/manual-restaurant.html" target="_blank" rel="noopener">음식점 사용법 자세히 보기 →</a>
+    <div class="sec-cta">
+      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 사장님 시작하기</a>
+    </div>
   </div>
 </section>
 
-<!-- 5. 개인정보·데이터 관리 -->
-<section id="privacy" style="background:var(--bg-soft)">
+<!-- 4. 기관 담당자 3단계 -->
+<section id="agency" class="agency">
   <div class="wrap">
-    <p class="kicker">개인정보 · 데이터 관리</p>
-    <h2>명단은 음식점 폰 안에서만 열립니다</h2>
-    <p class="intro">개인정보를 최소한으로만 다루도록 설계했습니다. 서버와 운영자는 명단 내용을 볼 수 없습니다.</p>
-    <div class="priv">
-      <div class="item">
-        <div class="ic" aria-hidden="true">🔒</div>
+    <p class="kicker">기관 담당자</p>
+    <h2>담당자는 이렇게 써요</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="n">1</div>
         <div>
-          <h3>브라우저에서 암호화</h3>
-          <p>명단은 보내는 순간 브라우저에서 암호화되어, 지정한 음식점만 열람할 수 있습니다. 서버·운영자는 내용을 볼 수 없습니다.</p>
+          <h3>기관 이메일로 본인 확인</h3>
+          <p>기관 이메일로 받은 인증번호(OTP)로 로그인해요.</p>
         </div>
       </div>
-      <div class="item">
-        <div class="ic" aria-hidden="true">📵</div>
+      <div class="step">
+        <div class="n">2</div>
         <div>
-          <h3>전화번호 미수집</h3>
-          <p>이용자 전화번호를 수집하지 않습니다. 장부에 필요한 최소 정보만 다룹니다.</p>
+          <h3>음식점 골라 명단 입력</h3>
+          <p>음식점을 찾아 이용자 명단과 금액을 넣어요.</p>
         </div>
       </div>
-      <div class="item">
-        <div class="ic" aria-hidden="true">🗑️</div>
+      <div class="step">
+        <div class="n">3</div>
         <div>
-          <h3>서버 보관 최소화</h3>
-          <p>음식점이 수령하면 서버에서 즉시 삭제하고, 미수령 명단도 최대 3일 후 자동 삭제됩니다. 직접전달 모드는 서버에 아예 보관하지 않습니다.</p>
-        </div>
-      </div>
-      <div class="item">
-        <div class="ic" aria-hidden="true">📱</div>
-        <div>
-          <h3>장부는 음식점 폰 안에</h3>
-          <p>등록된 장부와 이용 내역은 음식점 폰(브라우저) 안에 보관됩니다. 별도 중앙 서버에 쌓이지 않습니다.</p>
+          <h3>암호화해 전송</h3>
+          <p>명단은 암호화되어 전송돼요. 선금은 음식점 계좌로 직접 이체해요.</p>
         </div>
       </div>
     </div>
-    <p class="intro" style="margin-top:18px;margin-bottom:0">암호화된 명단은 Cloudflare 기반 중계 서버를 통해 전달될 수 있으며, 보관기간·국외이전 등 자세한 사항은 <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에서 확인할 수 있습니다.</p>
-    <p class="legal-links">
-      <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침 →</a>
-      <a href="https://app.bapjangbu.com/docs/terms.html" target="_blank" rel="noopener">이용약관 →</a>
-    </p>
+    <a class="more" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">기관 담당자 사용법 자세히 보기 →</a>
+    <div class="sec-cta">
+      <a class="btn btn-outline" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자로 시작하기</a>
+    </div>
   </div>
 </section>
 
-<!-- 6. 사용 주체별 사용법 -->
-<section id="usage">
+<!-- 5. 안심 섹션 -->
+<section id="safe" class="safe">
   <div class="wrap">
-    <p class="kicker">사용법</p>
-    <h2>주체별 사용법 요약</h2>
-    <p class="intro">간단한 3단계 요약입니다. 자세한 설치·화면 안내는 각 안내서를 확인하세요.</p>
-    <div class="usage">
-      <div class="u">
-        <span class="role">음식점 주인</span>
-        <h3>앱 설치 후 명단 받아 차감</h3>
-        <ol>
-          <li>폰 브라우저에서 앱을 열고 홈 화면에 설치합니다.</li>
-          <li>기관이 보낸 명단을 앱에서 받아 장부로 등록합니다.</li>
-          <li>매일 식사 때 인원을 눌러 차감·기록합니다.</li>
-        </ol>
-        <a class="more" href="https://app.bapjangbu.com/docs/manual-restaurant.html" target="_blank" rel="noopener">설치·사용법 자세히 →</a>
-      </div>
-      <div class="u">
-        <span class="role">기관 담당자</span>
-        <h3>명단 만들어 음식점에 암호화 전송</h3>
-        <ol>
-          <li>기관 이메일로 받은 인증번호(OTP)로 본인 확인을 합니다.</li>
-          <li>음식점을 찾아 이용자 명단·금액을 입력합니다.</li>
-          <li>암호화해 전송하고, 선금은 음식점 계좌로 직접 이체합니다.</li>
-        </ol>
-        <a class="more" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">사용법 자세히 →</a>
-      </div>
+    <p class="kicker">안심하세요</p>
+    <h2>돈은 다루지 않아요. 기록만 해요.</h2>
+    <div class="safe-grid">
+      <div class="s"><span class="ic" aria-hidden="true">💸</span><div><h3>완전 무료</h3><p>이용료·수수료가 전혀 없어요.</p></div></div>
+      <div class="s"><span class="ic" aria-hidden="true">🚫</span><div><h3>결제·이체 없음</h3><p>이 앱으로 돈이 오가지 않아요. 장부만 기록해요.</p></div></div>
+      <div class="s"><span class="ic" aria-hidden="true">📵</span><div><h3>전화번호 미수집</h3><p>손님 전화번호를 받지 않아요.</p></div></div>
+      <div class="s"><span class="ic" aria-hidden="true">📱</span><div><h3>장부는 내 폰에만</h3><p>장부와 기록은 내 폰 안에 저장돼요.</p></div></div>
     </div>
+    <p class="relay">암호화된 명단은 Cloudflare 기반 중계 서버로 전달될 수 있으며, 자세한 내용은 <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에서 확인할 수 있어요.</p>
   </div>
 </section>
 
-<!-- 7. 역할별 시작 버튼 -->
-<section id="start" class="start">
+<!-- 6. FAQ -->
+<section id="faq" class="faq">
   <div class="wrap">
-    <p class="kicker" style="color:#bcd4f0">시작하기</p>
-    <h2>역할을 골라 바로 시작하세요</h2>
-    <p class="intro">가입 절차나 비용 없이 바로 이용할 수 있습니다.</p>
-    <div class="cta-row">
-      <a class="btn btn-white" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자로 시작하기</a>
-      <a class="btn btn-outline" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 주인 · 앱 설치하기</a>
-    </div>
-    <small>기관 담당자는 웹에서 바로 이용하고, 음식점은 폰에 앱을 설치해 사용합니다. (새 탭으로 열립니다)</small>
+    <p class="kicker">자주 묻는 질문</p>
+    <h2>궁금한 점을 모았어요</h2>
+    <details>
+      <summary>정말 무료인가요?</summary>
+      <p>네, 완전 무료예요. 현재 무료 파일럿으로 운영 중이고, 이용료나 수수료를 받지 않아요.</p>
+    </details>
+    <details>
+      <summary>이 앱으로 돈이 오가나요?</summary>
+      <p>아니요. 밥장부는 결제·이체·정산 기능이 없어요. 누가 얼마를 언제 먹었는지 <b>장부에 기록만</b> 해요. 실제 돈은 기관과 음식점이 계좌로 직접 주고받아요.</p>
+    </details>
+    <details>
+      <summary>폰을 바꾸면 장부가 사라지나요?</summary>
+      <p>장부는 폰 안에 저장돼요. 앱의 백업 기능으로 저장해 두면, 새 폰에서 다시 불러올 수 있어요.</p>
+    </details>
+    <details>
+      <summary>구청 같은 기관은 어떻게 쓰나요?</summary>
+      <p>담당자가 이용자 명단과 금액을 입력해 음식점으로 암호화 전송해요. 음식점은 그 명단을 장부로 받아, 식사할 때마다 차감해 기록해요.</p>
+    </details>
   </div>
 </section>
 
-<!-- 8. 의견·피드백 폼 -->
+<!-- 7. 의견 폼 -->
 <section id="feedback">
   <div class="wrap">
-    <p class="kicker">의견 · 피드백</p>
+    <p class="kicker">의견 · 문의</p>
     <h2>의견을 들려주세요</h2>
     <p class="intro">불편한 점, 필요한 기능, 문의 사항을 자유롭게 남겨 주세요.</p>
     <form class="form-card" id="fbForm" novalidate>
@@ -444,7 +419,7 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:var(--s4);font-si
   </div>
 </section>
 
-<!-- 9. 푸터 -->
+<!-- 8. 푸터 -->
 <footer class="site">
   <div class="wrap">
     <div class="disclaimer">
@@ -469,7 +444,107 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:var(--s4);font-si
   </div>
 </footer>
 
+<!-- 모바일 하단 고정 CTA -->
+<div class="stickybar" id="stickybar" aria-hidden="true">
+  <a class="btn btn-primary" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 사장님 — 지금 시작하기</a>
+</div>
+
 <script>
+/* ---------- 미니 체험 (서버 호출·localStorage 없음) ---------- */
+(function(){
+  "use strict";
+  var demo = document.getElementById("demo");
+  if(!demo) return;
+  var listEl = document.getElementById("demoList");
+  var logEl = document.getElementById("demoLog");
+  var emptyEl = document.getElementById("demoEmpty");
+  var liveEl = document.getElementById("demoLive");
+  var resetBtn = document.getElementById("demoReset");
+  var INIT = [
+    {name:"김철수", bal:90000},
+    {name:"이영희", bal:48000},
+    {name:"박민수", bal:16000}
+  ];
+  var AMOUNTS = [6000, 8000];
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var state, openIdx;
+
+  function won(n){ return n.toLocaleString("ko-KR") + "원"; }
+
+  function render(){
+    var html = "";
+    state.forEach(function(p, i){
+      var open = (openIdx === i);
+      html += '<div class="prow" data-row="'+i+'">'
+        + '<div><span class="pname">'+p.name+'</span>'
+        + '<span class="pbal">잔액 '+won(p.bal)+'</span></div>'
+        + '<button type="button" class="puse" data-use="'+i+'" aria-expanded="'+(open?"true":"false")+'">사용</button>'
+        + '</div>';
+      if(open){
+        html += '<div class="pamts">';
+        AMOUNTS.forEach(function(a){
+          html += '<button type="button" class="pamt" data-amt="'+a+'" data-i="'+i+'">'+won(a)+'</button>';
+        });
+        html += '</div>';
+      }
+    });
+    listEl.innerHTML = html;
+  }
+
+  function reset(){
+    state = INIT.map(function(p){ return {name:p.name, bal:p.bal}; });
+    openIdx = -1;
+    render();
+    logEl.innerHTML = "";
+    emptyEl.style.display = "";
+    liveEl.textContent = "처음 상태로 되돌렸어요.";
+  }
+
+  function deduct(i, amt){
+    var p = state[i];
+    if(p.bal < amt){
+      liveEl.textContent = p.name + " 님 잔액이 부족해요.";
+      return;
+    }
+    p.bal -= amt;
+    openIdx = -1;
+    render();
+    // 기록 줄 추가
+    emptyEl.style.display = "none";
+    var li = document.createElement("li");
+    li.innerHTML = '<b>✓</b> ' + p.name + ' · ' + won(amt) + ' 사용 → 잔액 ' + won(p.bal);
+    logEl.insertBefore(li, logEl.firstChild);
+    // 잔액 변경 알림 (aria-live)
+    liveEl.textContent = p.name + ' 님 ' + won(amt) + ' 사용, 남은 잔액 ' + won(p.bal) + '.';
+    // 짧은 확인 표시
+    if(!reduce){
+      var row = listEl.querySelector('[data-row="'+i+'"]');
+      if(row){ row.classList.add("flash"); setTimeout(function(){ row.classList.remove("flash"); }, 800); }
+    }
+  }
+
+  listEl.addEventListener("click", function(e){
+    var useBtn = e.target.closest("[data-use]");
+    if(useBtn){
+      var i = parseInt(useBtn.getAttribute("data-use"), 10);
+      openIdx = (openIdx === i) ? -1 : i;
+      render();
+      return;
+    }
+    var amtBtn = e.target.closest("[data-amt]");
+    if(amtBtn){
+      deduct(parseInt(amtBtn.getAttribute("data-i"),10), parseInt(amtBtn.getAttribute("data-amt"),10));
+    }
+  });
+
+  resetBtn.addEventListener("click", reset);
+  reset();
+  liveEl.textContent = "";
+})();
+</script>
+
+<script>
+/* ---------- 의견 폼 (계약·동작 불변) ---------- */
 (function(){
   "use strict";
   var RELAY = "https://prepaid-relay.sulsul-plus.workers.dev";
@@ -508,7 +583,6 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:var(--s4);font-si
     result.className = "form-msg";
     result.textContent = "";
 
-    // honeypot: 봇이 채우는 숨김 필드에 값이 있으면 조용히 중단
     if(honeypot && honeypot.value){ return; }
 
     var text = msg.value.trim();
@@ -556,20 +630,41 @@ footer.site .copy{border-top:1px solid var(--line);padding-top:var(--s4);font-si
   });
 })();
 </script>
+
 <script>
+/* ---------- 모바일 하단 고정 CTA 표시 제어 ---------- */
 (function(){
   "use strict";
-  if(!("IntersectionObserver" in window)) return;
-  if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  document.documentElement.classList.add("js-reveal");
-  var sel = ".card,.ps .box,.flow .step,.priv .item,.usage .u,.form-card,.emph,.hero .badges,.hero .cta-row,section h2,section p.intro,.legal-links,.start small";
-  var els = document.querySelectorAll(sel);
-  var io = new IntersectionObserver(function(entries){
-    entries.forEach(function(en){
-      if(en.isIntersecting){ en.target.classList.add("in"); io.unobserve(en.target); }
-    });
-  }, {rootMargin:"0px 0px -8% 0px", threshold:0.05});
-  Array.prototype.forEach.call(els, function(el){ el.classList.add("reveal"); io.observe(el); });
+  var bar = document.getElementById("stickybar");
+  if(!bar) return;
+  document.body.classList.add("has-sticky");
+  var footer = document.querySelector("footer.site");
+  var formArea = document.getElementById("feedback");
+  var footerVisible = false, formFocused = false;
+
+  function update(){
+    var show = !footerVisible && !formFocused;
+    bar.classList.toggle("show", show);
+    bar.setAttribute("aria-hidden", show ? "false" : "true");
+  }
+
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.target === footer) footerVisible = en.isIntersecting;
+      });
+      update();
+    }, {rootMargin:"0px 0px -10% 0px"});
+    if(footer) io.observe(footer);
+  }
+
+  // 폼 입력 중에는 겹치지 않도록 숨김
+  if(formArea){
+    formArea.addEventListener("focusin", function(){ formFocused = true; update(); });
+    formArea.addEventListener("focusout", function(){ formFocused = false; update(); });
+  }
+
+  update();
 })();
 </script>
 </body>
