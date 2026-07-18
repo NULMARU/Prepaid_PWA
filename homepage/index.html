@@ -94,37 +94,87 @@ section .kicker::before{content:"";width:18px;height:2px;background:var(--accent
 section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width:640px;line-height:1.7}
 @media(max-width:640px){section{padding:var(--s12) 0}section h2{font-size:23px}.hero h1{font-size:33px}.hero .sub{font-size:19px}}
 
-/* ---------- mini demo ---------- */
+/* ---------- 자동 시연 애니메이션 ---------- */
 .demo-wrap{text-align:center}
 .demo-label{font-size:18px;font-weight:800;color:var(--heading);margin:0 0 4px}
 .demo-note{font-size:14px;color:var(--muted);margin:0 0 var(--s6)}
+
+.stage-head{margin:0 0 12px}
+.stage-label{display:inline-block;font-size:16px;font-weight:800;color:var(--primary);background:var(--primary-soft);border:1px solid #cfe0f2;border-radius:999px;padding:7px 18px}
+.dots{display:flex;gap:10px;justify-content:center;margin:0 0 var(--s4)}
+.dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--primary);background:transparent;padding:0;cursor:pointer;transition:background .2s,transform .2s}
+.dot.on{background:var(--primary);transform:scale(1.3)}
+.dot:hover{background:var(--primary-soft)}
+
 .phone{max-width:340px;margin:0 auto;background:#20242b;border-radius:34px;padding:12px;box-shadow:var(--shadow-lg)}
-.pscreen{background:var(--bg);border-radius:24px;overflow:hidden;text-align:left}
+.pscreen{position:relative;background:var(--bg);border-radius:24px;overflow:hidden;text-align:left;height:436px}
 .pbar{background:var(--primary);color:#fff;font-weight:800;font-size:16px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
 .pbar span{font-weight:600;font-size:12.5px;color:#cfe0f2}
-.plist{padding:10px 12px 4px}
+
+.pscene{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .5s ease;display:flex;flex-direction:column}
+.pscene.active{opacity:1;visibility:visible}
+.pbody{padding:14px;flex:1;display:flex;flex-direction:column}
+
+.fld{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:9px}
+.fld .flabel{font-size:12px;font-weight:700;color:var(--muted);margin:0 0 2px}
+.fld .fval{font-size:16px;font-weight:800;color:var(--heading);min-height:22px;margin:0}
+.fld .fval.cursor::after{content:"";display:inline-block;width:2px;height:16px;background:var(--primary);margin-left:2px;vertical-align:-2px;animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+
+.pbtn{width:100%;background:var(--primary);color:#fff;border:none;border-radius:12px;font-weight:800;font-size:16px;padding:13px;min-height:50px;font-family:inherit;margin:4px 0 0;cursor:pointer;transition:transform .12s,box-shadow .12s,background .12s;box-shadow:var(--shadow-sm)}
+.pbtn.press{transform:scale(.96);box-shadow:none;background:var(--primary-dark)}
+
 .prow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
 .prow .pname{font-weight:800;font-size:16px;color:var(--heading)}
 .prow .pbal{display:block;font-size:13.5px;color:var(--muted);font-weight:600;margin-top:2px}
+.prow .tag{font-size:12.5px;font-weight:800;color:var(--ok);background:var(--ok-soft);border:1px solid var(--ok-line);border-radius:999px;padding:4px 10px;white-space:nowrap}
 .prow.flash{animation:flash .8s ease}
 @keyframes flash{0%{background:var(--ok-soft)}100%{background:var(--card)}}
-.puse{background:var(--primary-soft);color:var(--primary);border:1.5px solid #cfe0f2;border-radius:10px;font-weight:800;font-size:15px;padding:10px 16px;min-height:44px;cursor:pointer;font-family:inherit;white-space:nowrap}
-.puse[aria-expanded="true"]{background:var(--primary);color:#fff;border-color:var(--primary)}
-.pamts{display:flex;gap:8px;padding:0 2px 10px}
-.pamt{flex:1;background:var(--card);border:1.5px solid var(--primary);color:var(--primary);border-radius:10px;font-weight:800;font-size:15px;padding:11px 6px;min-height:46px;cursor:pointer;font-family:inherit}
-.pamt:hover{background:var(--primary-soft)}
-.plog-wrap{background:var(--bg-soft);border-top:1px solid var(--line);padding:12px 14px 16px;min-height:96px}
+
+.s0-card{opacity:0;transform:translateY(8px);transition:opacity .4s ease,transform .4s ease;margin-top:6px}
+.s0-card.show{opacity:1;transform:none}
+
+.puse{background:var(--primary-soft);color:var(--primary);border:1.5px solid #cfe0f2;border-radius:10px;font-weight:800;font-size:15px;padding:10px 16px;min-height:44px;font-family:inherit;white-space:nowrap;cursor:pointer;transition:transform .12s,background .12s,color .12s}
+.puse.press{transform:scale(.95);background:var(--primary);color:#fff;border-color:var(--primary)}
+.pamts{display:flex;gap:8px;padding:0;max-height:0;opacity:0;overflow:hidden;transition:max-height .35s ease,opacity .3s ease,margin .3s ease}
+.pamts.show{max-height:70px;opacity:1;margin:0 0 8px}
+.pamt{flex:1;background:var(--card);border:1.5px solid var(--primary);color:var(--primary);border-radius:10px;font-weight:800;font-size:14px;padding:11px 4px;min-height:46px;font-family:inherit;transition:transform .12s,background .12s,color .12s}
+.pamt.is-pick.pick{background:var(--primary);color:#fff;transform:scale(1.04)}
+
+.sign{display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:800;color:var(--ok);background:var(--ok-soft);border:1px solid var(--ok-line);border-radius:10px;padding:9px;margin:0 0 8px;opacity:0;transform:scale(.9);transition:opacity .25s,transform .25s}
+.sign.show{opacity:1;transform:none}
+.sign .big{font-size:20px}
+
+.plog-wrap{background:var(--bg-soft);border:1px solid var(--line);border-radius:12px;padding:10px 14px 12px;margin-top:auto}
 .plog-title{font-size:12.5px;font-weight:800;color:var(--muted);letter-spacing:.04em;margin:0 0 6px}
-.plog-empty{font-size:13.5px;color:var(--muted)}
+.plog-empty{font-size:13.5px;color:var(--muted);margin:0}
 .plog{list-style:none;margin:0;padding:0}
-.plog li{font-size:13.5px;color:var(--text);padding:6px 0;border-bottom:1px dashed var(--line)}
-.plog li:last-child{border-bottom:none}
+.plog li{font-size:13px;color:var(--text);padding:5px 0}
 .plog li b{color:var(--ok)}
-.demo-reset{margin:16px auto 0;display:inline-flex;align-items:center;gap:6px;background:var(--card);border:1.5px solid var(--line);color:var(--muted);border-radius:10px;font-weight:700;font-size:15px;padding:11px 20px;min-height:46px;cursor:pointer;font-family:inherit}
-.demo-reset:hover{border-color:var(--primary);color:var(--primary)}
+
+.banner{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800;color:var(--primary);background:var(--primary-soft);border:1px solid #cfe0f2;border-radius:12px;padding:12px 14px;margin:0 0 10px;opacity:0;transform:translateY(-8px);transition:opacity .4s,transform .4s}
+.banner.show{opacity:1;transform:none}
+.s2-done{display:flex;align-items:flex-start;gap:8px;font-size:15px;font-weight:800;color:var(--ok);background:var(--ok-soft);border:1px solid var(--ok-line);border-radius:12px;padding:13px 14px;margin-top:10px;line-height:1.5;opacity:0;transform:translateY(8px);transition:opacity .4s,transform .4s}
+.s2-done.show{opacity:1;transform:none}
+
+.demo-toggle{margin:16px auto 0;display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1.5px solid var(--line);color:var(--muted);border-radius:999px;font-weight:800;font-size:15px;padding:10px 22px;min-height:46px;cursor:pointer;font-family:inherit;transition:border-color .15s,color .15s}
+.demo-toggle:hover{border-color:var(--primary);color:var(--primary)}
+.demo-toggle .ic{font-size:15px}
+
+/* 정적 스토리보드(스크린리더 상시 + reduced-motion 시 표시) */
+.storyboard{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;list-style:none}
+
 .demo-after{margin-top:var(--s8);text-align:center}
 .demo-after p{font-size:17px;font-weight:700;color:var(--heading);margin:0 0 14px}
 .demo-after .btn{max-width:440px;margin:0 auto}
+
+@media (prefers-reduced-motion: reduce){
+  .demo-stage{display:none}
+  .storyboard{position:static;width:auto;height:auto;padding:0;margin:var(--s6) 0 0;overflow:visible;clip:auto;display:grid;gap:var(--s4);text-align:left}
+  .storyboard li{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow-xs)}
+  .storyboard .sb-t{display:block;font-size:16px;font-weight:800;color:var(--primary);margin:0 0 4px}
+  .storyboard .sb-d{font-size:15px;color:var(--text);line-height:1.6}
+}
 
 /* ---------- steps ---------- */
 .steps{display:grid;gap:var(--s4);margin-top:var(--s6)}
@@ -244,25 +294,79 @@ body.has-sticky{padding-bottom:84px}
   </div>
 </section>
 
-<!-- 2. 미니 체험 -->
+<!-- 2. 사용 모습 자동 시연 -->
 <section id="try">
   <div class="wrap demo-wrap">
-    <p class="demo-label"><span aria-hidden="true">👇</span> 직접 눌러보세요</p>
-    <p class="demo-note">아래는 예시 화면이에요. 아무 버튼이나 눌러봐도 괜찮아요.</p>
+    <p class="demo-label"><span aria-hidden="true">📱</span> 한눈에 보는 사용 모습</p>
+    <p class="demo-note">등록부터 구청 선금까지, 이렇게 흘러가요.</p>
 
-    <div class="phone" id="demo">
-      <div class="pscreen">
-        <div class="pbar">행복식당 장부 <span>오늘</span></div>
-        <div class="plist" id="demoList"></div>
-        <div class="plog-wrap">
-          <p class="plog-title">오늘 기록</p>
-          <p class="plog-empty" id="demoEmpty">위에서 [사용]을 누르면 여기에 기록돼요.</p>
-          <ul class="plog" id="demoLog"></ul>
+    <!-- 자동 재생 시연(장식용): 스크린리더에는 아래 스토리보드로 대체 전달 -->
+    <div class="demo-stage" id="demoStage" aria-hidden="true">
+      <div class="stage-head"><span class="stage-label" id="stageLabel">① 직원 등록</span></div>
+      <div class="dots" id="dots">
+        <button type="button" class="dot on" data-go="0" tabindex="-1" title="① 직원 등록"></button>
+        <button type="button" class="dot" data-go="1" tabindex="-1" title="② 매일 사용"></button>
+        <button type="button" class="dot" data-go="2" tabindex="-1" title="③ 구청 선금 받기"></button>
+      </div>
+
+      <div class="phone">
+        <div class="pscreen">
+          <!-- 장면 1 · 직원 등록 -->
+          <div class="pscene active" id="scene0">
+            <div class="pbar">직원 등록 <span>설정</span></div>
+            <div class="pbody">
+              <div class="fld"><p class="flabel">부서</p><p class="fval" id="s0dept"></p></div>
+              <div class="fld"><p class="flabel">이름</p><p class="fval" id="s0name"></p></div>
+              <div class="fld"><p class="flabel">선입금</p><p class="fval" id="s0amt"></p></div>
+              <button type="button" class="pbtn" id="s0add" tabindex="-1">추가</button>
+              <div class="s0-card" id="s0card">
+                <div class="prow"><div><span class="pname">김철수</span><span class="pbal">잔액 100,000원</span></div><span class="tag">등록됨 ✓</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 장면 2 · 매일 사용 -->
+          <div class="pscene" id="scene1">
+            <div class="pbar">행복식당 장부 <span>오늘</span></div>
+            <div class="pbody">
+              <div class="prow" id="s1row"><div><span class="pname">김철수</span><span class="pbal" id="s1bal">잔액 100,000원</span></div><button type="button" class="puse" id="s1use" tabindex="-1">사용</button></div>
+              <div class="pamts" id="s1amts">
+                <button type="button" class="pamt" tabindex="-1">6,000원</button>
+                <button type="button" class="pamt is-pick" tabindex="-1">9,000원</button>
+                <button type="button" class="pamt" tabindex="-1">12,000원</button>
+              </div>
+              <div class="sign" id="s1sign"><span class="big" aria-hidden="true">✍️</span> 서명 완료</div>
+              <div class="plog-wrap">
+                <p class="plog-title">오늘 기록</p>
+                <p class="plog-empty" id="s1empty">[사용]을 누르면 여기에 기록돼요.</p>
+                <ul class="plog" id="s1log"></ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- 장면 3 · 구청 선금 받기 -->
+          <div class="pscene" id="scene2">
+            <div class="pbar">선금 신청 <span>구청</span></div>
+            <div class="pbody">
+              <div class="banner" id="s2banner"><span class="big" aria-hidden="true">📩</span> 구청에서 신청이 도착했어요</div>
+              <div class="fld"><p class="flabel">보낸 곳</p><p class="fval">○○구청 총무과</p></div>
+              <div class="fld"><p class="flabel">신청 내용</p><p class="fval">직원 3명 · 270,000원</p></div>
+              <button type="button" class="pbtn" id="s2btn" tabindex="-1">확인 · 등록</button>
+              <div class="s2-done" id="s2done"><span aria-hidden="true">✓</span> 총무과 직원 3명 · 270,000원이<br>장부에 자동으로 추가됐어요</div>
+            </div>
+          </div>
         </div>
       </div>
+
+      <button type="button" class="demo-toggle" id="demoToggle" aria-pressed="false" title="시연 일시정지 / 재생"><span class="ic" aria-hidden="true">⏸</span><span class="tlabel">일시정지</span></button>
     </div>
-    <button type="button" class="demo-reset" id="demoReset"><span aria-hidden="true">↺</span> 처음부터</button>
-    <p class="sr-only" id="demoLive" aria-live="polite"></p>
+
+    <!-- 정적 스토리보드: 스크린리더 상시 · 애니메이션 미사용 환경 표시 -->
+    <ol class="storyboard">
+      <li><span class="sb-t">① 직원 등록</span><span class="sb-d">부서·이름·선입금(100,000원)을 적고 [추가]를 누르면 직원이 장부에 등록돼요.</span></li>
+      <li><span class="sb-t">② 매일 사용</span><span class="sb-d">직원 카드에서 [사용]을 눌러 금액(예: 9,000원)을 고르고 서명하면, 잔액이 91,000원으로 자동 차감돼요.</span></li>
+      <li><span class="sb-t">③ 구청 선금 받기</span><span class="sb-d">구청에서 온 신청을 [확인·등록]하면 총무과 직원 3명·270,000원이 장부에 자동으로 추가돼요.</span></li>
+    </ol>
 
     <div class="demo-after">
       <p>실제 앱도 이만큼 쉬워요.</p>
@@ -454,96 +558,161 @@ body.has-sticky{padding-bottom:84px}
 </div>
 
 <script>
-/* ---------- 미니 체험 (서버 호출·localStorage 없음) ---------- */
+/* ---------- 자동 시연 애니메이션 (외부 리소스·서버·localStorage 없음) ---------- */
 (function(){
   "use strict";
-  var demo = document.getElementById("demo");
-  if(!demo) return;
-  var listEl = document.getElementById("demoList");
-  var logEl = document.getElementById("demoLog");
-  var emptyEl = document.getElementById("demoEmpty");
-  var liveEl = document.getElementById("demoLive");
-  var resetBtn = document.getElementById("demoReset");
-  var INIT = [
-    {name:"김철수", bal:90000},
-    {name:"이영희", bal:48000},
-    {name:"박민수", bal:16000}
-  ];
-  var AMOUNTS = [6000, 8000];
+  var stage = document.getElementById("demoStage");
+  if(!stage) return;
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var state, openIdx;
+  if(reduce) return; // 정적 스토리보드가 대체 전달
 
+  var scenes = [
+    document.getElementById("scene0"),
+    document.getElementById("scene1"),
+    document.getElementById("scene2")
+  ];
+  var LABELS = ["① 직원 등록", "② 매일 사용", "③ 구청 선금 받기"];
+  var labelEl = document.getElementById("stageLabel");
+  var dots = Array.prototype.slice.call(stage.querySelectorAll(".dot"));
+  var toggle = document.getElementById("demoToggle");
+
+  var current = 0, userPaused = false, visible = true;
+  var timers = [];
+  function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+  function at(ms, fn){ timers.push(setTimeout(fn, ms)); }
+  function running(){ return !userPaused && visible; }
   function won(n){ return n.toLocaleString("ko-KR") + "원"; }
 
-  function render(){
-    var html = "";
-    state.forEach(function(p, i){
-      var open = (openIdx === i);
-      html += '<div class="prow" data-row="'+i+'">'
-        + '<div><span class="pname">'+p.name+'</span>'
-        + '<span class="pbal">잔액 '+won(p.bal)+'</span></div>'
-        + '<button type="button" class="puse" data-use="'+i+'" aria-expanded="'+(open?"true":"false")+'">사용</button>'
-        + '</div>';
-      if(open){
-        html += '<div class="pamts">';
-        AMOUNTS.forEach(function(a){
-          html += '<button type="button" class="pamt" data-amt="'+a+'" data-i="'+i+'">'+won(a)+'</button>';
-        });
-        html += '</div>';
-      }
+  function typeInto(el, text, start, step){
+    el.textContent = "";
+    el.classList.add("cursor");
+    for(var c=1;c<=text.length;c++){
+      (function(n){ at(start + n*step, function(){ el.textContent = text.slice(0,n); }); })(c);
+    }
+    at(start + text.length*step + 300, function(){ el.classList.remove("cursor"); });
+    return start + text.length*step;
+  }
+
+  function countdown(el, from, to, start, dur){
+    var steps = 14;
+    for(var s=1;s<=steps;s++){
+      (function(n){ at(start + Math.round(dur*n/steps), function(){
+        var v = (n===steps) ? to : Math.round(from - (from-to)*n/steps);
+        el.textContent = "잔액 " + won(v);
+      }); })(s);
+    }
+    return start + dur;
+  }
+
+  // ---- 장면 빌더: 초기화 + 단계 예약, 총 길이(ms) 반환 ----
+  function build0(){
+    var dept=document.getElementById("s0dept"), name=document.getElementById("s0name"),
+        amt=document.getElementById("s0amt"), addBtn=document.getElementById("s0add"),
+        card=document.getElementById("s0card");
+    dept.textContent=""; name.textContent=""; amt.textContent="";
+    dept.classList.remove("cursor"); name.classList.remove("cursor"); amt.classList.remove("cursor");
+    addBtn.classList.remove("press"); card.classList.remove("show");
+    var t=350;
+    at(t, function(){ dept.textContent="주방"; });
+    t += 500;
+    t = typeInto(name, "김철수", t, 200) + 400;
+    t = typeInto(amt, "100,000원", t, 120) + 450;
+    at(t, function(){ addBtn.classList.add("press"); });
+    at(t+320, function(){ addBtn.classList.remove("press"); });
+    t += 500;
+    at(t, function(){ card.classList.add("show"); });
+    return t + 1600;
+  }
+
+  function build1(){
+    var row=document.getElementById("s1row"), bal=document.getElementById("s1bal"),
+        useBtn=document.getElementById("s1use"), amts=document.getElementById("s1amts"),
+        pick=amts.querySelector(".is-pick"), sign=document.getElementById("s1sign"),
+        empty=document.getElementById("s1empty"), log=document.getElementById("s1log");
+    bal.textContent="잔액 100,000원";
+    useBtn.classList.remove("press"); amts.classList.remove("show");
+    pick.classList.remove("pick"); sign.classList.remove("show");
+    row.classList.remove("flash"); empty.style.display=""; log.innerHTML="";
+    var t=550;
+    at(t, function(){ useBtn.classList.add("press"); });
+    at(t+320, function(){ useBtn.classList.remove("press"); amts.classList.add("show"); });
+    t += 950;
+    at(t, function(){ pick.classList.add("pick"); });
+    t += 750;
+    at(t, function(){ sign.classList.add("show"); amts.classList.remove("show"); });
+    t += 900;
+    at(t, function(){
+      empty.style.display="none";
+      var li=document.createElement("li");
+      li.innerHTML='<b>✓</b> 김철수 · 9,000원 사용 → 잔액 91,000원';
+      log.appendChild(li);
+      row.classList.add("flash");
     });
-    listEl.innerHTML = html;
+    t = countdown(bal, 100000, 91000, t, 700);
+    return t + 1500;
   }
 
-  function reset(){
-    state = INIT.map(function(p){ return {name:p.name, bal:p.bal}; });
-    openIdx = -1;
-    render();
-    logEl.innerHTML = "";
-    emptyEl.style.display = "";
-    liveEl.textContent = "처음 상태로 되돌렸어요.";
+  function build2(){
+    var banner=document.getElementById("s2banner"), btn=document.getElementById("s2btn"),
+        done=document.getElementById("s2done");
+    banner.classList.remove("show"); btn.classList.remove("press"); done.classList.remove("show");
+    var t=450;
+    at(t, function(){ banner.classList.add("show"); });
+    t += 1100;
+    at(t, function(){ btn.classList.add("press"); });
+    at(t+320, function(){ btn.classList.remove("press"); });
+    t += 550;
+    at(t, function(){ done.classList.add("show"); });
+    return t + 1900 + 1000; // 마지막 장면 뒤 1초 정지 포함
   }
 
-  function deduct(i, amt){
-    var p = state[i];
-    if(p.bal < amt){
-      liveEl.textContent = p.name + " 님 잔액이 부족해요.";
-      return;
-    }
-    p.bal -= amt;
-    openIdx = -1;
-    render();
-    // 기록 줄 추가
-    emptyEl.style.display = "none";
-    var li = document.createElement("li");
-    li.innerHTML = '<b>✓</b> ' + p.name + ' · ' + won(amt) + ' 사용 → 잔액 ' + won(p.bal);
-    logEl.insertBefore(li, logEl.firstChild);
-    // 잔액 변경 알림 (aria-live)
-    liveEl.textContent = p.name + ' 님 ' + won(amt) + ' 사용, 남은 잔액 ' + won(p.bal) + '.';
-    // 짧은 확인 표시
-    if(!reduce){
-      var row = listEl.querySelector('[data-row="'+i+'"]');
-      if(row){ row.classList.add("flash"); setTimeout(function(){ row.classList.remove("flash"); }, 800); }
+  var builders=[build0, build1, build2];
+
+  function showScene(idx){
+    scenes.forEach(function(s,i){ s.classList.toggle("active", i===idx); });
+    labelEl.textContent = LABELS[idx];
+    dots.forEach(function(d,i){
+      d.classList.toggle("on", i===idx);
+      d.setAttribute("aria-current", i===idx ? "true" : "false");
+    });
+  }
+
+  function play(idx){
+    clearTimers();
+    current = idx;
+    showScene(idx);
+    var dur = builders[idx]();
+    if(running()){
+      at(dur, function(){ play((idx+1)%scenes.length); });
     }
   }
 
-  listEl.addEventListener("click", function(e){
-    var useBtn = e.target.closest("[data-use]");
-    if(useBtn){
-      var i = parseInt(useBtn.getAttribute("data-use"), 10);
-      openIdx = (openIdx === i) ? -1 : i;
-      render();
-      return;
-    }
-    var amtBtn = e.target.closest("[data-amt]");
-    if(amtBtn){
-      deduct(parseInt(amtBtn.getAttribute("data-i"),10), parseInt(amtBtn.getAttribute("data-amt"),10));
-    }
+  toggle.addEventListener("click", function(){
+    userPaused = !userPaused;
+    toggle.setAttribute("aria-pressed", userPaused ? "true" : "false");
+    toggle.querySelector(".ic").textContent = userPaused ? "▶" : "⏸";
+    toggle.querySelector(".tlabel").textContent = userPaused ? "재생" : "일시정지";
+    if(running()) play(current); else clearTimers();
   });
 
-  resetBtn.addEventListener("click", reset);
-  reset();
-  liveEl.textContent = "";
+  dots.forEach(function(d){
+    d.addEventListener("click", function(){
+      play(parseInt(d.getAttribute("data-go"), 10));
+    });
+  });
+
+  // 뷰포트 밖이면 자동 일시정지(배터리·주의 절약)
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        visible = en.isIntersecting;
+        if(running()) play(current); else clearTimers();
+      });
+    }, {threshold:0.35});
+    io.observe(stage);
+  } else {
+    play(0);
+  }
 })();
 </script>
 
