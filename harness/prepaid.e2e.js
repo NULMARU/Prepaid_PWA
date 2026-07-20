@@ -267,6 +267,10 @@ async function main() {
     const smsHref = await page.evaluate(() => window.__lastSmsHref || '');
     await assert(smsHref.startsWith('sms:0109999'), 'saving a deduction for a phone+consent employee should attempt to navigate to an sms: URI');
     await assert(smsHref.includes('body=') && decodeURIComponent(smsHref.split('body=')[1] || '').includes('5,000원'), 'the sms body should describe the amount used and the resulting balance');
+    // 차감 저장 성공 안내(confirm)를 수락하면 방금 차감된 직원의 잔액증표가 자동으로 열린다(dialog handler가 자동 수락)
+    await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(50);
     await page.locator('#searchInput').fill('');
 
     // 기존 사용 등록(차감) 플로우 — User A, 서명 포함
@@ -281,7 +285,14 @@ async function main() {
     await page.mouse.move(box.x + 310, box.y + 65, { steps: 5 });
     await page.mouse.up();
     await page.locator('[data-a="save-use"]').click();
-    await page.waitForTimeout(300);
+    // 사용(차감) 저장 직후 성공 안내 흐름에서 "잔액증표 보기"가 방금 차감된 직원 id로 자동 오픈된다
+    await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    const autoReceiptText = await page.locator('.namecard').innerText();
+    await assert(autoReceiptText.includes('Dept A User A님'), 'post-save receipt should render "{부서} {이름}님" for the just-deducted employee');
+    await assert(autoReceiptText.includes('18,000원'), 'post-save receipt should show the derive() balance (27000-9000)');
+    await assert(autoReceiptText.includes('양도 불가'), 'receipt must carry the non-transfer notice');
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(50);
     await page.locator('#searchInput').fill('');
 
     const data = await readDb(page);
@@ -309,6 +320,20 @@ async function main() {
       return true;
     }, data.transactions);
     await assert(chainOk, 'integrity hash chain should recompute and verify');
+
+    // 잔액증표(명함형) — empCard 보조 버튼 [🧾 증표]으로 표시 전용 카드 열기
+    await assert(await count(page, '[data-a="receipt"]') >= 2, 'each employee card should expose a receipt (증표) button next to 사용');
+    await page.locator(`[data-a="receipt"][data-id="${empQ.id}"]`).click();
+    await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    const receiptText = await page.locator('.namecard').innerText();
+    await assert(receiptText.includes('Dept Q User Q님'), 'receipt card should show "{부서} {이름}님" for a departmented employee');
+    await assert(receiptText.includes('7,000원'), 'receipt card should show the current derive() balance');
+    await assert(receiptText.includes('양도 불가') && receiptText.includes('잔액 확인용'), 'receipt card should carry the fixed non-transfer/verify-only notice');
+    await assert(receiptText.includes('Harness Shop'), 'receipt card should show the shop name');
+    await assert(await count(page, '.receipt-warn') === 0, 'a healthy ledger receipt should show a balance, not an integrity warning');
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'receipt-card.png') }).catch(() => {});
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(50);
 
     // ⑥ 클라우드 백업(서버 전송) 페이로드를 실제로 만들어 복호화한 뒤 전화번호가 전혀 없는지 덤프에서 확인한다
     const cloudCheck = await page.evaluate(async () => {
@@ -351,6 +376,40 @@ async function main() {
     await assert(backup.payload && Array.isArray(backup.payload.transactions), 'backup payload should contain transactions');
     await assert(backup.payload.meta && backup.payload.meta.orgName === '강남구청', 'selected agency name should be saved in backup meta');
     await assert(checksum === backup.checksum, 'backup checksum should match payload');
+
+    // 무결성 실패(변조 감지) 시 증표는 잔액 숫자 대신 경고를 표시해야 한다 (안전장치 ②: 해시체인 재검증)
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['transactions'], 'readwrite');
+        const store = tx.objectStore('transactions');
+        const g = store.getAll();
+        g.onsuccess = () => {
+          const all = g.result || [];
+          const target = all.find(t => t.txHash);
+          if (!target) { reject(new Error('no hashed transaction to tamper')); return; }
+          target.afterBalance = Number(target.afterBalance) + 100000; // txHash와 불일치 → 변조 감지
+          store.put(target);
+        };
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }));
+    await page.reload({ waitUntil: 'load' });
+    for (const key of ['1', '2', '3', '4']) {
+      await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
+    }
+    await page.waitForSelector('[data-a="receipt"]');
+    await page.locator('[data-a="receipt"]').first().click();
+    await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    await assert(await count(page, '.receipt-warn') === 1, 'a tampered ledger receipt must replace the balance with an integrity warning');
+    const warnText = await page.locator('.receipt-warn').innerText();
+    await assert(warnText.includes('장부에 이상') && warnText.includes('장부 검사'), 'integrity warning should direct the user to 설정 → 장부 검사');
+    await assert(await count(page, '.receipt-bal') === 0, 'no balance figure should be shown when integrity fails');
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(50);
 
     await page.reload({ waitUntil: 'load' });
     for (let i = 0; i < 5; i += 1) {
