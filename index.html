@@ -246,6 +246,39 @@ let composing=false;document.addEventListener('compositionstart',()=>{composing=
 // 온/오프라인 상태 pill 토글 — 상태 저장 없이 재렌더만(navigator.onLine을 직접 읽음)
 window.addEventListener('online',()=>{if(state.loaded)render()});window.addEventListener('offline',()=>{if(state.loaded)render()});
 document.addEventListener('keydown',function(e){if(e.key==='Enter'){if(e.target.id==='setupNewDept'){e.preventDefault();var b2=document.querySelector('[data-a="setup-add-dept"]');if(b2)b2.click()}if(e.target.id==='newDeptInput'){e.preventDefault();var b3=document.querySelector('[data-a="add-dept"]');if(b3)b3.click()}if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){e.preventDefault();var b4=document.querySelector('[data-a="setup-manual-save"]');if(b4)b4.click()}}});
+// ── 안드로이드 하단 뒤로가기 계층 (기존 화면/모달 상태 위에 얇게 덧씌움; 순수 추가) ──
+// 설계: "정적 트랩" 1개를 base 위에 항상 유지한다. 화면 전환·모달 개폐 시 히스토리를 건드리지 않고
+//       (기존 render/clickActions/트랜잭션 로직 완전 불변), 오직 popstate(실제 뒤로가기)에서만
+//       우선순위대로 한 단계씩 되돌린 뒤 트랩을 다시 세운다. → 뒤로 1번 = 1단계, 누적·중복 push 없음.
+// 우선순위: ④잠금 유지 > ①모달 닫기 > ②설정/이력→홈 > ③홈에서 "한 번 더" 종료 안내.
+// 저장/차감은 절대 실행하지 않는다(닫기 only). 모든 예외는 삼켜 앱이 죽지 않게 한다.
+let __histReady=false,__backArmed=false,__backArmedAt=0,__backArmTimer=null,__exiting=false;
+function __retrap(){try{history.pushState({bapTrap:true},'')}catch(e){}}
+// popstate가 온 시점엔 브라우저가 base로 내려온 상태다. render(innerHTML 교체)를 popstate 이벤트 안에서
+// 동기로 돌리면 네비게이션의 blur와 겹쳐 콘솔 경고가 나므로, 처리를 마이크로태스크로 미룬다.
+// (다음 뒤로가기는 별도 태스크라 마이크로태스크가 먼저 실행 → 트랩 재설정 보장, 뒤로 1번=1단계 유지.)
+function __onPop(){if(!__histReady||__exiting)return;Promise.resolve().then(__handleBack)}
+function __handleBack(){try{
+  if(__exiting)return;
+  // 데이터 보호(안전): 뒤로가기로 모달을 닫을 때, 포커스된 입력(예: 사용 금액)이 제거되며 발생하는
+  //   change 이벤트가 onInput→render를 재진입시켜 innerHTML 교체가 실패(NotFoundError)하는 것을 막는다.
+  //   → 기존 onInput 리스너를 잠깐 분리하고 blur한 뒤 render(닫기)한다. 저장/차감은 일어나지 않는다(닫기 only).
+  let __re=false;
+  try{const ae=document.activeElement;if(ae&&ae!==document.body&&typeof ae.blur==='function'){document.removeEventListener('input',onInput);document.removeEventListener('change',onInput);__re=true;ae.blur()}}catch(e){}
+  try{
+    if(state.pinLocked){__retrap();return}                                            // ④ 잠금 우회 금지: 아무 전환도 안 함
+    if(state.modal){state.modal=null;render();__retrap();return}                       // ① 모달만 닫기(기존 close-modal과 동일)
+    if(state.screen!=='home'){state.screen='home';state.historyEmployeeId='';render();__retrap();return} // ② 홈으로
+    // ③ 홈 + 모달 없음 → "한 번 더" 종료 안내(히스토리를 자연 소진시켜 탭이 닫히게)
+    const t=now();
+    if(__backArmed&&(t-__backArmedAt)<2000){__backArmed=false;clearTimeout(__backArmTimer);__exiting=true;try{history.back()}catch(e){}return}
+    __backArmed=true;__backArmedAt=t;clearTimeout(__backArmTimer);__backArmTimer=setTimeout(()=>{__backArmed=false},2000);
+    toast('한 번 더 누르면 종료합니다');__retrap();
+  }finally{if(__re){try{document.addEventListener('input',onInput);document.addEventListener('change',onInput)}catch(e){}}}
+}catch(err){console.error('popstate',err)}}
+function setupBackHistory(){try{history.replaceState({bapBase:true},'');history.pushState({bapTrap:true},'');window.addEventListener('popstate',__onPop);__histReady=true}catch(e){console.error('setupBackHistory',e)}}
+setupBackHistory();
+window.__prepaidBackTest={armed:()=>__backArmed,disarm:()=>{__backArmed=false;clearTimeout(__backArmTimer)},screen:()=>state.screen,modal:()=>state.modal&&state.modal.type,locked:()=>!!state.pinLocked};
 init();
 // 테스트/디버그 훅 — 서버로 아무것도 전송하지 않는 순수 로컬 함수 참조만 노출한다(자동화 검증용, §검증6).
 window.__prepaidTestHooks={buildCloudBackupBlob,decryptBlob,matchAgencyByRegion,monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,relayBackupSilent,maybeMonthlyAutoBackup};

@@ -578,6 +578,78 @@ async function main() {
     await page.locator('.receipt-modal [data-a="close-modal"]').click();
     await page.waitForTimeout(50);
 
+    // ───────────────────────────────────────────────────────────────
+    // 안드로이드 하단 뒤로가기: 히스토리 동기화 계층 (돈 다루는 앱 — 안전 최우선)
+    //   OS 뒤로가기는 브라우저 히스토리를 소진해 popstate를 발생시키므로 history.back()으로 충실히 흉내낸다.
+    // ───────────────────────────────────────────────────────────────
+    const back = async () => { await page.evaluate(() => window.history.back()); await page.waitForTimeout(140); };
+    const bt = () => page.evaluate(() => ({ armed: window.__prepaidBackTest.armed(), screen: window.__prepaidBackTest.screen(), modal: window.__prepaidBackTest.modal(), locked: window.__prepaidBackTest.locked() }));
+    // 시작 지점 정리: 홈·모달 없음·잠금 해제
+    await page.evaluate(() => window.__prepaidBackTest.disarm());
+    let st = await bt();
+    await assert(st.screen === 'home' && !st.modal && !st.locked, 'back-nav suite should start on home, no modal, unlocked');
+
+    // (a) 설정 화면에서 뒤로가기 → 홈 (앱 유지)
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForTimeout(80);
+    st = await bt();
+    await assert(st.screen === 'settings', 'nav to settings should set screen=settings');
+    await back();
+    st = await bt();
+    await assert(st.screen === 'home' && !st.modal, '(a) back from settings should return to home, app still alive');
+    await assert(await count(page, '[data-a="quick-find-emp"]') === 1, '(a) home content should be rendered after back');
+
+    // (b) 모달을 열고 뒤로가기 → 모달만 닫힘, 화면(홈) 유지
+    await page.locator('[data-a="receipt"]').first().click();
+    await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    st = await bt();
+    await assert(st.modal === 'receipt', 'opening receipt should set an active modal');
+    await back();
+    st = await bt();
+    await assert(!st.modal && st.screen === 'home', '(b) back should close the modal and keep the home screen');
+    await assert(await count(page, '.modal-back') === 0, '(b) modal DOM should be gone after back');
+
+    // (e) 뒤로 1번 = 1단계: 모달만 열었을 때 back 한 번에 모달 닫힘 + 홈 유지(종료 안 됨), armed=false
+    await page.locator('[data-a="receipt"]').first().click();
+    await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    await back();
+    st = await bt();
+    await assert(!st.modal && st.screen === 'home' && st.armed === false, '(e) one back = one step: modal closed, home kept, exit NOT yet armed');
+
+    // (d) usage(사용) 모달에서 금액 입력 후 뒤로가기 → 모달 닫힘 + 트랜잭션 미생성(닫기 only, 저장/차감 없음)
+    //     카드의 [사용] 버튼으로 직접 연다(검색 없이). 뒤로가기가 저장/차감을 실행하지 않음을 검증한다.
+    const txBefore = (await readDb(page)).transactions.length;
+    await page.locator(`[data-a="use"][data-id="${empA.id}"]`).click();
+    await page.waitForSelector('#useAmount');
+    await page.locator('#useAmount').fill('9999');
+    st = await bt();
+    await assert(st.modal === 'usage', 'usage modal should be open before back');
+    await back();
+    st = await bt();
+    await assert(!st.modal, '(d) back should close the usage modal');
+    const txAfter = (await readDb(page)).transactions.length;
+    await assert(txAfter === txBefore, '(d) back from usage must NOT create a transaction (close only, no save/deduct)');
+
+    // (c) 홈에서 뒤로가기 → "한 번 더 누르면 종료" 토스트 + 즉시 종료 안 됨(앱 유지, armed=true)
+    await page.evaluate(() => window.__prepaidBackTest.disarm());
+    await back();
+    st = await bt();
+    await assert(st.armed === true, '(c) back on home should arm the "press again to exit" guard');
+    await assert(st.screen === 'home' && !st.modal, '(c) app must NOT exit immediately on the first home back');
+    const toastTxt = await page.locator('.toast').innerText().catch(() => '');
+    await assert(toastTxt.includes('한 번 더'), '(c) a "press once more to exit" toast should be shown');
+    await page.evaluate(() => window.__prepaidBackTest.disarm());
+
+    // (f) PIN 잠금 상태에서 뒤로가기 → 잠금 유지(홈 안 열림, 잠금 우회 금지)
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('[data-a="pin-key"]');
+    st = await bt();
+    await assert(st.locked === true, 'app should be PIN-locked after reload');
+    await back();
+    st = await bt();
+    await assert(st.locked === true, '(f) back on the lock screen must keep the app locked (no lock bypass)');
+    await assert(await count(page, '.pin-screen') === 1 && await count(page, '.nav') === 0, '(f) lock screen must remain; home/nav must not appear');
+
     await page.reload({ waitUntil: 'load' });
     for (let i = 0; i < 5; i += 1) {
       for (const key of ['9', '9', '9', '9']) {
@@ -608,7 +680,8 @@ async function main() {
         safeLedgerExport: true,
         transactionFlow: true,
         backupV2: true,
-        pinResetWipesData: true
+        pinResetWipesData: true,
+        backNavigationHistory: true
       },
       consoleProblems
     }, null, 2));
