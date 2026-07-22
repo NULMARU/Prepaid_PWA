@@ -377,6 +377,173 @@ async function main() {
     await assert(backup.payload.meta && backup.payload.meta.orgName === '강남구청', 'selected agency name should be saved in backup meta');
     await assert(checksum === backup.checksum, 'backup checksum should match payload');
 
+    // ───────────────────────────────────────────────────────────────
+    // 월 단위 백업: 파일명 · 활동 게이트 · 월말 배너 · 자동백업 토글 · 조용한 클라우드 트리거
+    // ───────────────────────────────────────────────────────────────
+    const unlock = async () => {
+      for (const key of ['1', '2', '3', '4']) {
+        await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
+      }
+    };
+    // (1) 일반 백업 파일명은 월 기준(밥장부백업_YYYY-MM.json), 최종백업은 날짜까지 유지
+    await assert(/^밥장부백업_\d{4}-\d{2}\.json$/.test(jsonDownload.name), `monthly backup file name should be 밥장부백업_YYYY-MM.json, got ${jsonDownload.name}`);
+    const finalFn = await page.evaluate(() => window.__prepaidTestHooks.backupFileName(true));
+    await assert(/^밥장부백업_최종_\d{4}-\d{2}-\d{2}\.json$/.test(finalFn), `final backup file name should keep the day (밥장부백업_최종_YYYY-MM-DD.json), got ${finalFn}`);
+
+    // (2) 활동 게이트: 이번 달은 씨앗 거래로 활동 있음, 임의의 빈 달은 활동 0 → 어떤 트리거도 대상 아님
+    const gate = await page.evaluate(() => {
+      const H = window.__prepaidTestHooks, n = new Date();
+      const cur = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+      return { curHas: H.monthHasActivity(cur), emptyHas: H.monthHasActivity('2099-01') };
+    });
+    await assert(gate.curHas === true, 'current month must register activity from seeded transactions');
+    await assert(gate.emptyHas === false, 'a zero-transaction month must report no activity (empty-month gate)');
+
+    // 지난달(15일) 씨앗 거래 주입 + 더미 릴레이 서버 지정. txHash 비워 해시체인 검증은 이 거래를 건너뛴다(무결성 경고 유발 안 함).
+    const pm = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 15);
+    const prevTs = pm.getTime();
+    const prevYmStr = `${pm.getFullYear()}-${String(pm.getMonth() + 1).padStart(2, '0')}`;
+    await page.evaluate(({ ts }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['transactions', 'meta'], 'readwrite');
+        tx.objectStore('transactions').put({ id: 'seed-prev-' + ts, employeeId: 'seed-emp', type: 'use', amount: 1000, beforeBalance: 0, afterBalance: 0, reason: '', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: ts });
+        tx.objectStore('meta').put({ key: 'relayServer', value: 'https://relay.invalid.test' });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { ts: prevTs });
+
+    // (3) 활동 있는 지난달이 미백업(미등록) → 홈에 월말 배너 + [지금 저장하기]
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('[data-a="screen"][data-screen="home"]');
+    await assert(await count(page, '[data-a="monthly-backup-now"]') === 1, 'an unbacked month with activity must show the month-end backup banner on home');
+    const bannerText = await page.locator('.banner.warn', { hasText: '지금 저장하기' }).first().innerText();
+    await assert(bannerText.includes(prevYmStr), `month-end banner should name the due month ${prevYmStr}`);
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'backup-banner.png') }).catch(() => {});
+
+    // (4) 자동 백업 토글: 기본 켜짐 → 끄면 저장·복원되고 배너에 "꺼져 있어요" 문구가 붙는다
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('[data-a="toggle-auto-cloud"]');
+    await assert(await page.locator('[data-a="toggle-auto-cloud"]').isChecked(), 'auto cloud backup toggle should default to ON');
+    await page.locator('[data-a="toggle-auto-cloud"]').scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(100);
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'settings-auto-backup.png') }).catch(() => {});
+    await page.locator('[data-a="toggle-auto-cloud"]').uncheck();
+    await page.waitForTimeout(150);
+    let mm = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(mm.autoCloudBackup === false, 'unchecking the toggle should persist autoCloudBackup=false');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    const bannerOff = await page.locator('.banner.warn', { hasText: '지금 저장하기' }).first().innerText();
+    await assert(bannerOff.includes('꺼져 있어요'), 'with auto backup off, the banner should warn that auto backup is disabled');
+    // 재로드 후 토글 상태 복원(꺼짐 유지) 확인 → 다시 켠다
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('[data-a="toggle-auto-cloud"]');
+    await assert(!(await page.locator('[data-a="toggle-auto-cloud"]').isChecked()), 'auto backup toggle state should be restored (still off) after reload');
+    await page.locator('[data-a="toggle-auto-cloud"]').check();
+    await page.waitForTimeout(150);
+
+    // (5) 이미 이번 대상 달을 백업했으면(lastMonthlyBackup 기록) 배너 미표시 + monthlyBackupDue()==''
+    await page.evaluate(({ ym }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta'], 'readwrite');
+        tx.objectStore('meta').put({ key: 'lastMonthlyBackup', value: ym });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { ym: prevYmStr });
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('[data-a="screen"][data-screen="home"]');
+    await assert(await count(page, '[data-a="monthly-backup-now"]') === 0, 'a month already backed up must not show the month-end banner');
+    const dueEmpty = await page.evaluate(() => window.__prepaidTestHooks.monthlyBackupDue());
+    await assert(dueEmpty === '', 'monthlyBackupDue() must return empty once the due month is recorded as backed up');
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'no-banner-backed-up.png') }).catch(() => {});
+
+    // (6) 자동 클라우드 트리거: 토글 ON + 등록됨 + due 이면 조용히 서버 백업을 호출한다(네트워크 스파이).
+    //     활동 게이트/미등록/토글오프는 호출을 차단한다(스텁 fetch로 검증).
+    const spyResult = await page.evaluate(async ({ pubKey }) => {
+      const out = {};
+      // 등록 상태로 전환 + lastMonthlyBackup 초기화(due 복원)
+      await new Promise((resolve, reject) => {
+        const req = indexedDB.open('prepaid-ledger-db');
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction(['meta'], 'readwrite');
+          tx.objectStore('meta').put({ key: 'restaurantId', value: 'test-rid' });
+          tx.objectStore('meta').put({ key: 'lastMonthlyBackup', value: '' });
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => reject(tx.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+      return { pubKey, seeded: true };
+    }, { pubKey: mm.pubKey });
+    await assert(spyResult.seeded, 'registration state should be seeded for the auto-backup spy');
+    // 재로드해 등록 상태를 state에 반영(로드 시 자동 트리거는 더미 서버라 조용히 실패)
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('[data-a="screen"][data-screen="home"]');
+    // fetch 스파이 설치: /api/challenge는 pubKey로 암호화한 토큰을 돌려주고, /api/ledger-backup 호출을 기록한다.
+    await page.evaluate(({ pubKey }) => {
+      window.__ledgerBackupCalls = [];
+      const orig = window.fetch.bind(window);
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      window.fetch = async (u, opts) => {
+        const url = String(u);
+        if (url.includes('/api/challenge')) {
+          const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+          const ct = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, new TextEncoder().encode('TESTTOKEN'));
+          return new Response(JSON.stringify({ challenge_ct: u2b(ct) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.includes('/api/ledger-backup')) {
+          window.__ledgerBackupCalls.push(url);
+          return new Response(JSON.stringify({ ok: true, updated_at: new Date().toISOString() }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return orig(u, opts);
+      };
+    }, { pubKey: mm.pubKey });
+    // 성공 경로: 토글 ON + 등록됨 + due 상태에서 트리거 → 서버 호출 발생 + lastMonthlyBackup 기록.
+    const fired = await page.evaluate(async () => {
+      window.__ledgerBackupCalls = [];
+      await window.__prepaidTestHooks.maybeMonthlyAutoBackup();
+      return window.__ledgerBackupCalls.length;
+    });
+    await assert(fired >= 1, 'auto monthly backup should POST to /api/ledger-backup when toggle is on, registered, and due');
+    mm = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(mm.lastMonthlyBackup === prevYmStr, 'a successful auto backup should record lastMonthlyBackup for the due month');
+    // 기록된 뒤에는 재트리거해도 due가 아니므로 추가 서버 호출이 없어야 한다(1회/로드·중복 방지)
+    const again = await page.evaluate(async () => {
+      window.__ledgerBackupCalls = [];
+      await window.__prepaidTestHooks.maybeMonthlyAutoBackup();
+      return window.__ledgerBackupCalls.length;
+    });
+    await assert(again === 0, 'once recorded, the due month must not trigger another server backup');
+
+    // 정리: 씨앗 지난달 거래·릴레이 메타를 제거해 이후 변조/리셋 시나리오에 영향 주지 않게 한다
+    await page.evaluate(({ ts }) => new Promise((resolve) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['transactions', 'meta'], 'readwrite');
+        tx.objectStore('transactions').delete('seed-prev-' + ts);
+        tx.objectStore('meta').delete('restaurantId');
+        tx.oncomplete = () => resolve(true);
+      };
+    }), { ts: prevTs });
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('[data-a="receipt"]');
+
     // 무결성 실패(변조 감지) 시 증표는 잔액 숫자 대신 경고를 표시해야 한다 (안전장치 ②: 해시체인 재검증)
     await page.evaluate(() => new Promise((resolve, reject) => {
       const req = indexedDB.open('prepaid-ledger-db');

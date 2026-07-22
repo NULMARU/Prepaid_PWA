@@ -248,7 +248,7 @@ window.addEventListener('online',()=>{if(state.loaded)render()});window.addEvent
 document.addEventListener('keydown',function(e){if(e.key==='Enter'){if(e.target.id==='setupNewDept'){e.preventDefault();var b2=document.querySelector('[data-a="setup-add-dept"]');if(b2)b2.click()}if(e.target.id==='newDeptInput'){e.preventDefault();var b3=document.querySelector('[data-a="add-dept"]');if(b3)b3.click()}if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){e.preventDefault();var b4=document.querySelector('[data-a="setup-manual-save"]');if(b4)b4.click()}}});
 init();
 // 테스트/디버그 훅 — 서버로 아무것도 전송하지 않는 순수 로컬 함수 참조만 노출한다(자동화 검증용, §검증6).
-window.__prepaidTestHooks={buildCloudBackupBlob,decryptBlob,matchAgencyByRegion};
+window.__prepaidTestHooks={buildCloudBackupBlob,decryptBlob,matchAgencyByRegion,monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,relayBackupSilent,maybeMonthlyAutoBackup};
 
 // ── 유틸리티 ──
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
@@ -276,6 +276,25 @@ function makeLocalRepo(){function load(){try{return JSON.parse(localStorage.getI
 function applyTx(b,t){return t.type==='use'?b-num(t.amount):b+num(t.amount)}
 function balanceOf(id){return state.data.transactions.filter(t=>t.employeeId===id).reduce((s,t)=>applyTx(s,t),0)}
 function backupDue(){return(state.data.employees.length||state.data.transactions.length)&&!sameDay(state.data.meta.lastBackupAt,now())}
+// ── 월 단위 백업 판정 (돈 데이터 — 안전 최우선). 모든 트리거(자동저장·배너·서버호출)는 monthHasActivity 게이트를 먼저 통과해야 한다 ──
+function ymOf(ts){const d=new Date(ts);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
+function curYm(){return ymOf(now())}
+function prevYm(){const d=new Date(now());d.setDate(1);d.setMonth(d.getMonth()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
+// 활동 게이트: 해당 연월(YYYY-MM)에 생성된 실제 장부 변동 거래가 1건이라도 있으면 true. 빈 달이면 어떤 백업 트리거도 실행되지 않는다.
+function monthHasActivity(ym){return state.data.transactions.some(t=>ymOf(t.createdAt)===ym)}
+function monthAlreadyBackedUp(ym){return str(state.data.meta.lastMonthlyBackup)===ym}
+function isLastDayOfMonth(ts){const n=new Date(ts),t=new Date(ts);t.setDate(n.getDate()+1);return t.getMonth()!==n.getMonth()}
+// 월말 시점 판정 — 백업이 필요한 연월(YYYY-MM) 문자열을 반환, 없으면 ''. 활동 0건·이미 백업한 달은 절대 반환하지 않는다.
+function monthlyBackupDue(){
+  // ① 지난달에 활동이 있는데 아직 백업 안 했으면 우선(월말에 앱을 안 열어 다음 달로 넘어간 경우 포함)
+  const p=prevYm();
+  if(monthHasActivity(p)&&!monthAlreadyBackedUp(p))return p;
+  // ② 이번 달 말일(또는 그 이후)이고, 이번 달 활동이 있는데 미백업이면 이번 달
+  const c=curYm();
+  if(isLastDayOfMonth(now())&&monthHasActivity(c)&&!monthAlreadyBackedUp(c))return c;
+  return '';
+}
+function daysAgoText(ts){if(!ts)return '아직 없음';const days=Math.floor((now()-ts)/86400000);return days<=0?'오늘':days+'일 전'}
 
 // ── SHA-256 ──
 async function hash(text){if(window.crypto&&window.crypto.subtle){const buf=new TextEncoder().encode(String(text)),h=await crypto.subtle.digest('SHA-256',buf);return Array.from(new Uint8Array(h)).map(v=>v.toString(16).padStart(2,'0')).join('')}let x=5381,s=String(text);for(let i=0;i<s.length;i++)x=((x<<5)+x)+s.charCodeAt(i);return String(x>>>0)}
@@ -409,6 +428,10 @@ async function relayAuthToken(){const base=relayBase(),rid=str(state.data.meta.r
 function stripPhonesForCloud(core){return{...core,payload:{...core.payload,employees:core.payload.employees.map(({phone,phoneConsent,...rest})=>rest)}}}
 async function buildCloudBackupBlob(){if(!state.data.meta.pubKey)throw new Error('키가 없습니다.');const core=stripPhonesForCloud(backupCore());const plaintext=JSON.stringify(core);const aesRaw=randBytes(32);const aesKey=await crypto.subtle.importKey('raw',aesRaw,{name:'AES-GCM'},false,['encrypt']);const iv=randBytes(12);const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},aesKey,new TextEncoder().encode(plaintext));const pub=await crypto.subtle.importKey('spki',b64ToBuf(state.data.meta.pubKey),{name:'RSA-OAEP',hash:'SHA-256'},true,['encrypt']);const encKey=await crypto.subtle.encrypt({name:'RSA-OAEP'},pub,aesRaw);return{encKey:bufToB64(encKey),iv:bufToB64(iv),ct:bufToB64(ct)}}
 async function relayBackupNow(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록하세요.');return}setBusy('장부 되찾기용 백업을 만드는 중입니다.');try{const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000){clearBusy();toast('장부 용량이 커서 백업을 만들 수 없어요.');return}const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'백업 실패');const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});clearBusy();render();toast('장부를 안전하게 저장했어요.')}catch(e){console.error(e);clearBusy();toast('백업 오류: '+(e.message||''))}}
+// 조용한 클라우드 백업 — buildCloudBackupBlob/relayAuthToken/relayBase를 그대로 재사용(새 서버 계약 없음). busy/toast 없이 성공 여부만 반환. 실패는 조용히 false.
+async function relayBackupSilent(){try{if(!navigator.onLine||!relayRegistered()||!state.data.meta.pubKey)return false;const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000)return false;const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});if(!r.ok)return false;const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});return true}catch(e){console.error('silent cloud backup',e);return false}}
+// 월말 자동 클라우드 백업 트리거(앱 로드 시 1회). 활동 게이트·등록·토글을 모두 통과할 때만 서버를 호출한다. 실패해도 조용히 넘기고 배너로 유도.
+async function maybeMonthlyAutoBackup(){try{if(state.data.meta.autoCloudBackup===false)return;if(!relayRegistered())return;if(!navigator.onLine)return;const due=monthlyBackupDue();if(!due)return;/*활동0·이미백업·월말아님이면 여기서 종료 → 서버 호출 없음*/const ok=await relayBackupSilent();if(ok){state.data.meta.lastMonthlyBackup=due;await repo.apply({meta:{lastMonthlyBackup:due}});render();toast('이번 달 장부를 안전하게 백업했어요.')}}catch(e){console.error('monthly auto backup',e)}}
 async function relayRestoreFromCloud(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록하세요.');return}if(!window.confirm('보관된 내용으로 복원할까요?\n\n현재 기기의 장부가 백업 시점 내용으로 바뀌어요.'))return;setBusy('보관된 내용을 불러오는 중입니다.');try{const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(r.status===404){clearBusy();toast('보관된 내용이 없어요.');return}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'복원 실패');if(j.blob_hash){const calc=await hash(j.blob);if(calc!==j.blob_hash){clearBusy();toast('백업 무결성 확인에 실패했습니다.');return}}const blob=JSON.parse(atob(j.blob));const core=await decryptBlob(blob);clearBusy();const ok=await restoreFromParsed(core);if(ok){const at=j.updated_at?(new Date(j.updated_at).getTime()||now()):now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});render()}}catch(e){console.error(e);clearBusy();toast('복원 오류: '+(e.message||''))}}
 
 // ── UI ──
@@ -599,7 +622,9 @@ function derive(){const balances=new Map(),voided=new Set();const asc=[...state.
 // ── 화면 HTML ──
 function topBar(){const sub={home:'차감과 잔액을 빠르게 처리해요.',history:'거래와 취소 기록을 확인해요.',settings:'직원 관리와 백업을 처리해요.'}[state.screen]||'';const homeBtn=state.screen==='home'?`<button class="btn" data-a="reset-filter">검색 초기화</button>`:`<button class="btn" data-a="go-home">홈</button>`;const btns=state.screen==='history'?'<button class="btn-primary" data-a="export">백업</button>':'';let filters='';if(state.screen==='home'){const activeDepts=[...new Set(state.data.employees.filter(e=>!e.isDeleted).map(e=>e.dept||'부서 없음'))].sort((a,b)=>a.localeCompare(b,'ko'));const deptOpts=['<option value="">전체 부서</option>',...activeDepts.map(d=>`<option value="${esc(d)}"${state.deptFilter===d?' selected':''}>${esc(d)}</option>`)].join('');filters=`<div style="display:flex;gap:8px"><select id="deptFilterSelect" style="flex:1">${deptOpts}</select><input id="searchInput" type="text" placeholder="직원명 검색" value="${esc(state.search)}" style="flex:1"><button class="btn" data-a="voice-search" title="음성으로 이름 검색" aria-label="음성 검색" style="flex:0 0 auto;min-width:52px;font-size:20px">🎤</button></div>`}else if(state.screen==='history'){filters=historyFilterHtml()}const shop=state.data.meta.shopName;const shopAddr=state.data.meta.shopAddr||'';const shopHtml=shop&&state.screen==='home'?`<div style="font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#1a5276,#2e86c1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px">${esc(shop)}${shopAddr?` <span style="font-size:13px;font-weight:600;letter-spacing:0">(${esc(shopAddr)})</span>`:''}</div>`:'';return `<div class="top">${shopHtml}<div class="title"><div><h1>${APP}</h1><div class="sub">${sub}</div></div><div class="tool">${homeBtn}${btns}</div></div>${filters}</div>`}
 function historyFilterHtml(){const d=derive();const tabStyle='flex:1;min-height:38px;border-radius:10px;font-size:13px;font-weight:700;';const dateOn=state.historyTab==='date';const empOn=state.historyTab==='employee';const empFilter=empOn?`<select id="historyFilter" style="margin-top:8px">${['<option value="">전체 직원</option>',...d.employees.map(e=>`<option value="${esc(e.id)}"${state.historyEmployeeId===e.id?' selected':''}>${esc(e.name)} (${esc(e.dept||'부서 없음')})${e.isDeleted?' [숨김]':''}</option>`)].join('')}</select>`:'';return `<div style="display:flex;gap:8px"><button style="${tabStyle}${dateOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="date">일자별</button><button style="${tabStyle}${empOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="employee">직원별</button></div>${empFilter}`}
-function banners(){let h='';if(state.mode!=='IndexedDB')h+='<div class="card banner error"><strong>호환 모드 저장</strong><div class="meta">IndexedDB를 사용할 수 없어 localStorage에 저장합니다.</div></div>';return h}
+function banners(){let h='';if(state.mode!=='IndexedDB')h+='<div class="card banner error"><strong>호환 모드 저장</strong><div class="meta">IndexedDB를 사용할 수 없어 localStorage에 저장합니다.</div></div>';if(state.screen==='home')h+=monthlyBanner();return h}
+// 월말 알림 배너 — 활동 있는 달이 미백업일 때만 표시. 자동 백업이 이미 성공하면 lastMonthlyBackup 기록으로 monthlyBackupDue()가 ''을 반환해 뜨지 않는다.
+function monthlyBanner(){const ym=monthlyBackupDue();if(!ym)return '';const autoOn=state.data.meta.autoCloudBackup!==false;const offNote=autoOn?'':'<br>⚠️ 자동 백업이 꺼져 있어요.';const ago=`마지막 백업: ${daysAgoText(state.data.meta.lastBackupAt)}`;return `<div class="card banner warn"><strong>${esc(ym)} 장부를 저장할 때예요</strong><div class="meta">${ago}${offNote}</div><div class="section-actions" style="margin-top:8px"><button class="btn-primary" data-a="monthly-backup-now">지금 저장하기</button></div></div>`}
 function backupBanner(){if(!backupDue())return '';return `<div class="card banner warn"><strong>매일 영업 종료 후 장부 안전 저장</strong><div class="meta">${state.data.meta.lastBackupAt?`마지막 백업: ${dt(state.data.meta.lastBackupAt)}`:'아직 백업이 없습니다.'}<br>Chrome 사이트 데이터, 캐시, 저장공간을 삭제하면 앱 데이터가 사라질 수 있습니다.</div></div>`}
 function screenHtml(d){if(state.screen==='history')return historyHtml(d);if(state.screen==='settings')return settingsHtml(d);return homeHtml(d)}
 function statusPillsHtml(){const pills=[];if(!navigator.onLine)pills.push(`<span class="pill pill-offline">오프라인 — 장부는 계속 쓸 수 있어요</span>`);if(relayRegistered())pills.push(`<span class="pill pill-relay">구청 선금 받는 중</span>`);return pills.length?`<div class="pill-row">${pills.join('')}</div>`:''}
@@ -667,6 +692,7 @@ const clickActions={
 'restore-emp':async(el)=>{await restoreEmployee(el.dataset.id)},
 'void':async(el)=>{await voidUsage(el.dataset.id)},
 'export':async()=>{await exportBackup()},
+'monthly-backup-now':async()=>{await exportBackup()},
 'export-safe':async()=>{await exportSafeLedger()},
 'import':()=>{qs('restoreFile').value='';qs('restoreFile').click()},
 'verify-integrity':async()=>{await runIntegrityCheck()},
@@ -701,6 +727,7 @@ const clickActions={
 'pin-forgot-cancel':()=>{state.pinRecovery=false;render()},
 'pin-forgot-restore':()=>{state.pinRecovery=false;qs('restoreFile').value='';qs('restoreFile').click()},
 'cloud-backup-now':async()=>{await relayBackupNow()},
+'toggle-auto-cloud':async(el)=>{const v=!!el.checked;state.data.meta.autoCloudBackup=v;try{await repo.apply({meta:{autoCloudBackup:v}})}catch(e){console.error(e)}render()},
 'cloud-backup-restore':async()=>{await relayRestoreFromCloud()},
 'change-pin':()=>{state.pinMode='change';state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMsg='';state.pinFails=0;render()},
 'voice-search':()=>{voiceSearch()},
@@ -828,7 +855,7 @@ downloadBlob(blob,fn);
 if(!opts.silent)toast('장부 CSV 저장됨');
 return fn;
 }
-function backupFileName(isFinal){const d=new Date();const ymd=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;return isFinal?`선입금대장_최종백업_${ymd}.json`:`선입금대장_${ymd}.json`}
+function backupFileName(isFinal){const d=new Date();const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;const ymd=`${ym}-${String(d.getDate()).padStart(2,'0')}`;return isFinal?`밥장부백업_최종_${ymd}.json`:`밥장부백업_${ym}.json`}
 async function exportSafeLedger(){setBusy('장부와 백업 파일을 만드는 중입니다.');try{await exportCsvLedger({silent:true});await exportBackup(false,{silent:true,skipConfirm:true,noBusy:true,throwOnError:true});clearBusy();toast('장부 안전 저장 파일 2개를 만들었습니다.')}catch(err){console.error(err);clearBusy();toast('장부 안전 저장 오류')}}
 function downloadBlob(blob,filename){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function downloadFile(content,filename,type){if(typeof AndroidBridge!=='undefined'&&AndroidBridge.saveBackup&&(!type||type.indexOf('json')>=0)){AndroidBridge.saveBackup(content,filename);return true}downloadBlob(new Blob([content],{type:type||'application/json'}),filename);return false}
@@ -999,9 +1026,12 @@ const ledgerGroup=`<div class="card settings-card">
 ${verifyResultHtml()}
 </div>`;
 // ── 장부 지키기 구역의 맨 아래: 폰 분실 대비 원격 백업 카드. 기관 등록 전에도 카드는 보이되, 실제 저장·불러오기는 등록 후에만 동작한다 ──
+const autoCloudOn=state.data.meta.autoCloudBackup!==false;
 const cloudVaultCard=`<div class="card settings-card">
 <div class="section-head"><div><div class="section-title">📱 폰을 잃어버려도 장부 되찾기</div><div class="section-kicker">잠긴 채 보관돼서 서버도 열어볼 수 없어요</div></div></div>
 <div class="meta" style="line-height:1.6">백업되는 것: 직원 명단(이름·부서·잔액), 거래 기록, 가게 정보. <b>전화번호와 열쇠는 백업되지 않아요.</b> 내용은 잠근 채 보관되어 서버도 열어볼 수 없어요.</div>
+<label style="display:flex;align-items:center;gap:10px;margin-top:4px;cursor:pointer"><input type="checkbox" data-a="toggle-auto-cloud"${autoCloudOn?' checked':''} style="width:auto;min-height:auto;flex-shrink:0"><span style="font-size:13px;line-height:1.5"><b>월말 자동 백업(클라우드)</b><br>매달 말 잠긴 백업을 서버에 자동 보관해요</span></label>
+${relayRegistered()?'':`<div class="meta" style="color:var(--muted)">${autoCloudOn?'구청 선금 받기를 시작하면 켜져요.':'자동 백업이 꺼져 있어요.'}</div>`}
 ${relayRegistered()?`<div class="meta" style="margin-top:8px">마지막 저장: ${esc(state.data.meta.lastCloudBackupAt?dt(state.data.meta.lastCloudBackupAt):'없음')}</div>
 <div class="section-actions" style="margin-top:8px">
 <button class="btn-primary action-btn" data-a="cloud-backup-now"><span class="action-icon">🔒</span><div><strong>지금 저장하기</strong><span>내용을 잠근 채로 서버에 보관해요</span></div></button>
@@ -1065,7 +1095,7 @@ return `${backupBanner()}${agencyGroup}${ledgerGroup}${cloudVaultCard}${basicGro
 if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(()=>{})}
 
 // ── 초기화 ──
-async function init(){setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!repo){clearBusy();qs('app').innerHTML='<div class="pin-screen"><div class="pin-icon" style="background:linear-gradient(135deg,var(--danger),#e74c3c)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="pin-title">저장소 오류</div><div class="pin-sub">이 브라우저/기기에서 IndexedDB를 사용할 수 없습니다.<br><br>선입금대장은 안정적인 데이터 저장을 위해<br>IndexedDB가 필수입니다.<br><br><strong>해결 방법:</strong><br>① Chrome 최신 버전을 사용하세요<br>② 시크릿/사생활 모드가 아닌지 확인하세요<br>③ 브라우저 설정에서 저장공간을 확인하세요</div></div>';return}state.mode=repo.modeLabel;state.data=norm(await repo.loadAll());try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectWebauthn();detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}state.loaded=true;clearBusy();render()}
+async function init(){setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!repo){clearBusy();qs('app').innerHTML='<div class="pin-screen"><div class="pin-icon" style="background:linear-gradient(135deg,var(--danger),#e74c3c)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="pin-title">저장소 오류</div><div class="pin-sub">이 브라우저/기기에서 IndexedDB를 사용할 수 없습니다.<br><br>선입금대장은 안정적인 데이터 저장을 위해<br>IndexedDB가 필수입니다.<br><br><strong>해결 방법:</strong><br>① Chrome 최신 버전을 사용하세요<br>② 시크릿/사생활 모드가 아닌지 확인하세요<br>③ 브라우저 설정에서 저장공간을 확인하세요</div></div>';return}state.mode=repo.modeLabel;state.data=norm(await repo.loadAll());try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectWebauthn();detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}state.loaded=true;clearBusy();render();maybeMonthlyAutoBackup()}
 })();
 </script>
 </body>
