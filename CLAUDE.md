@@ -52,6 +52,7 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - **bapjangbu.com은 Cloudflare Email Obfuscation ON** — 라이브 소스에서 이메일이 `data-cfemail`로 난독화됨(정상, grep으로 이메일 검색하면 0건 나옴).
 - **이메일**: 발신=Resend(`send.` 서브도메인 DKIM/SPF), 수신=Cloudflare Email Routing(`contact@bapjangbu.com` → 운영자 편지함). apex MX는 라우팅용 — Resend와 별개이니 건드리지 말 것.
 - **agency-web와 homepage는 git push로 배포되지 않는다** — wrangler pages deploy를 각각 실행해야 라이브 반영.
+- **Pages 배포는 반드시 `--branch=main`을 붙일 것** — 생략하면 wrangler가 **현재 git 브랜치명**을 Pages 브랜치로 써서 프리뷰 배포가 되고 커스텀 도메인(agency./bapjangbu.com)은 그대로 남는다(배포 성공 메시지는 똑같이 나오므로 속기 쉽다). 확인은 프로덕션 도메인의 **콘텐츠 문자열**로. 커스텀 도메인 반영에 수십 초~1분 지연이 있을 수 있다.
 - 클라이언트-서버 계약 변경 시(예: 인증 필수화) **마이그레이션→서버 deploy→프론트 배포 순서** 지킬 것. 순서가 어긋나면 라이브 승인/제출이 일시 깨진다.
 
 ## 현재 상태 (2026-07-26)
