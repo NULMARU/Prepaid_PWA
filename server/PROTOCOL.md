@@ -320,7 +320,7 @@ batch_hash = SHA-256(hex)
 ### 8.3 피드백 수신 API
 
 `POST /api/feedback` body `{role, message, contact?}`:
-- `role`: `'음식점'|'기관'|'기타'` 화이트리스트(그 외 `400 {error:'invalid_role'}`).
+- `role`: `'음식점'|'기관'|'직원'|'기타'` 화이트리스트(그 외 `400 {error:'invalid_role'}`).
 - `message`: 1~2000자 필수(범위 밖 `400 {error:'invalid_message'}`).
 - `contact`: 선택, 0~200자(초과 `400 {error:'invalid_contact'}`).
 - 스팸 방지로 IP당 분당 5회 레이트리밋(`429`). 성공 시 `200 {ok:true}`.

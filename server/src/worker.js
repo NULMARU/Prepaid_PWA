@@ -612,7 +612,7 @@ export async function handle(request, env, store) {
       const role = String(b.role || '');
       const message = String(b.message || '');
       const contact = b.contact != null ? String(b.contact) : '';
-      if (!['음식점', '기관', '기타'].includes(role)) return j({ error: 'invalid_role' }, 400);
+      if (!['음식점', '기관', '직원', '기타'].includes(role)) return j({ error: 'invalid_role' }, 400);
       if (message.length < 1 || message.length > 2000) return j({ error: 'invalid_message' }, 400);
       if (contact.length > 200) return j({ error: 'invalid_contact' }, 400);
       await store.insertFeedback({ id: uuid(), role, message, contact: contact || null, created_at: Date.now() });

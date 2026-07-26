@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>밥장부 직원용 — 직원 안내서</title>
+<style>
+:root{--primary:#1a7f4b;--primary-dark:#14603a;--text:#1b2430;--muted:#5b6672;--line:#e3e8ee;--bg-soft:#f2f8f4;--warn:#b7791f;--warn-soft:#fff4e5;}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:var(--text);line-height:1.7;font-size:17px;max-width:760px;margin:0 auto;padding:20px 18px 80px;background:#fff}
+h1{font-size:28px;font-weight:800;color:var(--primary-dark);margin:0 0 6px}
+h2{font-size:22px;font-weight:800;color:var(--primary-dark);margin:40px 0 12px;padding-top:10px;border-top:3px solid var(--line);scroll-margin-top:14px}
+h2 .num{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:var(--primary);color:#fff;font-size:16px;margin-right:8px;vertical-align:middle}
+h3{font-size:18px;font-weight:700;margin:22px 0 8px}
+p{margin:10px 0}
+.lead{color:var(--muted);font-size:16px;margin-bottom:18px}
+.toc{background:var(--bg-soft);border-radius:14px;padding:16px 18px;margin:22px 0 30px}
+.toc h2{margin:0 0 10px;font-size:18px;border:none;padding:0}
+.toc ol{margin:0;padding-left:22px}
+.toc li{margin:6px 0}
+.toc a{color:var(--primary-dark);text-decoration:none;font-weight:600}
+.toc a:hover{text-decoration:underline}
+.step{background:var(--bg-soft);border-radius:14px;padding:16px 18px;margin:14px 0;position:relative}
+.step .step-num{position:absolute;top:-14px;left:16px;background:var(--primary);color:#fff;font-weight:800;font-size:15px;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(26,127,75,.3)}
+.step-body{padding-top:6px}
+.step-title{font-weight:800;font-size:17px;margin-bottom:4px}
+.btn{display:inline-block;background:var(--primary);color:#fff !important;border-radius:8px;padding:5px 14px;font-weight:700;font-size:15px;text-decoration:none;margin:2px 1px}
+.btn-secondary{display:inline-block;background:#fff;color:var(--primary) !important;border:2px solid var(--primary);border-radius:8px;padding:3px 12px;font-weight:700;font-size:15px;margin:2px 1px}
+.btn-danger{display:inline-block;background:#c0392b;color:#fff !important;border-radius:8px;padding:5px 14px;font-weight:700;font-size:15px;margin:2px 1px}
+.field{display:inline-block;background:#fff;border:1.5px dashed #9fb3cc;border-radius:8px;padding:3px 10px;font-size:15px;color:var(--primary-dark);font-weight:600;margin:2px 1px}
+.callout{background:var(--warn-soft);border-left:5px solid var(--warn);border-radius:8px;padding:14px 16px;margin:16px 0;font-weight:700;color:#7a5209}
+.tip{background:#eef8f2;border-left:5px solid var(--primary);border-radius:8px;padding:14px 16px;margin:16px 0}
+.card-list{list-style:none;padding:0;margin:14px 0}
+.card-list li{background:var(--bg-soft);border-radius:10px;padding:12px 14px;margin:8px 0}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:16px}
+th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}
+th{background:var(--bg-soft)}
+.qa{margin:14px 0}
+.qa dt{font-weight:800;color:var(--primary-dark);margin-top:14px}
+.qa dd{margin:4px 0 0}
+.top-link{position:fixed;right:16px;bottom:16px;background:var(--primary);color:#fff;border-radius:24px;padding:10px 16px;font-weight:700;text-decoration:none;box-shadow:0 3px 10px rgba(0,0,0,.2);font-size:14px}
+code{background:var(--bg-soft);padding:2px 6px;border-radius:4px;font-size:15px}
+hr{border:none;border-top:2px solid var(--line);margin:36px 0}
+footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
+.beta{display:inline-block;background:#fff4e5;border:1.5px solid #ecdcbb;color:#7a5209;border-radius:999px;padding:2px 12px;font-size:14px;font-weight:800;vertical-align:middle}
+@media print{
+  body{font-size:13pt;max-width:none;padding:0}
+  .top-link{display:none}
+  h2{page-break-before:always;border-top:none}
+  h2:first-of-type{page-break-before:avoid}
+  .toc{page-break-after:always}
+  .step{page-break-inside:avoid}
+  a[href]::after{content:" (" attr(href) ")";font-size:10pt;color:var(--muted)}
+  .toc a::after{content:""}
+}
+@media (max-width:480px){
+  body{font-size:16px;padding:16px 14px 70px}
+  h1{font-size:24px}
+  h2{font-size:19px}
+}
+</style>
+
+<h1>밥장부 직원용 — 직원 안내서 <span class="beta">베타</span></h1>
+<p class="lead">음식점에 미리 넣어 둔 내 선금(식대)을 내 폰에서 확인하는 앱이에요. 회원가입도, 로그인도 없어요.</p>
+
+<div class="callout">
+🙋 <b>이 앱은 '내가 적는 내 잔액 확인용'이에요.</b><br>
+음식점 사장님 앱(선입금대장)과 자동으로 연결되지 않아요. <b>공식 잔액은 음식점 장부가 기준</b>이고, 직원용 앱은 내가 따로 적어 두고 눈으로 확인하는 개인 기록장이에요. 금액이 다르면 음식점 장부를 확인해 주세요.
+</div>
+
+<div class="toc" aria-label="전체 흐름">
+<h2>전체 흐름 한눈에 (3단계)</h2>
+<ol>
+<li><b>이용 지역 고르기</b> — 시·군·구만 고르면 준비 끝 (이름·전화번호 안 받아요)</li>
+<li><b>음식점 등록</b> — 자주 가는 음식점을 이름으로 찾아 등록</li>
+<li><b>기록하기</b> — 선금을 넣으면 <b>충전</b>, 식사하면 <b>사용</b>을 눌러 금액 입력</li>
+</ol>
+</div>
+
+<nav class="toc" aria-label="목차">
+<h2>목차</h2>
+<ol>
+<li><a href="#install">설치하기</a></li>
+<li><a href="#setup">처음 설정 (이용 지역)</a></li>
+<li><a href="#store">음식점 등록</a></li>
+<li><a href="#record">사용·충전 기록하기</a></li>
+<li><a href="#voice">말로 입력하기</a></li>
+<li><a href="#history">사용이력 보기·고치기</a></li>
+<li><a href="#backup">기록 지키기 (중요)</a></li>
+<li><a href="#manage">지역 변경 · 전체 초기화</a></li>
+<li><a href="#privacy">개인정보 · 안심</a></li>
+<li><a href="#faq">자주 묻는 질문</a></li>
+</ol>
+</nav>
+
+<h2 id="install"><span class="num">1</span>설치하기</h2>
+<p>아래 주소로 접속하세요. 설치 파일을 내려받을 필요 없이 브라우저로 바로 열려요.</p>
+<p><code>https://nulmaru.github.io/bapjangbu-staff/</code></p>
+
+<div class="callout">꼭 <b>홈 화면에 추가</b>해서 쓰세요! 그래야 앱처럼 한 번에 열 수 있어요.</div>
+
+<h3>안드로이드(크롬)에서 추가하기</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">크롬으로 위 주소에 접속해요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">오른쪽 위 점 3개(⋮) 메뉴를 눌러요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><span class="field">홈 화면에 추가</span>를 눌러요.</div></div>
+
+<h3>아이폰(사파리)에서 추가하기</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">사파리로 위 주소에 접속해요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">아래쪽 공유 버튼(⬆️)을 눌러요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><span class="field">홈 화면에 추가</span>를 눌러요.</div></div>
+
+<div class="tip">📱 <b>기록은 이 폰에만 저장돼요.</b> 그래서 늘 쓰는 내 폰에 추가해 두는 게 좋아요. 시크릿(비공개) 모드에서는 기록이 남지 않아요.</div>
+
+<h2 id="setup"><span class="num">2</span>처음 설정 (이용 지역)</h2>
+<p>앱을 처음 열면 <b>이용 지역(시·군·구)</b>만 고르면 돼요. 이름·전화번호 같은 인적사항은 받지 않아요.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body">목록에서 내가 밥을 먹는 동네를 골라요. (예: <span class="field">서울 광진구</span>)</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">목록에 없으면 <span class="field">직접 입력…</span>을 고르고 지역을 적어요. (예: 경기 성남시 분당구)</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><span class="btn">시작하기</span>를 눌러요.</div></div>
+<p>이 지역은 음식점을 이름으로 찾을 때 <b>그 동네 음식점만 보여주기</b> 위해 쓰여요. 나중에 <b>관리</b> 탭에서 바꿀 수 있어요.</p>
+
+<h2 id="store"><span class="num">3</span>음식점 등록</h2>
+<p>자주 가는 음식점을 먼저 등록해요. 등록한 음식점에만 기록할 수 있어요.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body"><span class="btn-secondary">+ 음식점 등록</span>을 눌러요. (현황 화면 또는 관리 탭)</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">음식점 이름을 일부만 넣어도 돼요. (예: <span class="field">김밥</span>, <span class="field">불고기</span>) 실제 음식점 목록에서 찾아 줘요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">찾은 음식점을 <b>터치하면 바로 등록</b>돼요.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">목록에 없으면 <span class="btn-secondary">직접 등록</span>으로 이름(과 동)을 적어 등록해요.</div></div>
+<div class="tip">음식점 검색은 <b>행정안전부 인허가 공공데이터</b>를 이용해요. 인터넷이 안 되면 앱에 들어 있는 목록에서만 찾아지니, 그럴 때는 <b>직접 등록</b>을 쓰세요.</div>
+
+<h2 id="record"><span class="num">4</span>사용·충전 기록하기</h2>
+<p>기록은 두 가지뿐이에요.</p>
+<table>
+<thead><tr><th>구분</th><th>언제 누르나요?</th></tr></thead>
+<tbody>
+<tr><td><b>💰 충전</b></td><td>음식점에 선금을 <b>넣었을 때</b> (예: 한 달치 9,000원 × 3회 = 27,000원)</td></tr>
+<tr><td><b>🍽️ 사용</b></td><td>그 음식점에서 <b>밥을 먹었을 때</b> (예: 오늘 점심 9,000원)</td></tr>
+</tbody>
+</table>
+
+<div class="step"><div class="step-num">1</div><div class="step-body">현황 화면에서 음식점 카드의 <span class="btn">💰 충전</span> 또는 <span class="btn">🍽️ 사용</span>을 눌러요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">자주 쓰는 금액 버튼을 누르거나, 숫자판으로 금액을 눌러요. 잘못 눌렀으면 <span class="field">⌫</span>로 지워요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">날짜는 오늘로 되어 있어요. 지난 날짜를 적을 때만 바꿔요. 메모는 선택이에요.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body"><span class="btn">저장</span>을 누르면 끝! 남은 잔액이 바로 보여요.</div></div>
+
+<div class="tip">🛡️ <b>실수 방지:</b> 충전한 금액보다 많이 <b>사용</b>으로 적으려 하면 앱이 막아 줘요. 금액이 실제와 다르면 음식점 장부를 함께 확인해 주세요.</div>
+
+<p>현황 화면 맨 위에는 <b>전체 남은 선금</b>이, 음식점 카드에는 음식점별 잔액이 보여요. 카드를 누르면 최근 기록이 펼쳐져요.</p>
+
+<h2 id="voice"><span class="num">5</span>말로 입력하기</h2>
+<p>숫자 누르기가 번거로우면 <b>말로</b> 기록할 수 있어요.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body"><span class="btn-secondary">🎤 말로 입력</span>을 누르고, 화면이 <b>🔴 듣는 중</b>으로 바뀌면 말해요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">이렇게 말하면 돼요 — <b>"만리성에 27000원 충전"</b>, <b>"강경불고기에 오늘 12000원 사용했어"</b></div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">앱이 <b>✅ 이렇게 기록할까요?</b>로 확인 카드를 보여줘요. 맞으면 <span class="btn">저장</span>, 다르면 <span class="btn-secondary">취소</span>.</div></div>
+<div class="callout">등록해 둔 음식점 이름으로 말해야 알아들어요. 비슷한 이름으로 잘못 알아들을 수 있으니 <b>저장 전에 확인 카드를 꼭 읽어 주세요.</b></div>
+<p>음성이 안 되는 브라우저에서는 글로 적어 넣어도 같은 방식으로 인식해요. (키보드의 마이크 키를 써도 돼요.)</p>
+
+<h2 id="history"><span class="num">6</span>사용이력 보기·고치기</h2>
+<div class="step"><div class="step-num">1</div><div class="step-body">현황 화면의 <span class="btn-secondary">📋 사용이력 보기</span> 또는 <b>관리</b> 탭에서 전체 기록을 볼 수 있어요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body"><span class="field">음식점 필터</span>로 한 음식점 기록만 볼 수 있어요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">기록을 누르면 <b>수정·삭제</b>할 수 있어요. (음식점·유형·금액·날짜·메모)</div></div>
+<div class="tip">잘못 적은 기록은 지우지 말고 <b>수정</b>하는 편이 잔액 맞추기에 편해요.</div>
+
+<h2 id="backup"><span class="num">7</span>기록 지키기 (중요)</h2>
+<div class="callout">📱 기록은 <b>이 폰의 이 브라우저에만</b> 저장돼요. 폰을 바꾸거나 브라우저 데이터를 지우면 <b>기록이 사라져요.</b> 한 달에 한 번쯤 백업해 두세요.</div>
+<div class="step"><div class="step-num">1</div><div class="step-body"><b>관리</b> 탭 → <span class="btn-secondary">📤 백업(내보내기)</span>을 누르면 <code>밥장부백업_…json</code> 파일이 내려와요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">그 파일을 카톡 '나와의 채팅'이나 메일로 보내 두면 안전해요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">새 폰에서는 <span class="btn-secondary">📥 복원(가져오기)</span>으로 그 파일을 고르면 기록이 돌아와요.</div></div>
+<div class="callout">복원은 <b>현재 기록을 백업 파일 내용으로 덮어써요.</b> 지금 폰에 새로 적은 기록이 있으면 먼저 백업을 받아 두세요.</div>
+<div class="tip">🚧 <b>베타 안내:</b> 직원용 앱 주소는 앞으로 <code>staff.bapjangbu.com</code>으로 바뀔 예정이에요. 주소가 바뀌면 기록이 자동으로 따라오지 않으니, <b>백업 파일로 옮겨야 해요.</b> 그전에 백업을 한 번 받아 두시면 안전해요.</div>
+
+<h2 id="manage"><span class="num">8</span>지역 변경 · 전체 초기화</h2>
+<ul class="card-list">
+<li><b>지역 변경</b> — 이사·전근으로 동네가 바뀌면 관리 탭에서 새 시·군·구를 넣어요. 기존 기록은 그대로 남아요.</li>
+<li><b>음식점 관리</b> — 안 쓰는 음식점을 지울 수 있어요. 그 음식점의 기록도 함께 지워지니 주의하세요.</li>
+<li><b>전체 초기화</b> — 음식점·기록·설정이 모두 지워지고 <b>되돌릴 수 없어요.</b> 꼭 백업을 먼저 받으세요.</li>
+</ul>
+
+<h2 id="privacy"><span class="num">9</span>개인정보 · 안심</h2>
+<ul class="card-list">
+<li>회원가입·로그인이 없어요. 이름·전화번호·이메일을 받지 않아요.</li>
+<li>기록(음식점·금액·날짜·메모)은 <b>내 폰 안에만</b> 저장돼요. 서버로 올리지 않아요.</li>
+<li>인터넷은 <b>음식점 이름 검색</b>에만 써요. 기록·잔액 계산은 인터넷 없이도 돼요.</li>
+<li>결제·이체 기능이 없어요. 실제 돈은 앱 밖에서(계좌·현금) 주고받아요.</li>
+<li>완전 무료예요. 광고도, 유료 기능도 없어요.</li>
+</ul>
+<p>자세한 내용은 <a href="privacy.html">개인정보처리방침</a>과 <a href="terms.html">이용약관</a>에서 확인할 수 있어요.</p>
+
+<h2 id="faq"><span class="num">10</span>자주 묻는 질문</h2>
+<dl class="qa">
+<dt>음식점 장부와 잔액이 다르면 어떻게 하나요?</dt>
+<dd><b>음식점 장부가 기준이에요.</b> 직원용 앱은 내가 직접 적는 기록이라, 적는 걸 빠뜨리면 달라질 수 있어요. 음식점에서 잔액을 확인하고 앱 기록을 수정해 주세요.</dd>
+
+<dt>기관(구청·회사)이 넣어 준 선금도 여기에 적어야 하나요?</dt>
+<dd>적어 두면 내 잔액을 눈으로 확인하기 편해요. 기관이 음식점에 넣어 준 금액을 <b>충전</b>으로 한 번 적어 두면 돼요. 기관·음식점 쪽 기록과는 별개예요.</dd>
+
+<dt>음식점에서 내 폰을 보여주면 결제가 되나요?</dt>
+<dd>아니요. 이 앱에는 결제 기능이 없어요. 실제 차감은 음식점 앱(선입금대장)에서 사장님이 처리해요.</dd>
+
+<dt>인터넷이 없어도 되나요?</dt>
+<dd>네. 기록하기·잔액 보기는 인터넷 없이도 돼요. 음식점 이름 검색만 인터넷이 필요해요.</dd>
+
+<dt>폰을 바꾸면 기록이 사라지나요?</dt>
+<dd>네, 그대로는 사라져요. 바꾸기 전에 <a href="#backup">백업(내보내기)</a>을 받아 새 폰에서 복원해 주세요.</dd>
+
+<dt>가족·동료와 같이 쓸 수 있나요?</dt>
+<dd>이 앱은 한 사람의 개인 기록장이에요. 여러 사람 몫을 함께 관리해야 하면 음식점 앱(선입금대장)을 쓰는 게 맞아요.</dd>
+</dl>
+
+<hr>
+<p>문의: <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a> · 다른 안내서: <a href="manual-restaurant.html">음식점 사장님</a> · <a href="manual-agency.html">기관 담당자(서무)</a></p>
+
+<footer>밥장부 직원용 — 직원 안내서 (베타) · © 2026 밥장부(선입금대장) · 널마루</footer>
+<a class="top-link" href="#top" onclick="window.scrollTo({top:0,behavior:'smooth'});return false">맨 위로</a>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="단체 손님·직원 식대 선입금을 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다. 음식점 사장님도, 기관 담당자도 바로 시작하세요.">
+<meta name="description" content="단체 손님·직원 식대 선입금을 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다. 음식점 사장님·기관 담당자(서무)·직원 모두 가입 없이 바로 시작하세요.">
 <link rel="canonical" href="https://bapjangbu.com/">
 <title>밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로</title>
 <!-- Open Graph -->
@@ -35,6 +35,8 @@
   --card:#ffffff;
   --ok:#1a7f4b;--ok-soft:#e9f6ef;--ok-line:#cfe8da;
   --warn:#b7791f;--warn-soft:#fbf3e4;--warn-line:#ecdcbb;
+  /* 이용 주체 3색: 사장님=파랑, 기관 담당자(서무)=금색, 직원=초록 */
+  --owner:#1e4e86;--agency:#8a5a22;--staff:#1a7f4b;--staff-soft:#e9f6ef;--staff-line:#cfe8da;
   --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--s12:48px;--s16:64px;
   --r-sm:10px;--r:14px;--r-lg:18px;
   --shadow-xs:0 1px 2px rgba(16,32,64,.05);
@@ -66,6 +68,11 @@ img{max-width:100%}
 .btn-primary:hover{background:var(--primary-dark);border-color:var(--primary-dark);box-shadow:var(--shadow);transform:translateY(-1px)}
 .btn-outline{background:var(--card);color:var(--primary)}
 .btn-outline:hover{background:var(--primary-soft);transform:translateY(-1px)}
+/* 역할별 외곽선 버튼 — 색으로 대상을 구분해 준다 */
+.btn-agency{background:var(--card);color:var(--agency);border-color:var(--accent)}
+.btn-agency:hover{background:var(--accent-soft);transform:translateY(-1px)}
+.btn-staff{background:var(--card);color:var(--staff);border-color:var(--staff)}
+.btn-staff:hover{background:var(--staff-soft);transform:translateY(-1px)}
 .btn-lg{font-size:20px;padding:20px 26px;min-height:62px;width:100%}
 .btn-block{width:100%}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
@@ -75,6 +82,13 @@ header.site{border-bottom:1px solid var(--line);background:var(--bg);position:st
 header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:58px}
 .brand{font-weight:800;color:var(--heading);font-size:19px;text-decoration:none;letter-spacing:-.01em}
 .brand small{font-weight:600;color:var(--muted);font-size:12px;letter-spacing:0}
+header.site nav{display:flex;align-items:center;gap:6px}
+header.site nav a{font-size:14.5px;font-weight:700;color:var(--muted);text-decoration:none;padding:8px 10px;border-radius:10px;white-space:nowrap;min-height:40px;display:inline-flex;align-items:center}
+header.site nav a:hover{color:var(--primary);background:var(--primary-soft)}
+@media(max-width:420px){
+  .brand{font-size:17px}.brand small{display:none}
+  header.site nav a{font-size:13.5px;padding:8px 7px}
+}
 
 /* ---------- hero ---------- */
 .hero{background:radial-gradient(120% 90% at 50% -10%,var(--primary-soft) 0%,var(--primary-tint) 42%,var(--bg) 100%);padding:40px 0 44px;text-align:center}
@@ -83,8 +97,9 @@ header.site .wrap{display:flex;align-items:center;justify-content:space-between;
 .chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:0 0 var(--s6)}
 .chip{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 15px;font-size:14px;font-weight:700;color:var(--text);box-shadow:var(--shadow-xs)}
 .chip.free{background:var(--ok-soft);border-color:var(--ok-line);color:var(--ok)}
+.hero-role{font-size:15px;font-weight:800;color:var(--muted);margin:0 0 var(--s3)}
 .hero-cta{display:flex;flex-direction:column;gap:12px;max-width:440px;margin:0 auto}
-.hero-hint{font-size:14px;color:var(--muted);margin:14px 0 0}
+.hero-hint{font-size:14px;color:var(--muted);margin:14px 0 0;line-height:1.7}
 
 /* ---------- sections ---------- */
 section{padding:var(--s16) 0;border-top:1px solid var(--line)}
@@ -98,7 +113,8 @@ section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width
 .flow-legend{display:flex;gap:10px;justify-content:flex-start;flex-wrap:wrap;margin:0 0 var(--s4)}
 .fl-chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:7px 15px;font-size:14px;font-weight:800;border:1.5px solid}
 .fl-chip.owner{color:var(--primary);background:var(--primary-soft);border-color:#cfe0f2}
-.fl-chip.agency{color:#8a5a22;background:var(--accent-soft);border-color:var(--accent-line)}
+.fl-chip.agency{color:var(--agency);background:var(--accent-soft);border-color:var(--accent-line)}
+.fl-chip.staff{color:var(--staff);background:var(--staff-soft);border-color:var(--staff-line)}
 
 .flow{list-style:none;margin:0;padding:0;position:relative}
 .flow::before{content:"";position:absolute;left:23px;top:14px;bottom:14px;width:3px;background:linear-gradient(var(--line),var(--line));border-radius:2px}
@@ -111,7 +127,7 @@ section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width
 .f-step.agency .f-card{border-left-color:var(--accent)}
 .f-actor{display:inline-block;font-size:12.5px;font-weight:800;border-radius:999px;padding:2px 10px;margin:0 0 6px}
 .f-step.owner .f-actor{color:var(--primary);background:var(--primary-soft)}
-.f-step.agency .f-actor{color:#8a5a22;background:var(--accent-soft)}
+.f-step.agency .f-actor{color:var(--agency);background:var(--accent-soft)}
 .f-card h3{font-size:18px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
 .f-card h3 .f-ic{font-size:22px}
 .f-card p{margin:0;font-size:15px;color:var(--muted);line-height:1.65}
@@ -126,9 +142,11 @@ section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width
   .f-card h3{font-size:16.5px}
 }
 
-.demo-after{margin-top:var(--s8);text-align:center}
-.demo-after p{font-size:17px;font-weight:700;color:var(--heading);margin:0 0 14px}
-.demo-after .btn{max-width:440px;margin:0 auto}
+/* 흐름 아래 직원 안내 한 줄 (직원은 이 흐름의 어디에 있는지) */
+.flow-staff{display:flex;gap:10px;align-items:flex-start;background:var(--staff-soft);border:1px solid var(--staff-line);border-radius:var(--r);padding:14px 16px;margin-top:var(--s3);font-size:15px;line-height:1.65}
+.flow-staff .ic{font-size:20px;flex:0 0 auto}
+.flow-staff b{color:var(--staff)}
+.flow-staff a{font-weight:800;color:var(--staff)}
 
 /* ---------- 전용 기기 권장 안내 ---------- */
 .device-note{display:flex;gap:10px;align-items:flex-start;background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:var(--r);padding:14px 16px;margin-top:var(--s4);font-size:15px;color:var(--text);line-height:1.65}
@@ -156,8 +174,35 @@ section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width
 .sec-cta{margin-top:var(--s6)}
 .sec-cta .btn{max-width:440px}
 
+/* 역할 섹션 색 코딩 (사장님 파랑 / 기관 담당자(서무) 금색 / 직원 초록) */
+.role-agency .kicker{color:var(--agency)}
+.role-agency .step .n{background:var(--accent)}
+.role-agency .more{color:var(--agency)}
+.role-staff .kicker{color:var(--staff)}
+.role-staff .step .n{background:var(--staff)}
+.role-staff .more{color:var(--staff)}
+.role-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 14px;font-size:14px;font-weight:800;border:1.5px solid;margin:0 0 var(--s3)}
+.role-owner .role-badge{color:var(--primary);background:var(--primary-soft);border-color:#cfe0f2}
+.role-agency .role-badge{color:var(--agency);background:var(--accent-soft);border-color:var(--accent-line)}
+.role-staff .role-badge{color:var(--staff);background:var(--staff-soft);border-color:var(--staff-line)}
+
 /* agency band */
 .agency{background:var(--bg-soft)}
+
+/* ---------- 사용 매뉴얼 카드 ---------- */
+.man-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:var(--s6)}
+@media(max-width:720px){.man-grid{grid-template-columns:1fr}}
+.man{display:block;background:var(--card);border:1px solid var(--line);border-top:4px solid var(--primary);border-radius:var(--r);padding:18px 20px;text-decoration:none;box-shadow:var(--shadow-xs);transition:transform .16s ease,box-shadow .16s ease}
+.man:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.man.agency-card{border-top-color:var(--accent)}
+.man.staff-card{border-top-color:var(--staff)}
+.man .ic{font-size:27px;line-height:1;display:block}
+.man h3{font-size:17.5px;margin:10px 0 4px}
+.man p{margin:0;font-size:14.5px;color:var(--muted);line-height:1.6}
+.man .go{display:inline-block;margin-top:12px;font-weight:800;font-size:14.5px;color:var(--primary)}
+.man.agency-card .go{color:var(--agency)}
+.man.staff-card .go{color:var(--staff)}
+.man .tag{display:inline-block;font-size:12px;font-weight:800;color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:middle}
 
 /* ---------- safety ---------- */
 .safe{background:var(--primary-dark);color:#fff;border-top:none}
@@ -230,7 +275,10 @@ body.has-sticky{padding-bottom:84px}
 <header class="site">
   <div class="wrap">
     <a class="brand" href="#top">밥장부 <small>선입금대장</small></a>
-    <a class="brand" href="#faq" style="font-size:14px;font-weight:700;color:var(--muted)">자주 묻는 질문</a>
+    <nav aria-label="주요 메뉴">
+      <a href="#manuals">사용 매뉴얼</a>
+      <a href="#faq">자주 묻는 질문</a>
+    </nav>
   </div>
 </header>
 
@@ -244,11 +292,13 @@ body.has-sticky{padding-bottom:84px}
       <span class="chip">결제앱 아님</span>
       <span class="chip">내 폰에만 저장</span>
     </div>
+    <p class="hero-role">어떤 분이신가요? 눌러서 바로 시작하세요.</p>
     <div class="hero-cta">
-      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 사장님 — 지금 시작하기</a>
-      <a class="btn btn-outline" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자입니다</a>
+      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 사장님</a>
+      <a class="btn btn-agency" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자(서무)</a>
+      <a class="btn btn-staff" href="https://nulmaru.github.io/bapjangbu-staff/" target="_blank" rel="noopener"><span aria-hidden="true">🙋</span> 직원 <span style="font-weight:700;font-size:14px">(베타)</span></a>
     </div>
-    <p class="hero-hint">가입 절차·비용 없이 바로 시작해요. (새 탭으로 열려요)</p>
+    <p class="hero-hint">가입 절차·비용 없이 바로 시작해요. (새 탭으로 열려요)<br>처음이시면 <a href="#try">아래 사용 흐름</a>이나 <a href="#manuals">사용 매뉴얼</a>을 먼저 보세요.</p>
   </div>
 </section>
 
@@ -257,11 +307,12 @@ body.has-sticky{padding-bottom:84px}
   <div class="wrap">
     <p class="kicker">한눈에 보는 사용 모습</p>
     <h2>시작부터 식사까지, 5단계로 끝나요</h2>
-    <p class="intro">사장님이 앱을 설치해 가게를 등록하면, 기관 담당자가 선입금대장을 보내요. 사장님이 입금액을 대조·확인하면 바로 사용이 시작돼요.</p>
+    <p class="intro">사장님이 앱을 설치해 가게를 등록하면, 기관 담당자(서무)가 선입금대장을 보내요. 사장님이 입금액을 대조·확인하면 바로 직원 사용이 시작돼요.</p>
 
     <div class="flow-legend" aria-hidden="true">
       <span class="fl-chip owner">🍚 음식점 사장님</span>
-      <span class="fl-chip agency">🏛️ 기관 담당자</span>
+      <span class="fl-chip agency">🏛️ 기관 담당자(서무)</span>
+      <span class="fl-chip staff">🙋 직원</span>
     </div>
 
     <ol class="flow">
@@ -278,13 +329,13 @@ body.has-sticky{padding-bottom:84px}
         <div class="f-card">
           <span class="f-actor">🍚 음식점 사장님</span>
           <h3><span class="f-ic" aria-hidden="true">🏪</span>가게 등록</h3>
-          <p>가게 이름과 지역을 넣어 등록하면, 기관 담당자가 우리 가게를 찾을 수 있어요.</p>
+          <p>가게 이름과 지역을 넣어 등록하면, 기관 담당자(서무)가 우리 가게를 찾을 수 있어요.</p>
         </div>
       </li>
       <li class="f-step agency">
         <div class="f-num" aria-hidden="true">3</div>
         <div class="f-card">
-          <span class="f-actor">🏛️ 기관 담당자</span>
+          <span class="f-actor">🏛️ 기관 담당자(서무)</span>
           <h3><span class="f-ic" aria-hidden="true">✅</span>음식점 선택 · 명단 작성</h3>
           <p><b>agency.bapjangbu.com</b>에서 등록된 음식점을 고르고, 직원 명단과 금액을 입력해요.</p>
         </div>
@@ -292,7 +343,7 @@ body.has-sticky{padding-bottom:84px}
       <li class="f-step agency">
         <div class="f-num" aria-hidden="true">4</div>
         <div class="f-card">
-          <span class="f-actor">🏛️ 기관 담당자</span>
+          <span class="f-actor">🏛️ 기관 담당자(서무)</span>
           <h3><span class="f-ic" aria-hidden="true">🔒</span>선입금대장 전달</h3>
           <p>명단은 <b>암호화되어</b> 음식점 앱으로 전달돼요(바로 보내기 또는 파일·QR). 선금은 음식점 <b>은행 계좌로 직접 이체</b>해요.</p>
         </div>
@@ -309,24 +360,21 @@ body.has-sticky{padding-bottom:84px}
 
     <div class="flow-note"><span class="ic" aria-hidden="true">💡</span><span><b>돈은 앱 밖에서 움직여요.</b> 밥장부에는 결제·이체 기능이 없어요. 선금은 기관이 음식점 계좌로 직접 이체하고, 앱은 장부 기록만 해요.</span></div>
 
-    <div class="demo-after">
-      <p>실제 앱도 이만큼 쉬워요.</p>
-      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 지금 시작하기</a>
-    </div>
+    <div class="flow-staff"><span class="ic" aria-hidden="true">🙋</span><span><b>직원은 어디에 있나요?</b> 직원은 ⑤에서 음식점 앱에 이름을 눌러 식사만 하면 돼요. 따로 설치할 것은 없지만, 내 잔액을 내 폰에서 확인하고 싶으면 <a href="#staff">직원용(베타)</a>을 쓸 수 있어요.</span></div>
   </div>
 </section>
 
 <!-- 3. 사장님 시작 3단계 -->
-<section id="owner">
+<section id="owner" class="role-owner">
   <div class="wrap">
-    <p class="kicker">음식점 사장님</p>
+    <span class="role-badge">🍚 음식점 사장님용</span>
     <h2>3단계면 시작이에요</h2>
     <div class="steps">
       <div class="step">
         <div class="n">1</div>
         <div>
           <h3>버튼 눌러 앱 열기</h3>
-          <p>위의 [음식점 사장님 시작하기] 버튼을 누르면 앱이 열려요.</p>
+          <p>위의 [음식점 사장님] 버튼을 누르면 앱이 열려요.</p>
         </div>
       </div>
       <div class="step">
@@ -365,11 +413,12 @@ body.has-sticky{padding-bottom:84px}
   </div>
 </section>
 
-<!-- 4. 기관 담당자 3단계 -->
-<section id="agency" class="agency">
+<!-- 4. 기관 담당자(서무) 3단계 -->
+<section id="agency" class="agency role-agency">
   <div class="wrap">
-    <p class="kicker">기관 담당자</p>
-    <h2>담당자는 이렇게 써요</h2>
+    <span class="role-badge">🏛️ 기관 담당자(서무)용</span>
+    <h2>서무 담당자는 이렇게 써요</h2>
+    <p class="intro">직원 식대 선금 명단을 음식점에 안전하게 전달하는 일만 하면 돼요. 설치·계약·비용이 없고, 브라우저로 접속해 쓰면 돼요.</p>
     <div class="steps">
       <div class="step">
         <div class="n">1</div>
@@ -393,21 +442,75 @@ body.has-sticky{padding-bottom:84px}
         </div>
       </div>
     </div>
-    <a class="more" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">기관 담당자 사용법 자세히 보기 →</a>
+    <a class="more" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">기관 담당자(서무) 사용법 자세히 보기 →</a>
     <div class="sec-cta">
-      <a class="btn btn-outline" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자로 시작하기</a>
+      <a class="btn btn-agency btn-lg" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자(서무)로 시작하기</a>
     </div>
   </div>
 </section>
 
-<!-- 4.5 직원용 (베타) -->
-<section id="staff">
+<!-- 4.5 직원 (베타) -->
+<section id="staff" class="role-staff">
   <div class="wrap">
-    <p class="kicker">직원이신가요?</p>
+    <span class="role-badge">🙋 직원용 <span style="font-weight:800">(베타)</span></span>
     <h2>내 선금 잔액, 내 폰에서 확인해요</h2>
-    <p class="intro"><b>밥장부 직원용(베타)</b>은 직원이 자기 스마트폰으로 음식점별 선금 충전·사용을 기록하고 잔액을 한눈에 보는 초간편 앱이에요. 회원가입·로그인이 없고, 데이터는 내 폰에만 저장돼요.</p>
-    <div class="sec-cta" style="margin-top:0">
-      <a class="btn btn-outline" href="https://nulmaru.github.io/bapjangbu-staff/" target="_blank" rel="noopener"><span aria-hidden="true">🙋</span> 직원용(베타) 사용해 보기</a>
+    <p class="intro">직원은 음식점에서 <b>이름만 눌러</b> 식사하면 되고, 따로 설치할 것은 없어요. 다만 <b>내 잔액을 내 폰에서 확인</b>하고 싶다면 <b>밥장부 직원용(베타)</b>을 쓸 수 있어요. 회원가입·로그인이 없고, 기록은 내 폰에만 저장돼요.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="n">1</div>
+        <div>
+          <h3>이용 지역만 고르기</h3>
+          <p>이름·전화번호는 받지 않아요. 밥 먹는 동네(시·군·구)만 고르면 준비 끝이에요.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">2</div>
+        <div>
+          <h3>자주 가는 음식점 등록</h3>
+          <p>이름 일부만 넣으면 우리 동네 실제 음식점을 찾아 줘요. 터치하면 바로 등록돼요.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">3</div>
+        <div>
+          <h3>충전·사용 눌러 기록</h3>
+          <p>선금을 넣으면 [충전], 밥을 먹으면 [사용]을 눌러요. <b>"만리성에 27000원 충전"</b>처럼 말로도 기록돼요.</p>
+        </div>
+      </div>
+    </div>
+    <div class="device-note"><span class="ic" aria-hidden="true">🧾</span><span><b>공식 잔액은 음식점 장부가 기준이에요.</b> 직원용 앱은 내가 직접 적어 확인하는 개인 기록장이라 음식점 앱과 자동으로 연결되지 않아요. 금액이 다르면 음식점에서 확인해 주세요.</span></div>
+    <a class="more" href="https://app.bapjangbu.com/docs/manual-staff.html" target="_blank" rel="noopener">직원 사용법 자세히 보기 →</a>
+    <div class="sec-cta">
+      <a class="btn btn-staff btn-lg" href="https://nulmaru.github.io/bapjangbu-staff/" target="_blank" rel="noopener"><span aria-hidden="true">🙋</span> 직원용(베타) 시작하기</a>
+    </div>
+  </div>
+</section>
+
+<!-- 4.8 사용 매뉴얼 (역할별) -->
+<section id="manuals">
+  <div class="wrap">
+    <p class="kicker">사용 매뉴얼</p>
+    <h2>내 역할에 맞는 안내서를 보세요</h2>
+    <p class="intro">그림처럼 화면 순서대로 따라 하는 안내서예요. 인쇄해서 나눠 주셔도 돼요.</p>
+    <div class="man-grid">
+      <a class="man" href="https://app.bapjangbu.com/docs/manual-restaurant.html" target="_blank" rel="noopener">
+        <span class="ic" aria-hidden="true">🍚</span>
+        <h3>음식점 사장님</h3>
+        <p>설치 · 처음 설정 · 직원 등록 · 매일 쓰기 · 구청 선금 받기 · 장부 백업</p>
+        <span class="go">안내서 보기 →</span>
+      </a>
+      <a class="man agency-card" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">
+        <span class="ic" aria-hidden="true">🏛️</span>
+        <h3>기관 담당자(서무)</h3>
+        <p>본인 확인 · 음식점 선택 · 명단(CSV) 작성 · 전달 방식 2가지 · 보낸 후 할 일</p>
+        <span class="go">안내서 보기 →</span>
+      </a>
+      <a class="man staff-card" href="https://app.bapjangbu.com/docs/manual-staff.html" target="_blank" rel="noopener">
+        <span class="ic" aria-hidden="true">🙋</span>
+        <h3>직원<span class="tag">베타</span></h3>
+        <p>이용 지역 설정 · 음식점 등록 · 충전·사용 기록 · 말로 입력 · 기록 백업</p>
+        <span class="go">안내서 보기 →</span>
+      </a>
     </div>
   </div>
 </section>
@@ -433,6 +536,10 @@ body.has-sticky{padding-bottom:84px}
     <p class="kicker">자주 묻는 질문</p>
     <h2>궁금한 점을 모았어요</h2>
     <details>
+      <summary>저는 음식점 사장님·기관 담당자(서무)·직원 중 어디에 해당하나요?</summary>
+      <p><b>음식점 사장님</b>은 가게에서 장부를 쓰는 분(<a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a>), <b>기관 담당자(서무)</b>는 구청·회사에서 직원 식대 명단과 선금을 처리하는 분(<a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">담당자 웹</a>), <b>직원</b>은 그 식당에서 밥을 먹는 분이에요. 직원은 따로 설치할 것이 없고, 내 잔액을 직접 확인하고 싶을 때만 <a href="#staff">직원용(베타)</a>을 쓰면 돼요.</p>
+    </details>
+    <details>
       <summary>정말 무료인가요?</summary>
       <p>네, 완전 무료예요. 현재 무료 파일럿으로 운영 중이고, 이용료나 수수료를 받지 않아요.</p>
     </details>
@@ -454,7 +561,15 @@ body.has-sticky{padding-bottom:84px}
     </details>
     <details>
       <summary>구청 같은 기관은 어떻게 쓰나요?</summary>
-      <p>담당자가 이용자 명단과 금액을 입력해 음식점으로 암호화 전송해요. 음식점은 그 명단을 장부로 받아, 식사할 때마다 차감해 기록해요.</p>
+      <p>기관 담당자(서무)가 이용자 명단과 금액을 입력해 음식점으로 암호화 전송해요. 음식점은 그 명단을 장부로 받아, 식사할 때마다 차감해 기록해요.</p>
+    </details>
+    <details>
+      <summary>직원인데 제 잔액을 직접 보고 싶어요.</summary>
+      <p><a href="#staff">직원용(베타)</a>에 이용 지역만 고르고 자주 가는 음식점을 등록하면, 충전·사용을 눌러 내 잔액을 확인할 수 있어요. 회원가입·로그인이 없고 기록은 내 폰에만 저장돼요. 다만 <b>공식 잔액은 음식점 장부가 기준</b>이라, 금액이 다르면 음식점에서 확인해 주세요.</p>
+    </details>
+    <details>
+      <summary>직원 개인정보(이름·전화번호)는 어떻게 다루나요?</summary>
+      <p>명단은 담당자 브라우저에서 암호화되어 해당 음식점만 열 수 있어요. 운영자와 서버는 볼 수 없고, <b>전화번호는 서버로 보내지 않아요.</b> 직원용 앱은 이름·전화번호를 아예 받지 않아요. 자세한 내용은 <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에 있어요.</p>
     </details>
   </div>
 </section>
@@ -470,8 +585,9 @@ body.has-sticky{padding-bottom:84px}
       <div class="form-row">
         <label>어떤 분이신가요?</label>
         <div class="roles">
-          <label><input type="radio" name="role" value="음식점" checked> 음식점</label>
-          <label><input type="radio" name="role" value="기관"> 기관</label>
+          <label><input type="radio" name="role" value="음식점" checked> 음식점 사장님</label>
+          <label><input type="radio" name="role" value="기관"> 기관 담당자(서무)</label>
+          <label><input type="radio" name="role" value="직원"> 직원</label>
           <label><input type="radio" name="role" value="기타"> 기타</label>
         </div>
       </div>
@@ -498,12 +614,18 @@ body.has-sticky{padding-bottom:84px}
         <p>문의: <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a></p>
         <p>
           <a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a> ·
-          <a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">기관 담당자 웹</a> ·
+          <a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">기관 담당자(서무) 웹</a> ·
           <a href="https://nulmaru.github.io/bapjangbu-staff/" target="_blank" rel="noopener">직원용(베타)</a>
         </p>
       </div>
       <div>
-        <h4>약관 · 데이터</h4>
+        <h4>사용 매뉴얼</h4>
+        <p>
+          <a href="https://app.bapjangbu.com/docs/manual-restaurant.html" target="_blank" rel="noopener">음식점 사장님</a> ·
+          <a href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">기관 담당자(서무)</a> ·
+          <a href="https://app.bapjangbu.com/docs/manual-staff.html" target="_blank" rel="noopener">직원(베타)</a>
+        </p>
+        <h4 style="margin-top:16px">약관 · 데이터</h4>
         <p>
           <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> ·
           <a href="https://app.bapjangbu.com/docs/terms.html" target="_blank" rel="noopener">이용약관</a>
