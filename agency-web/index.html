@@ -31,7 +31,6 @@ tr.err{background:#fdecea}
 .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:16px}
 .modal{background:#fff;border-radius:12px;padding:18px;max-width:460px;width:100%}
 .muted-box{background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;line-height:1.6}
-.pilot-badge{background:#fff4e5;color:var(--warn);border:1px solid #f6c464;border-radius:8px;padding:8px 10px;font-weight:700;font-size:13px;margin-bottom:10px}
 .compliance-footer{margin-top:24px;padding:14px 16px;border-top:2px solid var(--line);background:#eef2f7;font-size:12px;color:var(--muted);line-height:1.6}
 .compliance-footer .src{margin-top:6px;font-size:11px}
 #log{font-size:12px;white-space:pre-wrap;background:#0b1020;color:#c8e1ff;border-radius:8px;padding:10px;max-height:160px;overflow:auto}
@@ -224,7 +223,7 @@ function unlockAfterAuth(){
 // 정직성 원칙(감사 항목 1): 서버가 실제로 이메일 소유를 확인하지 못한 상태(구서버 호환
 // fallback, 또는 pilot 모드에서 이메일 발송 인프라 부재로 OTP를 받을 방법이 없는 경우)를
 // "✅ 인증됨"이라고 표시하면 사용자를 오도한다. 이 경우 공통으로 아래 문구를 사용한다.
-function formatOnlyMsg(e){return '<span class="warn">⚠ 기관 이메일 형식 확인됨 (파일럿 — 정식 이메일 인증은 준비 중) · '+esc(e)+'</span>'}
+function formatOnlyMsg(e){return '<span class="warn">⚠ 기관 이메일 형식만 확인됨 — 이 서버에서는 인증번호 확인이 진행되지 않았습니다 · '+esc(e)+'</span>'}
 function fallbackAuth(e){
   S.authed=true;S.otpMode='fallback';
   $('authStep1').classList.add('hide');
@@ -751,7 +750,6 @@ function showConsent(){
   const names=S.restaurants.map(r=>esc(r.name)).join(', ');
   $('modalRoot').innerHTML=`<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
   <h2 id="consentTitle">제3자 제공 동의 (직원명·선금)</h2>
-  <div class="pilot-badge">⚠ 파일럿 테스트 모드 — 동의 문구는 법률 검토 후 확정됩니다</div>
   <div class="muted-box">
   <ul style="margin:0;padding-left:0;list-style:none">
   <li style="margin-bottom:6px">⓪ 제공하는 기관: ${S.agency?esc(S.agency.name):'(미선택)'}</li>
@@ -762,7 +760,7 @@ function showConsent(){
   <li style="margin-bottom:6px">⑤ 거부 권리 및 불이익 고지</li>
   <li style="margin-bottom:0">⑥ 대상 직원 본인 사전 동의 확보 확인</li>
   </ul>
-  <div class="meta" style="margin-top:8px">※ 문구는 법률 검토(출시 게이트) 후 확정됩니다.</div>
+  <div class="meta" style="margin-top:8px">※ 개인정보 처리에 관한 사항은 <a href="${PRIVACY_URL}" target="_blank" rel="noopener">개인정보처리방침</a>·<a href="${TERMS_URL}" target="_blank" rel="noopener">이용약관</a>(시행 2026-07-06)을 따릅니다. <b>대상 직원 본인의 사전 동의 확보는 제공 기관의 책임</b>입니다.</div>
   </div>
   <label style="margin-top:10px"><input type="checkbox" id="agree" style="width:auto;min-height:auto"> 위 내용을 확인했고 직원 본인 동의를 확보했습니다</label>
   <div class="row" style="margin-top:12px"><button id="cancelC">취소</button><button class="btn-primary" id="okC" disabled>동의·전송</button></div>
