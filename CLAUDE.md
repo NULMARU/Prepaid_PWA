@@ -61,10 +61,13 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - 남은 출시 게이트: 기관 웹 **전송 동의 모달 문구의 법률 검토**(파일럿 배지로 표시 중).
 - 알려진 이슈 없음. verify-all 9/9.
 
-### 진행 중 (2026-07-26, PR #5 — 브랜치 claude/recent-work-time-ou5wv3)
+### 완료 (2026-07-26 — PR #5 머지 + 랜딩 3주체 재구성, 전부 라이브 배포·검증)
 
-- **PR #5 내용**: ① 홈페이지 '한눈에 보는 사용 모습'을 5단계 인포그래픽으로 교체(앱 설치→가게 등록→기관 음식점 선택·명단 작성→선입금대장 전달→은행 입금액 대조 확인 후 직원 사용; 시연 애니메이션 JS 제거) ② 전용 태블릿 비치 권장 문구를 홈페이지·음식점 안내서·전단·협회 덱에 반영 ③ 전체 흐름 5단계를 양쪽 매뉴얼·기관 도입 안내문에 반영 ④ 직원용(베타) 섹션·푸터 링크 추가 ⑤ 전단·덱 옛 주소를 app.bapjangbu.com으로 갱신 ⑥ ALLOW_ORIGIN에 staff.bapjangbu.com 선등재.
-- **머지 후 할 일**: docs는 push로 자동 배포. 홈페이지는 `npx wrangler pages deploy homepage --project-name=bapjangbu-home --branch=main` 수동 실행. CORS 반영은 `cd server && npx wrangler deploy`.
+- **PR #5(머지됨)**: 홈페이지 5단계 인포그래픽(시연 애니메이션 JS 제거), 전용 태블릿 비치 권장 문구(홈페이지·음식점 안내서·전단·협회 덱), 전체 흐름 5단계 양쪽 매뉴얼 반영, 직원용(베타) 링크, 전단·덱 주소 app.bapjangbu.com 갱신, ALLOW_ORIGIN에 staff.bapjangbu.com 선등재.
+- **랜딩 3주체 재구성**: 이용 주체를 **음식점 사장님(파랑)·기관 담당자(서무)(금색)·직원(초록)** 3색으로 코딩 — 히어로 3버튼(직원용 추가), 역할 섹션 배지, 헤더 **'사용 매뉴얼'** 탭(#manuals 3장 카드)·푸터 링크. '기관 담당자' → **'기관 담당자(서무)'** 문구 통일. 흐름 아래 "실제 앱도 이만큼 쉬워요/지금 시작하기" 블록 삭제(대신 "직원은 어디에 있나요?" 한 줄 안내). 의견 폼 role에 **'직원'** 추가(서버 화이트리스트·PROTOCOL.md 반영).
+- **`docs/manual-staff.html` 신설(직원 안내서)**: 직원용 앱(bapjangbu-staff) 실제 기능 기준 — 이용 지역 설정·음식점 등록(LOCALDATA 검색)·충전/사용 기록·말로 입력(자연어)·이력 수정·백업/복원. **"공식 잔액은 음식점 장부가 기준"**(직원용은 개인 기록장, 음식점 앱과 미연동)을 최상단 경고로 명시.
+- 기존 매뉴얼 2종에 `charset`·`viewport` 메타 추가(모바일 확대·로컬 열람 깨짐 방지) + 안내서 3종 상호 링크.
+- **비용추계 문서**: `docs/COST_MODEL.md`(gitignore, 로컬 보관) — 결론: 전국 10만 음식점에서도 월 ~₩10만. 먼저 막히는 것은 **Resend 무료 "하루 100통"**(OTP), 그다음 data.go.kr 일일 한도, D1 저장 5GB. 무료 연장 레버 1순위 = 담당자 세션 유효기간 연장.
 - **직원용 앱(별도 리포 NULMARU/bapjangbu-staff, PoC)**: 현 라이브 https://nulmaru.github.io/bapjangbu-staff/. staff.bapjangbu.com 전환 검토 완료 — 코드는 상대경로라 무수정 동작. 남은 수동 작업: Cloudflare DNS에 CNAME staff→nulmaru.github.io 추가, staff 리포 Settings→Pages→Custom domain 설정(+HTTPS 강제), 서버 deploy(CORS), 홈페이지 링크 2곳 교체. ⚠️ localStorage는 오리진 단위라 도메인 전환은 **시범 사용자 생기기 전에** 완료할 것(전환 시 기존 데이터는 백업 JSON으로만 이전 가능).
 
 ## 기관·부서 데이터 (전국)

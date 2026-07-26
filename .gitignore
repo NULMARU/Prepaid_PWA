@@ -7,6 +7,7 @@ harness/screenshots/
 # 사업/운영 민감 문서 — public 리포 미포함(로컬·별도 보관)
 docs/BUSINESS_PLAN.md
 docs/COMPLIANCE.md
+docs/COST_MODEL.md
 docs/STATUS.md
 docs/phase2-deploy.md
 .wrangler/
