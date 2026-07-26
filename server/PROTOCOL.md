@@ -136,6 +136,10 @@ batch_hash = SHA-256(hex)
       - Resend 응답이 2xx가 아니거나 `fetch` 자체가 실패(reject)하면
         `500 {error:'email_send_failed'}`를 반환하고, 서버 로그에는 실패 사유만 남기며
         이메일 주소·OTP 평문은 로깅하지 않는다.
+      - 단, Resend가 **429**(무료 플랜 하루 100통·월 3,000통 한도 초과)를 반환하면
+        일시적 한도 초과이므로 `429 {error:'email_quota_exceeded'}`로 구분해 응답한다.
+        agency-web은 이 코드에서 "오늘 발송 한도 도달 — 잠시 후 또는 다음 날 재시도"를
+        안내한다(담당자 입력 오류가 아님을 명확히 하기 위함).
       - 발송 성공(Resend 2xx) 시 응답 `{ok:true, sent:true}`이며 `otp`/`dev_otp`는 **절대**
         포함하지 않는다.
       **prod 전환 전 선행 조건**: `bapjangbu.com` 도메인을 Resend 대시보드에서 도메인

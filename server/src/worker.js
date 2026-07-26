@@ -563,6 +563,11 @@ export async function handle(request, env, store) {
         if (!result.ok) {
           // 개인정보 보호: 이메일 평문·OTP는 로깅하지 않는다. 실패 사유만 남긴다.
           console.error('agency-otp email send failed: ' + (result.reason || 'unknown'));
+          // Resend 무료 플랜은 하루 100통·월 3,000통 한도가 있어 트래픽이 몰리는 날에는
+          // 429가 돌아온다. 일시적 한도 초과와 진짜 발송 실패를 구분해 담당자에게
+          // "내일 다시" 같은 정확한 안내를 할 수 있게 별도 코드로 응답한다.
+          if (String(result.reason || '').startsWith('resend_http_429'))
+            return j({ error: 'email_quota_exceeded' }, 429);
           return j({ error: 'email_send_failed' }, 500);
         }
         return j({ ok: true, sent: true });

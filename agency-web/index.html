@@ -90,6 +90,7 @@ tr.err{background:#fdecea}
 <button type="button" id="resendBtn" style="min-height:auto;border:none;background:none;color:var(--primary);padding:4px 0 0;font-weight:600;text-decoration:underline">인증번호 재요청</button>
 </div>
 <div class="meta" id="authMsg">기관 이메일(.go.kr 또는 .korea.kr)만 사용할 수 있습니다.</div>
+<div class="meta" style="margin-top:6px">※ 무료로 운영되는 서비스라 <b>이용이 몰리는 날에는 인증번호 이메일 발송이 하루 한도에 걸릴 수 있습니다.</b> 그때는 잠시 후 다시 시도하시고, 계속 안 되면 다음 날 다시 시도해 주십시오.</div>
 </div>
 
 <div class="card hide" id="searchCard">
@@ -256,6 +257,15 @@ async function requestOtp(){
     if(!r.ok){
       // 발송 실패(AUTH_MODE=prod에서 EMAIL.send 예외 등)는 형식확인으로 조용히 넘어가지 않고
       // 명확히 재시도를 안내한다.
+      // email_quota_exceeded: 무료 이메일 발송 한도(하루 100통) 초과 — 담당자가 뭘 잘못한
+      // 것이 아니므로 원인과 다음 행동(잠시 후·내일 재시도, 문의처)을 정확히 안내한다.
+      if(j.error==='email_quota_exceeded'){
+        $('authMsg').innerHTML='<span class="bad">오늘 인증번호 발송 한도에 도달했어요.</span><br>'+
+          '이용이 몰리는 날에는 무료 이메일 발송 한도(하루 기준)에 걸릴 수 있어요. '+
+          '<b>잠시 후 다시 시도하시고, 계속 안 되면 내일 다시 시도해 주세요.</b> '+
+          '급한 건이면 <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a>으로 알려 주세요.';
+        return;
+      }
       const msg=j.error==='email_send_failed'?'인증번호 발송에 실패했어요. 잠시 후 다시 시도해 주세요.':(j.error||('요청 실패('+r.status+')'));
       $('authMsg').innerHTML='<span class="bad">'+esc(msg)+'</span>';
       return;

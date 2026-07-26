@@ -378,6 +378,17 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(r.status === 500 && rjProdFail.error === 'email_send_failed' && !('dev_otp' in rjProdFail) && !('otp' in rjProdFail),
     'agency-otp: AUTH_MODE=prod + Resend 비2xx 응답 → 500 email_send_failed');
 
+  // 14c-2b) Resend가 429(무료 플랜 하루/월 발송 한도 초과) → 429 email_quota_exceeded로 구분.
+  //   담당자 입력 오류가 아니라 "오늘 한도 도달 — 다음 날 재시도" 안내를 띄우기 위한 코드다.
+  stub = makeFetchStub({ ok: false, status: 429 });
+  globalThis.fetch = stub.fn.bind(stub);
+  try {
+    r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: 'prod-officer-quota@seoul.go.kr' });
+  } finally { globalThis.fetch = realFetch; }
+  const rjProdQuota = await r.json();
+  ok(r.status === 429 && rjProdQuota.error === 'email_quota_exceeded' && !('dev_otp' in rjProdQuota) && !('otp' in rjProdQuota),
+    'agency-otp: AUTH_MODE=prod + Resend 429(발송 한도) → 429 email_quota_exceeded');
+
   // 14c-3) fetch 자체가 reject(네트워크 오류) → 500 email_send_failed.
   globalThis.fetch = async () => { throw new Error('network down'); };
   try {
