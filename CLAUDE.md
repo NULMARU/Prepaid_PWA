@@ -54,12 +54,18 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - **agency-web와 homepage는 git push로 배포되지 않는다** — wrangler pages deploy를 각각 실행해야 라이브 반영.
 - 클라이언트-서버 계약 변경 시(예: 인증 필수화) **마이그레이션→서버 deploy→프론트 배포 순서** 지킬 것. 순서가 어긋나면 라이브 승인/제출이 일시 깨진다.
 
-## 현재 상태 (2026-07-13)
+## 현재 상태 (2026-07-26)
 
 - **필드테스트 직전 단계.** 전 기능 라이브: 이메일 OTP 인증 필수, 2모드 전달, 직원별 문자 동의·sms 자동 오픈, 약관·개인정보 동의 게이트(일회성), 클라우드 원장 백업(암호화·삭제 가능), 운영자 통계·의견, 도메인 통일(bapjangbu.com/app./agency. + noreply@/contact@).
 - 개인정보처리방침·이용약관 확정본: `docs/privacy.html`·`docs/terms.html`(시행 2026-07-06).
 - 남은 출시 게이트: 기관 웹 **전송 동의 모달 문구의 법률 검토**(파일럿 배지로 표시 중).
 - 알려진 이슈 없음. verify-all 9/9.
+
+### 진행 중 (2026-07-26, PR #5 — 브랜치 claude/recent-work-time-ou5wv3)
+
+- **PR #5 내용**: ① 홈페이지 '한눈에 보는 사용 모습'을 5단계 인포그래픽으로 교체(앱 설치→가게 등록→기관 음식점 선택·명단 작성→선입금대장 전달→은행 입금액 대조 확인 후 직원 사용; 시연 애니메이션 JS 제거) ② 전용 태블릿 비치 권장 문구를 홈페이지·음식점 안내서·전단·협회 덱에 반영 ③ 전체 흐름 5단계를 양쪽 매뉴얼·기관 도입 안내문에 반영 ④ 직원용(베타) 섹션·푸터 링크 추가 ⑤ 전단·덱 옛 주소를 app.bapjangbu.com으로 갱신 ⑥ ALLOW_ORIGIN에 staff.bapjangbu.com 선등재.
+- **머지 후 할 일**: docs는 push로 자동 배포. 홈페이지는 `npx wrangler pages deploy homepage --project-name=bapjangbu-home --branch=main` 수동 실행. CORS 반영은 `cd server && npx wrangler deploy`.
+- **직원용 앱(별도 리포 NULMARU/bapjangbu-staff, PoC)**: 현 라이브 https://nulmaru.github.io/bapjangbu-staff/. staff.bapjangbu.com 전환 검토 완료 — 코드는 상대경로라 무수정 동작. 남은 수동 작업: Cloudflare DNS에 CNAME staff→nulmaru.github.io 추가, staff 리포 Settings→Pages→Custom domain 설정(+HTTPS 강제), 서버 deploy(CORS), 홈페이지 링크 2곳 교체. ⚠️ localStorage는 오리진 단위라 도메인 전환은 **시범 사용자 생기기 전에** 완료할 것(전환 시 기존 데이터는 백업 JSON으로만 이전 가능).
 
 ## 기관·부서 데이터 (전국)
 
