@@ -1,5 +1,8 @@
 // 중계 서버 (Cloudflare Worker). 스펙 §1.1·§2.2. 개인정보 평문 미저장·미로깅.
 // 핵심 로직은 store 인터페이스에 의존 → D1(운영)과 메모리(테스트)에서 동일 동작.
+// 기관 담당자 이메일도 예외가 아니다: agency_otp·agency_token·consent_log 어디에도 평문을
+// 저장하지 않고 SHA-256 해시(64자 hex)만 남긴다(개인정보처리방침 "해시값(평문 미보관)"과 일치).
+// 평문 이메일은 Resend 발송 호출에만 일시적으로 쓰이고 어떤 저장소·로그에도 남지 않는다.
 
 // CORS: ALLOW_ORIGIN은 콤마 구분 화이트리스트(또는 "*"). Origin 헤더가 없는 요청
 // (curl, 하니스, 서버 간 호출)은 차단하지 않고 그냥 CORS 헤더 없이 통과시킨다 —
@@ -36,6 +39,14 @@ const MAX_LEDGER_BLOB = 1024 * 1024; // 암호화 원장 백업 blob(base64 문�
 const PENDING_TTL_MS = 72 * 60 * 60 * 1000;       // 미수령 3일(72시간) 만료
 const RETENTION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 처리 완료(APPROVED/REJECTED/EXPIRED) 후 비식별 요약 보관 기간
 const CONSENT_RETENTION_TTL_MS = 180 * 24 * 60 * 60 * 1000; // consent_log(기관·부서·연월·이메일 해시) 보관 기간(§6)
+const FEEDBACK_RETENTION_TTL_MS = 180 * 24 * 60 * 60 * 1000; // feedback(자유 입력) 보관 기간(§6) — 무기한 보관 금지
+// 대량 정리(cron)에서 IN (...) 배치 문 하나에 넣을 최대 id 개수. SQLite 변수 상한·문장 길이를 감안한 값.
+const CLEANUP_CHUNK = 100;
+function chunkIds(ids, size) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
 function tooLong(v, max) { return typeof v === 'string' && v.length > max; }
 // 업무용 연락처(선택): 오픈채팅 링크는 전화번호·개인 프로필 비노출 형식(open.kakao.com)만 허용.
 const KAKAO_LINK_RE = /^https:\/\/open\.kakao\.com\//;
@@ -59,6 +70,14 @@ function unb64(s) { const x = atob(s), u = new Uint8Array(x.length); for (let i 
 async function sha256hex(str) {
   const h = await subtle.digest('SHA-256', encU.encode(str));
   return Array.from(new Uint8Array(h)).map(v => v.toString(16).padStart(2, '0')).join('');
+}
+// 저장된 기관 이메일 값이 이미 SHA-256 해시(64자 hex)인지 판별. 전환기(구 평문 행) 방어용.
+const HEX64_RE = /^[0-9a-f]{64}$/;
+function isEmailHash(v) { return typeof v === 'string' && HEX64_RE.test(v); }
+// 이미 해시면 그대로, (구버전이 남긴) 평문이면 해싱해서 반환 — 평문이 하위 저장소로 흘러가지 않게 한다.
+async function normalizeEmailHash(v) {
+  if (v == null) return null;
+  return isEmailHash(v) ? v : await sha256hex(String(v));
 }
 function randomB64(nBytes) {
   const b = new Uint8Array(nBytes);
@@ -329,7 +348,7 @@ export async function handle(request, env, store) {
       return j({ challenge_ct });
     }
 
-    // 음식점 주인 등록 해제 (선금 받기 중단). 공개키 삭제 → 담당자가 더는 전송 불가.
+    // 음식점 주인 등록 해제 (명단 받기 중단). 공개키 삭제 → 담당자가 더는 전송 불가.
     // 소유 증명(auth_token) 필요.
     if (path === '/api/deregister' && request.method === 'POST') {
       const b = await request.json();
@@ -364,13 +383,13 @@ export async function handle(request, env, store) {
       return j({ ok: true });
     }
 
-    // 담당자 웹: 후보 음식점 중 '선금 받기 가능(등록된)' 목록만 반환.
+    // 담당자 웹: 후보 음식점 중 '명단 받기 가능(등록된)' 목록만 반환.
     if (path === '/api/registered' && request.method === 'GET') {
       const ids = (url.searchParams.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean);
       return j(await store.registeredAmong(ids));
     }
 
-    // 담당자 웹: 특정 시도(+선택 시군구)의 '등록된(선금 받기 가능)' 음식점 목록.
+    // 담당자 웹: 특정 시도(+선택 시군구)의 '등록된(명단 받기 가능)' 음식점 목록.
     // 공개 정보만 반환(id·이름·district — 연락처 미포함). district 없는(레거시) 등록분은 제외.
     // 매칭: district가 sido로 시작하고, sigungu가 주어지면 district에 sigungu 포함. 이름 가나다 정렬.
     if (path === '/api/registered-list' && request.method === 'GET') {
@@ -422,9 +441,12 @@ export async function handle(request, env, store) {
       if (env.REQUIRE_AGENCY_AUTH === '1' && !agencyRow) return j({ error: 'agency_auth_required' }, 401);
 
       // 중복 제출 방지(멱등): 동일 (restaurant_id, batch_hash) 조합이 이미 있으면 새로 만들지 않고 기존 id 반환.
+      // 이때 deduped:true와 기존 건의 status를 함께 돌려준다 — UNIQUE 인덱스 구조상 재제출로 새 행이
+      // 생길 수 없으므로, "왜 아무 일도 안 일어난 것처럼 보이는지"(이미 승인·거절·만료됨)를 담당자가
+      // 알 수 있는 유일한 통로가 응답이다. 신규 제출 응답은 기존과 동일하게 {summary_id}만 반환한다.
       if (batch_hash) {
         const dup = await store.findSummaryByBatch(restaurant_id, batch_hash);
-        if (dup) return j({ summary_id: dup.id });
+        if (dup) return j({ summary_id: dup.id, deduped: true, status: dup.status });
       }
 
       const summary_id = uuid();
@@ -443,9 +465,12 @@ export async function handle(request, env, store) {
         const cYearMonth = String(consent.year_month || '');
         if ([cInstitution, cDepartment, cYearMonth].some(v => tooLong(v, MAX_STR)))
           return j({ error: '입력 길이 초과' }, 400);
+        // agency_token에 저장된 값은 이미 이메일의 SHA-256 해시(64자 hex)이므로 재해싱하지 않는다.
+        // 전환기 방어: 구버전이 평문으로 남긴 토큰 행(24시간 내 자연 소멸)이 오면 해시로 바꿔 기록한다 —
+        // 어떤 경로로도 평문 이메일이 consent_log에 들어가지 않게 하는 마지막 방어선.
         await store.insertConsent({
           id: uuid(), institution: cInstitution, department: cDepartment, year_month: cYearMonth,
-          agency_email_hash: agencyRow ? await sha256hex(agencyRow.email) : null,
+          agency_email_hash: agencyRow ? await normalizeEmailHash(agencyRow.email_hash) : null,
           consented_at: Date.now()
         });
       }
@@ -467,6 +492,18 @@ export async function handle(request, env, store) {
       if (!id) return j({ error: 'restaurant_id 필요' }, 400);
       const items = await store.inbox(id);
       return j(items);
+    }
+
+    // 경량 알림용(배지·백그라운드 폴링): 수신함 '개수만' 반환. 요약 메타(기관·부서·총액)나
+    // 암호문은 일절 담지 않는다 — 응답은 {count:N} 뿐. 필터는 /api/inbox와 동일
+    // (PENDING + created_at > 72시간 cutoff, 이중 방어 §6)하되 COUNT로만 수행한다.
+    // 인증 없음: 같은 restaurant_id로 /api/inbox를 그냥 호출하면 이미 알 수 있는 값의
+    // 부분집합(개수)이라 새로 노출되는 정보가 0이다. 남용 방어는 전역 레이트리밋(분당 60).
+    if (path === '/api/inbox-count' && request.method === 'GET') {
+      const id = url.searchParams.get('restaurant_id') || '';
+      if (!id) return j({ error: 'restaurant_id 필요' }, 400);
+      const count = await store.inboxCount(id);
+      return j({ count });
     }
 
     if (path === '/api/approve' && request.method === 'POST') {
@@ -544,25 +581,35 @@ export async function handle(request, env, store) {
       const email = String(b.email || '').trim();
       if (!email) return j({ error: 'email 필요' }, 400);
       if (tooLong(email, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      // 형식 검증(§4.4): "@go.kr"처럼 로컬파트가 없는 값도 도메인 검사만으로는 통과했었다.
+      if (!validEmailFormat(email)) return j({ error: 'invalid_email' }, 400);
       if (!isAgencyEmail(email)) return j({ error: 'invalid_domain' }, 400);
       const now = Date.now();
-      const existing = await store.getAgencyOtp(email);
+      // 저장 키는 이메일의 SHA-256 해시(평문 미저장, §0). 60초 재요청 스로틀도 해시 키 기준.
+      const email_hash = await sha256hex(email);
+      const existing = await store.getAgencyOtp(email_hash);
       if (existing && existing.created_at && now - existing.created_at < 60 * 1000)
         return j({ error: 'rate_limited' }, 429);
       const otp = randomOtp6();
       const otp_hash = await sha256hex(otp);
-      await store.upsertAgencyOtp({ email, otp_hash, expires_at: now + 10 * 60 * 1000, attempts: 0, created_at: now });
+      await store.upsertAgencyOtp({ email_hash, otp_hash, expires_at: now + 10 * 60 * 1000, attempts: 0, created_at: now });
       if (env.AUTH_MODE === 'dev') return j({ ok: true, dev_otp: otp });
       if (env.AUTH_MODE === 'prod') {
+        // 발송에 실패하면 방금 쓴 OTP 행을 되돌린다 — 남겨두면 60초 스로틀에 걸려 담당자가
+        // 재시도조차 못 하는 블랙홀이 된다(행이 없으면 다음 요청이 곧바로 새 OTP를 발급받는다).
         if (!env.RESEND_API_KEY) {
           // secret 미등록 상태로 prod 전환됨 — 발송 시도조차 하지 않고 명확히 알린다.
           console.error('agency-otp email not configured: RESEND_API_KEY missing');
+          await store.deleteAgencyOtp(email_hash);
           return j({ error: 'email_not_configured' }, 500);
         }
+        // 평문 이메일은 여기(Resend 발송)에서만 쓰이고 저장·로깅되지 않는다.
         const result = await sendOtpEmail(env, email, otp);
         if (!result.ok) {
           // 개인정보 보호: 이메일 평문·OTP는 로깅하지 않는다. 실패 사유만 남긴다.
           console.error('agency-otp email send failed: ' + (result.reason || 'unknown'));
+          // 발송이 안 된 요청이 60초 스로틀을 소모하지 않도록 방금 쓴 OTP 행은 되돌린다.
+          await store.deleteAgencyOtp(email_hash);
           // Resend 무료 플랜은 하루 100통·월 3,000통 한도가 있어 트래픽이 몰리는 날에는
           // 429가 돌아온다. 일시적 한도 초과와 진짜 발송 실패를 구분해 담당자에게
           // "내일 다시" 같은 정확한 안내를 할 수 있게 별도 코드로 응답한다.
@@ -582,18 +629,21 @@ export async function handle(request, env, store) {
       const otp = String(b.otp || '');
       if (!email || !otp) return j({ error: 'email·otp 필요' }, 400);
       if (tooLong(email, MAX_STR) || tooLong(otp, 20)) return j({ error: '입력 길이 초과' }, 400);
-      const row = await store.getAgencyOtp(email);
+      // 조회·삭제 모두 해시 키 기준(평문 미저장, §0).
+      const email_hash = await sha256hex(email);
+      const row = await store.getAgencyOtp(email_hash);
       if (!row || row.expires_at < Date.now()) return j({ error: 'invalid_otp' }, 401);
       if (row.attempts >= 5) return j({ error: 'too_many_attempts' }, 429);
       const otp_hash = await sha256hex(otp);
       if (otp_hash !== row.otp_hash) {
-        await store.incrementAgencyOtpAttempts(email);
+        await store.incrementAgencyOtpAttempts(email_hash);
         return j({ error: 'invalid_otp' }, 401);
       }
-      await store.deleteAgencyOtp(email);
+      await store.deleteAgencyOtp(email_hash);
       const token = randomB64(32);
       const token_hash = await sha256hex(token);
-      await store.createAgencyToken({ token_hash, email, expires_at: Date.now() + 24 * 60 * 60 * 1000 });
+      // 토큰 행에도 이메일 해시만 저장한다(consent_log 기록에 그대로 재사용).
+      await store.createAgencyToken({ token_hash, email_hash, expires_at: Date.now() + 24 * 60 * 60 * 1000 });
       return j({ token });
     }
 
@@ -689,8 +739,9 @@ export function makeD1Store(DB) {
       await DB.prepare('INSERT INTO consent_log (id,institution,department,year_month,agency_email_hash,consented_at) VALUES (?,?,?,?,?,?)')
         .bind(c.id, c.institution, c.department, c.year_month, c.agency_email_hash || null, c.consented_at).run();
     },
+    // 멱등 응답에 기존 건의 처리 상태(PENDING/APPROVED/REJECTED/EXPIRED)를 함께 실어주기 위해 status도 조회.
     async findSummaryByBatch(restaurant_id, batch_hash) {
-      return await DB.prepare('SELECT id FROM deposit_summary WHERE restaurant_id=? AND batch_hash=? LIMIT 1')
+      return await DB.prepare('SELECT id, status FROM deposit_summary WHERE restaurant_id=? AND batch_hash=? LIMIT 1')
         .bind(restaurant_id, batch_hash).first();
     },
     async getSummary(id) {
@@ -706,6 +757,15 @@ export function makeD1Store(DB) {
         summary: { institution: row.institution, department: row.department, restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, year_month: row.year_month, total_amount: row.total_amount, member_count: row.member_count, batch_hash: row.batch_hash },
         ciphertext: JSON.parse(row.ciphertext), status: row.status
       }));
+    },
+    // inbox와 동일 필터를 COUNT로만(행 본문·암호문을 읽지 않음). 알림 배지용 경량 조회.
+    // encrypted_blob JOIN까지 동일하게 건다 — blob이 이미 파기된 고아 summary(수령 실패·부분 정리 등)는
+    // /api/inbox에 나오지 않으므로, 세기만 하면 "열 수 없는 알림 배지"가 남는다.
+    async inboxCount(restaurant_id) {
+      const cutoff = Date.now() - PENDING_TTL_MS;
+      const r = await DB.prepare("SELECT COUNT(*) c FROM deposit_summary s JOIN encrypted_blob b ON b.summary_id=s.id WHERE s.restaurant_id=? AND s.status='PENDING' AND s.created_at>?")
+        .bind(restaurant_id, cutoff).first();
+      return (r && r.c) || 0;
     },
     async setStatus(summary_id, status) {
       // 상태 전이 가드: PENDING인 건만 전이 가능. 영향 row 0이면 이미 처리·만료된 것.
@@ -742,26 +802,28 @@ export function makeD1Store(DB) {
       await DB.prepare('DELETE FROM ledger_backup WHERE restaurant_id=?').bind(restaurant_id).run();
     },
     // ── 기관 OTP ──
-    async getAgencyOtp(email) {
-      return await DB.prepare('SELECT email, otp_hash, expires_at, attempts, created_at FROM agency_otp WHERE email=?').bind(email).first();
+    // agency_otp.email / agency_token.email 컬럼에는 **이메일의 SHA-256 해시**만 넣는다(평문 미저장,
+    // §0). 스키마 변경 없이 같은 TEXT 컬럼을 재사용하며, 코드에서는 email_hash로 별칭해 읽는다.
+    async getAgencyOtp(emailHash) {
+      return await DB.prepare('SELECT email AS email_hash, otp_hash, expires_at, attempts, created_at FROM agency_otp WHERE email=?').bind(emailHash).first();
     },
     async upsertAgencyOtp(o) {
-      await DB.prepare('DELETE FROM agency_otp WHERE email=?').bind(o.email).run();
+      await DB.prepare('DELETE FROM agency_otp WHERE email=?').bind(o.email_hash).run();
       await DB.prepare('INSERT INTO agency_otp (email,otp_hash,expires_at,attempts,created_at) VALUES (?,?,?,?,?)')
-        .bind(o.email, o.otp_hash, o.expires_at, o.attempts, o.created_at).run();
+        .bind(o.email_hash, o.otp_hash, o.expires_at, o.attempts, o.created_at).run();
     },
-    async incrementAgencyOtpAttempts(email) {
-      await DB.prepare('UPDATE agency_otp SET attempts=attempts+1 WHERE email=?').bind(email).run();
+    async incrementAgencyOtpAttempts(emailHash) {
+      await DB.prepare('UPDATE agency_otp SET attempts=attempts+1 WHERE email=?').bind(emailHash).run();
     },
-    async deleteAgencyOtp(email) {
-      await DB.prepare('DELETE FROM agency_otp WHERE email=?').bind(email).run();
+    async deleteAgencyOtp(emailHash) {
+      await DB.prepare('DELETE FROM agency_otp WHERE email=?').bind(emailHash).run();
     },
     async createAgencyToken(t) {
       await DB.prepare('INSERT INTO agency_token (token_hash,email,expires_at) VALUES (?,?,?)')
-        .bind(t.token_hash, t.email, t.expires_at).run();
+        .bind(t.token_hash, t.email_hash, t.expires_at).run();
     },
     async getAgencyToken(token_hash) {
-      return await DB.prepare('SELECT email, expires_at FROM agency_token WHERE token_hash=?').bind(token_hash).first();
+      return await DB.prepare('SELECT email AS email_hash, expires_at FROM agency_token WHERE token_hash=?').bind(token_hash).first();
     },
     // ── 비식별 집계 통계(조직정보·공개ID·누적 카운터·피드백만 — 개인정보 없음) ──
     async noteInstitution(name) { await DB.prepare('INSERT OR IGNORE INTO seen_institution (name) VALUES (?)').bind(name).run(); },
@@ -800,24 +862,30 @@ export function makeD1Store(DB) {
       // 저장 최소화를 담당한다.
       const pendingCutoff = now - PENDING_TTL_MS;
       const expiredRows = await DB.prepare("SELECT id FROM deposit_summary WHERE status='PENDING' AND created_at < ?").bind(pendingCutoff).all();
+      // 행마다 문장 2개를 발행하면 만료 건이 몰린 날 D1 왕복이 폭증하므로 100개씩 IN (...) 배치로 실행한다
+      // (동작 결과는 행 단위 루프와 동일 — 같은 id 집합에 같은 삭제·전이를 적용).
       const expiredIds = (expiredRows.results || []).map(r => r.id);
-      for (const id of expiredIds) {
-        await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id=?').bind(id).run();
-        await DB.prepare("UPDATE deposit_summary SET status='EXPIRED', processed_at=? WHERE id=?").bind(now, id).run();
+      for (const part of chunkIds(expiredIds, CLEANUP_CHUNK)) {
+        const ph = part.map(() => '?').join(',');
+        await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id IN (' + ph + ')').bind(...part).run();
+        await DB.prepare("UPDATE deposit_summary SET status='EXPIRED', processed_at=? WHERE id IN (" + ph + ")").bind(now, ...part).run();
       }
-      // 2) 처리 완료(APPROVED/REJECTED/EXPIRED) 후 30일 지난 비식별 요약 삭제.
+      // 2) 처리 완료(APPROVED/REJECTED/EXPIRED) 후 30일 지난 비식별 요약 삭제(동일하게 배치 실행).
       const cutoff = now - RETENTION_TTL_MS;
       const rows = await DB.prepare("SELECT id FROM deposit_summary WHERE status IN ('APPROVED','REJECTED','EXPIRED') AND processed_at IS NOT NULL AND processed_at < ?").bind(cutoff).all();
       const ids = (rows.results || []).map(r => r.id);
-      for (const id of ids) {
-        await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id=?').bind(id).run();
-        await DB.prepare('DELETE FROM deposit_summary WHERE id=?').bind(id).run();
+      for (const part of chunkIds(ids, CLEANUP_CHUNK)) {
+        const ph = part.map(() => '?').join(',');
+        await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id IN (' + ph + ')').bind(...part).run();
+        await DB.prepare('DELETE FROM deposit_summary WHERE id IN (' + ph + ')').bind(...part).run();
       }
       await DB.prepare('DELETE FROM auth_challenge WHERE expires_at<?').bind(now).run();
       await DB.prepare('DELETE FROM agency_otp WHERE expires_at<?').bind(now).run();
       await DB.prepare('DELETE FROM agency_token WHERE expires_at<?').bind(now).run();
       // 3) consent_log(기관·부서·연월·이메일 해시)도 무기한 보관하지 않고 180일 후 삭제(§6).
       await DB.prepare('DELETE FROM consent_log WHERE consented_at < ?').bind(now - CONSENT_RETENTION_TTL_MS).run();
+      // 4) feedback(자유 입력 본문)도 보존기한을 둔다 — 180일 경과분 삭제(§6).
+      await DB.prepare('DELETE FROM feedback WHERE created_at IS NOT NULL AND created_at < ?').bind(now - FEEDBACK_RETENTION_TTL_MS).run();
       return { deletedSummaries: ids.length, expiredSummaries: expiredIds.length };
     }
   };
@@ -830,7 +898,7 @@ export default {
   },
   // 개인정보 최소화 목적 TTL cron: ① 미수령(PENDING) 72시간 경과 항목을 EXPIRED로 전이하고
   // 암호 blob을 즉시 파기, ② 처리 완료(APPROVED/REJECTED/EXPIRED) 후 30일 지난 비식별 집계와
-  // 만료된 인증 챌린지/기관 OTP/기관 토큰을 정리한다(암호 blob은 승인/거절 시 이미 즉시
+  // 만료된 인증 챌린지/기관 OTP/기관 토큰, ③ 180일 지난 consent_log·feedback을 정리한다(암호 blob은 승인/거절 시 이미 즉시
   // 삭제되므로 이 단계에서는 대개 no-op). 서버는 zero-knowledge이므로 원장 진실은 항상 음식점
   // 기기에 있다 — 이 정리는 서버 보관 데이터를 최소화할 뿐 데이터 손실이 아니다.
   async scheduled(event, env, ctx) {
@@ -889,22 +957,35 @@ export function makeMemoryStore() {
     async insertSummary(s) { summaries.push(s); },
     async insertBlob(b) { blobs.push(b); },
     async insertConsent(c) { consents.push(c); },
+    // D1과 동등: 멱등 응답에 실을 status도 함께 반환.
     async findSummaryByBatch(restaurant_id, batch_hash) {
       const s = summaries.find(x => x.restaurant_id === restaurant_id && x.batch_hash === batch_hash);
-      return s ? { id: s.id } : null;
+      return s ? { id: s.id, status: s.status } : null;
     },
     async getSummary(id) {
       const s = summaries.find(x => x.id === id);
       return s ? { id: s.id, restaurant_id: s.restaurant_id, status: s.status } : null;
     },
+    // D1 inbox는 encrypted_blob과 JOIN이므로 blob 없는(고아) summary는 애초에 나오지 않는다.
+    // 메모리 store도 동일 시맨틱으로 통일한다(과거엔 ciphertext:null로 반환해 D1과 달랐음).
     async inbox(restaurant_id) {
       // 이중 방어(§6): cron이 하루 1회뿐이므로 status='PENDING'이어도 72시간 지난 항목은
       // 여기서 created_at으로 직접 걸러낸다.
       const cutoff = Date.now() - PENDING_TTL_MS;
-      return summaries.filter(s => s.restaurant_id === restaurant_id && s.status === 'PENDING' && s.created_at > cutoff).map(s => {
+      const out = [];
+      for (const s of summaries) {
+        if (s.restaurant_id !== restaurant_id || s.status !== 'PENDING' || !(s.created_at > cutoff)) continue;
         const b = blobs.find(x => x.summary_id === s.id);
-        return { summary_id: s.id, summary: { institution: s.institution, department: s.department, restaurant_id: s.restaurant_id, restaurant_name: s.restaurant_name, year_month: s.year_month, total_amount: s.total_amount, member_count: s.member_count, batch_hash: s.batch_hash }, ciphertext: b ? JSON.parse(b.ciphertext) : null, status: s.status };
-      });
+        if (!b) continue; // D1의 JOIN과 동일 — blob이 없으면 제외
+        out.push({ summary_id: s.id, summary: { institution: s.institution, department: s.department, restaurant_id: s.restaurant_id, restaurant_name: s.restaurant_name, year_month: s.year_month, total_amount: s.total_amount, member_count: s.member_count, batch_hash: s.batch_hash }, ciphertext: JSON.parse(b.ciphertext), status: s.status });
+      }
+      return out;
+    },
+    // inbox와 동일 필터의 개수만(D1 inboxCount와 동등 — blob JOIN 포함). 알림 배지용 경량 조회.
+    async inboxCount(restaurant_id) {
+      const cutoff = Date.now() - PENDING_TTL_MS;
+      return summaries.filter(s => s.restaurant_id === restaurant_id && s.status === 'PENDING' && s.created_at > cutoff
+        && blobs.some(b => b.summary_id === s.id)).length;
     },
     // 상태 전이 가드: PENDING인 건만 전이 가능. 처리 성공 여부(boolean)를 반환.
     async setStatus(id, status) {
@@ -932,11 +1013,11 @@ export function makeMemoryStore() {
     async upsertLedgerBackup(b) { ledgerBackups.set(b.restaurant_id, b); },
     async getLedgerBackup(restaurant_id) { return ledgerBackups.get(restaurant_id) || null; },
     async deleteLedgerBackup(restaurant_id) { ledgerBackups.delete(restaurant_id); },
-    // ── 기관 OTP ──
-    async getAgencyOtp(email) { return agencyOtps.get(email) || null; },
-    async upsertAgencyOtp(o) { agencyOtps.set(o.email, o); },
-    async incrementAgencyOtpAttempts(email) { const o = agencyOtps.get(email); if (o) o.attempts++; },
-    async deleteAgencyOtp(email) { agencyOtps.delete(email); },
+    // ── 기관 OTP ── (키·저장값 모두 이메일의 SHA-256 해시 — D1과 동일하게 평문 미저장)
+    async getAgencyOtp(emailHash) { return agencyOtps.get(emailHash) || null; },
+    async upsertAgencyOtp(o) { agencyOtps.set(o.email_hash, o); },
+    async incrementAgencyOtpAttempts(emailHash) { const o = agencyOtps.get(emailHash); if (o) o.attempts++; },
+    async deleteAgencyOtp(emailHash) { agencyOtps.delete(emailHash); },
     async createAgencyToken(t) { agencyTokens.set(t.token_hash, t); },
     async getAgencyToken(token_hash) { return agencyTokens.get(token_hash) || null; },
     // ── 비식별 집계 통계(조직정보·공개ID·누적 카운터·피드백만 — 개인정보 없음) ──
@@ -982,6 +1063,9 @@ export function makeMemoryStore() {
       // 3) consent_log도 무기한 보관하지 않고 180일 후 삭제(§6).
       const consentCutoff = now - CONSENT_RETENTION_TTL_MS;
       for (let i = consents.length - 1; i >= 0; i--) if (consents[i].consented_at < consentCutoff) consents.splice(i, 1);
+      // 4) feedback(자유 입력)도 180일 경과분 삭제(§6) — D1과 동등.
+      const feedbackCutoff = now - FEEDBACK_RETENTION_TTL_MS;
+      for (let i = feedbacks.length - 1; i >= 0; i--) if (feedbacks[i].created_at != null && feedbacks[i].created_at < feedbackCutoff) feedbacks.splice(i, 1);
       return { deletedSummaries: toDelete.length, expiredSummaries: toExpire.length };
     }
   };

@@ -10,7 +10,7 @@
 - 장부 안전 저장 (엑셀용 CSV + 복원용 JSON)
 - 저장한 데이터 복원 (JSON)
 - 4자리 PIN 잠금
-- 초기 설정 마법사 (가게 정보 직접 입력)
+- 초기 설정 마법사 4단계 (가게 정보 → 우리 가게 등록 → 부서 목록 → 연락처·약관 동의)
 - Android PWA 설치용 PNG 아이콘 제공
 
 ## 사용 방법
@@ -28,7 +28,6 @@ python -m http.server 8765
 | `sw.js` | 서비스 워커 (오프라인 캐시) |
 | `agency-departments.json` | 서울시청·25개 구청 과 단위 부서 목록 |
 | `icons/` | Android PWA 설치용 PNG 아이콘 |
-| `manual.html` | 사용자 매뉴얼 (인쇄용) |
 
 ## 라이선스
 © 2026 널마루(밥장부 · 선입금대장). All rights reserved.

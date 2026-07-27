@@ -43,14 +43,23 @@ hr{border:none;border-top:2px solid var(--line);margin:36px 0}
 footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 .beta{display:inline-block;background:#fff4e5;border:1.5px solid #ecdcbb;color:#7a5209;border-radius:999px;padding:2px 12px;font-size:14px;font-weight:800;vertical-align:middle}
 @media print{
-  body{font-size:13pt;max-width:none;padding:0}
+  @page{size:A4;margin:15mm 14mm}
+  html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-size:13pt;max-width:none;padding:0;background:#fff}
   .top-link{display:none}
   h2{page-break-before:always;border-top:none}
   h2:first-of-type{page-break-before:avoid}
+  /* 내용이 두세 줄뿐인 장은 앞 장에 이어서 인쇄 (빈 페이지 방지) */
+  h2.short-chapter{page-break-before:auto;page-break-inside:avoid}
   .toc{page-break-after:always}
-  .step{page-break-inside:avoid}
+  /* .step-num 음수 오프셋이 페이지 경계에서 잘리지 않도록 인쇄에서는 박스 안으로 넣는다 */
+  .step{page-break-inside:avoid;padding-top:44px;margin-top:12px}
+  .step .step-num{top:8px;box-shadow:none}
+  .step-body{padding-top:0}
+  .callout,.tip,table,.card-list li{page-break-inside:avoid}
   a[href]::after{content:" (" attr(href) ")";font-size:10pt;color:var(--muted)}
-  .toc a::after{content:""}
+  /* 내부 앵커·안내서 간 링크는 URL 각주를 붙이지 않는다 */
+  .toc a::after,a[href^="#"]::after,a[href$=".html"]::after{content:"" !important}
 }
 @media (max-width:480px){
   body{font-size:16px;padding:16px 14px 70px}
@@ -64,7 +73,7 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 
 <div class="callout">
 🙋 <b>이 앱은 '내가 적는 내 잔액 확인용'이에요.</b><br>
-음식점 사장님 앱(선입금대장)과 자동으로 연결되지 않아요. <b>공식 잔액은 음식점 장부가 기준</b>이고, 직원용 앱은 내가 따로 적어 두고 눈으로 확인하는 개인 기록장이에요. 금액이 다르면 음식점 장부를 확인해 주세요.
+사장님 앱(밥장부 선입금대장)과 자동으로 연결되지 않아요. <b>공식 잔액은 사장님 앱의 선금대장이 기준</b>이고, 직원용 앱은 내가 따로 적어 두고 눈으로 확인하는 개인 기록장이에요. 금액이 다르면 음식점 장부를 확인해 주세요.
 </div>
 
 <div class="toc" aria-label="전체 흐름">
@@ -119,6 +128,7 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 
 <h2 id="store"><span class="num">3</span>음식점 등록</h2>
 <p>자주 가는 음식점을 먼저 등록해요. 등록한 음식점에만 기록할 수 있어요.</p>
+<div class="tip">🔎 <b>사장님 앱의 '우리 가게 등록'과는 달라요.</b> 여기서 말하는 음식점 등록은 <b>내 기록장에 단골 가게를 추가하는 기능</b>이에요. 내 폰에만 저장되고, 그 음식점에는 아무것도 전달되지 않아요.</div>
 <div class="step"><div class="step-num">1</div><div class="step-body"><span class="btn-secondary">+ 음식점 등록</span>을 눌러요. (현황 화면 또는 관리 탭)</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">음식점 이름을 일부만 넣어도 돼요. (예: <span class="field">김밥</span>, <span class="field">불고기</span>) 실제 음식점 목록에서 찾아 줘요.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">찾은 음식점을 <b>터치하면 바로 등록</b>돼요.</div></div>
@@ -186,13 +196,13 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <h2 id="faq"><span class="num">10</span>자주 묻는 질문</h2>
 <dl class="qa">
 <dt>음식점 장부와 잔액이 다르면 어떻게 하나요?</dt>
-<dd><b>음식점 장부가 기준이에요.</b> 직원용 앱은 내가 직접 적는 기록이라, 적는 걸 빠뜨리면 달라질 수 있어요. 음식점에서 잔액을 확인하고 앱 기록을 수정해 주세요.</dd>
+<dd><b>사장님 앱의 선금대장이 기준이에요.</b> 직원용 앱은 내가 직접 적는 기록이라, 적는 걸 빠뜨리면 달라질 수 있어요. 음식점에서 잔액을 확인하고 앱 기록을 수정해 주세요.</dd>
 
 <dt>기관(구청·회사)이 넣어 준 선금도 여기에 적어야 하나요?</dt>
-<dd>적어 두면 내 잔액을 눈으로 확인하기 편해요. 기관이 음식점에 넣어 준 금액을 <b>충전</b>으로 한 번 적어 두면 돼요. 기관·음식점 쪽 기록과는 별개예요.</dd>
+<dd>적어 두면 내 잔액을 눈으로 확인하기 편해요. 기관이 음식점에 넣어 준 금액을 <b>충전</b>으로 한 번 적어 두면 돼요. 기관 담당자(서무)가 보낸 명단은 사장님 앱에 <b>자동 등록</b>으로 들어가고, 직원용 앱과는 별개로 움직여요.</dd>
 
 <dt>음식점에서 내 폰을 보여주면 결제가 되나요?</dt>
-<dd>아니요. 이 앱에는 결제 기능이 없어요. 실제 차감은 음식점 앱(선입금대장)에서 사장님이 처리해요.</dd>
+<dd>아니요. 이 앱에는 결제 기능이 없어요. 실제 차감은 <b>사장님 앱(밥장부 선입금대장)</b>의 선금대장에서 사장님이 처리해요.</dd>
 
 <dt>인터넷이 없어도 되나요?</dt>
 <dd>네. 기록하기·잔액 보기는 인터넷 없이도 돼요. 음식점 이름 검색만 인터넷이 필요해요.</dd>
@@ -201,7 +211,7 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <dd>네, 그대로는 사라져요. 바꾸기 전에 <a href="#backup">백업(내보내기)</a>을 받아 새 폰에서 복원해 주세요.</dd>
 
 <dt>가족·동료와 같이 쓸 수 있나요?</dt>
-<dd>이 앱은 한 사람의 개인 기록장이에요. 여러 사람 몫을 함께 관리해야 하면 음식점 앱(선입금대장)을 쓰는 게 맞아요.</dd>
+<dd>이 앱은 한 사람의 개인 기록장이에요. 여러 사람 몫을 함께 관리해야 하면 <b>사장님 앱(밥장부 선입금대장)</b>의 직원 선금대장을 쓰는 게 맞아요.</dd>
 </dl>
 
 <hr>

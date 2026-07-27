@@ -108,6 +108,19 @@ async function main() {
     userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36'
   });
   const page = await context.newPage();
+  // 중계 서버 호출은 전부 목으로 가로챈다(로컬 e2e가 라이브 서버에 의존하지 않도록).
+  //  · 가게 검색: 빈 결과 → 온보딩 2/4에서 "지금은 넘어가기" 예외 경로가 노출된다.
+  //  · 새 명단 신청 개수: 404(구서버 호환 경로) → 앱은 조용히 무시해야 한다.
+  // 목은 반드시 context.route로 — 이 앱은 서비스워커가 모든 GET을 가로채므로 page.route로는 잡히지 않는다.
+  // 중계 서버는 교차 출처라 목 응답에도 CORS 헤더가 필요하다.
+  const cors = { 'Access-Control-Allow-Origin': '*' };
+  // 목 응답은 시나리오마다 바뀌므로 라우트는 한 번만 걸고 변수로 갈아끼운다.
+  let storeSearchResults = [];        // 기본: 검색 결과 없음
+  let inboxCountBody = null;          // null = 404(구서버 호환 경로)
+  await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(storeSearchResults) }));
+  await context.route('**/api/inbox-count**', route => (inboxCountBody === null
+    ? route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not found"}' })
+    : route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(inboxCountBody) })));
   const dialogs = [];
   const consoleProblems = [];
   let promptAnswer = '초기화';
@@ -152,7 +165,50 @@ async function main() {
     await page.locator('#setupManualTel').fill('02-111-2222');
     await page.locator('[data-a="setup-manual-save"]').click();
     await page.locator('[data-a="setup-next"]').click();
+
+    // 2/4 우리 가게 등록(신설) — 온보딩 화면에는 모달이 없으므로 검색 UI가 단계 화면에 인라인으로 있어야 한다.
+    await page.waitForSelector('#setupStoreName');
+    await assert((await page.locator('.setup-step').innerText()).includes('2 / 4'), 'store registration must be step 2 of a 4-step onboarding');
+    await assert((await page.locator('#setupStoreName').inputValue()) === 'Harness Shop', 'the shop name from step 1 should prefill the store search box');
+    // 서버 등록은 약관 동의(4/4) 이후에만 — 이 단계에서 register-key가 호출되면 안 된다.
+    const registerCalls = [];
+    let registerStatus = 200;
+    await context.route('**/api/register-key**', route => {
+      registerCalls.push(route.request().url());
+      return registerStatus === 200
+        ? route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true}' })
+        : route.fulfill({ status: registerStatus, contentType: 'application/json', headers: cors, body: '{"error":"internal"}' });
+    });
+    // S1 회귀 방지: "나중에 등록할게요"는 검색 전에도, 결과가 있어도 항상 보여야 한다(막다른 길 금지).
+    await assert(await count(page, '[data-a="setup-store-skip"]') === 1, 'the skip link must be available before searching (no dead end)');
+    await page.locator('[data-a="setup-store-search"]').click();
+    await page.waitForSelector('.empty');
+    await assert(await count(page, '[data-a="setup-store-skip"]') === 1, 'the skip link must stay visible when a search returns nothing');
+    const emptyHelp = await page.locator('.setup').innerText();
+    await assert(emptyHelp.includes('사업자등록증의 상호'), 'a "search by the business-registration name" hint should follow the result list');
+    // 결과가 있는데 내 가게가 아닌 경우 — 여기서도 빠져나갈 길이 있어야 한다(리뷰 S1).
+    storeSearchResults = [
+      { restaurant_id: 'rid-other-1', name: '남의 김밥', address: '서울특별시 강남구 역삼동 1-1' },
+      { restaurant_id: 'rid-mine-1', name: 'Harness Shop', address: '서울특별시 광진구 구의동 2-2' }
+    ];
+    // 서비스워커가 GET을 캐시-우선으로 처리하므로 다른 검색어(=다른 캐시 키)로 다시 조회해야 새 목이 적용된다.
+    await page.locator('#setupStoreName').fill('하네스김밥');
+    await page.locator('[data-a="setup-store-search"]').click();
+    await page.waitForSelector('[data-a="setup-store-pick"]');
+    await assert(await count(page, '[data-a="setup-store-pick"]') === 2, 'both mocked search results should be listed');
+    await assert(await count(page, '[data-a="setup-store-skip"]') === 1, 'the skip link must stay visible even when the search DOES return results (none of them mine)');
+    // 남의 가게 오선택 방지: [이 가게] 확인 문구에 주소가 들어가야 한다.
+    const dialogsBeforePick = dialogs.length;
+    await page.locator('[data-a="setup-store-pick"]').nth(1).click();
+    await page.waitForTimeout(150);
+    const pickConfirm = dialogs.slice(dialogsBeforePick).find(d => d.type === 'confirm');
+    await assert(Boolean(pickConfirm) && pickConfirm.message.includes('서울특별시 광진구 구의동 2-2'), 'picking a store must confirm with the store address, not just the name');
+    await assert((await page.locator('.setup-selected').innerText()).includes('Harness Shop'), 'the confirmed store should show up as the picked store');
+    await assert(registerCalls.length === 0, 'searching/picking a store must not register anything on the server');
+    await page.locator('[data-a="setup-store-skip"]').click();
+
     await page.waitForSelector('#agencySelectSetup');
+    await assert((await page.locator('.setup-step').innerText()).includes('3 / 4'), 'department setup should be step 3 of 4');
     // ① 신규 설치는 기본 부서 0개로 시작해야 한다(사무실/관리팀/현장팀/영업팀 같은 하드코딩 기본값 제거).
     await assert(await page.locator('.dept-tag').count() === 0, 'a fresh install should start with zero default departments');
     await assert((await page.locator('#agencySelectSetup').inputValue()) === 'gwangjin', 'region address "광진구 구의동" should auto-select 광진구청 agency');
@@ -160,6 +216,7 @@ async function main() {
     await assert(await page.locator('.dept-tag', { hasText: '보건의료과' }).count() > 0, 'agency departments should be added during setup');
     await page.locator('[data-a="setup-to-contact"]').click();
     await page.waitForSelector('#setupContactKakao');
+    await assert((await page.locator('.setup-step').innerText()).includes('4 / 4'), 'contact + terms should be the last (4th) onboarding step');
     await page.locator('#setupContactKakao').fill('https://open.kakao.com/o/sHarness');
     await page.locator('#setupContactEmail').fill('owner@harness-shop.example');
     // 약관 동의 게이트: 미체크 시 완료 버튼 비활성, 체크 시 활성화되어야 한다
@@ -179,6 +236,10 @@ async function main() {
     await page.waitForTimeout(3200); // let the "PIN set" toast fade before the completion screenshot
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'onboarding-complete.png') }).catch(() => {});
     await page.locator('[data-a="guide-dismiss"]').click();
+
+    // 가게 등록을 넘긴 경우: 서버 등록은 일어나지 않고, 홈에 마무리 배너가 남아야 한다.
+    await assert(registerCalls.length === 0, 'skipping the store step must not send anything to the relay server');
+    await assert(await count(page, '[data-a="go-register-store"]') === 1, 'home should keep a persistent banner asking to finish the store registration');
 
     const setupMeta = await readDb(page);
     const setupMetaMap = (setupMeta.meta || []).reduce((a, r) => (a[r.key] = r.value, a), {});
@@ -208,6 +269,13 @@ async function main() {
     await assert(await count(page, '[data-a="quick-add-employee"]') === 1, 'inline quick-add form should replace the standalone employee-registration section');
     await assert(await count(page, '.section-title:has-text("직원 등록")') === 0, 'the old standalone "직원 등록" section must be removed');
     await assert((await page.locator('.section-title', { hasText: '직원 목록 관리' }).count()) === 1, '직원 관리 section should be renamed to 직원 목록 관리');
+    // 용어 체계: 상위 그룹 "직원 선금대장 등록" 아래 [자동 등록]·[수동 등록] 두 카드
+    await assert((await page.locator('.section-title', { hasText: '직원 선금대장 등록' }).count()) === 1, 'settings should group enrollment under a single 직원 선금대장 등록 heading');
+    await assert((await page.locator('.section-title', { hasText: '자동 등록 — 기관에서 보낸 명단 받기' }).count()) === 1, 'the relay card should be titled 자동 등록 — 기관에서 보낸 명단 받기');
+    await assert((await page.locator('.section-title', { hasText: '수동 등록 — 직접 입력하기' }).count()) === 1, 'a 수동 등록 — 직접 입력하기 card should hold the manual enrollment actions');
+    const settingsText = await page.locator('.app').innerText();
+    await assert(!/구청 선금|선금 받기|직원개별등록/.test(settingsText), 'the retired wording (구청 선금 / 선금 받기 / 직원개별등록) must be gone from settings');
+    await assert(settingsText.includes('가게 은행 계좌로 따로 입금'), 'the auto-enrollment card must state that money is deposited to the bank account, not the app');
     await page.locator('#quickAddDept').fill('Dept Q');
     await page.locator('#quickAddName').fill('User Q');
     await page.locator('#quickAddOpen').fill('12000');
@@ -323,6 +391,8 @@ async function main() {
 
     // 잔액증표(명함형) — empCard 보조 버튼 [🧾 증표]으로 표시 전용 카드 열기
     await assert(await count(page, '[data-a="receipt"]') >= 2, 'each employee card should expose a receipt (증표) button next to 사용');
+    // 홈 상단 배너 때문에 목록이 접힐 수 있으므로, 대상 직원만 남기고(검색) 증표를 연다.
+    await page.locator('#searchInput').fill('User Q');
     await page.locator(`[data-a="receipt"][data-id="${empQ.id}"]`).click();
     await page.waitForSelector('.receipt-modal', { timeout: 3000 });
     const receiptText = await page.locator('.namecard').innerText();
@@ -334,6 +404,7 @@ async function main() {
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'receipt-card.png') }).catch(() => {});
     await page.locator('.receipt-modal [data-a="close-modal"]').click();
     await page.waitForTimeout(50);
+    await page.locator('#searchInput').fill('');
 
     // ⑥ 클라우드 백업(서버 전송) 페이로드를 실제로 만들어 복호화한 뒤 전화번호가 전혀 없는지 덤프에서 확인한다
     const cloudCheck = await page.evaluate(async () => {
@@ -577,6 +648,79 @@ async function main() {
     await assert(await count(page, '.receipt-bal') === 0, 'no balance figure should be shown when integrity fails');
     await page.locator('.receipt-modal [data-a="close-modal"]').click();
     await page.waitForTimeout(50);
+
+    // ───────────────────────────────────────────────────────────────
+    // 우리 가게 등록: 실패 롤백(S3) · 성공 후 열쇠 백업 유도(B3) · 배너 닫기(D2)
+    // ───────────────────────────────────────────────────────────────
+    const metaNow = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(Boolean(metaNow.pubKey), 'a keypair should exist before the store-registration scenarios');
+    // 등록 성공 경로는 소유증명(challenge)·연락처 저장까지 이어지므로 페이지 fetch 스파이로 막는다.
+    await page.evaluate(({ pubKey }) => {
+      const orig = window.fetch.bind(window);
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      window.fetch = async (u, opts) => {
+        const url = String(u);
+        if (url.includes('/api/challenge')) {
+          const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+          const ct = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, new TextEncoder().encode('TESTTOKEN'));
+          return new Response(JSON.stringify({ challenge_ct: u2b(ct) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.includes('/api/contact')) return new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return orig(u, opts);
+      };
+    }, { pubKey: metaNow.pubKey });
+
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForSelector('[data-a="go-register-store"]');
+    await assert(await count(page, '[data-a="dismiss-store-banner"]') === 1, 'the finish-registration banner should carry a ✕ dismiss button (D2)');
+
+    const pickStore = async () => {
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+      await page.waitForSelector('[data-a="go-register-store"]');
+      await page.locator('[data-a="go-register-store"]').click();
+      await page.waitForSelector('#storeName');
+      await page.locator('#storeName').fill('하네스김밥');
+      await page.locator('[data-a="relay-search-stores"]').click();
+      await page.waitForSelector('[data-a="relay-pick-store"]');
+      await page.locator('[data-a="relay-pick-store"]').nth(1).click();
+      await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+      await page.waitForTimeout(200);
+    };
+
+    // (1) 롤백 경로: register-key 500 → restaurantId가 남아 '받는 중'으로 오표시되면 안 된다.
+    registerStatus = 500;
+    const callsBeforeFail = registerCalls.length;
+    await pickStore();
+    await assert(registerCalls.length === callsBeforeFail + 1, 'picking a store should attempt exactly one register-key call');
+    let regMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(!regMeta.restaurantId, 'a failed register-key must roll back restaurantId (no false "받는 중" state)');
+    await assert(regMeta.storeRegisterPending === true, 'a failed registration must keep storeRegisterPending so the home banner stays');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await assert(await count(page, '[data-a="go-register-store"]') === 1, 'the finish-registration banner must remain after a failed registration');
+    await assert(!(await page.locator('.app').innerText()).includes('기관 명단 받는 중'), 'a failed registration must not render the "receiving" chip');
+
+    // (2) 성공 경로: register-key 200 → 등록 확정 + 열쇠 백업 유도 + 새 신청 칩
+    registerStatus = 200;
+    inboxCountBody = { count: 2 };
+    await pickStore();
+    regMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(regMeta.restaurantId === 'rid-mine-1', 'a successful register-key should persist the picked restaurant id');
+    await assert(regMeta.storeRegisterPending === false, 'a successful registration should clear the pending flag');
+    const settingsAfterReg = await page.locator('.app').innerText();
+    await assert(settingsAfterReg.includes('기관 명단 받는 중'), 'the settings auto-enrollment card should label the registered store 기관 명단 받는 중');
+    await assert(settingsAfterReg.includes('아직 안 함'), 'the key-backup button should carry a ⚠️ badge while the key has never been backed up (B3)');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.evaluate(() => window.__prepaidTestHooks.refreshInboxCount());
+    await page.waitForTimeout(300);
+    await assert(await count(page, '[data-a="go-register-store"]') === 0, 'the finish-registration banner must disappear once the store is registered');
+    await assert((await page.locator('.pill-relay').innerText()).includes('기관 명단 받는 중'), 'home should show the 기관 명단 받는 중 status chip');
+    await assert(await count(page, '[data-a="dismiss-key-banner"]') === 1, 'home should nudge an un-backed-up key with a dismissible banner (B3)');
+    const inboxPill = await page.locator('[data-a="relay-inbox"]').innerText();
+    await assert(inboxPill.includes('📩') && inboxPill.includes('2건'), 'a 200 inbox-count should render the 📩 new-request chip on home');
+    await page.locator('[data-a="dismiss-key-banner"]').click();
+    await page.waitForTimeout(150);
+    await assert(await count(page, '[data-a="dismiss-key-banner"]') === 0, 'dismissing the key-backup banner should hide it for this session');
 
     // ───────────────────────────────────────────────────────────────
     // 안드로이드 하단 뒤로가기: 히스토리 동기화 계층 (돈 다루는 앱 — 안전 최우선)

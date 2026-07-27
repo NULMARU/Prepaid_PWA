@@ -409,6 +409,40 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(r.status === 500 && rjProdNoKey.error === 'email_not_configured' && stub.calls.length === 0,
     'agency-otp: AUTH_MODE=prod + RESEND_API_KEY 미설정 → fetch 미호출, 500 email_not_configured');
 
+  // 14d) 발송 실패 시 60초 스로틀을 소모하지 않는다(재시도 블랙홀 방지):
+  // 발송에 실패하면 방금 쓴 OTP 행을 되돌리므로 곧바로 재요청이 가능해야 한다(429가 아니어야 함).
+  const RETRY_EMAIL = 'retry-officer@seoul.go.kr';
+  const retryHash = await sha256hex(RETRY_EMAIL);
+  stub = makeFetchStub({ ok: false, status: 500 });
+  globalThis.fetch = stub.fn.bind(stub);
+  try {
+    r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: RETRY_EMAIL });
+  } finally { globalThis.fetch = realFetch; }
+  ok(r.status === 500 && (await r.json()).error === 'email_send_failed', 'agency-otp 재시도: 1차 발송 실패 500(email_send_failed)');
+  ok(!store._dump().agencyOtps.has(retryHash), 'agency-otp 재시도: 발송 실패 시 방금 쓴 OTP 행이 삭제됨(스로틀 미소모)');
+  // 즉시 재요청(같은 이메일) — 스로틀이 소모됐다면 429가 났을 것이다.
+  stub = makeFetchStub({ ok: true, status: 200 });
+  globalThis.fetch = stub.fn.bind(stub);
+  try {
+    r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: RETRY_EMAIL });
+  } finally { globalThis.fetch = realFetch; }
+  const rjRetry = await r.json();
+  ok(r.status === 200 && rjRetry.sent === true, 'agency-otp 재시도: 발송 실패 직후 즉시 재요청 성공(429 rate_limited 아님)');
+  // 반대 확인: 발송에 성공한 뒤에는 60초 스로틀이 정상 작동한다(행이 남아 있으므로).
+  stub = makeFetchStub({ ok: true, status: 200 });
+  globalThis.fetch = stub.fn.bind(stub);
+  try {
+    r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: RETRY_EMAIL });
+  } finally { globalThis.fetch = realFetch; }
+  ok(r.status === 429 && stub.calls.length === 0, 'agency-otp 재시도: 발송 성공 후 60초 내 재요청은 여전히 429(스로틀 유지)');
+
+  // 14e) 이메일 형식 검증: 도메인 검사만으로는 통과하던 "@go.kr" 류를 400으로 거른다.
+  for (const bad of ['@go.kr', 'no-at-sign.go.kr', 'a b@go.kr']) {
+    r = await call(store, env, 'POST', '/api/agency/request-otp', { email: bad });
+    const rjBad = await r.json();
+    ok(r.status === 400 && rjBad.error === 'invalid_email', 'agency-otp: 형식 오류 이메일 400(invalid_email) — ' + JSON.stringify(bad));
+  }
+
   // 15) REQUIRE_AGENCY_AUTH=1일 때 /api/submit 게이트 + consent_log 이메일 해시 기록
   const envRequireAgency = { ...env, REQUIRE_AGENCY_AUTH: '1' };
   r = await call(store, envRequireAgency, 'POST', '/api/submit', {
@@ -430,6 +464,17 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   }, { 'X-Agency-Token': rjAgencyTok.token });
   const rjAgencyOk = await r.json();
   ok(r.status === 200 && !!rjAgencyOk.summary_id, 'submit: REQUIRE_AGENCY_AUTH=1 + 유효 토큰 → 200 통과');
+
+  // 15b) 저장소에 평문 이메일 부재(불변식 3): agency_otp·agency_token은 이메일의 SHA-256 해시(64자 hex)만
+  // 보관한다. 위에서 여러 이메일로 request-otp/verify-otp를 돌린 뒤이므로 저장소 내부를 직접 검사한다.
+  const dumpEmail = store._dump();
+  const HEX64 = /^[0-9a-f]{64}$/;
+  ok([...dumpEmail.agencyOtps.keys()].length > 0 && [...dumpEmail.agencyOtps.keys()].every(k => HEX64.test(k)),
+    '이메일 해시화: agency_otp 키가 모두 64자 hex(평문 이메일 아님)');
+  ok([...dumpEmail.agencyOtps.values()].every(o => HEX64.test(o.email_hash) && !JSON.stringify(o).includes('@')),
+    '이메일 해시화: agency_otp 저장 값에 평문 이메일(@) 없음');
+  ok([...dumpEmail.agencyTokens.values()].length > 0 && [...dumpEmail.agencyTokens.values()].every(t => HEX64.test(t.email_hash) && !JSON.stringify(t).includes('@')),
+    '이메일 해시화: agency_token에도 이메일 해시만 저장(평문 없음)');
 
   const dumpConsent = store._dump();
   const expectedHash = await sha256hex('officer@seoul.go.kr');
@@ -750,6 +795,171 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(rlLimited, 'registered-list: 강화된 레이트리밋(분당 20회) 초과 시 429');
   const rlOther = await handle(new Request('http://x/api/registered?ids=rl-list-other', { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.77' } }), env, store);
   ok(rlOther.status === 200, 'registered-list: 강화된 레이트리밋은 registered-list 전용(다른 엔드포인트 영향 없음)');
+
+  // 21) 알림 배지·경량 폴링용 개수 조회(/api/inbox-count) — 응답은 {count} 뿐, inbox와 동일 필터
+  const RIDC = 'MGT-CNT1';
+  const kCnt = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDC, restaurant_name: '카운트식당', public_key: kCnt.spki });
+  ok(r.status === 200, 'inbox-count: 테스트용 음식점 공개키 등록 200');
+
+  // 21-a) 신청 0건 → count 0 (미등록 id도 동일하게 0 — 등록 여부를 새로 노출하지 않음)
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDC);
+  const cnt0 = await r.json();
+  ok(r.status === 200 && cnt0.count === 0, 'inbox-count: 신청 0건이면 count 0');
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=MGT-NO-SUCH');
+  ok(r.status === 200 && (await r.json()).count === 0, 'inbox-count: 미등록 음식점도 count 0(등록 여부 미노출)');
+
+  // 21-b) 제출 후 → count 1, 응답에는 개수 외 아무 필드도 없음(요약 메타·암호문 미노출)
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDC, restaurant_name: '카운트식당', year_month: '2026-07', total_amount: 100000, member_count: 1, batch_hash: 'h-count-1' },
+    blob: { restaurant_id: RIDC, ciphertext: badCipher }
+  });
+  const sjCnt = await r.json();
+  ok(r.status === 200 && sjCnt.summary_id, 'inbox-count: 사전 제출 200');
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDC);
+  const cnt1 = await r.json();
+  ok(r.status === 200 && cnt1.count === 1, 'inbox-count: 제출 1건 후 count 1');
+  ok(Object.keys(cnt1).join(',') === 'count', 'inbox-count: 응답은 count만(기관·부서·총액·암호문 등 미노출)');
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDC);
+  ok((await r.json()).length === cnt1.count, 'inbox-count: inbox 항목 수와 count 일치(동일 필터)');
+
+  // 21-c) 승인(수령) 후 → count 0 (PENDING 아님)
+  const tokCnt = await getAuthToken(store, env, RIDC, kCnt.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/approve', { summary_id: sjCnt.summary_id, status: 'APPROVED', restaurant_id: RIDC, auth_token: tokCnt });
+  ok(r.status === 200, 'inbox-count: 승인 200');
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDC);
+  ok((await r.json()).count === 0, 'inbox-count: 승인 후 count 0');
+
+  // 21-d) restaurant_id 누락 → 400 (기존 /api/inbox와 동일 메시지)
+  r = await call(store, env, 'GET', '/api/inbox-count');
+  ok(r.status === 400 && (await r.json()).error === 'restaurant_id 필요', 'inbox-count: restaurant_id 누락 400');
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=');
+  ok(r.status === 400, 'inbox-count: 빈 restaurant_id도 400');
+
+  // 21-e) 72시간 경과 미수령 건은 세지 않음(inbox와 동일한 이중 방어 1단계)
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RIDC, restaurant_name: '카운트식당', total_amount: 700, member_count: 2, batch_hash: 'h-count-expire' },
+    blob: { restaurant_id: RIDC, ciphertext: badCipher }
+  });
+  const sjCntExp = await r.json();
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDC);
+  ok((await r.json()).count === 1, 'inbox-count: 만료 전 신규 제출은 count 1');
+  const cntToAge = store._dump().summaries.find(s => s.id === sjCntExp.summary_id);
+  cntToAge.created_at = Date.now() - (72 * 60 * 60 * 1000 + 60 * 1000); // 72시간 + 1분 전 제출로 시뮬레이션
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDC);
+  ok((await r.json()).count === 0, 'inbox-count: 72시간 경과 미수령 건은 cron 이전에도 카운트 제외');
+
+  // 22) 재제출 멱등 응답의 상태 명시(재전송 블랙홀 수정): 동일 (restaurant_id,batch_hash) 재제출은
+  // 새 행을 만들 수 없으므로(UNIQUE), 응답의 deduped·status로 "이미 어떻게 처리됐는지"를 알려준다.
+  const RIDD = 'MGT-DEDUP';
+  const kDup = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDD, restaurant_name: '재전송식당', public_key: kDup.spki });
+  ok(r.status === 200, 'dedup: 테스트용 공개키 등록 200');
+  const submitDup = (batch_hash) => call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RIDD, restaurant_name: '재전송식당', total_amount: 1000, member_count: 1, batch_hash },
+    blob: { restaurant_id: RIDD, ciphertext: badCipher }
+  });
+
+  // 22-a) 신규 제출 응답은 기존 계약 그대로(summary_id만 — deduped/status 없음)
+  r = await submitDup('h-dedup-pending');
+  const dupNew = await r.json();
+  ok(r.status === 200 && !!dupNew.summary_id && !('deduped' in dupNew) && !('status' in dupNew),
+    'dedup: 신규 제출 응답은 기존 그대로 {summary_id}만(deduped·status 없음)');
+
+  // 22-b) PENDING 상태에서 재제출 → deduped:true, status:'PENDING'
+  r = await submitDup('h-dedup-pending');
+  const dupPending = await r.json();
+  ok(r.status === 200 && dupPending.summary_id === dupNew.summary_id && dupPending.deduped === true && dupPending.status === 'PENDING',
+    'dedup: PENDING 재제출 → {deduped:true, status:"PENDING"}');
+
+  // 22-c) 승인 후 재제출 → deduped:true, status:'APPROVED'
+  r = await submitDup('h-dedup-approved');
+  const dupAppSubmit = await r.json();
+  const tokDupA = await getAuthToken(store, env, RIDD, kDup.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/approve', { summary_id: dupAppSubmit.summary_id, status: 'APPROVED', restaurant_id: RIDD, auth_token: tokDupA });
+  ok(r.status === 200, 'dedup: 승인 200');
+  r = await submitDup('h-dedup-approved');
+  const dupApproved = await r.json();
+  ok(r.status === 200 && dupApproved.summary_id === dupAppSubmit.summary_id && dupApproved.deduped === true && dupApproved.status === 'APPROVED',
+    'dedup: 승인 후 재제출 → {deduped:true, status:"APPROVED"}(같은 명단이 다시 안 뜨는 이유를 응답으로 알림)');
+
+  // 22-d) 거절 후 재제출 → deduped:true, status:'REJECTED'
+  r = await submitDup('h-dedup-rejected');
+  const dupRejSubmit = await r.json();
+  const tokDupR = await getAuthToken(store, env, RIDD, kDup.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/approve', { summary_id: dupRejSubmit.summary_id, status: 'REJECTED', restaurant_id: RIDD, auth_token: tokDupR });
+  ok(r.status === 200, 'dedup: 거절 200');
+  r = await submitDup('h-dedup-rejected');
+  const dupRejected = await r.json();
+  ok(r.status === 200 && dupRejected.summary_id === dupRejSubmit.summary_id && dupRejected.deduped === true && dupRejected.status === 'REJECTED',
+    'dedup: 거절 후 재제출 → {deduped:true, status:"REJECTED"}');
+  ok(store._dump().summaries.filter(s => s.restaurant_id === RIDD).length === 3,
+    'dedup: 3종 재제출로도 새 summary 행이 생기지 않음(총 3건 유지)');
+
+  // 23) blob 없는 고아 summary는 inbox·inbox-count 양쪽에서 동일하게 제외(D1 JOIN 시맨틱 통일)
+  const RIDO = 'MGT-ORPHAN';
+  const kOrp = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDO, restaurant_name: '고아테스트', public_key: kOrp.spki });
+  r = await submitDup('h-orphan-keep'); // 다른 음식점(RIDD) 건 — RIDO 계산에 영향 없음 확인용
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RIDO, restaurant_name: '고아테스트', total_amount: 300, member_count: 1, batch_hash: 'h-orphan' },
+    blob: { restaurant_id: RIDO, ciphertext: badCipher }
+  });
+  const sjOrphan = await r.json();
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDO);
+  ok((await r.json()).count === 1, 'orphan: blob 있는 PENDING은 count 1');
+  // blob만 사라진 상태(고아 summary)를 저장소에서 직접 만든다 — 부분 정리·수령 실패의 잔재 시뮬레이션.
+  const dumpOrphan = store._dump();
+  const oi = dumpOrphan.blobs.findIndex(b => b.summary_id === sjOrphan.summary_id);
+  dumpOrphan.blobs.splice(oi, 1);
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDO);
+  const inboxOrphan = await r.json();
+  ok(inboxOrphan.length === 0, 'orphan: blob 없는 summary는 inbox에서 제외(ciphertext:null 항목도 반환하지 않음)');
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDO);
+  const cntOrphan = await r.json();
+  ok(cntOrphan.count === 0, 'orphan: inbox-count도 동일하게 제외(열 수 없는 알림 배지 방지)');
+  ok(cntOrphan.count === inboxOrphan.length, 'orphan: inbox 항목 수와 inbox-count 완전 일치(필터 시맨틱 동일)');
+
+  // 24) TTL cron 배치화(B10) 회귀: 100개 청크 경계를 넘는 105건도 행 단위 루프와 동일하게 처리된다.
+  const RIDB = 'MGT-BATCH';
+  const kBat = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDB, restaurant_name: '배치테스트', public_key: kBat.spki });
+  const batchIds = [];
+  for (let i = 0; i < 105; i++) {
+    const rb = await call(store, env, 'POST', '/api/submit', {
+      summary: { restaurant_id: RIDB, restaurant_name: '배치테스트', total_amount: 100, member_count: 1, batch_hash: 'h-batch-' + i },
+      blob: { restaurant_id: RIDB, ciphertext: badCipher }
+    });
+    batchIds.push((await rb.json()).summary_id);
+  }
+  ok(batchIds.length === 105 && batchIds.every(Boolean), 'cron 배치: 105건 제출 완료(청크 경계 100 초과)');
+  // 105건 중 100건만 72시간 경과로 늙히고, 5건은 최신으로 남겨 "대상만 처리"되는지 확인.
+  const dumpBatch = store._dump();
+  const agedIds = batchIds.slice(0, 100), freshIds = batchIds.slice(100);
+  dumpBatch.summaries.forEach(s => { if (agedIds.includes(s.id)) s.created_at = Date.now() - (72 * 60 * 60 * 1000 + 60 * 1000); });
+  const cleanupBatch = await store.cleanupTTL(Date.now());
+  ok(cleanupBatch.expiredSummaries >= 100, 'cron 배치: 만료 대상 100건 이상이 한 번의 cron으로 EXPIRED 처리(expiredSummaries>=100)');
+  const dumpBatch2 = store._dump();
+  ok(agedIds.every(id => { const s = dumpBatch2.summaries.find(x => x.id === id); return s && s.status === 'EXPIRED' && s.processed_at; }),
+    'cron 배치: 늙힌 100건이 모두 EXPIRED + processed_at 기록(행 단위 루프와 동일 결과)');
+  ok(!dumpBatch2.blobs.some(b => agedIds.includes(b.summary_id)), 'cron 배치: 만료된 100건의 encrypted_blob이 모두 삭제됨');
+  ok(freshIds.every(id => { const s = dumpBatch2.summaries.find(x => x.id === id); return s && s.status === 'PENDING'; })
+    && dumpBatch2.blobs.filter(b => freshIds.includes(b.summary_id)).length === freshIds.length,
+    'cron 배치: 만료되지 않은 5건은 PENDING·blob 그대로 유지(대상만 처리)');
+  // 30일 경과 요약 삭제도 배치 경로로 동일 동작
+  dumpBatch2.summaries.forEach(s => { if (agedIds.includes(s.id)) s.processed_at = Date.now() - (30 * 24 * 60 * 60 * 1000 + 60 * 1000); });
+  const cleanupBatch2 = await store.cleanupTTL(Date.now());
+  ok(cleanupBatch2.deletedSummaries >= 100, 'cron 배치: 30일 경과 비식별 요약 100건 이상도 한 번에 삭제(deletedSummaries>=100)');
+  ok(!store._dump().summaries.some(s => agedIds.includes(s.id)), 'cron 배치: 30일 경과 요약 행이 모두 제거됨');
+
+  // 24b) feedback 보존기한(180일): cron이 경과분만 삭제하고 최근 것은 남긴다.
+  await call(store, env, 'POST', '/api/feedback', { role: '직원', message: '보존기한 테스트(오래된 것)' });
+  await call(store, env, 'POST', '/api/feedback', { role: '직원', message: '보존기한 테스트(최근 것)' });
+  store._dump().feedbacks.forEach(f => { if (f.message === '보존기한 테스트(오래된 것)') f.created_at = Date.now() - (180 * 24 * 60 * 60 * 1000 + 60 * 1000); });
+  await store.cleanupTTL(Date.now());
+  const dumpFb = store._dump();
+  ok(!dumpFb.feedbacks.some(f => f.message === '보존기한 테스트(오래된 것)'), 'feedback TTL: 180일 경과 피드백은 cron이 삭제');
+  ok(dumpFb.feedbacks.some(f => f.message === '보존기한 테스트(최근 것)'), 'feedback TTL: 최근 피드백은 유지');
 
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);

@@ -60,7 +60,8 @@ tr.err{background:#fdecea}
 <body>
 <div class="wrap">
 <h1>선입금대장 — 담당자 업로드</h1>
-<div class="meta">직원명·선금만 암호화해 음식점에 전달합니다(전화번호는 수집하지 않습니다). 서버는 암호화된 내용을 열어볼 수 없습니다.</div>
+<div class="meta">직원 명단(직원명·선금 금액)만 암호화해 음식점에 전달합니다(전화번호는 수집하지 않습니다). 서버는 암호화된 내용을 열어볼 수 없습니다.</div>
+<div class="meta" style="margin-top:4px"><b>선금(돈)은 음식점 은행 계좌로 직접 이체하세요. 이 웹은 암호화된 직원 명단만 전달해요.</b></div>
 <ol class="stepper" id="stepper">
 <li data-n="1" id="step-1">인증</li>
 <li data-n="2" id="step-2">기관·음식점</li>
@@ -106,6 +107,12 @@ tr.err{background:#fdecea}
 <div id="jurisBox" class="hide" style="margin-top:12px">
 <label for="jurisFilter">관할 등록 음식점</label>
 <input id="jurisFilter" placeholder="목록에서 이름으로 좁히기">
+<div id="jurisTools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
+<button type="button" id="selAllBtn" style="min-height:34px;font-size:13px;padding:0 10px">목록 전체 선택</button>
+<button type="button" id="selNoneBtn" style="min-height:34px;font-size:13px;padding:0 10px">선택 전체 해제</button>
+<span class="meta" id="selCount">0곳 선택됨</span>
+<span class="meta" style="flex-basis:100%">전체 선택 후 CSV에 있는 가게만 남기려면, 3단계에 나오는 <b>[CSV에 없는 N곳 선택 해제]</b> 버튼을 쓰세요.</span>
+</div>
 <div id="jurisList" style="margin-top:8px"></div>
 </div>
 
@@ -127,7 +134,7 @@ tr.err{background:#fdecea}
 
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
-<div class="step-help">아래에 직원명·선금금액이 담긴 CSV(엑셀 저장 파일)를 올려 주세요. 형식은 자동으로 확인됩니다.</div>
+<div class="step-help">아래에 직원명·선금 금액이 담긴 명단 CSV(엑셀 저장 파일)를 올려 주세요. 형식은 자동으로 확인됩니다. 실제 돈은 음식점 계좌로 따로 이체하시고, 여기서는 명단만 보냅니다.</div>
 <div class="meta">항목(순서 고정): 음식점명, 부서명, 직원명, 선금금액, 입금자명 · 기관명은 2단계에서 고른 소속 기관이 자동으로 들어갑니다 · 엑셀에서 그냥 'CSV로 저장'한 파일도 그대로 올리시면 됩니다(인코딩 자동 인식).</div>
 <button id="csvTemplateBtn" type="button" style="margin-top:8px">CSV 양식 다운로드</button>
 <label for="csv" class="sr-only">CSV 파일 선택</label>
@@ -153,10 +160,12 @@ tr.err{background:#fdecea}
 </div>
 <div class="mode-card" data-mode="direct" tabindex="0" role="button" aria-pressed="false">
 <h3>직접 전달</h3>
-<p>명단이 서버에 저장되지 않습니다. 암호화된 파일을 만들어 이메일·카카오톡 등으로 직접 전달하거나, 화면의 QR을 음식점 사장님이 앱으로 찍게 하세요.</p>
+<p>명단이 서버에 저장되지 않습니다. 암호화된 파일을 만들어 이메일·카카오톡 등으로 직접 전달하거나, 화면의 QR을 음식점 사장님이 앱으로 찍게 하세요. 음식점을 여러 곳 선택했다면 파일·QR이 <b>가게(부서)별로 각각</b> 만들어집니다.</p>
 </div>
 </div>
 <button class="btn-primary" id="submitBtn" disabled style="margin-top:12px">전송 방법을 선택하세요</button>
+<div id="sendProgress" class="hide" role="status" aria-live="polite" style="margin-top:10px;padding:10px 12px;background:#eef2ff;border:1px solid var(--primary);border-radius:8px;font-size:13px;font-weight:700"></div>
+<div id="sendResult" style="margin-top:10px"></div>
 <div id="directPanel"></div>
 <div id="log" class="hide" style="margin-top:10px"></div>
 </div>
@@ -215,7 +224,63 @@ async function encryptBlob(items,pubKey){
 }
 
 // ── 1. 이메일 인증(OTP, 구서버는 도메인 확인 폴백) ──
-function validAgencyEmail(e){return /@[^@]+\.(go\.kr|korea\.kr)$/.test(e)}
+// 서버(worker.js isAgencyEmail)와 정합: 도메인이 go.kr / korea.kr 그 자체이거나 그 하위
+// 도메인이면 허용한다(user@go.kr 도 서버가 허용하므로 여기서도 허용). 서버는 도메인만 보지만
+// 클라이언트는 "보내기 전에" 오타를 잡아야 하므로 로컬파트(공백·@ 없이 1자 이상)까지 확인한다.
+const AGENCY_EMAIL_RE=/^[^\s@]+@([a-z0-9-]+\.)*(go|korea)\.kr$/;
+function validAgencyEmail(e){return AGENCY_EMAIL_RE.test(String(e==null?'':e).trim().toLowerCase())}
+// 서버 오류 코드 → 담당자가 이해할 수 있는 한글 안내. 원시 코드는 화면에 노출하지 않는다.
+const AUTH_ERR_MSG={
+  rate_limited:'1분 뒤 다시 시도해 주세요.',
+  email_send_failed:'지금은 인증 메일을 보낼 수 없어요. 잠시 후에도 안 되면 내일 다시 시도하거나 contact@bapjangbu.com으로 알려 주세요.',
+  email_not_configured:'지금은 인증 메일을 보낼 수 없어요. 잠시 후에도 안 되면 내일 다시 시도하거나 contact@bapjangbu.com으로 알려 주세요.',
+  invalid_domain:'공공기관 이메일(@…go.kr, @korea.kr)만 쓸 수 있어요.',
+  too_many_attempts:'입력 횟수를 초과했어요. 인증번호를 새로 받아 주세요.',
+  invalid_otp:'인증번호가 올바르지 않거나 시간이 지났어요. 다시 확인해 주세요.',
+  agency_auth_required:'인증이 만료됐어요. 인증번호를 다시 받아 주세요.'
+};
+const AUTH_ERR_GENERIC='지금은 처리할 수 없어요. 잠시 후 다시 시도해 주세요.';
+function authErrMsg(code){
+  const k=String(code==null?'':code);
+  return AUTH_ERR_MSG[k]||AUTH_ERR_GENERIC;
+}
+// 제출 실패 문구: 서버는 코드(snake_case)와 한글 설명("입력 길이 초과" 등)을 섞어 돌려준다.
+// 코드는 번역하거나 일반 문구로 감추고, 이미 한글인 설명은 그대로 살린다.
+function submitErrMsg(code,status){
+  const k=String(code==null?'':code).trim();
+  if(AUTH_ERR_MSG[k])return AUTH_ERR_MSG[k];
+  if(!k)return '전송 실패('+status+')';
+  if(/^[a-z0-9_]+$/.test(k))return AUTH_ERR_GENERIC;
+  return k;
+}
+// ── 인증 토큰 보존(sessionStorage) ──
+// 새로고침·탭 복귀마다 OTP 메일을 다시 보내는 것은 담당자 대기시간 낭비이자 발송 한도(무료 100통/일)
+// 낭비다. 서버 토큰 수명은 24시간이므로 23시간을 넘긴 값은 스스로 폐기한다. sessionStorage라
+// 브라우저(탭)를 닫으면 사라진다 — 공용 PC에 토큰이 남지 않는다.
+const TOKEN_KEY='agency-token',TOKEN_MAX_AGE=23*60*60*1000;
+function saveToken(token,email){try{sessionStorage.setItem(TOKEN_KEY,JSON.stringify({token,email,at:Date.now()}))}catch(e){}}
+function clearToken(){try{sessionStorage.removeItem(TOKEN_KEY)}catch(e){}}
+function restoreToken(){
+  let o=null;try{o=JSON.parse(sessionStorage.getItem(TOKEN_KEY)||'null')}catch(e){o=null}
+  if(!o||!o.token||!o.at){return false}
+  if(Date.now()-o.at>TOKEN_MAX_AGE){clearToken();return false}
+  S.token=o.token;S.email=o.email||'';S.authed=true;S.otpMode='server';
+  if($('email')&&S.email)$('email').value=S.email; // 만료 시 재인증을 바로 누를 수 있게
+  $('authStep1').classList.add('hide');
+  $('authStep2').classList.add('hide');
+  $('authMsg').innerHTML='<span class="good">✅ 인증됨 · '+esc(S.email)+'</span> <span class="meta">(이 창을 닫기 전까지 다시 인증하지 않아도 돼요)</span>';
+  unlockAfterAuth();
+  return true;
+}
+// 서버가 401(agency_auth_required)을 주면 토큰이 죽은 것 — 폐기하고 1단계로 되돌린다.
+function expireToken(){
+  S.token=null;S.authed=false;S.otpMode=null;clearToken();
+  $('authStep1').classList.remove('hide');
+  $('authStep2').classList.add('hide');
+  if($('otp'))$('otp').value='';
+  $('authMsg').innerHTML='<span class="bad">인증이 만료됐어요. 인증번호를 다시 받아 주세요.</span>';
+  if($('authCard')&&$('authCard').scrollIntoView)$('authCard').scrollIntoView({block:'start'});
+}
 function unlockAfterAuth(){
   $('searchCard').classList.remove('hide');$('csvCard').classList.remove('hide');
   revalidate();
@@ -244,7 +309,7 @@ function pilotFormatConfirm(e){
 async function requestOtp(){
   if(!hasAgreedTerms()){showTermsGate();return}
   const e=($('email').value||'').trim().toLowerCase();
-  if(!validAgencyEmail(e)){$('authMsg').innerHTML='<span class="bad">기관 이메일(.go.kr/.korea.kr)이 아닙니다.</span>';return}
+  if(!validAgencyEmail(e)){$('authMsg').innerHTML='<span class="bad">'+esc(AUTH_ERR_MSG.invalid_domain)+'</span>';return}
   if(!srv()){$('authMsg').innerHTML='<span class="bad">서버 주소를 입력하세요.</span>';return}
   S.email=e;
   $('authBtn').disabled=true;$('resendBtn').disabled=true;
@@ -255,9 +320,9 @@ async function requestOtp(){
     let j={};try{j=await r.json()}catch{}
     if(!r.ok){
       // 발송 실패(AUTH_MODE=prod에서 EMAIL.send 예외 등)는 형식확인으로 조용히 넘어가지 않고
-      // 명확히 재시도를 안내한다.
+      // 명확히 재시도를 안내한다. 서버의 원시 오류 코드는 화면에 그대로 내보내지 않는다.
       // email_quota_exceeded: 무료 이메일 발송 한도(하루 100통) 초과 — 담당자가 뭘 잘못한
-      // 것이 아니므로 원인과 다음 행동(잠시 후·내일 재시도, 문의처)을 정확히 안내한다.
+      // 것이 아니므로 원인과 다음 행동(잠시 후·내일 재시도, 문의처)을 정확히 안내한다(링크 포함이라 별도 처리).
       if(j.error==='email_quota_exceeded'){
         $('authMsg').innerHTML='<span class="bad">오늘 인증번호 발송 한도에 도달했어요.</span><br>'+
           '이용이 몰리는 날에는 무료 이메일 발송 한도(하루 기준)에 걸릴 수 있어요. '+
@@ -265,8 +330,7 @@ async function requestOtp(){
           '급한 건이면 <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a>으로 알려 주세요.';
         return;
       }
-      const msg=j.error==='email_send_failed'?'인증번호 발송에 실패했어요. 잠시 후 다시 시도해 주세요.':(j.error||('요청 실패('+r.status+')'));
-      $('authMsg').innerHTML='<span class="bad">'+esc(msg)+'</span>';
+      $('authMsg').innerHTML='<span class="bad">'+esc(authErrMsg(j.error))+'</span>';
       return;
     }
     if(j.dev_otp){
@@ -300,8 +364,9 @@ async function verifyOtp(){
     const r=await fetch(srv()+'/api/agency/verify-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:S.email,otp})});
     if(r.status===404||r.status===501){fallbackAuth(S.email);return}
     let j={};try{j=await r.json()}catch{}
-    if(!r.ok){$('authMsg').innerHTML='<span class="bad">'+esc(j.error||'인증번호가 올바르지 않거나 만료되었습니다.')+'</span>';return}
+    if(!r.ok){$('authMsg').innerHTML='<span class="bad">'+esc(authErrMsg(j.error))+'</span>';return}
     S.token=j.token||null;S.authed=true;
+    if(S.token)saveToken(S.token,S.email); // 새로고침 시 OTP 재발송 방지(B4)
     $('authStep1').classList.add('hide');
     $('authStep2').classList.add('hide');
     $('authMsg').innerHTML='<span class="good">✅ 인증됨 · '+esc(S.email)+'</span>';
@@ -380,6 +445,26 @@ $('agencySel').addEventListener('change',()=>{
   validateAndRenderCsv();
 });
 $('jurisFilter').addEventListener('input',renderJurisList);
+// 화면에 보이는(필터 적용된) 관할 목록을 한 번에 선택. 제외된 곳과 동명 충돌은 건너뛴다.
+function shownJurisList(){
+  const filter=normName($('jurisFilter').value||'');
+  return filter?S.jurisList.filter(x=>normName(x.restaurant_name).includes(filter)):S.jurisList;
+}
+$('selAllBtn').addEventListener('click',()=>{
+  const skipped=[];
+  shownJurisList().forEach(x=>{
+    if(S.excluded.has(x.restaurant_id))return;
+    if(S.restaurants.find(r=>r.restaurant_id===x.restaurant_id))return;
+    if(S.restaurants.find(r=>normName(r.name)===normName(x.restaurant_name))){skipped.push(x.restaurant_name);return}
+    S.restaurants.push({restaurant_id:x.restaurant_id,name:x.restaurant_name,addr:x.district||''});
+  });
+  renderSelected();renderJurisList();renderResults();validateAndRenderCsv();
+  if(skipped.length)alert(DUP_MSG+'\n\n아래 음식점은 이름이 겹쳐 선택하지 않았어요:\n· '+[...new Set(skipped)].join('\n· '));
+});
+$('selNoneBtn').addEventListener('click',()=>{
+  S.restaurants=[];
+  renderSelected();renderJurisList();renderResults();validateAndRenderCsv();
+});
 function jurisQuery(){
   const p=new URLSearchParams();
   p.set('sido',S.agency.sido);
@@ -408,7 +493,56 @@ function jurisFallback(){
   renderJurisList();
   $('nameSearch').open=true;
 }
+// ── 동명(같은 이름) 음식점 오배송 차단 ────────────────────────────────────────
+// CSV 명단은 음식점을 '음식점명' 문자열로만 지목한다(스펙 §2.1 열 고정). 따라서 이름이 같은
+// 두 가게를 동시에 선택하면 어떤 행이 어느 restaurant_id에 속하는지 결정할 수 없고, 한쪽
+// 명단이 다른 가게의 공개키로 암호화·전송될 수 있다(오배송 = 개인정보 유출). 세 겹으로 막는다:
+// ① 선택 시점 차단(trySelectRestaurant) ② 검증 시점 오류(validateAndRenderCsv) ③ 그룹 생성 거부(buildGroups).
+function dupSelectedNames(){
+  const seen=new Map(),dups=[];
+  S.restaurants.forEach(r=>{
+    const k=normName(r.name),c=(seen.get(k)||0)+1;seen.set(k,c);
+    if(c===2)dups.push(r.name);
+  });
+  return dups;
+}
+const DUP_MSG="같은 이름의 음식점이 이미 선택되어 있어요. 명단의 '음식점명'으로는 두 곳을 구분할 수 없으니 한 곳씩 나눠서 보내주세요.";
+function whereOf(r){return r&&r.addr?String(r.addr):'주소 정보 없음'}
+// 선택 시도. 이미 같은 이름의 '다른' 가게가 선택돼 있으면 주소를 보여주며 거부한다.
+function trySelectRestaurant(rid,name,addr){
+  if(S.restaurants.find(r=>r.restaurant_id===rid))return true; // 이미 선택됨(멱등)
+  const clash=S.restaurants.find(r=>normName(r.name)===normName(name));
+  if(clash){
+    alert(DUP_MSG+'\n\n· 이미 선택: '+clash.name+' ('+whereOf(clash)+')'+
+      '\n· 새로 선택하려던 곳: '+name+' ('+(addr||'주소 정보 없음')+')');
+    return false;
+  }
+  S.restaurants.push({restaurant_id:rid,name,addr:addr||''});
+  return true;
+}
+// 목록에 이름이 겹치는 항목이 있는지 세어, 화면에서 주소를 함께 노출해 구분 가능하게 한다.
+function nameCounts(list,key){
+  const m=new Map();
+  (list||[]).forEach(x=>{const k=normName(x[key]);m.set(k,(m.get(k)||0)+1)});
+  return m;
+}
+// 도로명 주소는 앞부분(시·구·도로명 정도)만 보여 준다. 목록 가독성 유지 + 구분에는 충분.
+function shortAddr(a){
+  const s=String(a==null?'':a).trim();
+  if(!s)return '';
+  const t=s.split(/\s+/);
+  return t.length>4?t.slice(0,4).join(' '):s;
+}
+// 같은 이름·같은 관할(district)까지 겹치면 마지막 수단으로 등록번호 뒷자리로 구분한다.
+function idTail(rid){const s=String(rid||'');return s.length>4?'…'+s.slice(-4):s}
+function updateSelCount(){
+  const el=$('selCount');if(!el)return;
+  const dups=dupSelectedNames();
+  el.innerHTML=S.restaurants.length+'곳 선택됨'+
+    (dups.length?' <span class="bad">· 이름이 같은 곳이 섞여 있어요</span>':'');
+}
 function renderJurisList(){
+  updateSelCount();
   if(!S.jurisList.length){
     $('jurisList').innerHTML='<div class="meta">이 지역에 아직 관할 등록 음식점이 없어요. 음식점이 앱에서 (재)등록하면 목록에 나타납니다.</div>';
     return;
@@ -416,19 +550,26 @@ function renderJurisList(){
   const filter=normName($('jurisFilter').value||'');
   const shown=filter?S.jurisList.filter(x=>normName(x.restaurant_name).includes(filter)):S.jurisList;
   if(!shown.length){$('jurisList').innerHTML='<div class="meta">"'+esc($('jurisFilter').value)+'"에 맞는 음식점이 없어요.</div>';return;}
+  const counts=nameCounts(S.jurisList,'restaurant_name');
   $('jurisList').innerHTML=shown.map(x=>{
     const rid=x.restaurant_id,isEx=S.excluded.has(rid),isSel=!!S.restaurants.find(r=>r.restaurant_id===rid);
-    const dist=x.district?` <span class="meta">· ${esc(x.district)}</span>`:'';
+    const isDup=(counts.get(normName(x.restaurant_name))||0)>1;
+    // 동명 가게가 목록에 있으면 주소(관할)와 등록번호 뒷자리를 함께 보여 구분 가능하게 한다.
+    const where=isDup?((x.district?x.district+' · ':'')+'등록번호 '+idTail(rid)):(x.district||'');
+    const dist=where?` <span class="meta">· ${esc(where)}</span>`:'';
+    const dupBadge=isDup?' <span class="pill" style="background:#fff4e5;color:#b7791f">동명 주의</span>':'';
     if(isEx){
       return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px;opacity:.55"><div style="min-width:0"><b>${esc(x.restaurant_name)}</b> <span class="pill" style="background:#fdecea;color:#c0392b">우리 기관 제외</span>${dist}</div><button type="button" data-a="unexclude" data-id="${esc(rid)}" style="flex:0 0 auto">제외 해제</button></div>`;
     }
-    return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><label style="display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;margin:0"><input type="checkbox" data-a="chk" data-id="${esc(rid)}" data-name="${esc(x.restaurant_name)}" style="width:auto;min-height:auto;flex:0 0 auto"${isSel?' checked':''}><span style="min-width:0"><b>${esc(x.restaurant_name)}</b>${dist}</span></label><button type="button" data-a="exclude" data-id="${esc(rid)}" style="flex:0 0 auto">제외</button></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><label style="display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;margin:0"><input type="checkbox" data-a="chk" data-id="${esc(rid)}" data-name="${esc(x.restaurant_name)}" data-addr="${esc(x.district||'')}" style="width:auto;min-height:auto;flex:0 0 auto"${isSel?' checked':''}><span style="min-width:0"><b>${esc(x.restaurant_name)}</b>${dupBadge}${dist}</span></label><button type="button" data-a="exclude" data-id="${esc(rid)}" style="flex:0 0 auto">제외</button></div>`;
   }).join('');
   $('jurisList').querySelectorAll('input[data-a="chk"]').forEach(cb=>cb.addEventListener('change',()=>{
     const id=cb.dataset.id;
-    if(cb.checked){if(!S.restaurants.find(r=>r.restaurant_id===id))S.restaurants.push({restaurant_id:id,name:cb.dataset.name});}
+    if(cb.checked){
+      if(!trySelectRestaurant(id,cb.dataset.name,cb.dataset.addr)){cb.checked=false;updateSelCount();return}
+    }
     else S.restaurants=S.restaurants.filter(r=>r.restaurant_id!==id);
-    renderSelected();validateAndRenderCsv();
+    renderSelected();renderResults();validateAndRenderCsv();
   }));
   $('jurisList').querySelectorAll('button[data-a]').forEach(b=>b.addEventListener('click',()=>{
     const id=b.dataset.id,a=b.dataset.a;
@@ -477,25 +618,33 @@ $('searchBtn').addEventListener('click',async()=>{
 });
 function renderResults(){
   if(!S.lastList.length){$('results').innerHTML='';return}
+  const counts=nameCounts(S.lastList,'name');
   $('results').innerHTML=S.lastList.map(x=>{
     const rid=x.restaurant_id,isEx=S.excluded.has(rid),isSel=!!S.restaurants.find(r=>r.restaurant_id===rid);
-    const badge=isEx?'<span class="pill" style="background:#fdecea;color:#c0392b">우리 기관 제외</span>':'<span class="pill" style="background:#e7f8ee;color:#1a7f43">✅ 선금 받기 가능</span>';
+    const isDup=(counts.get(normName(x.name))||0)>1;
+    const badge=isEx?'<span class="pill" style="background:#fdecea;color:#c0392b">우리 기관 제외</span>':'<span class="pill" style="background:#e7f8ee;color:#1a7f43">✅ 명단 받기 가능</span>';
+    // 이름이 같은 가게가 결과에 둘 이상이면 주소를 강조해 반드시 구분하도록 한다.
+    const dupBadge=isDup?' <span class="pill" style="background:#fff4e5;color:#b7791f">동명 주의 — 주소 확인</span>':'';
     let btns='';
     if(isEx)btns=`<button data-a="unexclude" data-id="${esc(rid)}">제외 해제</button>`;
-    else btns=`<button class="btn-primary" data-a="select" data-id="${esc(rid)}" data-name="${esc(x.name)}"${isSel?' disabled':''}>${isSel?'선택됨':'선택'}</button>`+`<button data-a="exclude" data-id="${esc(rid)}">제외</button>`;
-    return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px;${isEx?'opacity:.55':''}"><div style="min-width:0"><b>${esc(x.name)}</b> ${badge}<div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.address||'')} · ${esc(x.status||'')}</div></div><div style="display:flex;gap:4px;flex-shrink:0">${btns}</div></div>`;
+    else btns=`<button class="btn-primary" data-a="select" data-id="${esc(rid)}" data-name="${esc(x.name)}" data-addr="${esc(shortAddr(x.address))}"${isSel?' disabled':''}>${isSel?'선택됨':'선택'}</button>`+`<button data-a="exclude" data-id="${esc(rid)}">제외</button>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px;${isEx?'opacity:.55':''}"><div style="min-width:0"><b>${esc(x.name)}</b> ${badge}${dupBadge}<div class="meta"${isDup?' style="font-weight:700;color:var(--warn)"':' style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"'}>${esc(x.address||'')} · ${esc(x.status||'')}</div></div><div style="display:flex;gap:4px;flex-shrink:0">${btns}</div></div>`;
   }).join('');
   $('results').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
     const id=b.dataset.id,a=b.dataset.a;
-    if(a==='select'){if(!S.restaurants.find(r=>r.restaurant_id===id))S.restaurants.push({restaurant_id:id,name:b.dataset.name})}
+    if(a==='select'){if(!trySelectRestaurant(id,b.dataset.name,b.dataset.addr))return}
     else if(a==='exclude'){S.excluded.add(id);saveExcluded();S.restaurants=S.restaurants.filter(r=>r.restaurant_id!==id)}
     else if(a==='unexclude'){S.excluded.delete(id);saveExcluded()}
     renderSelected();renderResults();renderJurisList();validateAndRenderCsv();
   }));
 }
 function renderSelected(){
-  $('selected').innerHTML=S.restaurants.length?S.restaurants.map((r,i)=>`<span class="pill">${esc(r.name)}<button data-i="${i}">×</button></span>`).join(''):'<span class="meta">없음</span>';
-  $('selected').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{S.restaurants.splice(+b.dataset.i,1);renderSelected();renderResults();renderJurisList();validateAndRenderCsv()}));
+  updateSelCount();
+  const dups=dupSelectedNames();
+  const head=S.restaurants.length?`<div class="meta" style="margin-bottom:4px">총 <b>${S.restaurants.length}곳</b> 선택됨</div>`:'';
+  const warn=dups.length?`<div class="bad" style="font-size:13px;margin-top:6px">⛔ 이름이 같은 음식점 ${dups.map(n=>'"'+esc(n)+'"').join(', ')}이(가) 함께 선택되어 있어요. ${esc(DUP_MSG)}</div>`:'';
+  $('selected').innerHTML=head+(S.restaurants.length?S.restaurants.map((r,i)=>`<span class="pill" title="${esc(whereOf(r))}">${esc(r.name)}<button data-i="${i}">×</button></span>`).join(''):'<span class="meta">없음</span>')+warn;
+  $('selected').querySelectorAll('button[data-i]').forEach(b=>b.addEventListener('click',()=>{S.restaurants.splice(+b.dataset.i,1);renderSelected();renderResults();renderJurisList();validateAndRenderCsv()}));
 }
 
 // ── 3. CSV 파싱·검증 (스펙 §2.1·§3.2) ──
@@ -537,6 +686,12 @@ function decodeCsvBuffer(buf){
 }
 // 음식점명 대조용 정규화: 앞뒤·연속 공백만 정리(과도한 퍼지매칭은 하지 않음 — 오배송 방지)
 function normName(s){return String(s==null?'':s).trim().replace(/\s+/g,' ')}
+// 행 오류 사유 문구(A2) — 표의 '사유' 열에 그대로 보이므로 개발자 표현이 아닌 담당자 말로 쓴다.
+// 상수로 두는 이유: 아래 검증 로직이 문자열 비교로 분기하므로 문구가 흩어지면 조용히 깨진다.
+const ERR_BLANK='빈 칸이 있어요 (음식점명·부서명·직원명·입금자명은 꼭 채워 주세요)';
+const ERR_AMOUNT='금액 칸에는 숫자만 적어 주세요 (예: 9000 또는 9,000)';
+const ERR_DUP_ROW='같은 음식점·부서에 같은 직원이 두 번 있어요';
+const ERR_UNSELECTED='2단계에서 선택하지 않은 음식점이에요';
 $('csv').addEventListener('change',async e=>{
   const file=e.target.files&&e.target.files[0];if(!file)return;
   const buf=await file.arrayBuffer();
@@ -558,7 +713,10 @@ $('csv').addEventListener('change',async e=>{
   if(!lines.length){
     fileErrors.push('파일 내용이 비어 있습니다.');
   }else if(!isNew&&!isOld){
-    fileErrors.push('첫 줄(항목명)이 CSV 양식과 다릅니다. 기대: '+COLS.join(','));
+    // 무엇이 다른지 스스로 비교할 수 있도록 '실제 들어온 첫 줄'을 함께 보여 준다(A3).
+    fileErrors.push('첫 줄(항목명)이 CSV 양식과 다릅니다.\n· 기대한 첫 줄: '+COLS.join(',')+
+      '\n· 실제 파일의 첫 줄: '+(firstLine.trim()?firstLine.trim():'(빈 줄)')+
+      '\n위 [CSV 양식 다운로드]로 받은 파일의 첫 줄을 그대로 쓰시면 됩니다.');
   }else{
     csvFormat=isOld?'old':'new';
     if(isOld)warnings.push('예전 양식(기관명 열 포함)으로 인식했습니다. 기관명은 2단계에서 고른 소속 기관을 기준으로 확인합니다.');
@@ -571,9 +729,9 @@ $('csv').addEventListener('change',async e=>{
         :{rest:f[0]||'',inst:'',dept:f[1]||'',name:f[2]||'',amount:f[3],payer:f[4]||''};
       const amt=parseWon(o.amount);
       let structErr='';
-      if(!o.rest||!o.dept||!o.name||!o.payer)structErr='필수 항목 공란';
-      else if(!(amt>0))structErr='선금금액 정수>0 아님';
-      else{const k=o.rest+'|'+o.dept+'|'+o.name;if(dupSet.has(k))structErr='(음식점,부서,직원명) 중복';dupSet.add(k)}
+      if(!o.rest||!o.dept||!o.name||!o.payer)structErr=ERR_BLANK;
+      else if(!(amt>0))structErr=ERR_AMOUNT;
+      else{const k=o.rest+'|'+o.dept+'|'+o.name;if(dupSet.has(k))structErr=ERR_DUP_ROW;dupSet.add(k)}
       rawRows.push({...o,amount:amt,line:i+1,structErr});
     }
     if(!rawRows.length)fileErrors.push('데이터 행이 없습니다. 헤더 아래에 최소 1행을 입력하세요.');
@@ -585,7 +743,7 @@ $('csv').addEventListener('change',async e=>{
 // 파일을 새로 올리지 않아도(2단계 선택/해제만 바뀌어도) 호출되어야 4단계가 조용히 막히지 않는다.
 function validateAndRenderCsv(){
   if(S.rawRows==null){
-    const errHtml=(S.fileErrors||[]).map(e=>'<div class="bad">⛔ '+esc(e)+'</div>').join('');
+    const errHtml=(S.fileErrors||[]).map(e=>'<div class="bad" style="white-space:pre-line">⛔ '+esc(e)+'</div>').join('');
     const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn">⚠️ '+esc(w)+'</div>').join('');
     $('csvResult').innerHTML=errHtml+warnHtml;
     S.rows=null;S.valid=false;
@@ -596,11 +754,16 @@ function validateAndRenderCsv(){
   const csvNames=new Set(S.rawRows.map(r=>normName(r.rest)));
   const rows=S.rawRows.map(r=>{
     let err=r.structErr;
-    if(!err&&!selNames.has(normName(r.rest)))err='선택하지 않은 음식점명';
+    if(!err&&!selNames.has(normName(r.rest)))err=ERR_UNSELECTED;
     return {...r,err};
   });
   const errors=[...(S.fileErrors||[])];
-  let guidance='';
+  let guidance='',missingIds=[];
+  // 이중 방어: 선택 목록에 이름이 같은 가게가 있으면 4단계로 넘어갈 수 없다(오배송 차단).
+  const dupNames=dupSelectedNames();
+  if(dupNames.length){
+    errors.push('선택한 음식점 중 이름이 같은 곳이 있습니다('+dupNames.map(n=>'"'+n+'"').join(', ')+'). '+DUP_MSG);
+  }
   // 구 양식(기관명 열 포함) 업로드 시: 기관명 값이 선택 기관과 다르면 진행 차단
   if(S.csvFormat==='old'&&S.agency){
     const instMismatch=[...new Set(S.rawRows.filter(r=>normName(r.inst)&&normName(r.inst)!==normName(S.agency.name)).map(r=>r.inst))];
@@ -613,8 +776,10 @@ function validateAndRenderCsv(){
   }else if(!S.restaurants.length){
     guidance='<div class="bad" style="font-size:14px;font-weight:700;margin:8px 0">⛔ 먼저 2단계에서 음식점을 선택해 주세요. 선택하면 이 명단이 자동으로 다시 확인됩니다.</div>';
   }else{
-    S.restaurants.forEach(r=>{if(!csvNames.has(normName(r.name)))errors.push('선택 음식점 "'+r.name+'"이 CSV에 없음')});
-    const mismatchNames=[...new Set(rows.filter(r=>r.err==='선택하지 않은 음식점명').map(r=>r.rest))];
+    // "전체 선택" 후 일부 가게만 든 CSV를 올리면 나머지 전부가 오류로 남아 4단계가 막힌다(S7).
+    // 어느 가게를 빼야 하는지 사람이 하나씩 찾지 않도록 id를 모아 원클릭 해제 버튼을 만든다.
+    S.restaurants.forEach(r=>{if(!csvNames.has(normName(r.name))){errors.push('선택 음식점 "'+r.name+'"이 CSV에 없음');missingIds.push(r.restaurant_id)}});
+    const mismatchNames=[...new Set(rows.filter(r=>r.err===ERR_UNSELECTED).map(r=>r.rest))];
     if(mismatchNames.length){
       guidance='<div class="bad" style="font-size:14px;font-weight:700;margin:8px 0">⛔ 명단의 음식점명 '+mismatchNames.map(n=>'"'+esc(n)+'"').join(', ')+'이(가) 선택한 가게(' +S.restaurants.map(r=>'"'+esc(r.name)+'"').join(', ')+ ')와 달라요. 2단계에서 정확한 이름의 가게를 선택했는지, 또는 CSV의 음식점명을 선택한 가게 이름과 똑같이 맞췄는지 확인하세요.</div>';
     }
@@ -622,19 +787,37 @@ function validateAndRenderCsv(){
   const rowErr=rows.some(r=>r.err);
   S.rows=rows;S.valid=!errors.length&&!rowErr&&rows.length>0&&S.restaurants.length>0&&!!S.agency;
   const instCell=S.agency?esc(S.agency.name):'<span class="meta">미선택</span>';
-  const tbl='<table><thead><tr><th>음식점명</th><th>기관명</th><th>부서명</th><th>직원명</th><th>선금금액</th><th>입금자명</th></tr></thead><tbody>'+
-    rows.map(r=>`<tr class="${r.err?'err':''}"${r.err?' title="'+esc(r.err)+'"':''}><td>${esc(r.rest)}</td><td>${instCell}</td><td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount||'-'}</td><td>${esc(r.payer)}</td></tr>`).join('')+'</tbody></table>';
-  const errHtml=errors.map(e=>'<div class="bad">⛔ '+esc(e)+'</div>').join('');
+  // '사유' 열: title 툴팁은 태블릿(터치)에서 뜨지 않아 왜 빨간 줄인지 알 수 없었다(A1).
+  const tbl='<table><thead><tr><th>음식점명</th><th>기관명</th><th>부서명</th><th>직원명</th><th>선금금액</th><th>입금자명</th><th>사유</th></tr></thead><tbody>'+
+    rows.map(r=>`<tr class="${r.err?'err':''}"><td>${esc(r.rest)}</td><td>${instCell}</td><td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount||'-'}</td><td>${esc(r.payer)}</td><td class="${r.err?'bad':''}">${r.err?esc(r.err):'—'}</td></tr>`).join('')+'</tbody></table>';
+  const dropBtn=missingIds.length
+    ?'<button type="button" id="dropMissingBtn" class="btn-primary" style="margin:6px 0 8px">CSV에 없는 '+missingIds.length+'곳 선택 해제</button>'+
+     '<div class="meta" style="margin-bottom:6px">누르면 이번 명단(CSV)에 없는 음식점을 선택에서 빼고 다시 확인합니다. 선택한 다른 가게와 명단은 그대로예요.</div>'
+    :'';
+  const errHtml=errors.map(e=>'<div class="bad" style="white-space:pre-line">⛔ '+esc(e)+'</div>').join('');
   const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn">⚠️ '+esc(w)+'</div>').join('');
-  $('csvResult').innerHTML=errHtml+warnHtml+tbl+guidance;
+  $('csvResult').innerHTML=dropBtn+errHtml+warnHtml+tbl+guidance;
+  const dm=$('dropMissingBtn');
+  if(dm)dm.addEventListener('click',()=>{
+    const drop=new Set(missingIds);
+    S.restaurants=S.restaurants.filter(r=>!drop.has(r.restaurant_id));
+    renderSelected();renderJurisList();renderResults();validateAndRenderCsv();
+  });
   revalidate();
 }
 function buildGroups(){
-  const idByName=new Map(S.restaurants.map(r=>[r.name,r.restaurant_id]));
-  const institution=S.agency?S.agency.name:'';
   const groups=new Map();
+  // 삼중 방어: 이름이 겹치는 선택이 남아 있으면 그룹을 아예 만들지 않는다.
+  // (이름→ID 역매핑이 덮어써져 다른 가게 공개키로 암호화되는 사고를 원천 차단)
+  if(dupSelectedNames().length)return groups;
+  // 매칭 키는 검증(validateAndRenderCsv)과 동일한 normName을 써야 한다. 예전에는 원문 이름으로
+  // 매칭해, 앞뒤 공백이 있는 행이 검증은 통과하고 rid=undefined인 채 전송될 수 있었다.
+  const idByName=new Map(S.restaurants.map(r=>[normName(r.name),r.restaurant_id]));
+  const institution=S.agency?S.agency.name:'';
   (S.rows||[]).filter(r=>!r.err).forEach(r=>{
-    const rid=idByName.get(r.rest);const k=rid+'|'+r.dept;
+    const rid=idByName.get(normName(r.rest));
+    if(!rid)return; // 선택 목록에 없는 음식점명 — 절대 전송하지 않는다
+    const k=rid+'|'+r.dept;
     if(!groups.has(k))groups.set(k,{restaurant_id:rid,restaurant_name:r.rest,institution,department:r.dept,items:[]});
     groups.get(k).items.push({name:r.name,dept:r.dept,amount:r.amount});
   });
@@ -653,8 +836,8 @@ function renderConfirm(){
   $('confirmBox').innerHTML=(S.agency?'<div class="meta" style="margin-bottom:6px">소속 기관: <b style="color:var(--text)">'+esc(S.agency.name)+'</b></div>':'')+
     '<table><thead><tr><th>음식점</th><th>부서</th><th>인원</th><th>선금 합계</th></tr></thead><tbody>'+rows+'</tbody></table>'+
     '<div style="margin-top:10px;padding:10px 12px;background:#eef2ff;border:1px solid var(--primary);border-radius:8px">'+
-    '<div style="font-weight:700;font-size:14px">총 합계 '+totalAmount.toLocaleString()+'원 <span style="font-weight:400;color:var(--muted);font-size:12px">('+groups.length+'건 · '+totalPeople+'명)</span></div>'+
-    '<div class="meta" style="margin-top:4px">이체하실 금액과 같은지 확인하세요.</div>'+
+    '<div style="font-weight:700;font-size:14px">총 합계 '+totalAmount.toLocaleString()+'원 <span style="font-weight:400;color:var(--muted);font-size:12px">(음식점 '+new Set(groups.map(g=>g.restaurant_id)).size+'곳 · 부서 조합 '+groups.length+'건 · '+totalPeople+'명)</span></div>'+
+    '<div class="meta" style="margin-top:4px">음식점 계좌로 이체하실 금액과 같은지 확인하세요. 돈은 계좌로 직접 이체하고, 이 웹은 명단만 전달합니다.</div>'+
     '</div>';
 }
 function computeStep(){
@@ -677,8 +860,9 @@ function revalidate(){
   $('confirmCard').classList.toggle('hide',!ok);
   $('submitCard').classList.toggle('hide',!ok);
   if(ok)renderConfirm();
-  if(!ok){S.mode=null;$('modeCards').querySelectorAll('.mode-card').forEach(x=>{x.classList.remove('sel');x.setAttribute('aria-pressed','false')});$('directPanel').innerHTML='';$('submitBtn').textContent='전송 방법을 선택하세요'}
-  $('submitBtn').disabled=!(ok&&S.mode);
+  if(!ok&&!sending){S.mode=null;$('modeCards').querySelectorAll('.mode-card').forEach(x=>{x.classList.remove('sel');x.setAttribute('aria-pressed','false')});$('directPanel').innerHTML='';$('sendResult').innerHTML='';$('sendProgress').classList.add('hide');$('submitBtn').textContent='전송 방법을 선택하세요'}
+  // 전송 중에는 어떤 이유로 revalidate가 불려도 전송 버튼을 되살리지 않는다(S6).
+  $('submitBtn').disabled=sending||!(ok&&S.mode);
   updateStepper();
 }
 
@@ -688,7 +872,7 @@ $('modeCards').querySelectorAll('.mode-card').forEach(c=>{
     S.mode=c.dataset.mode;
     $('modeCards').querySelectorAll('.mode-card').forEach(x=>{x.classList.toggle('sel',x===c);x.setAttribute('aria-pressed',x===c?'true':'false')});
     $('submitBtn').textContent=S.mode==='relay'?'동의 확인 후 바로 보내기':'동의 확인 후 직접 전달 준비';
-    $('directPanel').innerHTML='';
+    $('directPanel').innerHTML='';$('sendResult').innerHTML='';
     revalidate();
   };
   c.addEventListener('click',pick);
@@ -747,9 +931,12 @@ function showTermsGate(){
 }
 function showConsent(){
   lastFocused=document.activeElement;
-  const names=S.restaurants.map(r=>esc(r.name)).join(', ');
+  // 가게가 많으면 이름을 전부 나열하지 않고 "OO 외 N곳"으로 요약한다(모달 가독성).
+  const names=S.restaurants.length>5
+    ?esc(S.restaurants[0].name)+' 외 '+(S.restaurants.length-1)+'곳'
+    :S.restaurants.map(r=>esc(r.name)).join(', ');
   $('modalRoot').innerHTML=`<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
-  <h2 id="consentTitle">제3자 제공 동의 (직원명·선금)</h2>
+  <h2 id="consentTitle">제3자 제공 동의 (직원명·선금 금액)</h2>
   <div class="muted-box">
   <ul style="margin:0;padding-left:0;list-style:none">
   <li style="margin-bottom:6px">⓪ 제공하는 기관: ${S.agency?esc(S.agency.name):'(미선택)'}</li>
@@ -771,10 +958,63 @@ function showConsent(){
   document.addEventListener('keydown',trapFocus);
   $('agree').focus();
 }
-async function getPubKey(restaurant_id,cache){
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+// 429(레이트리밋)·네트워크 오류·5xx는 지수 백오프로 최대 2회 재시도한다.
+// POST /api/submit 재시도가 안전한 이유: 서버는 동일 (restaurant_id, batch_hash) 재제출에
+// 기존 summary_id를 200으로 돌려주는 멱등 처리라 중복 명단이 쌓이지 않는다(PROTOCOL 계약).
+// 429는 서버가 '분 단위 고정 창'으로 세므로 네트워크 오류보다 길게 기다려야 의미가 있다.
+const MAX_RETRY=2,BACKOFF_NET=[1000,2000],BACKOFF_429=[5000,15000];
+async function fetchRetry(url,opts,onRetry){
+  let lastErr=null;
+  for(let attempt=0;attempt<=MAX_RETRY;attempt++){
+    if(attempt>0){
+      const wait=(lastErr&&lastErr.rateLimited?BACKOFF_429:BACKOFF_NET)[attempt-1];
+      if(onRetry)onRetry(attempt,wait);
+      await sleep(wait);
+    }
+    try{
+      const res=await fetch(url,opts);
+      if(res.status===429){lastErr=new Error('요청이 잠시 제한되었어요(429). 잠시 후 다시 보내주세요.');lastErr.rateLimited=true;continue}
+      if(res.status>=500){lastErr=new Error('서버 오류('+res.status+')');continue}
+      return res;
+    }catch(e){lastErr=new Error('네트워크 오류: '+e.message)}
+  }
+  throw lastErr||new Error('요청 실패');
+}
+// ── 요청 페이싱(S9) ──
+// 이전 산식은 "음식점 수"만 셌지만 실제 요청 단위는 다르다. 한 번의 전송에서 서버로 나가는 요청 수는
+//   (공개키 조회: 캐시에 없는 음식점 수) + (제출: 그룹 수 = 가게×부서 조합 수)
+// 이고, 음식점 5곳이라도 부서가 10개씩이면 50건이 된다. 서버 한도(PROTOCOL §6.3)는
+//   · 전역: IP당 분당 60회  · GET /api/public-key: 추가로 IP당 분당 20회
+// 이므로 두 축을 따로 재운다(베스트 에포트인 서버 한도에 여유를 두는 보수적 산식):
+//   · 총요청 예산 48/분(=60의 80%)을 넘으면 모든 요청 사이 1300ms — 48건×1.3초≈62초로 창을 넘긴다.
+//   · 공개키 요청이 20건을 넘으면 공개키 요청 사이만 3200ms — 20건×3.2초≈64초.
+const REQ_BUDGET_PER_MIN=48;
+const PUBKEY_RATE_WINDOW_MAX=20;
+function pacerFor(pubKeyRequests,totalRequests){
+  const total=(totalRequests==null?pubKeyRequests:totalRequests);
+  return {
+    gap:total>REQ_BUDGET_PER_MIN?1300:0,
+    pubGap:pubKeyRequests>PUBKEY_RATE_WINDOW_MAX?3200:0,
+    last:0,lastPub:0
+  };
+}
+// 다음 요청 직전에 호출. isPub=true면 전역 간격과 공개키 간격 중 긴 쪽을 기다린다.
+async function paceWait(pace,isPub){
+  if(!pace)return;
+  const now=Date.now();
+  let wait=0;
+  if(pace.gap&&pace.last)wait=Math.max(wait,pace.gap-(now-pace.last));
+  if(isPub&&pace.pubGap&&pace.lastPub)wait=Math.max(wait,pace.pubGap-(now-pace.lastPub));
+  if(wait>0)await sleep(wait);
+  pace.last=Date.now();
+  if(isPub)pace.lastPub=pace.last;
+}
+async function getPubKey(restaurant_id,cache,pace,onRetry){
   let entry=cache.get(restaurant_id);
   if(!entry){
-    const r=await fetch(srv()+'/api/public-key?restaurant_id='+encodeURIComponent(restaurant_id));
+    await paceWait(pace,true);
+    const r=await fetchRetry(srv()+'/api/public-key?restaurant_id='+encodeURIComponent(restaurant_id),undefined,onRetry);
     if(!r.ok)throw new Error('공개키 없음(음식점 앱에서 먼저 등록 필요)');
     const j=await r.json();
     const pub=await importPub(j.public_key);
@@ -789,38 +1029,143 @@ async function getPubKey(restaurant_id,cache){
 function isValidKakaoLink(v){return typeof v==='string'&&/^https:\/\/open\.kakao\.com\//.test(v)}
 function isValidEmail(v){return typeof v==='string'&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
 // ── 5-A. 바로 보내기 (기존 /api/submit 경로) ──
-async function doSubmitRelay(){
-  if(!navigator.onLine){alert('인터넷 연결을 확인해 주세요.');return}
-  $('log').textContent='';$('log').classList.remove('hide');
-  const groups=buildGroups();
-  const year_month=currentYearMonth();
-  const pubCache=new Map();let okN=0,failN=0;
-  for(const g of groups.values()){
-    try{
-      const entry=await getPubKey(g.restaurant_id,pubCache);
-      const blob=await encryptBlob(g.items,entry.pub);
-      const bh=await batchHash(g.items);
-      const total=g.items.reduce((s,i)=>s+i.amount,0);
-      const body={summary:{institution:g.institution,department:g.department,restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,year_month,total_amount:total,member_count:g.items.length,batch_hash:bh},blob:{restaurant_id:g.restaurant_id,ciphertext:blob},consent:{institution:g.institution,department:g.department,year_month}};
-      const submitHeaders={'Content-Type':'application/json'};
-      if(S.token)submitHeaders['X-Agency-Token']=S.token;
-      const res=await fetch(srv()+'/api/submit',{method:'POST',headers:submitHeaders,body:JSON.stringify(body)});
-      const j=await res.json();
-      if(!res.ok)throw new Error(j.error||'전송 실패');
-      okN++;log('✅ '+g.restaurant_name+' / '+g.department+' ('+g.items.length+'명, '+total.toLocaleString()+'원) → '+j.summary_id);
-    }catch(e){failN++;log('❌ '+g.restaurant_name+' / '+g.department+': '+e.message)}
+// 그룹(음식점×부서)별 결과를 보관해 결과표·재시도에 쓴다. 키는 restaurant_id|부서.
+let relayResults=new Map(),relayPubCache=new Map();
+// 전송 재진입 방지(S6): runRelay가 도는 동안에는 어떤 경로로도 두 번째 전송이 시작되지 않아야 한다.
+// (전송 버튼 · 재시도 버튼 · revalidate()의 버튼 재활성화 · 동의 모달 재진입 전부 이 플래그를 본다)
+let sending=false;
+function groupKey(g){return g.restaurant_id+'|'+g.department}
+// 서버 dedupe 응답(S2): 동일 (restaurant_id, batch_hash)가 이미 있으면 서버는 새 건을 만들지 않고
+// {deduped:true,status}를 준다. 예전에는 이것도 "✅ 보냄"으로 보여, 음식점이 이미 거절한 명단을
+// 담당자가 몇 번을 다시 눌러도 아무 일이 없는 '블랙홀'이 됐다. 상태별로 다르게 말해 준다.
+// 구서버(deduped 필드 없음)는 dedup=null이 되어 기존 동작 그대로다.
+function dedupInfo(row){
+  if(!row.ok||!row.dedup)return null;
+  if(row.dedup==='APPROVED')return{cls:'warn',attention:true,text:'ℹ️ 음식점이 이미 승인한 명단이에요(재전송되지 않음)'};
+  if(row.dedup==='REJECTED')return{cls:'bad',attention:true,text:'⚠️ 음식점이 거절했던 명단이에요(재전송되지 않음). 내용을 확인해 명단·금액이 바뀌면 새로 전송돼요'};
+  return{cls:'good',attention:false,text:'✅ 보냄(이미 대기 중 — 중복 없음)'};
+}
+function renderRelayResults(final){
+  const rows=[...relayResults.values()];
+  if(!rows.length){$('sendResult').innerHTML='';return}
+  const failRows=rows.filter(r=>!r.ok),okN=rows.length-failRows.length;
+  const attentionRows=rows.filter(r=>{const d=dedupInfo(r);return d&&d.attention});
+  let html='<table><thead><tr><th>음식점</th><th>부서</th><th>인원</th><th>결과</th></tr></thead><tbody>'+
+    rows.map(r=>{
+      const d=dedupInfo(r);
+      const cls=r.ok?(d?d.cls:'good'):'bad';
+      const text=r.ok?(d?d.text:'✅ 보냄'):'❌ '+esc(r.detail);
+      return `<tr class="${r.ok&&!(d&&d.attention)?'':'err'}"><td>${esc(r.g.restaurant_name)}</td><td>${esc(r.g.department)}</td><td>${r.g.items.length}명</td><td class="${cls}">${r.ok?esc(text):text}</td></tr>`;
+    }).join('')+
+    '</tbody></table>';
+  if(final){
+    if(failRows.length){
+      html+='<div class="bad" style="margin-top:8px;font-size:13px">⛔ '+failRows.length+'건이 전송되지 않았습니다(성공 '+okN+'건). 아래 버튼으로 실패한 건만 다시 보낼 수 있어요. 같은 명단을 다시 보내도 음식점에 중복으로 쌓이지 않습니다.</div>'+
+        '<button type="button" class="btn-primary" id="retryFailBtn"'+(sending?' disabled':'')+' style="margin-top:8px">실패한 '+failRows.length+'건 다시 보내기</button>';
+    }else if(attentionRows.length){
+      // 실패는 아니지만 '보냈다'고 말하면 거짓이 되는 경우 — 확인이 필요하다고 정직하게 안내한다.
+      html+='<div style="margin-top:8px;padding:10px 12px;background:#fff4e5;border:1px solid #f6c464;border-radius:8px;font-size:13px">'+
+        '<div style="font-weight:700;color:var(--warn)">⚠️ '+attentionRows.length+'건은 확인이 필요해요(나머지 '+(rows.length-attentionRows.length)+'건은 정상 전달).</div>'+
+        '<div class="meta" style="margin-top:4px">이미 같은 내용의 명단이 그 음식점에 가 있어서 다시 보내지지 않았습니다. 음식점이 <b>이미 승인</b>했다면 더 하실 일이 없고, <b>거절</b>한 건이라면 음식점에 사유를 확인해 주세요. 명단이나 금액을 고쳐서 다시 올리면 새 명단으로 전송됩니다.</div>'+
+        '<div class="meta" style="margin-top:4px">이 화면을 캡처해 기관 내부 기록으로 보관하세요.</div>'+
+        '</div>';
+    }else{
+      html+='<div style="margin-top:8px;padding:10px 12px;background:#e7f8ee;border:1px solid var(--ok);border-radius:8px;font-size:13px">'+
+        '<div style="font-weight:700;color:#1a7f43">✅ '+okN+'건 모두 보냈습니다.</div>'+
+        '<div class="meta" style="margin-top:4px">서버는 내용을 볼 수 없고, 음식점이 받는 즉시 서버에서 삭제됩니다. <b>3일(72시간) 안에 음식점이 받지 않으면 자동으로 삭제</b>되니, 음식점에 전화 등으로 전달 사실을 알려 주세요. 선금(돈)은 음식점 계좌로 따로 이체하시면 됩니다.</div>'+
+        '<div class="meta" style="margin-top:4px">이 화면을 캡처해 기관 내부 기록으로 보관하세요.</div>'+
+        '</div>';
+    }
   }
-  log('\n완료: 성공 '+okN+' · 실패 '+failN+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).\n\n다음 할 일: 음식점에 전화 등으로 전달 사실을 알려 주시고, 이 화면(또는 위 로그)을 캡처해 기관 내부 기록으로 보관하세요.');
+  $('sendResult').innerHTML=html;
+  const rb=$('retryFailBtn');
+  if(rb)rb.addEventListener('click',()=>{if(sending)return;runRelay(failRows.map(r=>r.g))});
+}
+async function runRelay(list){
+  if(!list.length)return;
+  if(sending)return; // 재진입 차단(S6)
+  sending=true;
+  const btn=$('submitBtn'),prevText=btn.textContent,prevDisabled=btn.disabled;
+  btn.disabled=true;btn.textContent='보내는 중…';
+  const prog=$('sendProgress');prog.classList.remove('hide');
+  const year_month=currentYearMonth();
+  const ids=new Set(list.map(g=>g.restaurant_id));
+  // 공개키는 캐시에 없는 것만 요청한다(재시도 실행에서는 대부분 캐시 적중).
+  const pubMisses=[...ids].filter(id=>!relayPubCache.has(id)).length;
+  const pace=pacerFor(pubMisses,pubMisses+list.length);
+  // 진행 표시는 '가게×부서' 단위임을 헤더에 밝힌다 — 5곳을 골랐는데 12건이 도는 이유가 보이도록.
+  prog.innerHTML='<div style="font-weight:700">음식점 '+ids.size+'곳 · 부서 조합 '+list.length+'건</div><div id="sendProgLine" style="font-weight:400;margin-top:2px"></div>';
+  const line=$('sendProgLine');
+  let i=0;
+  try{
+    for(const g of list){
+      i+=1;
+      const base='보내는 중 '+i+'/'+list.length+' — '+g.restaurant_name+(g.department?' / '+g.department:'');
+      line.textContent=base;
+      const onRetry=(n,wait)=>{line.textContent=base+' · 실패해서 '+Math.round(wait/1000)+'초 뒤 다시 시도('+n+'/'+MAX_RETRY+')…'};
+      try{
+        // 암호화는 반드시 이 브라우저에서, 그 음식점의 RSA 공개키로만 수행한다(서버 재암호화 없음).
+        const entry=await getPubKey(g.restaurant_id,relayPubCache,pace,onRetry);
+        const blob=await encryptBlob(g.items,entry.pub);
+        const bh=await batchHash(g.items);
+        const total=g.items.reduce((s,i2)=>s+i2.amount,0);
+        const body={summary:{institution:g.institution,department:g.department,restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,year_month,total_amount:total,member_count:g.items.length,batch_hash:bh},blob:{restaurant_id:g.restaurant_id,ciphertext:blob},consent:{institution:g.institution,department:g.department,year_month}};
+        const submitHeaders={'Content-Type':'application/json'};
+        if(S.token)submitHeaders['X-Agency-Token']=S.token;
+        await paceWait(pace,false);
+        const res=await fetchRetry(srv()+'/api/submit',{method:'POST',headers:submitHeaders,body:JSON.stringify(body)},onRetry);
+        let j={};try{j=await res.json()}catch{}
+        // 토큰 만료(B4): 남은 건도 전부 401이 날 것이므로 즉시 인증 단계로 되돌린다.
+        if(res.status===401){expireToken();throw new Error(AUTH_ERR_MSG.agency_auth_required)}
+        if(!res.ok)throw new Error(submitErrMsg(j.error,res.status));
+        // 구서버는 deduped 필드가 없다 → dedup=null(기존 동작).
+        const dedup=j.deduped===true?String(j.status||'PENDING'):null;
+        relayResults.set(groupKey(g),{g,ok:true,dedup,detail:String(j.summary_id||'')});
+        log((dedup&&dedup!=='PENDING'?'ℹ️ ':'✅ ')+g.restaurant_name+' / '+g.department+' ('+g.items.length+'명, '+total.toLocaleString()+'원) → '+j.summary_id+(dedup?' [이미 있는 명단 · 상태 '+dedup+']':''));
+      }catch(e){
+        relayResults.set(groupKey(g),{g,ok:false,detail:e.message});
+        log('❌ '+g.restaurant_name+' / '+g.department+': '+e.message);
+      }
+      renderRelayResults(false);
+    }
+  }finally{
+    prog.classList.add('hide');prog.innerHTML='';
+    btn.textContent=prevText;btn.disabled=prevDisabled;
+    sending=false; // 재진입 잠금 해제 — 반드시 revalidate 전에 풀어야 버튼 상태가 맞는다
+    revalidate();
+  }
+  renderRelayResults(true);
+  const rows=[...relayResults.values()];
+  const failN=rows.filter(r=>!r.ok).length;
+  const dedupN=rows.filter(r=>{const d=dedupInfo(r);return d&&d.attention}).length;
+  log('\n완료: 성공 '+(rows.length-failN)+' · 실패 '+failN+(dedupN?' · 확인 필요(이미 처리된 명단) '+dedupN:'')+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).\n\n다음 할 일: 음식점에 전화 등으로 전달 사실을 알려 주시고, 이 화면(또는 위 로그)을 캡처해 기관 내부 기록으로 보관하세요.');
+}
+async function doSubmitRelay(){
+  if(sending)return; // 재진입 차단(S6) — 이중 클릭·동의 모달 재진입
+  if(!navigator.onLine){alert('인터넷 연결을 확인해 주세요.');return}
+  // 최종 방어선: 동명 선택이 남아 있으면 어떤 명단도 보내지 않는다.
+  if(dupSelectedNames().length){alert(DUP_MSG);return}
+  $('log').textContent='';$('log').classList.remove('hide');
+  relayResults=new Map();relayPubCache=new Map();
+  $('sendResult').innerHTML='';
+  const list=[...buildGroups().values()];
+  if(!list.length){log('보낼 명단이 없습니다. 1~3단계를 다시 확인해 주세요.');return}
+  await runRelay(list);
 }
 // ── 5-B. 직접 전달 (서버에 올리지 않음 — 파일/공유/QR) ──
 function safeFileName(s){return String(s==null?'':s).replace(/[\\/:*?"<>|]/g,'_').replace(/\s+/g,'_')}
-function fileNameFor(restaurantName,ym){return '선금명단_'+safeFileName(restaurantName)+'_'+ym+'.senggeum.json'}
+// 파일명에 부서까지 넣는다 — 한 음식점에 부서가 둘 이상이면 파일명이 겹쳐 앞 파일을 덮어쓸 수 있다.
+function fileNameFor(restaurantName,department,ym){
+  return '선입금대장_명단_'+safeFileName(restaurantName)+(department?'_'+safeFileName(department):'')+'_'+ym+'.senggeum.json';
+}
 function triggerDownload(blob,filename){
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-function qrFileNameFor(restaurantName,ym){return '선금명단QR_'+safeFileName(restaurantName)+'_'+ym+'.gif'}
+function qrFileNameFor(restaurantName,department,ym){
+  return '선입금대장_명단QR_'+safeFileName(restaurantName)+(department?'_'+safeFileName(department):'')+'_'+ym+'.gif';
+}
 function dataUrlToBlob(dataUrl){
   const m=/^data:([^;]+);base64,(.*)$/.exec(dataUrl);
   if(!m)throw new Error('invalid data url');
@@ -830,12 +1175,12 @@ function dataUrlToBlob(dataUrl){
   return new Blob([bytes],{type:m[1]});
 }
 function renderDirectGroup(g,total,json,bytes,ym,contact){
-  const filename=fileNameFor(g.restaurant_name,ym);
+  const filename=fileNameFor(g.restaurant_name,g.department,ym);
   const hasEmail=isValidEmail(contact&&contact.email);
   const hasKakao=isValidKakaoLink(contact&&contact.kakao_link);
   let contactBtns='',contactNotes='';
   if(hasEmail){
-    const subject=encodeURIComponent('선금 명단 파일 – '+g.restaurant_name+' '+ym);
+    const subject=encodeURIComponent('선입금대장 명단 파일 – '+g.restaurant_name+' '+ym);
     const mailtoHref='mailto:'+contact.email+'?subject='+subject;
     contactBtns+=`<a href="${esc(mailtoHref)}" data-act="mail">이메일로 보내기</a>`;
     contactNotes+='<div class="contact-note">먼저 [파일로 저장]한 뒤 메일에 첨부해 보내세요.</div>';
@@ -873,7 +1218,7 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
         const cell=Math.max(3,Math.min(8,Math.floor(600/(n+8))));
         const url=qr.createDataURL(cell,cell*4);
         qrWrap.innerHTML='<img src="'+url+'" alt="선입금 명단 QR 코드">'+
-          '<div class="meta">음식점 앱의 [QR로 받기]로 찍어 주세요</div>'+
+          '<div class="meta">음식점 앱의 [② QR(사각 코드)로 받기]로 찍어 주세요</div>'+
           '<div class="btns" style="justify-content:center">'+
             '<button type="button" data-act="qr-save">QR 이미지로 저장</button>'+
             '<button type="button" data-act="qr-print">인쇄</button>'+
@@ -887,7 +1232,7 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
         qrBtn.textContent='QR 닫기';
         const hiCell=8,hiMargin=hiCell*4;
         const hiUrl=qr.createDataURL(hiCell,hiMargin);
-        const qrFilename=qrFileNameFor(g.restaurant_name,ym);
+        const qrFilename=qrFileNameFor(g.restaurant_name,g.department,ym);
         qrWrap.querySelector('[data-act="qr-save"]').addEventListener('click',()=>{
           triggerDownload(dataUrlToBlob(hiUrl),qrFilename);
         });
@@ -905,7 +1250,7 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
             '<p>'+esc(g.institution||'')+(g.department?' · '+esc(g.department):'')+'</p>'+
             '<p>'+esc(ym)+'</p>'+
             '<img src="'+hiUrl+'" alt="선입금 명단 QR 코드">'+
-            '<div class="instr">선입금대장 앱의 [QR로 받기]로 찍어 주세요</div>'+
+            '<div class="instr">선입금대장 앱의 [② QR(사각 코드)로 받기]로 찍어 주세요</div>'+
             '</body></html>'
           );
           w.document.close();
@@ -918,14 +1263,39 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
   $('directPanel').appendChild(card);
 }
 async function doSubmitDirect(){
+  if(sending)return; // 재진입 차단(S6) — 전송 중 직접전달 준비가 겹치면 카드가 중복 생성된다
+  // 최종 방어선: 동명 선택이 남아 있으면 파일도 만들지 않는다.
+  if(dupSelectedNames().length){alert(DUP_MSG);return}
+  sending=true;$('submitBtn').disabled=true;
+  try{await prepareDirect()}finally{sending=false;revalidate()}
+}
+async function prepareDirect(){
   $('log').textContent='';$('log').classList.remove('hide');
   $('directPanel').innerHTML='';
+  $('sendResult').innerHTML='';
   const groups=[...buildGroups().values()];
   const year_month=currentYearMonth();
+  if(groups.length>1){
+    // 파일·QR은 음식점(부서)별로 각각 만들어진다 — 한 파일을 여러 가게에 보내면 열리지 않는다.
+    const note=document.createElement('div');
+    note.className='muted-box';
+    note.style.marginTop='10px';
+    note.innerHTML='<b>아래에 '+groups.length+'개의 전달 카드가 만들어집니다.</b> 파일과 QR은 <b>음식점(부서)별로 각각</b> 만들어져요. 각 가게의 공개키로 따로 암호화되므로, 한 가게의 파일을 다른 가게에 보내면 열리지 않습니다. 카드마다 [파일로 저장]을 눌러 해당 음식점에만 전달하세요.';
+    $('directPanel').appendChild(note);
+  }
   const pubCache=new Map();let okN=0,failN=0;
+  const ids=new Set(groups.map(g=>g.restaurant_id));
+  // 직접 전달은 서버에 제출하지 않는다 — 요청은 음식점당 공개키 조회 1회뿐.
+  const pace=pacerFor(ids.size,ids.size);
+  const prog=$('sendProgress');prog.classList.remove('hide');
+  prog.innerHTML='<div style="font-weight:700">음식점 '+ids.size+'곳 · 부서 조합 '+groups.length+'건</div><div id="sendProgLine" style="font-weight:400;margin-top:2px"></div>';
+  const line=$('sendProgLine');
+  let idx=0;
   for(const g of groups){
+    idx+=1;
+    line.textContent='준비 중 '+idx+'/'+groups.length+' — '+g.restaurant_name+(g.department?' / '+g.department:'');
     try{
-      const entry=await getPubKey(g.restaurant_id,pubCache);
+      const entry=await getPubKey(g.restaurant_id,pubCache,pace);
       const ciphertext=await encryptBlob(g.items,entry.pub);
       const bh=await batchHash(g.items);
       const total=g.items.reduce((s,i)=>s+i.amount,0);
@@ -936,11 +1306,15 @@ async function doSubmitDirect(){
       okN++;log('✅ '+g.restaurant_name+' / '+g.department+' ('+g.items.length+'명, '+total.toLocaleString()+'원) — 파일 준비 완료');
     }catch(e){failN++;log('❌ '+g.restaurant_name+' / '+g.department+': '+e.message)}
   }
-  log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.\n\n다음 할 일: 위 카드에서 파일 저장 또는 이메일·카톡·QR로 음식점에 전달한 뒤, 전달 사실을 기관 내부 기록으로 보관하세요.');
+  prog.classList.add('hide');prog.innerHTML='';
+  log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.\n\n다음 할 일: 위 카드에서 파일 저장 또는 이메일·카톡·QR로 음식점에 전달한 뒤, 전달 사실을 기관 내부 기록으로 보관하세요.'+
+    (groups.length>1?'\n※ 파일·QR은 음식점(부서)별로 각각 만들어졌습니다. 카드마다 따로 전달하세요.':''));
 }
 function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 updateStepper();
 loadAgencyIndex(); // 소속 기관 목록(agency-index.json) 로드 + 마지막 선택 복원
+// 새로고침·뒤로가기로 돌아온 경우, 아직 살아 있는 인증 토큰이 있으면 1단계를 건너뛴다(B4).
+if(hasAgreedTerms())restoreToken();
 // 최초 방문이면 약관 동의 게이트를 먼저 띄운다(동의 전 인증 진행 불가). 재방문 시 자동 통과.
 if(!hasAgreedTerms()){$('authBtn').disabled=true;showTermsGate();}
 })();

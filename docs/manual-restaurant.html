@@ -42,14 +42,23 @@ code{background:var(--bg-soft);padding:2px 6px;border-radius:4px;font-size:15px}
 hr{border:none;border-top:2px solid var(--line);margin:36px 0}
 footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 @media print{
-  body{font-size:13pt;max-width:none;padding:0}
+  @page{size:A4;margin:15mm 14mm}
+  html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-size:13pt;max-width:none;padding:0;background:#fff}
   .top-link{display:none}
   h2{page-break-before:always;border-top:none}
   h2:first-of-type{page-break-before:avoid}
+  /* 내용이 두세 줄뿐인 장은 앞 장에 이어서 인쇄 (빈 페이지 방지) */
+  h2.short-chapter{page-break-before:auto;page-break-inside:avoid}
   .toc{page-break-after:always}
-  .step{page-break-inside:avoid}
+  /* .step-num 음수 오프셋이 페이지 경계에서 잘리지 않도록 인쇄에서는 박스 안으로 넣는다 */
+  .step{page-break-inside:avoid;padding-top:44px;margin-top:12px}
+  .step .step-num{top:8px;box-shadow:none}
+  .step-body{padding-top:0}
+  .callout,.tip,table,.card-list li{page-break-inside:avoid}
   a[href]::after{content:" (" attr(href) ")";font-size:10pt;color:var(--muted)}
-  .toc a::after{content:""}
+  /* 내부 앵커·안내서 간 링크는 URL 각주를 붙이지 않는다 */
+  .toc a::after,a[href^="#"]::after,a[href$=".html"]::after{content:"" !important}
 }
 @media (max-width:480px){
   body{font-size:16px;padding:16px 14px 70px}
@@ -65,7 +74,7 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <h2>전체 흐름 한눈에 (5단계)</h2>
 <ol>
 <li><b>[사장님] 앱 설치</b> — <code>app.bapjangbu.com</code> 접속 후 홈 화면에 추가</li>
-<li><b>[사장님] 가게 등록</b> — 가게 이름·지역을 넣어 등록 (기관이 우리 가게를 찾을 수 있게 돼요)</li>
+<li><b>[사장님] 우리 가게 등록</b> — 처음 설정 2/4에서 가게 이름으로 찾아 등록 (설치할 때 한 번만·필수 — 이걸 해야 기관 담당자(서무)가 우리 가게를 찾을 수 있어요)</li>
 <li><b>[기관 담당자] 음식점 선택·명단 작성</b> — 담당자가 우리 가게를 골라 직원 명단·금액을 입력</li>
 <li><b>[기관 담당자] 선입금대장 전달</b> — 명단이 암호화되어 앱으로 전달 (선금은 우리 가게 은행 계좌로 직접 이체)</li>
 <li><b>[사장님] 입금 확인 → 직원 사용 시작</b> — <b>은행 입금액과 선입금대장 합계를 대조·확인</b>한 뒤부터 사용을 시작하세요</li>
@@ -76,10 +85,10 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <h2>목차</h2>
 <ol>
 <li><a href="#install">설치하기</a></li>
-<li><a href="#setup">처음 설정</a></li>
-<li><a href="#employee">직원 등록</a></li>
+<li><a href="#setup">처음 설정 (4단계)</a></li>
+<li><a href="#employee">직원 선금대장 등록 — 수동 등록(직접 입력)</a></li>
 <li><a href="#daily">매일 쓰기</a></li>
-<li><a href="#agency">구청 선금 받기</a></li>
+<li><a href="#agency">직원 선금대장 등록 — 자동 등록(기관에서 보낸 명단 받기)</a></li>
 <li><a href="#backup">장부 지키기 (중요)</a></li>
 <li><a href="#pin">비밀번호를 잊었을 때</a></li>
 <li><a href="#faq">자주 묻는 질문</a></li>
@@ -104,79 +113,108 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <div class="step"><div class="step-num">2</div><div class="step-body">아래쪽 공유 버튼(⬆️)을 눌러요.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body"><span class="field">홈 화면에 추가</span>를 눌러요.</div></div>
 
-<h2 id="setup"><span class="num">2</span>처음 설정</h2>
-<p>앱을 처음 열면 순서대로 화면이 나와요. 모르는 항목은 건너뛰어도 괜찮아요.</p>
+<h2 id="setup"><span class="num">2</span>처음 설정 (4단계)</h2>
+<p>앱을 처음 열면 <b>1/4 → 4/4</b> 순서로 화면이 나와요. 화면 위에 지금 몇 번째인지 표시되니 그대로 따라가면 돼요.</p>
 
 <div class="step"><div class="step-num">1</div><div class="step-body">
-<div class="step-title">가게 정보 (1/3)</div>
+<div class="step-title">가게 정보 (1/4)</div>
 <p>음식점 이름, 주소(지역), 전화번호를 입력해요.</p>
 <p class="tip">주소에 <b>"광진구 구의동"</b>처럼 구 이름을 써주면, 담당 구청이 자동으로 선택돼요.</p>
 </div></div>
 
 <div class="step"><div class="step-num">2</div><div class="step-body">
-<div class="step-title">부서 목록 설정 (2/3)</div>
-<p>기관을 선택해 필요한 부서(과)를 고르거나, 직접 부서명을 입력해 <span class="btn-secondary">추가</span>할 수 있어요. 나중에 설정에서 언제든 바꿀 수 있어요.</p>
+<div class="step-title">우리 가게 등록 (2/4, 필수)</div>
+<p>가게 이름을 넣어 검색하고, 결과에서 우리 가게를 찾아 눌러 등록해요.</p>
+<div class="callout">🏪 <b>왜 꼭 해야 하나요?</b> 이걸 해야 <b>기관 담당자(서무)가 담당자 웹에서 우리 가게를 찾아 명단을 보낼 수 있어요.</b> 설치할 때 한 번만 하면 되고, 다시 할 필요가 없어요.</div>
+<div class="tip">🔎 <b>가게 이름이 안 나올 때</b> — 간판에 쓰는 이름과 <b>사업자등록증에 적힌 상호</b>가 다른 경우가 많아요(예: 간판은 '엄마손칼국수', 상호는 '○○식당'). 검색되지 않으면 <b>사업자등록증 상호</b>로 다시 찾아보세요. 앱 화면에도 같은 안내가 나와요.</div>
+<p>지금 하기 어렵다면 <span class="btn-secondary">나중에 등록할게요</span>를 누르고 넘어가도 돼요. 이 버튼은 <b>항상 있어요.</b> 넘어갔다면 나중에 <span class="field">설정</span> 탭에서 등록할 수 있어요. 다만 <b>기관 명단을 받으려면 결국 해야 하는 단계</b>예요.</p>
+<p>등록을 미루면 홈 화면에 <b>안내 배너</b>가 떠요. 배너는 <b>닫을 수 있지만</b>, 앱을 다시 열면 등록을 마칠 때까지 또 나와요.</p>
+<div class="callout">🔑 <b>등록에 성공하면 바로 “내 열쇠 백업”을 하라는 안내가 떠요. 꼭 하세요.</b> 우리 가게 열쇠는 <b>이 기기에만</b> 있어요. 폰을 잃어버렸는데 열쇠 백업이 없으면 <b>기관 명단을 받는 것도, 가게 등록을 해제하는 것도 모두 불가능</b>해요. 방법은 <a href="#backup">6장 장부 지키기</a>를 보세요.</div>
 </div></div>
 
 <div class="step"><div class="step-num">3</div><div class="step-body">
-<div class="step-title">연락처 (3/3, 선택·권장)</div>
-<p>구청 담당자가 명단 파일을 보낼 곳이에요. 카카오톡 오픈채팅 링크나 접수 이메일을 입력하세요. 지금 몰라도 <span class="btn">나중에 하기</span>를 누르면 돼요.</p>
+<div class="step-title">부서 목록 설정 (3/4)</div>
+<p>기관을 선택해 필요한 부서(과)를 고르거나, 직접 부서명을 입력해 <span class="btn-secondary">추가</span>할 수 있어요. 나중에 설정에서 언제든 바꿀 수 있어요.</p>
 </div></div>
 
 <div class="step"><div class="step-num">4</div><div class="step-body">
+<div class="step-title">연락처 + 약관 동의 (4/4)</div>
+<p>연락처는 기관 담당자(서무)가 명단 파일을 보낼 곳이에요. 카카오톡 오픈채팅 링크나 접수 이메일을 입력하세요. 지금 몰라도 <span class="btn">나중에 하기</span>를 누르면 돼요.</p>
+<p>마지막으로 이용약관·개인정보처리방침 동의에 <b>체크</b>하면 설정이 끝나요.</p>
+<div class="callout">✅ <b>동의에 체크하기 전에는 <span class="btn">나중에 하기</span>도 눌리지 않아요.</b> 연락처를 나중에 넣더라도, 약관 동의 체크는 먼저 해야 다음으로 넘어갈 수 있어요.</div>
+</div></div>
+
+<div class="step"><div class="step-num">5</div><div class="step-body">
 <div class="step-title">비밀번호(PIN) 설정</div>
 <p>앱을 열 때 쓸 숫자 4자리를 정해요. 한 번 더 입력해 확인해요.</p>
 </div></div>
 
-<div class="step"><div class="step-num">5</div><div class="step-body">
+<div class="step"><div class="step-num">6</div><div class="step-body">
 <div class="step-title">완료 화면</div>
-<p>설정이 끝나면 두 갈래 중 하나를 골라 시작할 수 있어요.</p>
+<p>약관에 동의하면 <b>우리 가게 등록이 자동으로 서버에 전송</b>돼요. (혹시 실패하면 홈 화면에 다시 안내하는 띠가 떠요. 눌러서 다시 등록하면 돼요.)</p>
+<p>이제 <b>직원 선금대장 등록</b>을 할 차례예요. 완료 화면에 나오는 버튼은 이래요.</p>
 <ul class="card-list">
-<li><b>직원 등록하기</b> — 직원과 초기 선입금을 등록해요.</li>
-<li><b>구청 선금 받기 시작</b> — 우리 가게를 등록해 기관 신청을 받아요.</li>
+<li><span class="btn">한 명씩 등록</span> — 직원과 선금을 사장님이 직접 적어 넣어요. (<a href="#employee">3장</a>)</li>
+<li><span class="btn">기관에서 보낸 명단 받기</span> — 기관 담당자(서무)가 보낸 직원 명단을 받아 한 번에 올려요. (<a href="#agency">5장</a>)<br>※ 2/4에서 <b>우리 가게 등록</b>을 아직 안 했다면, 이 자리에 <span class="btn">우리 가게 등록 마무리하기</span>가 대신 나와요. 먼저 그것부터 눌러 등록하세요.</li>
+<li><span class="btn-secondary">나중에 할게요 (홈으로)</span> — 둘 다 지금 하지 않고 홈으로 가요.</li>
 </ul>
-<p>둘 다 지금 하지 않으려면 <span class="btn-secondary">나중에 할게요 (홈으로)</span>를 누르세요.</p>
 </div></div>
 
-<h2 id="employee"><span class="num">3</span>직원 등록</h2>
-<p><span class="field">설정</span> 탭 → <b>직원 목록 관리</b>에서 직원을 등록해요.</p>
+<h2 id="employee"><span class="num">3</span>직원 선금대장 등록 — 수동 등록(직접 입력)</h2>
+<div class="tip"><b>직원 선금대장 등록에는 두 가지 방법이 있어요.</b> 기관에서 보낸 명단을 받는 <b>자동 등록</b>(<a href="#agency">5장</a>)과, 사장님이 직접 적어 넣는 <b>수동 등록</b>(이 장)이에요. 둘을 섞어 써도 괜찮아요.</div>
+<p><span class="field">설정</span> 탭 맨 위 <b>직원 선금대장 등록</b> 그룹의 <b>[수동 등록 — 직접 입력하기]</b> 카드에서 해요. 카드는 <b>항상 펼쳐져 있으니</b> 카드 자체를 누를 필요 없이, 그 안에 있는 버튼을 바로 누르면 돼요. 방법은 세 가지예요.</p>
+<p class="tip">이미 등록한 직원은 그 아래 <b>직원 목록 관리</b> 카드에서 다뤄요. <b>조회·수정뿐 아니라 충전·조정·숨김·복원도 모두 여기</b>에서 해요.</p>
 
 <h3>방법 1 — 빠른 등록</h3>
-<p>직원 목록 관리 화면 아래쪽의 빠른 등록 칸에 <span class="field">부서명</span> · <span class="field">직원명</span> · <span class="field">선입금액(선택)</span>을 입력하고 <span class="btn">추가</span>를 누르면 바로 등록돼요. 부서가 없으면 자동으로 만들어져요.</p>
+<p>화면 아래쪽 빠른 등록 칸에 <span class="field">부서명</span> · <span class="field">직원명</span> · <span class="field">선입금액(선택)</span>을 입력하고 <span class="btn">추가</span>를 누르면 바로 등록돼요. 부서가 없으면 자동으로 만들어져요. 한두 명을 급히 넣을 때 가장 빨라요.</p>
 
-<h3>방법 2 — 명단 파일 등록 (CSV)</h3>
-<p><span class="btn-secondary">명단 파일 등록(CSV)</span> 버튼을 눌러 엑셀에서 저장한 CSV 파일을 불러오면 여러 명을 한 번에 등록할 수 있어요. 이미 등록된 직원은 금액이 추가로 충전돼요.</p>
+<h3>방법 2 — 한 명씩 등록</h3>
+<p><span class="btn-secondary">한 명씩 등록</span>을 누르면 한 사람씩 자세히 넣는 화면이 열려요. <span class="field">부서</span>·<span class="field">직원명</span>·<span class="field">초기 선입금액</span>을 넣은 뒤 <span class="btn">직원 저장</span>을 누르면 돼요. 부서를 골라 가며 차분히 넣을 때 편해요.</p>
+<p><b>부서는 직접 입력하는 칸</b>이에요. 칸 아래에 이미 쓰던 부서가 <b>추천 목록</b>으로 뜨니 눌러서 넣어도 되고, 없는 부서는 그냥 새로 적으면 돼요.</p>
+<p>금액 칸 옆에는 <span class="btn-secondary">9,000</span> <span class="btn-secondary">18,000</span> <span class="btn-secondary">27,000</span> <b>빠른 금액</b> 버튼이 있어요. 자주 쓰는 금액은 숫자를 다 치지 말고 이 버튼을 누르세요.</p>
+<p>전화번호와 문자 안내 동의는 등록한 뒤 직원 목록에서 넣어도 돼요(아래 참고).</p>
+
+<h3>방법 3 — 엑셀 명단(CSV) 불러오기</h3>
+<p><span class="btn-secondary">엑셀 명단(CSV) 불러오기</span> 버튼을 눌러 엑셀에서 저장한 CSV 파일을 불러오면 여러 명을 한 번에 등록할 수 있어요. 이미 등록된 직원은 금액이 추가로 충전돼요.</p>
 
 <h3>전화번호 등록 + 문자 안내 동의</h3>
-<p>각 직원 줄에서 <span class="btn-secondary">번호 등록</span>을 눌러 전화번호를 넣고, <b>문자 안내 동의</b> 체크박스를 켜면 사용 등록 후 문자 앱이 자동으로 열려요.</p>
+<p><b>직원 목록 관리</b>에서 각 직원 줄의 <span class="btn-secondary">번호 등록</span>을 눌러 전화번호를 넣고, <b>문자 안내 동의</b> 체크박스를 켜면 사용 등록 후 문자 앱이 자동으로 열려요.</p>
 <div class="tip">전화번호는 이 폰에만 저장되고, 서버로 전송되지 않아요.</div>
 
 <h2 id="daily"><span class="num">4</span>매일 쓰기</h2>
-<div class="step"><div class="step-num">1</div><div class="step-body">홈 화면에서 직원 이름을 누르고, 직원 카드의 <span class="btn">사용</span> 버튼을 눌러요.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body">홈 화면에서 직원 카드의 <span class="btn">사용</span> 버튼을 눌러요. (직원 <b>이름</b>을 누르면 그 직원의 <b>이력</b> 화면으로 넘어가요.)</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">사용 금액을 입력해요.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">화면에 직원 서명을 받아요.</div></div>
 <div class="step"><div class="step-num">4</div><div class="step-body"><span class="btn">서명 후 저장</span>을 눌러 저장해요.</div></div>
 
 <p>문자 안내 동의와 전화번호가 등록된 직원은, 저장 직후 문자 앱이 자동으로 열려요. <span class="btn">보내기</span>만 눌러 주면 끝이에요(자동으로 발송되지는 않아요).</p>
 
-<p>직원별 <span class="btn-secondary">충전</span> 버튼으로 선입금을 추가할 수 있고, 홈 화면 위쪽에서 <b>오늘 사용 금액</b>과 <b>전체 잔액</b>을 바로 확인할 수 있어요.</p>
+<p>선입금을 더 받았을 때는 <span class="field">설정</span> 탭의 <b>직원 목록 관리</b>에서 그 직원의 <span class="btn-secondary">충전</span> 버튼을 누르세요. (충전·조정·숨김·복원은 모두 <b>직원 목록 관리</b>에 있어요.) 홈 화면 위쪽에서는 <b>오늘 사용 금액</b>과 <b>전체 잔액</b>을 바로 확인할 수 있어요.</p>
 
 <div class="tip"><b>🧾 잔액증표 보기</b> — 손님이 “제 잔액 얼마 남았어요?”라고 물을 때, 직원 카드의 <span class="btn-secondary">🧾</span> 버튼을 누르거나 <b>사용(차감) 저장 직후</b> 뜨는 안내에서 <b>잔액증표 보기</b>를 누르면, 손님에게 현재 잔액을 <b>명함 형태 화면</b>으로 보여줄 수 있어요. 화면에는 가게명, “○○과 ○○○님”, 현재 잔액, 날짜, “○○식당 전용·잔액 확인용·양도 불가”가 나와요. 손님은 그 화면을 <b>사진 찍어</b> 보관하면 돼요(앱은 이미지를 저장·전송·인쇄하지 않고 화면에만 보여줘요). 결제나 상품권이 아니라 <b>잔액을 확인해 드리는 안내</b>일 뿐이에요.</div>
 
-<h2 id="agency"><span class="num">5</span>구청 선금 받기</h2>
-<p><span class="field">설정</span> 탭 맨 위에서 <span class="btn">시작하기</span>를 눌러요.</p>
+<h2 id="agency"><span class="num">5</span>직원 선금대장 등록 — 자동 등록(기관에서 보낸 명단 받기)</h2>
+<div class="callout">💡 <b>먼저 오해부터 풀고 갈게요.</b> <b>선금(돈)은 앱이 아니라 가게 은행 계좌로 따로 입금돼요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b> 이 기능은 "돈을 받는" 기능이 아니라, 기관 담당자(서무)가 만든 <b>직원 명단과 금액을 우리 장부에 한 번에 올려 주는</b> 기능이에요.</div>
+
+<p><span class="field">설정</span> 탭 맨 위 <b>직원 선금대장 등록</b> 그룹의 <b>[자동 등록 — 기관에서 보낸 명단 받기]</b> 카드에서 해요.</p>
+
+<h3>먼저: 우리 가게 등록 (처음 한 번)</h3>
+<p>처음 설정 <b>2/4</b>에서 이미 <b>우리 가게 등록</b>을 마쳤다면 이 단계는 건너뛰고 아래 "받는 방법"으로 가면 돼요. 아직 안 했다면 이 카드에서 <span class="btn">우리 가게 등록 (처음 한 번)</span>을 눌러 등록하세요.</p>
 <div class="step"><div class="step-num">1</div><div class="step-body">가게 이름과 지역으로 검색해요 (예: 지역 <code>광진구 구의동</code>).</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">검색 결과에서 우리 가게를 찾아 <span class="btn">이 가게</span>를 눌러 등록해요.</div></div>
+<p>등록이 끝나면 <span class="field">기관 명단 받는 중</span> 표시가 <b>두 군데</b>에 켜져요 — <b>홈 화면 위쪽 상태칩</b>과, 이 카드 안 <b>가게 이름 옆의 초록 칩</b>이에요. 둘 다 보이면 제대로 등록된 거예요. 그만 받고 싶으면 <span class="btn-secondary">자동 등록 중단 (가게 등록 해제)</span>을 누르면 돼요.</p>
+<div class="callout">🔑 <b>등록 성공 직후 “내 열쇠 백업”을 하라는 안내가 떠요. 꼭 하세요.</b> 폰을 잃어버렸는데 열쇠 백업이 없으면 <b>기관 명단을 받는 것도, 가게 등록을 해제하는 것도 모두 불가능</b>해요. (<a href="#backup">6장 장부 지키기</a>)</div>
 
-<p>등록이 끝나면, 받는 방법은 두 가지예요.</p>
+<h3>받는 방법은 두 가지</h3>
 
-<h3>① 앱으로 바로 받기</h3>
-<p><span class="btn">① 신청 확인하기</span>를 눌러 새 선금 신청을 확인하고, 내용을 확인한 뒤 등록해요. 받는 즉시 서버에서 삭제되고, 받지 않으면 최대 3일까지만 보관돼요.</p>
+<h3>① 앱으로 바로 받기 (신청 확인)</h3>
+<p><span class="btn">① 신청 확인하기</span>를 눌러 새 명단 신청을 확인하고, 내용을 확인한 뒤 등록해요. 받는 즉시 서버에서 삭제되고, 받지 않으면 최대 3일까지만 보관돼요.</p>
+<div class="tip">📩 <b>기다릴 필요 없어요.</b> 새 명단 신청이 오면 <b>앱을 열 때 자동으로 확인</b>해서, 홈 화면에 <b>📩 새 명단 신청 N건</b> 칩이 떠요. 그 칩을 누르면 바로 내용을 보고 승인할 수 있어요.</div>
 
-<h3>② 파일·QR로 받기</h3>
-<p>담당자가 준 파일을 열거나, <span class="btn-secondary">② QR(사각 코드)로 받기</span>로 QR을 스캔해요. 이 방법은 서버를 거치지 않아요.</p>
+<h3>② 담당자 전달파일·QR로 받기</h3>
+<p>담당자가 준 <b>전달파일</b>을 열거나, <span class="btn-secondary">② QR(사각 코드)로 받기</span>로 QR을 스캔해요. 이 방법은 서버를 거치지 않아요.</p>
 
-<p>등록되면 기관·부서·직원·금액이 우리 가게 장부에 자동으로 추가돼요.</p>
+<p>등록되면 기관·부서·직원·금액이 우리 가게 <b>선금대장에 자동으로 추가</b>돼요.</p>
 
 <div class="callout">✅ <b>사용 시작 전 꼭 확인!</b> 기관이 보낸 선금은 우리 가게 <b>은행 계좌로 직접 입금</b>돼요. 통장에 <b>실제 입금된 금액</b>과 <b>선입금대장 합계</b>가 일치하는지 대조·확인한 뒤에 직원 사용을 시작하세요.</div>
 
@@ -187,14 +225,14 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <thead><tr><th>버튼</th><th>하는 일</th></tr></thead>
 <tbody>
 <tr><td><span class="btn-secondary">장부 안전 저장</span></td><td>엑셀용 CSV와 복원용 데이터 파일을 함께 저장해요. (단, 가게 열쇠는 이 파일에 들어가지 않아요)</td></tr>
-<tr><td><span class="btn">내 열쇠 백업 (중요)</span></td><td>구청 연동을 쓰신다면 꼭 따로 백업하세요. 암호는 8자 이상으로 정해야 해요.</td></tr>
+<tr><td><span class="btn">내 열쇠 백업 (중요)</span></td><td>자동 등록(기관 명단 받기)을 쓰신다면 꼭 따로 백업하세요. 암호는 8자 이상으로 정해야 해요.</td></tr>
 <tr><td><span class="btn">저장한 데이터 불러오기(복원)</span></td><td>안전 저장해둔 데이터 파일(JSON)로 되돌려요.</td></tr>
 <tr><td><span class="btn-secondary">장부 검사</span></td><td>거래 기록에 이상이 없는지 쉬운 말로 확인해요.</td></tr>
 </tbody>
 </table>
 
 <h3>📱 폰을 잃어버려도 장부 되찾기</h3>
-<p>구청 선금 받기를 시작하면 쓸 수 있는 기능이에요.</p>
+<p>우리 가게 등록을 마치고 <b>자동 등록(기관 명단 받기)</b>을 쓰기 시작하면 함께 쓸 수 있는 기능이에요.</p>
 <ul class="card-list">
 <li><span class="btn">지금 저장하기</span> — 내용을 잠근 채로 서버에 보관해요.</li>
 <li><span class="btn-secondary">새 폰에서 불러오기</span> — 보관된 내용을 새 기기로 가져와요.</li>
@@ -211,13 +249,13 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <dt>돈이 드나요?</dt>
 <dd>아니요, 무료예요.</dd>
 <dt>이 앱으로 돈이 오가나요?</dt>
-<dd>아니요. 이 앱은 장부만 기록해요. 돈은 오가지 않아요.</dd>
+<dd>아니요. 이 앱은 장부만 기록해요. <b>선금(돈)은 앱이 아니라 가게 은행 계좌로 따로 입금돼요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b></dd>
 <dt>내 자료는 어디에 저장되나요?</dt>
 <dd>앱을 설치한 이 기기에 저장돼요.</dd>
 <dt>어떤 기기에 설치하는 게 좋나요?</dt>
 <dd>가게에 항상 두는 <b>전용 태블릿(또는 전용 폰)</b>을 권장해요. 장부가 그 기기에 저장되기 때문에, 사장님 개인 폰보다 가게 비치용 기기가 안전하고 편해요.</dd>
 <dt>인터넷이 없어도 되나요?</dt>
-<dd>장부 기록(사용·충전)은 인터넷 없이도 돼요. 구청 선금 받기·검색만 인터넷이 필요해요.</dd>
+<dd>장부 기록(사용·충전)은 인터넷 없이도 돼요. 자동 등록(기관 명단 받기)과 가게 검색만 인터넷이 필요해요.</dd>
 <dt>폰을 바꾸면 어떻게 하나요?</dt>
 <dd>6번 "장부 지키기"를 참고하세요.</dd>
 </dl>
