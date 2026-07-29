@@ -72,9 +72,15 @@
 
 /* ─── 부서 그룹 ─── */
 .group{display:grid;gap:8px}
-.group-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding-bottom:8px;border-bottom:1.5px solid #eef1f4}
+/* 그룹 헤더는 탭하면 펼쳐지는 아코디언 — 폰 손가락 기준 48px 이상을 보장한다. */
+.group-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:6px 2px 8px;min-height:48px;border-bottom:1.5px solid #eef1f4;cursor:pointer;border-radius:8px;transition:background .15s}
+.group-head:active{background:var(--primary-soft)}
+.group-headline{display:flex;align-items:center;gap:8px;min-width:0}
+.group-toggle{font-size:11px;color:var(--muted);width:16px;flex:0 0 16px;text-align:center}
 .group-title{font-size:18px;font-weight:800;letter-spacing:-.2px;color:var(--primary)}
 .group-meta{color:var(--muted);font-size:12px;font-weight:600}
+/* 회사 그룹 안의 부서 소제목(하위 카테고리) */
+.group-sub{font-size:13px;font-weight:800;color:var(--muted);padding:8px 2px 2px;letter-spacing:-.2px}
 
 /* ─── 직원 카드 ─── */
 .employee{display:grid;gap:10px}
@@ -214,6 +220,9 @@
 .mgr-dept{font-size:14px;flex:1}
 .mgr-count{font-size:12px;color:var(--muted);font-weight:600}
 .mgr-body{padding:0 0 4px 20px}
+/* 직원 목록 관리 카드 상단 요약(홈 하단에서 이 자리로 옮긴 "활성 직원 N명 · 잔액 합계") */
+.mgr-summary{margin-top:0;font-size:14px;padding:12px 14px;box-shadow:0 4px 12px rgba(23,69,121,.16)}
+.mgr-summary .v{font-size:19px}
 
 /* ─── PIN 화면 ─── */
 .pin-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:linear-gradient(160deg,#f0f2f5 0%,#e6eaf0 100%)}
@@ -236,7 +245,7 @@
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
 /* 폰: 빠른 금액은 3개를 한 줄에(세로로 길게 늘어져 스크롤되는 것 방지).
    모달 버튼은 column-reverse — 마지막에 오는 [서명 후 저장]이 맨 위(엄지 근처)로 온다. 순서만 바뀌고 DOM/문구는 불변. */
-@media(max-width:640px){.quick{grid-template-columns:repeat(3,minmax(0,1fr))}.actions button,.modal-actions button{min-width:100%}.modal-actions{flex-direction:column-reverse}.summary,.txn-top,.receipt-row,.row,.group-head{display:grid}.tool{width:100%}.tool button{flex:1}}
+@media(max-width:640px){.quick{grid-template-columns:repeat(3,minmax(0,1fr))}.actions button,.modal-actions button{min-width:100%}.modal-actions{flex-direction:column-reverse}.summary,.txn-top,.receipt-row,.row,.group-head{display:grid}.group-head{min-height:56px;gap:2px}.tool{width:100%}.tool button{flex:1}}
 /* ─── 폰(≤640px) 직원 카드 2행 구성 ───
    1행: 아바타 + 이름/부서(줄바꿈 허용 — 이름은 절대 자르지 않는다)
    2행: 잔액(전액 표기 — 금전 원장이므로 축약 금지) + 증표 + 사용 버튼
@@ -269,19 +278,32 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.13',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.14',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 const DEFAULT_RELAY='https://prepaid-relay.sulsul-plus.workers.dev';
 const TERMS_URL='https://app.bapjangbu.com/docs/terms.html',PRIVACY_URL='https://app.bapjangbu.com/docs/privacy.html';
 const DEFAULT_ORG='공공기관';
+// 소속 칸에 이 문구를 적으면 홈에서 "개인" 그룹으로 묶인다(수동 등록 안내 문구와 동일한 단어).
+const PERSONAL_ORG='개인';
 const DEFAULT_DEPTS=[];// 신규 설치 시 기본 부서 없음(스펙 수정1) — 기존 사용자의 저장된 부서 목록은 norm()에서 덮어쓰지 않음
 const COMMON_DEPTS=[...DEFAULT_DEPTS];
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 let repo,signPad=null,modalOpenKey=null,modalReturnFocus=null,modalKeydownHandler=null,qrStream=null,qrDetector=null,qrLoopActive=false;
 document.addEventListener('click',onClick);document.addEventListener('input',onInput);document.addEventListener('change',onInput);qs('restoreFile').addEventListener('change',onRestoreFile);qs('csvFile').addEventListener('change',onCsvFile);qs('directTransferFile').addEventListener('change',onDirectTransferFile);
 let composing=false;document.addEventListener('compositionstart',()=>{composing=true});document.addEventListener('compositionend',(e)=>{composing=false;onInput(e)});
 // 온/오프라인 상태 pill 토글 — 상태 저장 없이 재렌더만(navigator.onLine을 직접 읽음)
 window.addEventListener('online',()=>{if(state.loaded){render();refreshInboxCount()}});window.addEventListener('offline',()=>{if(state.loaded)render()});
 document.addEventListener('keydown',function(e){if(e.key==='Enter'){if(e.target.id==='setupNewDept'){e.preventDefault();var b2=document.querySelector('[data-a="setup-add-dept"]');if(b2)b2.click()}if(e.target.id==='newDeptInput'){e.preventDefault();var b3=document.querySelector('[data-a="add-dept"]');if(b3)b3.click()}if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){e.preventDefault();var b4=document.querySelector('[data-a="setup-manual-save"]');if(b4)b4.click()}if(e.target.id==='setupStoreName'||e.target.id==='setupStoreRegion'){e.preventDefault();var b5=document.querySelector('[data-a="setup-store-search"]');if(b5)b5.click()}}});
+// role="button"으로 만든 요소(홈 그룹 헤더 등)는 실제 <button>이 아니라서 브라우저가 Enter/Space를 눌러주지 않는다.
+//   → 전역 keydown 위임으로 click과 똑같이 동작시킨다(Space는 기본 스크롤을 막는다). 실제 버튼·입력칸은 건드리지 않는다.
+document.addEventListener('keydown',function(e){
+if(e.key!=='Enter'&&e.key!==' '&&e.key!=='Spacebar')return;
+if(e.altKey||e.ctrlKey||e.metaKey)return;
+const t=e.target;if(!t||typeof t.closest!=='function')return;
+const el=t.closest('[role="button"][tabindex="0"]');if(!el)return;
+const tag=String(el.tagName||'').toUpperCase();
+if(tag==='BUTTON'||tag==='A'||tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+e.preventDefault();
+try{el.click()}catch(err){console.error('key activate',err)}});
 // ── 안드로이드 하단 뒤로가기 계층 (기존 화면/모달 상태 위에 얇게 덧씌움; 순수 추가) ──
 // 설계: "정적 트랩" 1개를 base 위에 항상 유지한다. 화면 전환·모달 개폐 시 히스토리를 건드리지 않고
 //       (기존 render/clickActions/트랜잭션 로직 완전 불변), 오직 popstate(실제 뒤로가기)에서만
@@ -343,8 +365,49 @@ function orgDeptLabel(e){if(!e)return '';return[str(e.org),str(e.dept)].filter(B
 function empMatchKey(e){return orgDeptLabel(e)+'|'+str(e&&e.name)}
 // 활성 직원만 담은 라벨|이름 → 직원 인덱스(수신 명단 매칭용). 숨김 직원은 넣지 않는다 — 매치되면 복원을 강제하지 않고 새로 만든다.
 function activeEmployeeIndex(){const m=new Map();state.data.employees.forEach(v=>{if(v.isDeleted)return;const k=empMatchKey(v);if(!m.has(k))m.set(k,v)});return m}
+// ── 홈 화면 그룹핑 전용 분류 (표시 계층 only) ────────────────────────────────
+// ⚠️ 여기의 어떤 값도 empMatchKey()·충전 매칭·CSV·이력·설정 그룹핑에 쓰이지 않는다.
+//    orgKind는 "자동 등록(승인·직접 전달)으로 들어온 공공기관 직원"에만 'public'으로 붙는 표시용 표식이다.
+// 분류: public(공공기관) / personal(개인) / company(회사) / plain(무소속·레거시 합성 dept)
+function empClass(e){if(str(e&&e.orgKind)==='public')return 'public';const org=str(e&&e.org);if(org===PERSONAL_ORG)return 'personal';if(org)return 'company';return 'plain'}
+// 홈 그룹 키 — 공공기관은 기관+부서 단위, 회사는 소속 단위(부서는 안에서 소제목), 개인은 한 그룹, 무소속은 결합 라벨.
+// ⚠️ 키는 JSON 배열 문자열로 만든다 — 소속·부서는 사장님이 자유 입력하는 값이라, 구분자를 문자열로 이어붙이면
+//    입력값 안에 그 구분자가 들어왔을 때 서로 다른 그룹이 같은 키가 될 수 있다(예: 소속에 구분자를 그대로 타이핑).
+//    JSON.stringify는 값 안의 따옴표·구분자를 이스케이프하므로 키 구조가 깨지지 않는다.
+function homeGroupKey(e){const k=empClass(e),org=str(e&&e.org),dept=str(e&&e.dept);
+if(k==='public')return JSON.stringify(['pub',org,dept]);
+if(k==='company')return JSON.stringify(['co',org]);
+if(k==='personal')return JSON.stringify(['me']);
+return JSON.stringify(['plain',orgDeptLabel(e)||'부서 없음'])}
+// 그룹 헤더 문구·정렬 순서는 "활성 직원 전체"로 계산한다 — 검색·필터에 따라 헤더가 변하지 않게 하기 위함.
+// 공공기관: 부서명만. 정렬: 공공기관(부서 가나다) → 회사(가나다) → 개인 → 무소속.
+// ⚠️ 최종 표시 제목은 그룹마다 유일해야 한다 — 헤더와 부서 필터 옵션이 같은 문구면 사장님이 두 그룹을 구별할 방법이 없다.
+//    그래서 겹침 판정은 "같은 종류끼리"가 아니라 모든 그룹의 최종 제목 기준으로 하고, 겹칠 때만 종류별 구분자를 붙인다.
+//    (공공기관="부서명 (기관명)", 회사="회사명 (회사)", 무소속="제목 (소속 없음)")
+function homeGroupIndex(list){
+const meta=new Map();
+(list||[]).forEach(e=>{const key=homeGroupKey(e);if(!meta.has(key))meta.set(key,{key,kind:empClass(e),org:str(e.org),dept:str(e.dept)})});
+// ① 종류별 기본 제목 + 정렬 기준
+meta.forEach(g=>{
+if(g.kind==='public'){g.base=g.dept||g.org||'부서 없음';g.rank=0;g.sortKey=g.dept||g.org||''}
+else if(g.kind==='company'){g.base=g.org;g.rank=1;g.sortKey=g.org}
+else if(g.kind==='personal'){g.base=PERSONAL_ORG;g.rank=2;g.sortKey=''}
+else{g.base=g.dept||'부서 없음';g.rank=3;g.sortKey=g.base}
+});
+// ② 기본 제목이 둘 이상 겹치는 그룹에만 구분자를 붙인다(개인 그룹은 항상 1개뿐이라 그대로 둔다).
+const baseCount=new Map();meta.forEach(g=>baseCount.set(g.base,(baseCount.get(g.base)||0)+1));
+meta.forEach(g=>{
+if((baseCount.get(g.base)||0)<2||g.kind==='personal'){g.label=g.base;return}
+if(g.kind==='public')g.label=g.dept?g.dept+' ('+(g.org||'공공기관')+')':(g.org||'부서 없음')+' (공공기관)';
+else if(g.kind==='company')g.label=g.org+' (회사)';
+else g.label=g.base+' (소속 없음)';
+});
+const order=[...meta.values()].sort((a,b)=>a.rank-b.rank||a.sortKey.localeCompare(b.sortKey,'ko')||a.label.localeCompare(b.label,'ko'));
+// ③ 마지막 안전망: 구분자를 붙였는데도 같은 제목이 남으면(자유 입력이 구분자 문구를 그대로 흉내낸 경우) 번호를 붙여 유일성을 보장한다.
+const used=new Map();order.forEach(g=>{const n=(used.get(g.label)||0)+1;used.set(g.label,n);if(n>1)g.label=g.label+' ('+n+')'});
+return{meta,order}}
 // org(소속) — 회사·공공기관명. 구버전 데이터·백업(schemaVersion 3 그대로)에는 없으므로 str()이 ''로 채운다(레거시는 dept에 "기관명 부서명"이 합성돼 있고 표시 결과가 동일하다).
-function norm(d){return{employees:(Array.isArray(d.employees)?d.employees:[]).map(e=>({id:e.id||uid(),org:str(e.org),dept:str(e.dept),name:str(e.name),note:str(e.note),isDeleted:!!e.isDeleted,phone:typeof e.phone==='string'?e.phone:'',phoneConsent:!!e.phoneConsent,yearMonth:str(e.yearMonth),createdAt:numTime(e.createdAt),updatedAt:numTime(e.updatedAt)})),transactions:(Array.isArray(d.transactions)?d.transactions:[]).map(t=>({id:t.id||uid(),employeeId:t.employeeId||'',type:t.type||'use',amount:num(t.amount),beforeBalance:num(t.beforeBalance),afterBalance:num(t.afterBalance),reason:str(t.reason),note:str(t.note),targetTransactionId:t.targetTransactionId||null,signatureData:sigD(t.signatureData),signatureHash:str(t.signatureHash),txHash:str(t.txHash),prevHash:str(t.prevHash),createdAt:numTime(t.createdAt)})),meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS],...(d.meta&&typeof d.meta==='object'?d.meta:{})}}}
+function norm(d){return{employees:(Array.isArray(d.employees)?d.employees:[]).map(e=>({id:e.id||uid(),org:str(e.org),orgKind:str(e.orgKind),dept:str(e.dept),name:str(e.name),note:str(e.note),isDeleted:!!e.isDeleted,phone:typeof e.phone==='string'?e.phone:'',phoneConsent:!!e.phoneConsent,yearMonth:str(e.yearMonth),createdAt:numTime(e.createdAt),updatedAt:numTime(e.updatedAt)})),transactions:(Array.isArray(d.transactions)?d.transactions:[]).map(t=>({id:t.id||uid(),employeeId:t.employeeId||'',type:t.type||'use',amount:num(t.amount),beforeBalance:num(t.beforeBalance),afterBalance:num(t.afterBalance),reason:str(t.reason),note:str(t.note),targetTransactionId:t.targetTransactionId||null,signatureData:sigD(t.signatureData),signatureHash:str(t.signatureHash),txHash:str(t.txHash),prevHash:str(t.prevHash),createdAt:numTime(t.createdAt)})),meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS],...(d.meta&&typeof d.meta==='object'?d.meta:{})}}}
 
 // ── IndexedDB ──
 async function makeRepo(){try{const db=await openDb();return makeIdbRepo(db)}catch(e){console.error('IndexedDB 오류:',e);return null}}
@@ -434,6 +497,30 @@ async function runIntegrityCheck(){setBusy('무결성을 검증하는 중입니�
 function relayBase(){return(str(state.data.meta.relayServer)||DEFAULT_RELAY).replace(/\/$/,'')}
 // "공공기관명 부서명" 결합 문자열(표시·알림 문구 전용). 직원 레코드에는 더 이상 이 합성값을 저장하지 않는다(org/dept 분리 저장).
 function combinedDeptLabel(institution,dept){institution=str(institution);dept=str(dept);if(institution&&dept)return institution+' '+dept;return institution||dept}
+// 자동 등록(승인·직접 전달)에서 이미 있는 직원과 매칭됐을 때, 홈 그룹핑용 표식(orgKind)과 소속 분리 저장을 백필한다.
+// ⚠️ 안전 규칙: rec는 empMatchKey가 일치해 매칭된 값이므로 orgDeptLabel(rec)===orgDeptLabel(exist)다.
+//    즉 org/dept를 rec의 분리 형태로 바꿔도 "화면 라벨 = 매칭 키"는 한 글자도 바뀌지 않는다.
+//    그래도 마지막에 키를 다시 대조해서, 조금이라도 달라지면 백필을 포기한다(돈이 두 장부로 갈라지는 것을 원천 차단).
+function publicOrgPatch(exist,rec){if(!exist)return null;const needOrg=!str(exist.org)&&!!str(rec&&rec.org);const needKind=str(exist.orgKind)!=='public';if(!needOrg&&!needKind)return null;const next={...exist,orgKind:'public',updatedAt:now()};if(needOrg){next.org=str(rec.org);next.dept=str(rec.dept)}if(empMatchKey(next)!==empMatchKey(exist))return null;return next}
+// 백필 대상은 "명단에 이름이 있는 직원"이 아니라 "결합 라벨(orgDeptLabel)이 같은 활성 직원 전체"다.
+//   이유: 라벨이 같으면 홈에서 같은 그룹이어야 한다(같은 라벨 = 같은 그룹 원칙). 이번 달 명단에 빠진 동료만
+//   레거시 합성 dept로 남으면 같은 부서가 두 그룹으로 갈라져 보인다(사장님 눈엔 같은 부서인데 카드가 흩어짐).
+//   안전: ① publicOrgPatch가 empMatchKey(화면 라벨+이름) 재대조로 매칭 키 불변을 보장한다.
+//        ② 추가로 홈 그룹 키까지 명단 그룹과 일치하는지 확인해, 라벨만 같고 저장 형태가 어긋난 직원은 건드리지 않는다.
+//   금액·이름·잔액은 어떤 경로로도 바뀌지 않는다(org/dept/orgKind 표시 필드만 정리).
+function publicOrgPatchesForLabel(rec,doneIds){
+const label=orgDeptLabel(rec);if(!label)return[];
+const target=homeGroupKey({org:str(rec&&rec.org),orgKind:'public',dept:str(rec&&rec.dept)});
+const out=[];
+state.data.employees.forEach(e=>{
+if(e.isDeleted)return;
+if(doneIds&&doneIds.has(e.id))return;
+if(orgDeptLabel(e)!==label)return;
+const pt=publicOrgPatch(e,rec);
+if(!pt||homeGroupKey(pt)!==target)return;
+if(doneIds)doneIds.add(e.id);
+out.push(pt)});
+return out}
 async function decryptBlob(blob){const priv=await getPrivateKey();if(!priv)throw new Error('가게 열쇠가 없습니다');const raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(blob.encKey));const aesKey=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['decrypt']);const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(b64ToBuf(blob.iv))},aesKey,b64ToBuf(blob.ct));return JSON.parse(new TextDecoder().decode(pt))}
 async function batchHashOf(items){return hash(items.map(i=>i.name+'|'+i.dept+'|'+num(i.amount)).sort().join('\n'))}
 function relayRegistered(){return !!str(state.data.meta.restaurantId)}
@@ -485,7 +572,7 @@ async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결
 async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}setBusy('신청을 불러오는 중입니다.');try{const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid));const items=await r.json();clearBusy();if(!Array.isArray(items))throw new Error(items.error||'수신 오류');state.inboxCount=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
 // 처리 도중 뒤로가기(popstate)로 모달이 닫혀도 TypeError 없이 끝나도록 진입 시 모달을 지역 변수로 캡처한다(A6).
 async function relayReject(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!window.confirm(`${item.summary.department} 신청을 거절할까요? (열어보지 않고 폐기)`))return;setBusy('처리 중입니다.');try{const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'REJECTED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();toast('거절했습니다.')}catch(e){console.error(e);clearBusy();toast('처리 오류: '+(e.message||''))}}
-async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}if(!window.confirm(`${item.summary.restaurant_name||''} · ${item.summary.department}\n총액 ${money(item.summary.total_amount)} · ${item.summary.member_count}명\n\n통장 입금을 확인하셨으면 승인하세요.`))return;setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const reHash=await batchHashOf(plain.items);if(reHash!==item.summary.batch_hash){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);const t=now(),ym=str(item.summary.year_month),groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);let tip=chainTip();const emps=[],txs=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);const activeByKey=activeEmployeeIndex();let topupCount=0;for(const it of plain.items){const rec={org:str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const amt=num(it.amount);const exist=activeByKey.get(empMatchKey(rec));if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'공공기관 신청 승인 추가 충전',note:noteLabel,createdAt:t+Math.random()},tip);tip=tx.txHash;txs.push(tx)}continue}const eid=uid();emps.push({id:eid,org:rec.org,dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'공공기관 신청 승인',note:noteLabel,createdAt:t+Math.random()},tip);tip=tx.txHash;txs.push(tx)}}if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}await repo.apply({employees:emps,transactions:txs});emps.forEach(upsertEmp);txs.forEach(upsertTx);const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'APPROVED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}}
+async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}if(!window.confirm(`${item.summary.restaurant_name||''} · ${item.summary.department}\n총액 ${money(item.summary.total_amount)} · ${item.summary.member_count}명\n\n통장 입금을 확인하셨으면 승인하세요.`))return;setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const reHash=await batchHashOf(plain.items);if(reHash!==item.summary.batch_hash){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);const t=now(),ym=str(item.summary.year_month),groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();for(const it of plain.items){const rec={org:str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const amt=num(it.amount);const exist=activeByKey.get(empMatchKey(rec));publicOrgPatchesForLabel(rec,patchedIds).forEach(pt=>patches.push(pt));if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'공공기관 신청 승인 추가 충전',note:noteLabel,createdAt:t+Math.random()},tip);tip=tx.txHash;txs.push(tx)}continue}const eid=uid();emps.push({id:eid,org:rec.org,orgKind:'public',dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'공공기관 신청 승인',note:noteLabel,createdAt:t+Math.random()},tip);tip=tx.txHash;txs.push(tx)}}if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}await repo.apply({employees:emps.concat(patches),transactions:txs});emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'APPROVED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}}
 // ── 직접 전달(파일·QR) 수신 — 서버를 거치지 않고 기관이 건넨 암호문을 그 자리에서 열어 장부에 등록 ──
 // 계약(고정): {v:1, type:'direct-transfer', restaurant_id, restaurant_name, institution, department, year_month, summary:{total_amount, member_count, batch_hash}, ciphertext:{alg,encKey,iv,ct}}
 function directTransferBatchHashes(){return Array.isArray(state.data.meta.receivedBatchHashes)?state.data.meta.receivedBatchHashes:[]}
@@ -505,22 +592,24 @@ if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');
 const reHash=await batchHashOf(plain.items);
 if(reHash!==batchHash){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}
 assignDuplicateSuffix(plain.items);
-const t=now(),ym=str(parsed.year_month),groupDept=combinedDeptLabel(parsed.institution,parsed.department);let tip=chainTip();const emps=[],txs=[];
+const t=now(),ym=str(parsed.year_month),groupDept=combinedDeptLabel(parsed.institution,parsed.department);let tip=chainTip();const emps=[],txs=[],patches=[];
 const noteLabel=str(parsed.institution)+' '+str(parsed.department);
 // 승인(relayApprove)과 같은 규칙: 이미 있는 활성 직원은 새 카드 대신 충전한다(다음 달 재전달 시 동명 카드 누적 방지).
-const activeByKey=activeEmployeeIndex();let topupCount=0;
+const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();
 for(const it of plain.items){
 const rec={org:str(parsed.institution),dept:str(it.dept),name:str(it.name)};
 const amt=num(it.amount);
 const exist=activeByKey.get(empMatchKey(rec));
+// 승인과 동일: 같은 결합 라벨을 쓰는 활성 직원 전체를 함께 백필한다(명단에 빠진 동료가 다른 그룹으로 갈라지지 않게).
+publicOrgPatchesForLabel(rec,patchedIds).forEach(pt=>patches.push(pt));
 if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'직접 전달 추가 충전',note:noteLabel,createdAt:t+Math.random()},tip);tip=tx.txHash;txs.push(tx)}continue}
 const eid=uid();
-emps.push({id:eid,org:rec.org,dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
+emps.push({id:eid,org:rec.org,orgKind:'public',dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
 if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'직접 전달 등록',note:noteLabel,createdAt:t+Math.random()},tip);tip=tx.txHash;txs.push(tx)}
 }
 if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}
-await repo.apply({employees:emps,transactions:txs});
-emps.forEach(upsertEmp);txs.forEach(upsertTx);
+await repo.apply({employees:emps.concat(patches),transactions:txs});
+emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);
 await markDirectTransferBatch(batchHash);
 clearBusy();render();
 const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);
@@ -760,22 +849,42 @@ if(state.setupGuide){qs('app').innerHTML=setupGuideHtml()+overlaysHtml();return}
 // 기존 사용자(설정 완료·약관 동의 이력 없음) 일회성 약관 동의 모달 — 동의 전까지 반복 노출
 if(state.data.meta.setupComplete&&!state.data.meta.termsAgreedAt&&!state.modal){state.modal={type:'terms'}}
 const fa=document.activeElement,fid=fa&&fa.id,ss=fa&&fa.selectionStart,se=fa&&fa.selectionEnd;
+// 키보드로 그룹 헤더를 조작하면 render가 DOM을 갈아치워 포커스가 사라진다(다음 Space가 페이지 스크롤이 돼버림)
+//   → id가 없는 요소라 그룹 키(data-g)로 같은 헤더를 찾아 포커스를 되돌린다.
+const fgKey=(fa&&fa.classList&&fa.classList.contains('group-head')&&fa.dataset)?fa.dataset.g:'';
 const d=derive();qs('app').innerHTML=`<div class="app">${topBar()}<div class="stack">${banners()}${screenHtml(d)}</div>${navHtml()}</div>${modalHtml(d)}${overlaysHtml()}`;
 if(state.modal&&state.modal.type==='usage')initSignPad();else signPad=null;
 if(state.modal&&state.modal.type==='qr-scan')initQrScan();else stopQrScan();
 if(state.modal){const key=state.modal.type+'|'+(state.modal.id||'')+'|'+(state.modal.mode||'')+'|'+(state.modal.sid||'');const opening=modalOpenKey===null;if(opening)modalReturnFocus=fa;activateModalA11y(key!==modalOpenKey);modalOpenKey=key}
 else{if(modalOpenKey!==null&&modalReturnFocus&&typeof modalReturnFocus.focus==='function'){try{modalReturnFocus.focus()}catch(e){}}modalOpenKey=null;modalReturnFocus=null;if(modalKeydownHandler){document.removeEventListener('keydown',modalKeydownHandler);modalKeydownHandler=null}}
-if(fid&&!state.modal){const el=qs(fid);if(el){el.focus();try{if(typeof ss==='number'){el.selectionStart=ss;el.selectionEnd=se}}catch(e){}}}}
+if(fid&&!state.modal){const el=qs(fid);if(el){el.focus();try{if(typeof ss==='number'){el.selectionStart=ss;el.selectionEnd=se}}catch(e){}}}
+if(fgKey&&!fid&&!state.modal){const head=[...document.querySelectorAll('.group-head')].find(h=>h.dataset.g===fgKey);if(head){try{head.focus()}catch(e){}}}}
 
 // ── 모달 접근성: role=dialog, 열릴 때 첫 포커스, 닫힐 때 원래 요소로 복귀, Tab 트랩 (스펙 §4 항목6) ──
 function focusablesIn(container){return[...container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(el=>!el.disabled&&el.offsetParent!==null)}
 function activateModalA11y(shouldFocus){const back=document.querySelector('.modal-back');if(!back)return;const modal=back.querySelector('.modal');if(!modal)return;modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');if(!modal.hasAttribute('tabindex'))modal.setAttribute('tabindex','-1');const items=focusablesIn(modal);if(shouldFocus){if(items.length)items[0].focus();else modal.focus()}if(modalKeydownHandler)document.removeEventListener('keydown',modalKeydownHandler);modalKeydownHandler=function(e){if(e.key==='Escape'){state.modal=null;render();return}if(e.key!=='Tab')return;const list=focusablesIn(modal);if(!list.length)return;const first=list[0],last=list[list.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}};document.addEventListener('keydown',modalKeydownHandler)}
 
 // ── 파생 데이터 ──
-function derive(){const balances=new Map(),voided=new Set();const asc=[...state.data.transactions].sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));asc.forEach(t=>{const p=balances.get(t.employeeId)||0;balances.set(t.employeeId,applyTx(p,t));if(t.type==='void'&&t.targetTransactionId)voided.add(t.targetTransactionId)});const employees=state.data.employees.map(e=>({...e,balance:balances.get(e.id)||0,deptKey:orgDeptLabel(e)||'부서 없음'})).sort((a,b)=>a.deptKey.localeCompare(b.deptKey,'ko')||a.name.localeCompare(b.name,'ko'));const empMap=new Map(employees.map(e=>[e.id,e]));const active=employees.filter(e=>!e.isDeleted);const kw=state.search.trim();const df=state.deptFilter;const filtered=active.filter(e=>{if(df&&e.deptKey!==df)return false;if(kw&&!e.name.includes(kw))return false;return true});const total=active.reduce((s,e)=>s+e.balance,0);const homeGroups=groupBy(filtered,e=>e.deptKey).map(([dept,items])=>({dept,items,count:items.length,totalBalance:items.reduce((s,e)=>s+e.balance,0)})).sort((a,b)=>a.dept.localeCompare(b.dept,'ko'));const hist=[...state.data.transactions].sort((a,b)=>b.createdAt-a.createdAt||b.id.localeCompare(a.id)).filter(t=>!state.historyEmployeeId||t.employeeId===state.historyEmployeeId);const historyGroups=groupBy(hist,t=>{const e=empMap.get(t.employeeId);return(e?e.deptKey:'부서 없음')+'||'+(e?e.name:'알 수 없는 직원')+'||'+t.employeeId}).map(([key,items])=>{const[dept,name,eid]=key.split('||');return{dept,name,employeeId:eid,employee:empMap.get(eid)||null,items}}).sort((a,b)=>a.dept.localeCompare(b.dept,'ko')||a.name.localeCompare(b.name,'ko'));const dateHist=[...state.data.transactions].sort((a,b)=>b.createdAt-a.createdAt||b.id.localeCompare(a.id));const dateKey=ts=>{const x=new Date(ts);return `${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`};const dateGroups=groupBy(dateHist,t=>dateKey(t.createdAt)).map(([date,items])=>{const useTotal=items.filter(t=>t.type==='use'&&!voided.has(t.id)).reduce((s,t)=>s+num(t.amount),0);return{date,items,useTotal,count:items.length}});return{employees,empMap,active,filtered,total,homeGroups,voided,historyGroups,dateGroups}}
+function derive(){const balances=new Map(),voided=new Set();const asc=[...state.data.transactions].sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));asc.forEach(t=>{const p=balances.get(t.employeeId)||0;balances.set(t.employeeId,applyTx(p,t));if(t.type==='void'&&t.targetTransactionId)voided.add(t.targetTransactionId)});const employees=state.data.employees.map(e=>({...e,balance:balances.get(e.id)||0,deptKey:orgDeptLabel(e)||'부서 없음'})).sort((a,b)=>a.deptKey.localeCompare(b.deptKey,'ko')||a.name.localeCompare(b.name,'ko'));const empMap=new Map(employees.map(e=>[e.id,e]));const active=employees.filter(e=>!e.isDeleted);
+// 홈 그룹 — 헤더 문구·순서는 활성 직원 전체(homeGroupIndex)에서, 내용물은 검색·필터가 적용된 filtered에서 온다.
+const groupIndex=homeGroupIndex(active);
+// 부서 필터 자기치유: 저장된 그룹 키가 지금은 없는 그룹이면(소속·부서 수정이나 자동 등록 백필로 키가 바뀐 경우)
+//   선택 UI에는 '전체 부서'가 보이는데 내부적으로는 아무도 통과하지 못해 "검색 결과가 없습니다"만 남는다 → 즉시 전체 부서로 되돌린다.
+if(state.deptFilter&&!groupIndex.meta.has(state.deptFilter))state.deptFilter='';
+const kw=state.search.trim();const df=state.deptFilter;const filtered=active.filter(e=>{if(df&&homeGroupKey(e)!==df)return false;if(kw&&!e.name.includes(kw))return false;return true});const total=active.reduce((s,e)=>s+e.balance,0);
+const fmap=new Map();filtered.forEach(e=>{const k=homeGroupKey(e);if(!fmap.has(k))fmap.set(k,[]);fmap.get(k).push(e)});
+const homeGroups=groupIndex.order.filter(g=>fmap.has(g.key)).map(g=>{const items=fmap.get(g.key);
+// 회사 그룹만 부서 소제목(하위 카테고리)으로 한 번 더 나눈다. 부서가 빈 직원은 소제목 없이 먼저 나온다.
+const subs=g.kind==='company'?groupBy(items,e=>str(e.dept)).sort((a,b)=>(a[0]?1:0)-(b[0]?1:0)||a[0].localeCompare(b[0],'ko')).map(([dept,list])=>({dept,items:list})):null;
+return{key:g.key,kind:g.kind,label:g.label,org:g.org,items,subs,count:items.length,totalBalance:items.reduce((s,e)=>s+e.balance,0)}});const hist=[...state.data.transactions].sort((a,b)=>b.createdAt-a.createdAt||b.id.localeCompare(a.id)).filter(t=>!state.historyEmployeeId||t.employeeId===state.historyEmployeeId);const historyGroups=groupBy(hist,t=>{const e=empMap.get(t.employeeId);return(e?e.deptKey:'부서 없음')+'||'+(e?e.name:'알 수 없는 직원')+'||'+t.employeeId}).map(([key,items])=>{const[dept,name,eid]=key.split('||');return{dept,name,employeeId:eid,employee:empMap.get(eid)||null,items}}).sort((a,b)=>a.dept.localeCompare(b.dept,'ko')||a.name.localeCompare(b.name,'ko'));const dateHist=[...state.data.transactions].sort((a,b)=>b.createdAt-a.createdAt||b.id.localeCompare(a.id));const dateKey=ts=>{const x=new Date(ts);return `${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`};const dateGroups=groupBy(dateHist,t=>dateKey(t.createdAt)).map(([date,items])=>{const useTotal=items.filter(t=>t.type==='use'&&!voided.has(t.id)).reduce((s,t)=>s+num(t.amount),0);return{date,items,useTotal,count:items.length}});return{employees,empMap,active,filtered,total,homeGroups,voided,historyGroups,dateGroups}}
 
 // ── 화면 HTML ──
-function topBar(){const sub={home:'차감과 잔액을 빠르게 처리해요.',history:'거래와 취소 기록을 확인해요.',settings:'직원 관리와 백업을 처리해요.'}[state.screen]||'';const homeBtn=state.screen==='home'?`<button class="btn" data-a="reset-filter">검색 초기화</button>`:`<button class="btn" data-a="go-home">홈</button>`;const btns=state.screen==='history'?'<button class="btn-primary" data-a="export">백업</button>':'';let filters='';if(state.screen==='home'){const activeDepts=[...new Set(state.data.employees.filter(e=>!e.isDeleted).map(e=>orgDeptLabel(e)||'부서 없음'))].sort((a,b)=>a.localeCompare(b,'ko'));const deptOpts=['<option value="">전체 부서</option>',...activeDepts.map(d=>`<option value="${esc(d)}"${state.deptFilter===d?' selected':''}>${esc(d)}</option>`)].join('');filters=`<div style="display:flex;gap:8px"><select id="deptFilterSelect" style="flex:1">${deptOpts}</select><input id="searchInput" type="text" placeholder="직원명 검색" value="${esc(state.search)}" style="flex:1"><button class="btn" data-a="voice-search" title="음성으로 이름 검색" aria-label="음성 검색" style="flex:0 0 auto;min-width:52px;font-size:20px">🎤</button></div>`}else if(state.screen==='history'){filters=historyFilterHtml()}const shop=state.data.meta.shopName;const shopAddr=state.data.meta.shopAddr||'';const shopHtml=shop&&state.screen==='home'?`<div style="font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#1a5276,#2e86c1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px">${esc(shop)}${shopAddr?` <span style="font-size:13px;font-weight:600;letter-spacing:0">(${esc(shopAddr)})</span>`:''}</div>`:'';return `<div class="top">${shopHtml}<div class="title"><div><h1>${APP}</h1><div class="sub">${sub}</div></div><div class="tool">${homeBtn}${btns}</div></div>${filters}</div>`}
+function topBar(){const sub={home:'차감과 잔액을 빠르게 처리해요.',history:'거래와 취소 기록을 확인해요.',settings:'직원 관리와 백업을 처리해요.'}[state.screen]||'';const homeBtn=state.screen==='home'?`<button class="btn" data-a="reset-filter">검색 초기화</button>`:`<button class="btn" data-a="go-home">홈</button>`;const btns=state.screen==='history'?'<button class="btn-primary" data-a="export">백업</button>':'';let filters='';if(state.screen==='home'){
+// 부서 선택 옵션은 홈 그룹과 1:1(값=그룹 키, 문구=그룹 헤더) — 고르면 그 그룹만 남고 자동 펼침된다.
+const groupOrder=homeGroupIndex(state.data.employees.filter(e=>!e.isDeleted)).order;
+// 선택 UI와 상태 불일치 방지(derive와 같은 자기치유) — 지금 없는 그룹 키가 남아 있으면 '전체 부서'로 되돌린다.
+if(state.deptFilter&&!groupOrder.some(g=>g.key===state.deptFilter))state.deptFilter='';
+const deptOpts=['<option value="">전체 부서</option>',...groupOrder.map(g=>`<option value="${esc(g.key)}"${state.deptFilter===g.key?' selected':''}>${esc(g.label)}</option>`)].join('');filters=`<div style="display:flex;gap:8px"><select id="deptFilterSelect" style="flex:1">${deptOpts}</select><input id="searchInput" type="text" placeholder="직원명 검색" value="${esc(state.search)}" style="flex:1"><button class="btn" data-a="voice-search" title="음성으로 이름 검색" aria-label="음성 검색" style="flex:0 0 auto;min-width:52px;font-size:20px">🎤</button></div>`}else if(state.screen==='history'){filters=historyFilterHtml()}const shop=state.data.meta.shopName;const shopAddr=state.data.meta.shopAddr||'';const shopHtml=shop&&state.screen==='home'?`<div style="font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#1a5276,#2e86c1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px">${esc(shop)}${shopAddr?` <span style="font-size:13px;font-weight:600;letter-spacing:0">(${esc(shopAddr)})</span>`:''}</div>`:'';return `<div class="top">${shopHtml}<div class="title"><div><h1>${APP}</h1><div class="sub">${sub}</div></div><div class="tool">${homeBtn}${btns}</div></div>${filters}</div>`}
 function historyFilterHtml(){const d=derive();const tabStyle='flex:1;min-height:38px;border-radius:10px;font-size:13px;font-weight:700;';const dateOn=state.historyTab==='date';const empOn=state.historyTab==='employee';const empFilter=empOn?`<select id="historyFilter" style="margin-top:8px">${['<option value="">전체 직원</option>',...d.employees.map(e=>`<option value="${esc(e.id)}"${state.historyEmployeeId===e.id?' selected':''}>${esc(e.name)} (${esc(e.deptKey||orgDeptLabel(e)||'부서 없음')})${e.isDeleted?' [숨김]':''}</option>`)].join('')}</select>`:'';return `<div style="display:flex;gap:8px"><button style="${tabStyle}${dateOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="date">일자별</button><button style="${tabStyle}${empOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="employee">직원별</button></div>${empFilter}`}
 function banners(){let h='';if(state.mode!=='IndexedDB')h+='<div class="card banner error"><strong>호환 모드 저장</strong><div class="meta">IndexedDB를 사용할 수 없어 localStorage에 저장합니다.</div></div>';if(state.screen==='home')h+=storeRegisterBanner()+keyBackupBanner()+monthlyBanner();return h}
 // 온보딩에서 우리 가게 등록을 못 마친 경우에만 뜨는 지속 배너(등록에 성공하면 플래그가 해제돼 사라진다).
@@ -790,7 +899,14 @@ function screenHtml(d){if(state.screen==='history')return historyHtml(d);if(stat
 function statusPillsHtml(){const pills=[];if(!navigator.onLine)pills.push(`<span class="pill pill-offline">오프라인 — 장부는 계속 쓸 수 있어요</span>`);if(relayRegistered())pills.push(`<span class="pill pill-relay">공공기관 명단 받는 중</span>`);const n=num(state.inboxCount);if(relayRegistered()&&n>0)pills.push(`<button class="pill pill-alert" data-a="relay-inbox">📩 새 명단 신청 ${n}건 — 눌러서 확인</button>`);return pills.length?`<div class="pill-row">${pills.join('')}</div>`:''}
 function quickActionsHtml(){return `<div class="quick-actions"><button class="quick-action" data-a="quick-find-emp"><span aria-hidden="true">👤</span> 직원 찾기</button><button class="quick-action" data-a="quick-history"><span aria-hidden="true">🕐</span> 이력 보기</button></div>`}
 // 빈 화면은 "안내"로 끝내지 않고 바로 누를 수 있는 다음 행동(CTA)을 준다.
-function homeHtml(d){const pills=statusPillsHtml();if(!d.filtered.length)return `${pills}<div class="card empty">${(state.search.trim()||state.deptFilter)?'검색 결과가 없습니다.<br><button class="btn" data-a="reset-filter" style="margin-top:12px">초기화</button>':'아직 올린 직원이 없어요.<br>공공기관에서 받거나 직접 올릴 수 있어요.<br><button class="btn-primary" data-a="guide-add-employee" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">＋ 한 명씩 올리기</button>'}</div>`;const todayUse=state.data.transactions.filter(t=>t.type==='use'&&sameDay(t.createdAt,now())&&!d.voided.has(t.id)).reduce((s,t)=>s+num(t.amount),0);return `${pills}<div class="card summary"><div>오늘 사용 ${money(todayUse)}</div><div class="v">전체 잔액 ${money(d.total)}</div></div>${quickActionsHtml()}${d.homeGroups.map(g=>`<div class="card group"><div class="group-head"><div><div class="group-title">${esc(g.dept)}</div><div class="group-meta">직원 ${g.count}명</div></div><div class="bal ${g.totalBalance<0?'negative':g.totalBalance===0?'zero':''}">${money(g.totalBalance)}</div></div>${g.items.map(empCard).join('')}</div>`).join('')}<div class="card summary"><div>활성 직원 ${d.active.length}명</div><div class="v">잔액 합계 ${money(d.total)}</div></div>`}
+function homeHtml(d){const pills=statusPillsHtml();if(!d.filtered.length)return `${pills}<div class="card empty">${(state.search.trim()||state.deptFilter)?'검색 결과가 없습니다.<br><button class="btn" data-a="reset-filter" style="margin-top:12px">초기화</button>':'아직 올린 직원이 없어요.<br>공공기관에서 받거나 직접 올릴 수 있어요.<br><button class="btn-primary" data-a="guide-add-employee" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">＋ 한 명씩 올리기</button>'}</div>`;const todayUse=state.data.transactions.filter(t=>t.type==='use'&&sameDay(t.createdAt,now())&&!d.voided.has(t.id)).reduce((s,t)=>s+num(t.amount),0);
+// 그룹 헤더는 접힘/펼침 아코디언(설정의 toggle-dept와 같은 조작감, 상태는 홈 전용 키 state.homeExpanded).
+// 자동 펼침: 그룹이 1개뿐 / 검색어·부서 필터가 켜져 있을 때(검색이 "안 되는 것처럼" 보이지 않게).
+const forceOpen=!!(state.search.trim()||state.deptFilter)||d.homeGroups.length===1;
+const groupsHtml=d.homeGroups.map(g=>{const open=forceOpen||!!state.homeExpanded[g.key];const balCls=g.totalBalance<0?'negative':g.totalBalance===0?'zero':'';
+const body=!open?'':(g.subs?g.subs.map(s=>`${s.dept?`<div class="group-sub">${esc(s.dept)}</div>`:''}${s.items.map(empCard).join('')}`).join(''):g.items.map(empCard).join(''));
+return `<div class="card group"><div class="group-head" data-a="toggle-home-group" data-g="${esc(g.key)}"${forceOpen?' data-forced="1"':''} role="button" tabindex="0" aria-expanded="${open?'true':'false'}"><div class="group-headline"><span class="group-toggle" aria-hidden="true">${open?'▼':'▶'}</span><div><div class="group-title">${esc(g.label)}</div><div class="group-meta">직원 ${g.count}명</div></div></div><div class="bal ${balCls}">${money(g.totalBalance)}</div></div>${body}</div>`}).join('');
+return `${pills}<div class="card summary"><div>오늘 사용 ${money(todayUse)}</div><div class="v">전체 잔액 ${money(d.total)}</div></div>${quickActionsHtml()}${groupsHtml}`}
 function empCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';const initial=esc(Array.from(str(e.name))[0]||'?');return `<div class="card employee" style="display:flex;align-items:center;gap:12px"><div class="emp-avatar" aria-hidden="true">${initial}</div><div class="employee-main" data-a="history-for" data-id="${esc(e.id)}"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.name)}</div><div class="dept" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(orgDeptLabel(e)||'부서 없음')}${e.note?' · '+esc(e.note):''}</div></div><div class="bal ${c}" style="margin:0;white-space:nowrap;font-size:20px">${money(e.balance)}</div><button class="small" data-a="receipt" data-id="${esc(e.id)}" aria-label="${esc(e.name)} 잔액증표 보기" title="잔액증표(명함)" style="flex:0 0 auto;min-width:44px;font-size:18px">🧾</button><button class="btn-primary" data-a="use" data-id="${esc(e.id)}" style="min-width:auto;padding:10px 16px;flex:0 0 auto">사용</button></div>`}
 function historyHtml(d){if(state.historyTab==='employee')return historyByEmployee(d);return historyByDate(d)}
 function historyByDate(d){if(!d.dateGroups.length)return '<div class="card empty">거래 이력이 없습니다.<br>홈 화면에서 직원을 골라 [사용]을 눌러 등록해 보세요.<br><button class="btn-primary" data-a="go-home" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">홈으로 가기</button></div>';return d.dateGroups.map(g=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1.5px solid #eef1f4"><div class="name" style="font-size:16px">${esc(g.date)}</div><div style="font-size:12px;color:var(--muted)">${g.count}건${g.useTotal?` · 사용 ${money(g.useTotal)}`:''}</div></div><div class="list">${g.items.map(t=>txCardDate(t,d)).join('')}</div></div>`).join('')}
@@ -882,6 +998,10 @@ const clickActions={
 'add-dept':async()=>{await addDept()},
 'remove-dept':async(el)=>{await removeDept(Number(el.dataset.idx))},
 'toggle-dept':(el)=>{const dept=el.dataset.dept;state.expandedDepts[dept]=!state.expandedDepts[dept];render()},
+// 홈 그룹 아코디언 — 설정의 toggle-dept와 같은 패턴, 상태만 홈 전용(state.homeExpanded, 세션 내 유지·영속화 없음)
+// 자동 펼침(그룹 1개·검색·필터)으로 강제 펼쳐진 그룹은 탭해도 아무 상태를 기록하지 않는다(data-forced).
+//   기록하면 "지금은 접히지 않는" 탭이 몰래 상태를 뒤집어, 검색을 지운 뒤 엉뚱하게 펼쳐지거나 접혀 보인다.
+'toggle-home-group':(el)=>{if(el.dataset.forced==='1')return;const k=el.dataset.g;state.homeExpanded[k]=!state.homeExpanded[k];render()},
 'pin-key':async(el)=>{await handlePinKey(el.dataset.key)},
 'pin-reset':async()=>{await pinReset()},
 'pin-forgot':()=>{state.pinRecovery=true;render()},
@@ -933,7 +1053,10 @@ if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){stat
 // ── CRUD ──
 // 동일인 판정 키는 empMatchKey = "소속·부서 표시 라벨|이름"(돈이 어긋나는 유일한 경로 — 절대 좁히지 말 것).
 // 화면에서 같아 보이는 직원 = 같은 직원. 레거시(org='', dept='기관명 부서명')와 신규 분리 저장은 라벨이 같아 동일인으로 묶인다.
-async function saveEmployee(){const org=str(qs('empOrg')&&qs('empOrg').value),dept=str(qs('empDept')&&qs('empDept').value),name=str(qs('empName')&&qs('empName').value),note=str(qs('empNote')&&qs('empNote').value),t=now();if(!name){toast('직원명을 입력하세요.');return}if(state.modal.mode==='edit'){const old=state.data.employees.find(v=>v.id===state.modal.id);if(!old){toast('직원을 찾을 수 없습니다.');return}const key=empMatchKey({org,dept,name});const dup=state.data.employees.find(v=>v.id!==old.id&&!v.isDeleted&&empMatchKey(v)===key);if(dup){toast('같은 이름과 소속·부서의 활성 직원이 이미 있습니다.');return}const next={...old,org,dept,name,note,updatedAt:t};try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;render();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);toast('직원 수정 중 오류')}}else{const key=empMatchKey({org,dept,name});const hidden=state.data.employees.find(v=>v.isDeleted&&empMatchKey(v)===key);if(hidden){toast('같은 이름의 숨김 직원이 있습니다. 설정에서 복원하세요.');return}const dup=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===key);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${orgDeptLabel({org,dept})||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;const before=curBal;const tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'한 명씩 등록 추가 충전',note:note||'',createdAt:t});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;render();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);toast('충전 중 오류')}return}const emp={id:uid(),org,dept,name,note,isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;render();toast('직원을 등록했습니다.')}catch(err){console.error(err);toast('직원 등록 중 오류')}}}
+async function saveEmployee(){const org=str(qs('empOrg')&&qs('empOrg').value),dept=str(qs('empDept')&&qs('empDept').value),name=str(qs('empName')&&qs('empName').value),note=str(qs('empNote')&&qs('empNote').value),t=now();if(!name){toast('직원명을 입력하세요.');return}if(state.modal.mode==='edit'){const old=state.data.employees.find(v=>v.id===state.modal.id);if(!old){toast('직원을 찾을 수 없습니다.');return}const key=empMatchKey({org,dept,name});const dup=state.data.employees.find(v=>v.id!==old.id&&!v.isDeleted&&empMatchKey(v)===key);if(dup){toast('같은 이름과 소속·부서의 활성 직원이 이미 있습니다.');return}const next={...old,org,dept,name,note,updatedAt:t};
+// 소속·부서를 바꾸면 홈 그룹 분류 표식(orgKind)도 따라가야 한다 — 소속을 '개인'으로 바꿨는데 공공기관 부서 그룹에
+//   그대로 남으면 사장님이 옮길 방법이 없다. 소속·부서가 그대로면 표식을 유지한다(자동 등록 이력 보존).
+if(str(old.org)!==org||str(old.dept)!==dept)next.orgKind='';try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;render();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);toast('직원 수정 중 오류')}}else{const key=empMatchKey({org,dept,name});const hidden=state.data.employees.find(v=>v.isDeleted&&empMatchKey(v)===key);if(hidden){toast('같은 이름의 숨김 직원이 있습니다. 설정에서 복원하세요.');return}const dup=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===key);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${orgDeptLabel({org,dept})||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;const before=curBal;const tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'한 명씩 등록 추가 충전',note:note||'',createdAt:t});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;render();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);toast('충전 중 오류')}return}const emp={id:uid(),org,dept,name,note,isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;render();toast('직원을 등록했습니다.')}catch(err){console.error(err);toast('직원 등록 중 오류')}}}
 async function saveTopup(){const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('topupAmount')&&qs('topupAmount').value),reason=str(qs('topupReason')&&qs('topupReason').value)||'추가 선입금';if(isNaN(amount)||amount<=0){toast('충전 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}const before=balanceOf(emp.id),tx=await makeTx({employeeId:emp.id,type:'topup',amount,beforeBalance:before,afterBalance:before+amount,reason,note:''});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;render();toast('충전을 저장했습니다.')}catch(err){console.error(err);toast('충전 저장 중 오류')}}
 async function saveAdjust(){const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const newBal=parseWon(qs('adjustBalance')&&qs('adjustBalance').value),reason=str(qs('adjustReason')&&qs('adjustReason').value);if(isNaN(newBal)){toast('새 잔액은 정수(원 단위)만 입력할 수 있습니다.');return}if(newBal<0){toast('새 잔액은 0원 이상이어야 합니다.');return}if(!reason){toast('조정 사유를 입력하세요.');return}const before=balanceOf(emp.id),delta=newBal-before;if(delta===0){toast('현재 잔액과 동일합니다.');return}if(!window.confirm(`현재 잔액 ${money(before)} → ${money(newBal)}으로 조정하시겠습니까?`))return;const tx=await makeTx({employeeId:emp.id,type:'adjust',amount:delta,beforeBalance:before,afterBalance:newBal,reason,note:''});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;render();toast('잔액 조정을 저장했습니다.')}catch(err){console.error(err);toast('잔액 조정 중 오류')}}
 async function saveUse(){const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('useAmount')&&qs('useAmount').value);if(isNaN(amount)||amount<=0){toast('사용 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}const before=balanceOf(emp.id);if(before<amount){toast('잔액이 부족합니다.');return}if(!signPad||signPad.isEmpty()){toast('서명을 먼저 받아주세요.');return}const signatureData=signPad.toDataUrl();if(!signatureData){toast('서명을 저장할 수 없습니다.');return}const note=str(qs('useNote')&&qs('useNote').value);if(!window.confirm(`${emp.name} · ${money(amount)} 사용 저장하시겠습니까?\n\n잔액: ${money(before)} → ${money(before-amount)}`))return;setBusy('서명을 저장하는 중입니다.');try{const signatureHash=await hash(signatureData),tx=await makeTx({employeeId:emp.id,type:'use',amount,beforeBalance:before,afterBalance:before-amount,reason:'서명 확인',note,signatureData,signatureHash});await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();await maybeSendSms(emp,amount,before-amount);render();if(window.confirm(`✅ 저장 완료\n\n${emp.name} (${orgDeptLabel(emp)||'부서 없음'})\n사용: ${money(amount)}\n잔액: ${money(before-amount)}\n\n손님에게 잔액증표(명함)를 보여줄까요?`)){await openReceipt(emp.id)}}catch(err){console.error(err);clearBusy();toast('사용 등록 중 오류')}}
@@ -1118,7 +1241,7 @@ await repo.apply({employees:emps,transactions:txs});emps.forEach(upsertEmp);txs.
 // ── 전체 초기화 ──
 function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[],setupComplete:false}}}
 async function clearAppCachesAndWorker(){if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}}
-function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
+function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.homeExpanded={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
 // 초기화 후 온보딩/수신 상태 누수 방지(S4) — 이전 사용자의 가게 선택·검색 결과·동의·신청 건수가 남으면 안 된다.
 state.setupPickedStore=null;state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreResults=[];state.setupStoreSearching=false;state.setupStoreSearched=false;state.setupStoreFilteredOut=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false}
 async function wipeLocalData(){const empty=emptyAppData();await repo.replaceAll(empty);await clearAppCachesAndWorker();resetUiAfterWipe(empty);return empty}
@@ -1220,6 +1343,7 @@ const enrollGroup=`<div class="section-head" style="margin:2px 2px 8px"><div><di
 // 직원 목록 관리 — 조회·수정·충전·숨김 전용(등록 버튼은 위 [수동 등록] 카드로 이동)
 const employeeCard=`<div class="card settings-card">
 <div class="section-head"><div><div class="section-title">직원 목록 관리</div><div class="section-kicker">부서 ${deptGroups.length}개 · 직원 ${d.active.length}명 — 전화번호는 이 폰에만 저장돼요</div></div></div>
+<div class="summary mgr-summary"><div>활성 직원 ${d.active.length}명</div><div class="v">잔액 합계 ${money(d.total)}</div></div>
 ${empSection}
 </div>`;
 // 가게 연락처 — 담당자 화면의 [카톡·이메일로 보내기] 버튼을 켜는 선택 항목(우리 가게 등록 후에만 저장 가능)

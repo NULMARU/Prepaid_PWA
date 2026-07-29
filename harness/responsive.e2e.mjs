@@ -66,10 +66,11 @@ function check(cond, message) {
 
 // 시드 데이터: 짧은 이름 / 아주 긴 이름 / 7자리 금액 / 긴 "소속 부서" 라벨을 한 화면에 모두 올린다.
 const LONG_NAME = '김수한무거북이와두루미';
+// orgKind:'public' = 자동 등록(승인·직접 전달)으로 들어온 공공기관 직원 → 홈 그룹 헤더가 부서명만으로 나온다.
 const SEED_EMPLOYEES = [
-  { id: 'r-emp-1', org: '', dept: '총무부', name: '김민수', amount: 9000 },
-  { id: 'r-emp-2', org: '강남구청', dept: '여성가족정책과', name: LONG_NAME, amount: 1234567 },
-  { id: 'r-emp-3', org: '한빛물산', dept: '총무부', name: '이서연', amount: 1000000 }
+  { id: 'r-emp-1', org: '', orgKind: '', dept: '총무부', name: '김민수', amount: 9000 },
+  { id: 'r-emp-2', org: '강남구청', orgKind: 'public', dept: '여성가족정책과', name: LONG_NAME, amount: 1234567 },
+  { id: 'r-emp-3', org: '한빛물산', orgKind: '', dept: '총무부', name: '이서연', amount: 1000000 }
 ];
 
 async function seed(page) {
@@ -82,7 +83,7 @@ async function seed(page) {
       const tx = db.transaction(['employees', 'transactions', 'meta'], 'readwrite');
       const es = tx.objectStore('employees'), ts = tx.objectStore('transactions'), ms = tx.objectStore('meta');
       emps.forEach((e, i) => {
-        es.put({ id: e.id, org: e.org, dept: e.dept, name: e.name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
+        es.put({ id: e.id, org: e.org, orgKind: e.orgKind, dept: e.dept, name: e.name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
         // txHash 없이 넣는다(레거시 취급) — 잔액 계산에는 영향이 없고 해시체인 검증도 건너뛴다.
         ts.put({ id: 'r-tx-' + i, employeeId: e.id, type: 'open', amount: e.amount, beforeBalance: 0, afterBalance: e.amount, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t });
       });
@@ -105,6 +106,17 @@ async function unlock(page) {
   await page.waitForSelector('[data-a="quick-find-emp"]', { timeout: 8000 });
 }
 
+// 홈 그룹은 기본 접힘(아코디언, beta.14) — 기하 검증은 "펼친 상태"에서 해야 의미가 있다.
+async function expandHomeGroups(page) {
+  for (let guard = 0; guard < 40; guard += 1) {
+    const collapsed = page.locator('.group-head[aria-expanded="false"]');
+    if (await collapsed.count() === 0) return;
+    await collapsed.first().click();
+    await page.waitForTimeout(60);
+  }
+  throw new Error('failed to expand every home group header');
+}
+
 async function noHorizontalOverflow(page, label, w) {
   const m = await page.evaluate(() => ({
     docScroll: document.documentElement.scrollWidth,
@@ -124,8 +136,33 @@ async function runViewport(context, url, w) {
   await page.reload({ waitUntil: 'load' });
   await unlock(page);
 
-  // ── 홈: 가로 스크롤 없음 ──
-  await noHorizontalOverflow(page, '홈', w);
+  // ── 홈: 가로 스크롤 없음 (접힌 기본 상태) ──
+  await noHorizontalOverflow(page, '홈(그룹 접힘)', w);
+
+  // ── 그룹 헤더(아코디언): 손가락 터치 타겟 + 화면 안쪽 ──
+  const clientW = await page.evaluate(() => document.documentElement.clientWidth);
+  const heads = await page.evaluate(() => [...document.querySelectorAll('.group-head')].map(h => {
+    const r = h.getBoundingClientRect();
+    return { text: h.innerText.replace(/\n/g, ' ').trim(), height: r.height, left: r.left, right: r.right };
+  }));
+  check(heads.length === 3, `${w}px 홈: 그룹 헤더 3개(여성가족정책과 / 한빛물산 / 총무부)가 렌더되어야 한다 (${heads.length}개)`);
+  check(heads.some(h => h.text.startsWith('▶') && /직원 \d+명/.test(h.text)), `${w}px 홈: 접힌 그룹 헤더에 ▶와 인원수가 보여야 한다 ${JSON.stringify(heads.map(h => h.text))}`);
+  heads.forEach(h => {
+    if (w <= 640) check(h.height >= 48, `${w}px 홈: 그룹 헤더 터치 타겟이 48px 미만 (${Math.round(h.height)}px · "${h.text}")`);
+    check(h.right <= clientW + 1 && h.left >= -1, `${w}px 홈: 그룹 헤더가 화면 밖으로 나갔다 ("${h.text}")`);
+  });
+  // 공공기관(자동 등록) 그룹 헤더는 부서명만, 회사 그룹은 회사명만 — 좁은 화면에서도 문구가 그대로여야 한다.
+  const headTitles = (await page.locator('.group-title').allInnerTexts()).map(t => t.trim());
+  check(headTitles.includes('여성가족정책과'), `${w}px 홈: 공공기관 그룹 헤더는 부서명만이어야 한다 ${JSON.stringify(headTitles)}`);
+  check(headTitles.includes('한빛물산'), `${w}px 홈: 회사 그룹 헤더는 회사명만이어야 한다 ${JSON.stringify(headTitles)}`);
+
+  // ── 펼친 뒤에도 가로로 밀리지 않아야 한다(기하 단언은 전부 펼친 상태에서) ──
+  await expandHomeGroups(page);
+  await noHorizontalOverflow(page, '홈(그룹 펼침)', w);
+  const cardCount = await page.locator('.card.employee').count();
+  check(cardCount === 3, `${w}px 홈: 그룹을 모두 펼치면 직원 카드 3장이 보여야 한다 (${cardCount}장)`);
+  const subs = (await page.locator('.group-sub').allInnerTexts()).map(t => t.trim());
+  check(subs.includes('총무부'), `${w}px 홈: 회사 그룹을 펼치면 부서 소제목이 보여야 한다 ${JSON.stringify(subs)}`);
 
   // ── 직원 이름/부서가 잘리지 않아야 한다(금액도 축약 금지 — 전액 표기) ──
   const clipped = await page.evaluate(() => {
@@ -197,9 +234,52 @@ async function runViewport(context, url, w) {
   await page.locator('[data-a="screen"][data-screen="settings"]').click();
   await page.waitForSelector('[data-a="quick-add-employee"]');
   await noHorizontalOverflow(page, '설정', w);
+  // 홈 하단에서 옮겨온 요약(활성 직원 수 · 잔액 합계)이 [직원 목록 관리] 카드 안에서 밀리지 않아야 한다.
+  const mgr = await page.evaluate(() => {
+    const el = document.querySelector('.mgr-summary');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { text: el.innerText.replace(/\n/g, ' ').trim(), left: r.left, right: r.right, scroll: el.scrollWidth, client: el.clientWidth };
+  });
+  check(Boolean(mgr), `${w}px 설정: 직원 목록 관리 카드 상단 요약(.mgr-summary)이 있어야 한다`);
+  if (mgr) {
+    check(mgr.text.includes('활성 직원') && mgr.text.includes('잔액 합계'), `${w}px 설정: 요약 문구가 "활성 직원 N명 · 잔액 합계 X원"이어야 한다 ("${mgr.text}")`);
+    check(mgr.right <= clientW + 1 && mgr.left >= -1, `${w}px 설정: 요약이 화면 밖으로 나갔다`);
+    check(mgr.scroll <= mgr.client + 1, `${w}px 설정: 요약 텍스트가 잘렸다 (${mgr.scroll} > ${mgr.client})`);
+  }
   await page.locator('[data-a="screen"][data-screen="history"]').click();
   await page.waitForTimeout(120);
   await noHorizontalOverflow(page, '이력', w);
+
+  // ── 제목이 겹치는 그룹(공공 '여성가족정책과' vs 무소속 '여성가족정책과')은 구분자가 붙어 제목이 길어진다.
+  //    좁은 화면에서 그 긴 제목이 화면 밖으로 밀리거나 잘리지 않아야 한다.
+  await page.evaluate(({ t }) => new Promise((resolve, reject) => {
+    const req = indexedDB.open('prepaid-ledger-db');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(['employees', 'transactions'], 'readwrite');
+      tx.objectStore('employees').put({ id: 'r-emp-4', org: '', orgKind: '', dept: '여성가족정책과', name: '박지훈', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
+      tx.objectStore('transactions').put({ id: 'r-tx-9', employeeId: 'r-emp-4', type: 'open', amount: 9000, beforeBalance: 0, afterBalance: 9000, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    };
+  }), { t: Date.now() });
+  await page.reload({ waitUntil: 'load' });
+  await unlock(page);
+  await noHorizontalOverflow(page, '홈(제목 구분자)', w);
+  const dupTitles = (await page.locator('.group-title').allInnerTexts()).map(t => t.trim());
+  check(dupTitles.includes('여성가족정책과 (강남구청)'), `${w}px 홈: 제목이 겹치는 공공기관 그룹은 "부서명 (기관명)"이어야 한다 ${JSON.stringify(dupTitles)}`);
+  check(dupTitles.includes('여성가족정책과 (소속 없음)'), `${w}px 홈: 제목이 겹치는 무소속 그룹은 "제목 (소속 없음)"이어야 한다 ${JSON.stringify(dupTitles)}`);
+  check(new Set(dupTitles).size === dupTitles.length, `${w}px 홈: 그룹 제목이 서로 같으면 구분할 수 없다 ${JSON.stringify(dupTitles)}`);
+  const dupHeads = await page.evaluate(() => [...document.querySelectorAll('.group-head')].map(h => {
+    const r = h.getBoundingClientRect(), t = h.querySelector('.group-title');
+    return { text: t ? t.textContent.trim() : '', left: r.left, right: r.right, clipped: t ? t.scrollWidth > t.clientWidth + 1 : false };
+  }));
+  dupHeads.forEach(h => {
+    check(h.right <= clientW + 1 && h.left >= -1, `${w}px 홈: 구분자가 붙은 그룹 헤더가 화면 밖으로 나갔다 ("${h.text}")`);
+    check(!h.clipped, `${w}px 홈: 구분자가 붙은 그룹 제목이 잘렸다 ("${h.text}")`);
+  });
 
   await page.close();
 }

@@ -72,6 +72,18 @@ async function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+// 홈 그룹은 기본 접힘(아코디언, beta.14)이다 — 직원 카드를 눌러야 하는 시나리오에서는 먼저 그룹 헤더를 탭해 펼친다.
+// 검색어·부서 필터를 켠 경로는 앱이 스스로 펼치므로 이 함수를 쓰지 않는다(자동 펼침을 그대로 검증하기 위함).
+async function expandHomeGroups(page) {
+  for (let guard = 0; guard < 40; guard += 1) {
+    const collapsed = page.locator('.group-head[aria-expanded="false"]');
+    if (await collapsed.count() === 0) return;
+    await collapsed.first().click();
+    await page.waitForTimeout(60);
+  }
+  throw new Error('failed to expand every home group header');
+}
+
 async function readDb(page) {
   return page.evaluate(() => new Promise((resolve, reject) => {
     const req = indexedDB.open('prepaid-ledger-db');
@@ -290,6 +302,12 @@ async function main() {
     await page.waitForTimeout(150);
     await assert(await page.locator('.dept-tags .dept-tag', { hasText: 'Dept Q' }).count() > 0, 'quick add should auto-create the missing department');
 
+    // ②-1 홈 하단에서 옮겨온 "활성 직원 N명 · 잔액 합계" 요약은 [직원 목록 관리] 카드 상단에 있어야 한다.
+    //      (새 .section-title을 만들지 않는다 — e2e 계약상 "직원 목록 관리" 제목은 정확히 1개)
+    const mgrSummary = await page.locator('.mgr-summary').innerText();
+    await assert(mgrSummary.includes('활성 직원 2명') && mgrSummary.includes('잔액 합계 39,000원'), `직원 목록 관리 카드 상단에 활성 직원 수·잔액 합계 요약이 있어야 한다 (got "${mgrSummary.replace(/\n/g, ' ')}")`);
+    await assert((await page.locator('.section-title').allInnerTexts()).filter(t => t.includes('직원 목록 관리')).length === 1, 'the moved summary must not introduce a second 직원 목록 관리 section title');
+
     const afterQuickAdd = await readDb(page);
     const empA = afterQuickAdd.employees.find(e => e.name === 'User A');
     const empQ = afterQuickAdd.employees.find(e => e.name === 'User Q');
@@ -309,6 +327,39 @@ async function main() {
     await assert(!/0109999/.test(JSON.stringify(afterPhone.employees)), 'the phone number must be stored encrypted, never as raw digits, in IndexedDB');
 
     await page.locator('[data-a="screen"][data-screen="home"]').click();
+
+    // ── 홈 그룹 아코디언(beta.14) ────────────────────────────────────────────
+    // 그룹이 2개 이상이면 기본 접힘: 헤더에 인원수·잔액 소계만 보이고 직원 카드는 감춰진다.
+    await assert(await count(page, '.group-head') === 2, 'home should render one collapsible header per group (Dept A / Dept Q)');
+    await assert(await count(page, '.card.employee') === 0, 'with more than one group, home groups must start collapsed');
+    const collapsedHead = await page.locator('.group-head').first().innerText();
+    await assert(/직원 \d+명/.test(collapsedHead), `a collapsed group header must show the member count (got "${collapsedHead.replace(/\n/g, ' ')}")`);
+    await assert(/[\d,]+원/.test(collapsedHead), `a collapsed group header must show the balance subtotal (got "${collapsedHead.replace(/\n/g, ' ')}")`);
+    await assert(collapsedHead.includes('▶'), 'a collapsed group header must show a ▶ affordance');
+    const headBox = await page.locator('.group-head').first().boundingBox();
+    await assert(Boolean(headBox) && headBox.height >= 48, `a group header must be a comfortable tap target on a phone (got ${headBox && Math.round(headBox.height)}px)`);
+    // 하단 요약은 홈에서 제거되어 설정 > 직원 목록 관리로 옮겨졌다.
+    await assert(!(await page.locator('.app').innerText()).includes('잔액 합계'), 'the "잔액 합계" summary must no longer sit at the bottom of home');
+
+    // (e) 검색어가 있으면 매칭 그룹이 자동으로 펼쳐져야 한다(검색이 "안 되는 것처럼" 보이면 안 됨).
+    await page.locator('#searchInput').fill('User Q');
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.card.employee') === 1, 'a search must auto-expand the matching group without an extra tap');
+    await assert(await count(page, '.group-head[aria-expanded="true"]') === 1, 'the matching group header should report itself expanded during a search');
+    await page.locator('#searchInput').fill('');
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.card.employee') === 0, 'clearing the search should return the groups to the collapsed default');
+
+    // 부서 필터도 동일 — 고른 그룹만 남고 자동으로 펼쳐진다(옵션 문구 = 그룹 헤더 문구).
+    await page.locator('#deptFilterSelect').selectOption({ label: 'Dept Q' });
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.group-head') === 1 && await count(page, '.card.employee') === 1, 'picking a department in the filter should leave exactly that group, auto-expanded');
+    await page.locator('[data-a="reset-filter"]').click();
+    await page.waitForTimeout(150);
+
+    await expandHomeGroups(page);
+    await assert(await count(page, '.card.employee') === 2, 'tapping the group headers should reveal the employee cards');
+    await assert((await page.locator('.group-head').first().innerText()).includes('▼'), 'an expanded group header should flip the arrow to ▼');
 
     // 디자인 3종: 직원 아바타 배지 + 홈 퀵액션 2버튼이 홈에 존재해야 한다
     await assert(await count(page, '.emp-avatar') >= 2, 'each employee card should render a first-letter avatar badge');
@@ -620,6 +671,9 @@ async function main() {
     }), { ts: prevTs });
     await page.reload({ waitUntil: 'load' });
     await unlock();
+    // 새로고침하면 그룹 펼침 상태(세션 상태)가 초기화되므로 다시 펼쳐야 직원 카드가 보인다.
+    await page.waitForSelector('.group-head');
+    await expandHomeGroups(page);
     await page.waitForSelector('[data-a="receipt"]');
 
     // 무결성 실패(변조 감지) 시 증표는 잔액 숫자 대신 경고를 표시해야 한다 (안전장치 ②: 해시체인 재검증)
@@ -646,6 +700,8 @@ async function main() {
     for (const key of ['1', '2', '3', '4']) {
       await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
     }
+    await page.waitForSelector('.group-head');
+    await expandHomeGroups(page);
     await page.waitForSelector('[data-a="receipt"]');
     await page.locator('[data-a="receipt"]').first().click();
     await page.waitForSelector('.receipt-modal', { timeout: 3000 });
@@ -775,6 +831,7 @@ async function main() {
     await assert(Boolean(empRelay), 'a direct-transfer batch should create the employee');
     await assert(empRelay.org === '강남구청', 'the institution must be stored in the new org field, not merged into dept');
     await assert(empRelay.dept === '세무과', 'the department must be stored on its own (no "기관명 부서명" concatenation)');
+    await assert(empRelay.orgKind === 'public', 'a direct-transfer (institution) employee must be flagged orgKind=public for home grouping');
 
     // 레거시(합성 dept, org 없음) 직원을 심어 표시 결과가 신규 저장 방식과 동일함을 확인한다.
     await page.evaluate(({ t }) => new Promise((resolve, reject) => {
@@ -791,12 +848,16 @@ async function main() {
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
-    const homeGroupTitles = () => page.locator('.group-title').allInnerTexts();
+    const homeGroupTitles = async () => (await page.locator('.group-title').allInnerTexts()).map(t => t.trim());
     let titles = await homeGroupTitles();
-    await assert(titles.includes('강남구청 세무과'), 'a split org/dept employee must still render the combined "공공기관명 부서명" group header');
-    await assert(titles.includes('서초구청 총무과'), 'a legacy employee (concatenated dept, no org) must render exactly the same way');
+    // (a) 공공기관(자동 등록) 그룹 헤더는 부서명만 — 기관명을 반복하지 않는다.
+    await assert(titles.includes('세무과'), `an auto-enrolled institution group header should show the department name only (got ${JSON.stringify(titles)})`);
+    await assert(!titles.some(t => t.includes('강남구청 세무과')), 'the institution name must not be repeated in a public group header');
+    // (d) 레거시(합성 dept, org 없음) 직원의 헤더는 예전 그대로 결합 라벨을 유지한다.
+    await assert(titles.includes('서초구청 총무과'), 'a legacy employee (concatenated dept, no org) must keep its combined header unchanged');
+    await expandHomeGroups(page);
     const relayCardText = await page.locator('.card.employee', { hasText: '공공직원' }).first().innerText();
-    await assert(relayCardText.includes('강남구청 세무과'), 'the employee card dept line should show the combined org+dept label');
+    await assert(relayCardText.includes('강남구청 세무과'), 'the employee card dept line should still show the combined org+dept label');
 
     // (b)(c) 소속을 입력한 등록 / 소속을 비운 등록
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
@@ -813,8 +874,33 @@ async function main() {
     await assert(Boolean(empCorp) && empCorp.org === '한빛물산' && empCorp.dept === '총무부', 'the optional 소속 input should be saved into org, separate from dept');
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     titles = await homeGroupTitles();
-    await assert(titles.includes('한빛물산 총무부'), 'an employee registered with 소속 should be grouped under "소속 부서"');
+    // (b) 회사(소속이 있고 공공기관·개인이 아닌 경우) 헤더 = 회사명만, 부서는 펼쳤을 때 소제목으로 나온다.
+    await assert(titles.includes('한빛물산'), `an employee registered with a company 소속 should be grouped under the company name alone (got ${JSON.stringify(titles)})`);
+    await assert(!titles.some(t => t.includes('한빛물산 총무부')), 'a company group header must not repeat the department name');
+    await page.locator('.group-head', { hasText: '한빛물산' }).first().click();
+    await page.waitForTimeout(150);
+    const corpGroup = page.locator('.card.group', { hasText: '한빛물산' }).first();
+    const corpSubs = (await corpGroup.locator('.group-sub').allInnerTexts()).map(t => t.trim());
+    await assert(corpSubs.includes('총무부'), `expanding a company group should list its department as a sub-heading (got ${JSON.stringify(corpSubs)})`);
+    await assert((await corpGroup.locator('.card.employee').count()) === 1, 'the company group should hold its employee card under the department sub-heading');
     await assert(titles.includes('Dept A'), 'an employee registered with an empty 소속 must behave exactly as before (dept only)');
+
+    // (c) 소속='개인' → 홈에서 "개인" 그룹 하나로 묶인다.
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.locator('[data-a="add-employee"]').click();
+    await page.waitForSelector('#empOrg');
+    await page.locator('#empOrg').fill('개인');
+    await page.locator('#empName').fill('개인고객');
+    await page.locator('#empOpen').fill('11000');
+    await page.locator('[data-a="save-employee"]').click();
+    await page.waitForTimeout(250);
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    titles = await homeGroupTitles();
+    await assert(titles.filter(t => t === '개인').length === 1, `소속='개인' employees should land in exactly one "개인" group (got ${JSON.stringify(titles)})`);
+    // 정렬: 공공기관(부서 가나다) → 회사 → 개인 → 무소속·레거시
+    await assert(titles.indexOf('세무과') < titles.indexOf('한빛물산'), 'public-institution groups should sort before company groups');
+    await assert(titles.indexOf('한빛물산') < titles.indexOf('개인'), 'company groups should sort before the 개인 group');
+    await assert(titles.indexOf('개인') < titles.indexOf('Dept A'), 'the 개인 group should sort before the unaffiliated/legacy groups');
 
     // (e) 동일인 판정 키 org|dept|name
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
@@ -1032,6 +1118,227 @@ async function main() {
     const wiped = await readDb(page);
     await assert(wiped.employees.length === 0 && wiped.transactions.length === 0, 'lock-screen reset should wipe local data');
 
+    // ───────────────────────────────────────────────────────────────
+    // 홈 그룹 회귀 (집중 리뷰 7건) — 초기화 직후의 빈 장부에 시나리오별 데이터를 직접 심어 검증한다.
+    //   원칙 고정: 매칭 키(orgDeptLabel + 이름)와 충전 로직은 아래 어떤 검증에서도 바뀌지 않는다.
+    // ───────────────────────────────────────────────────────────────
+    inboxCountBody = null;
+    const pinHash = crypto.createHash('sha256').update('1234').digest('hex');
+    // 시드 → 리로드 → PIN 해제까지 한 번에. 직원·거래는 매번 새로 깔고(clear) 나머지 메타는 인자로 덧붙인다.
+    const seedHome = async (emps, extraMeta = {}) => {
+      await page.evaluate(({ emps, hash, t, extraMeta }) => new Promise((resolve, reject) => {
+        const req = indexedDB.open('prepaid-ledger-db');
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction(['employees', 'transactions', 'meta'], 'readwrite');
+          const es = tx.objectStore('employees'), ts = tx.objectStore('transactions'), ms = tx.objectStore('meta');
+          es.clear(); ts.clear();
+          emps.forEach((e, i) => {
+            es.put({ id: e.id, org: e.org || '', orgKind: e.orgKind || '', dept: e.dept || '', name: e.name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
+            ts.put({ id: 'grp-tx-' + i, employeeId: e.id, type: 'open', amount: e.amount || 1000, beforeBalance: 0, afterBalance: e.amount || 1000, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t });
+          });
+          ms.put({ key: 'setupComplete', value: true });
+          ms.put({ key: 'termsAgreedAt', value: t });
+          ms.put({ key: 'storeRegisterPending', value: false });
+          ms.put({ key: 'pinHash', value: hash });
+          ms.put({ key: 'shopName', value: 'Harness Shop' });
+          ms.put({ key: 'departments', value: [] });
+          Object.entries(extraMeta).forEach(([k, v]) => ms.put({ key: k, value: v }));
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => reject(tx.error);
+        };
+      }), { emps, hash: pinHash, t: Date.now(), extraMeta });
+      await page.reload({ waitUntil: 'load' });
+      await unlock();
+      await page.waitForSelector('[data-a="quick-find-emp"]', { timeout: 8000 });
+    };
+    const groupTitles = async () => (await page.locator('.group-title').allInnerTexts()).map(t => t.trim());
+    const filterOptions = async () => (await page.locator('#deptFilterSelect option').allInnerTexts()).map(t => t.trim());
+    const balanceOfId = (db, id) => db.transactions.filter(tx => tx.employeeId === id).reduce((s, tx) => s + (tx.type === 'use' ? -Number(tx.amount || 0) : Number(tx.amount || 0)), 0);
+    // 설정 > 직원 목록 관리는 부서별 아코디언이다(펼침 상태가 세션 내 유지됨) — 이름으로 행을 찾아 [수정]을 연다.
+    const openEditFor = async (name) => {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await page.waitForTimeout(200);
+      for (let guard = 0; guard < 12; guard += 1) {
+        const btn = page.locator('.row', { hasText: name }).locator('[data-a="edit-employee"]');
+        if (await btn.count()) { await btn.first().click(); await page.waitForSelector('#empOrg'); return; }
+        const collapsed = page.locator('.mgr-head', { hasText: '▶' });
+        if (!(await collapsed.count())) break;
+        await collapsed.first().click();
+        await page.waitForTimeout(120);
+      }
+      throw new Error(`could not open the edit modal for ${name}`);
+    };
+
+    // (1) 부분 백필 — 레거시 3명(합성 dept) 중 2명만 이번 달 명단에 있어도 홈에서는 한 부서(한 그룹)로 남아야 한다.
+    //     같은 결합 라벨 = 같은 그룹이라는 원칙상, 명단에 이름이 없는 동료도 함께 소속·부서 분리 저장으로 정리된다.
+    await seedHome([
+      { id: 'bf-1', org: '', orgKind: '', dept: '강남구청 세무과', name: '김레거시', amount: 5000 },
+      { id: 'bf-2', org: '', orgKind: '', dept: '강남구청 세무과', name: '박레거시', amount: 6000 },
+      { id: 'bf-3', org: '', orgKind: '', dept: '강남구청 세무과', name: '명단없음', amount: 7000 }
+    ], { restaurantId: 'rid-group-1', relayStoreName: 'Harness Shop', relayRegisteredAt: Date.now() });
+    await assert((await groupTitles()).length === 1, 'the three legacy employees should start as a single combined-label group');
+    // 백업 갱신 확인(승인 직후 confirm)이 실제 서버로 나가지 않게 도장을 찍어둔다.
+    await page.evaluate(({ pub }) => {
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        const url = String(u);
+        if (url.includes('/api/challenge')) {
+          const pk = await crypto.subtle.importKey('spki', b2u(pub).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+          const cc = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pk, new TextEncoder().encode('TESTTOKEN'));
+          return new Response(JSON.stringify({ challenge_ct: u2b(cc) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.includes('/api/ledger-backup')) return new Response('{"ok":true,"updated_at":"2026-07-01T00:00:00Z"}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return orig(u, o);
+      };
+    }, { pub: (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {}).pubKey });
+    // 부서 필터를 레거시 그룹에 걸어둔 상태로 수신한다 — 백필로 그룹 키가 바뀌어도 화면이 막히면 안 된다(자기치유).
+    await page.locator('#deptFilterSelect').selectOption({ index: 1 });
+    await page.waitForTimeout(150);
+    const bfMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    const bfJson = await page.evaluate(async ({ pubKey, rid }) => {
+      const enc = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      // 3명 중 2명만 명단에 있고, 1명은 신규다.
+      const items = [{ name: '김레거시', dept: '세무과', amount: 1000 }, { name: '박레거시', dept: '세무과', amount: 2000 }, { name: '신규직원', dept: '세무과', amount: 3000 }];
+      const h = async t => { const d = await crypto.subtle.digest('SHA-256', enc.encode(String(t))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+      const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+      const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify({ items })));
+      const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+      const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
+      return JSON.stringify({
+        v: 1, type: 'direct-transfer', restaurant_id: rid, restaurant_name: 'Harness Shop',
+        institution: '강남구청', department: '세무과', year_month: '2026-07',
+        summary: { total_amount: 6000, member_count: 3, batch_hash },
+        ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
+      });
+    }, { pubKey: bfMeta.pubKey, rid: 'rid-group-1' });
+    await page.locator('#directTransferFile').setInputFiles({ name: 'partial.json', mimeType: 'application/json', buffer: Buffer.from(bfJson, 'utf8') });
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+    await page.waitForTimeout(400);
+    const bfDb = await readDb(page);
+    const bfLeft = bfDb.employees.find(e => e.name === '명단없음');
+    await assert(Boolean(bfLeft) && bfLeft.org === '강남구청' && bfLeft.dept === '세무과' && bfLeft.orgKind === 'public',
+      `an active colleague with the same combined label must be backfilled too, even when this month's roster omits them (got org="${bfLeft && bfLeft.org}" dept="${bfLeft && bfLeft.dept}" orgKind="${bfLeft && bfLeft.orgKind}")`);
+    await assert(balanceOfId(bfDb, 'bf-3') === 7000, 'backfilling a colleague who is not on the roster must not touch their balance');
+    await assert(bfDb.employees.filter(e => !e.isDeleted).length === 4, 'the roster should add exactly one new employee (2 matched + 1 new)');
+    let bfTitles = await groupTitles();
+    await assert(bfTitles.length === 1 && bfTitles[0] === '세무과', `a partially-matched roster must leave one single home group, not split the department in two (got ${JSON.stringify(bfTitles)})`);
+    await assert((await page.locator('.group-meta').first().innerText()).includes('직원 4명'), 'the single group should hold all four employees');
+    await assert(await count(page, '.card.empty') === 0, 'the stale department filter must heal itself instead of showing an empty home');
+    await assert((await page.locator('#deptFilterSelect').inputValue()) === '', 'a department filter whose group key no longer exists should fall back to 전체 부서');
+
+    // (2) 표시 제목 충돌 — 공공기관 '세무과'와 무소속 '세무과'가 공존하면 헤더·필터 문구가 서로 구분돼야 한다.
+    await seedHome([
+      { id: 'dup-1', org: '강남구청', orgKind: 'public', dept: '세무과', name: '공공갑', amount: 1000 },
+      { id: 'dup-2', org: '', orgKind: '', dept: '세무과', name: '무소속을', amount: 2000 },
+      { id: 'dup-3', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '회사병', amount: 3000 }
+    ]);
+    const dupTitles = await groupTitles();
+    await assert(new Set(dupTitles).size === dupTitles.length, `home group headers must be unique — the owner cannot tell two identically titled groups apart (got ${JSON.stringify(dupTitles)})`);
+    await assert(dupTitles.includes('세무과 (강남구청)'), `a colliding public group should be qualified with its institution (got ${JSON.stringify(dupTitles)})`);
+    await assert(dupTitles.includes('세무과 (소속 없음)'), `a colliding unaffiliated group should be qualified as 소속 없음 (got ${JSON.stringify(dupTitles)})`);
+    const dupOpts = (await filterOptions()).slice(1);
+    await assert(new Set(dupOpts).size === dupOpts.length, `department filter options must be unique too (got ${JSON.stringify(dupOpts)})`);
+    await assert(dupOpts.join('|') === dupTitles.join('|'), `filter option wording must match the group headers 1:1 (opts ${JSON.stringify(dupOpts)} vs titles ${JSON.stringify(dupTitles)})`);
+    // 겹치지 않는 회사 그룹에는 군더더기 꼬리표가 붙지 않는다.
+    await assert(dupTitles.includes('한빛물산'), 'a group whose title does not collide must stay unqualified');
+
+    // (2-b) 그룹 키는 자유 입력 문자열로 깨지지 않아야 한다(구분자 이스케이프) — 두 그룹이 한 그룹으로 합쳐지면 잔액 소계가 섞인다.
+    await seedHome([
+      { id: 'sep-1', org: 'A⟩B', orgKind: 'public', dept: 'C', name: '첫째', amount: 1000 },
+      { id: 'sep-2', org: 'A', orgKind: 'public', dept: 'B⟩C', name: '둘째', amount: 2000 }
+    ]);
+    await assert(await count(page, '.group-head') === 2, 'a separator character typed into 소속/부서 must not merge two different groups into one');
+    const sepKeys = await page.$$eval('.group-head', els => els.map(el => el.dataset.g));
+    await assert(new Set(sepKeys).size === 2, `group keys must stay distinct for values containing the separator (got ${JSON.stringify(sepKeys)})`);
+
+    // (3) 필터를 켠 채 소속을 수정하면 필터 키가 사라진다 → 홈 복귀 시 전체 부서로 자기치유되고 직원이 보여야 한다.
+    await seedHome([
+      { id: 'heal-1', org: 'A사', orgKind: '', dept: '1팀', name: '갑', amount: 1000 },
+      { id: 'heal-2', org: 'B사', orgKind: '', dept: '2팀', name: '을', amount: 2000 }
+    ]);
+    await page.locator('#deptFilterSelect').selectOption({ label: 'A사' });
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.group-head') === 1, 'picking a company filter should leave that group only');
+    await openEditFor('갑');
+    await page.locator('#empOrg').fill('A사(변경)');
+    await page.locator('[data-a="save-employee"]').click();
+    await page.waitForTimeout(300);
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(250);
+    await assert((await page.locator('#deptFilterSelect').inputValue()) === '', 'editing the filtered group away should reset the filter to 전체 부서');
+    await assert(await count(page, '.card.empty') === 0, 'home must not be stuck on "검색 결과가 없습니다" after the filtered group key changed');
+    await assert(await count(page, '.group-head') === 2, 'both groups should be listed again after the filter healed');
+    await assert((await groupTitles()).includes('A사(변경)'), 'the renamed 소속 should show up as its own group');
+
+    // (4) 자동 등록(공공기관) 직원의 소속을 '개인'으로 바꾸면 개인 그룹으로 옮겨져야 한다(orgKind 고착 금지).
+    await seedHome([
+      { id: 'kind-1', org: '강남구청', orgKind: 'public', dept: '세무과', name: '공공직원', amount: 4000 },
+      { id: 'kind-2', org: '강남구청', orgKind: 'public', dept: '세무과', name: '남는직원', amount: 5000 }
+    ]);
+    const movedName = '공공직원', stayName = '남는직원';
+    await openEditFor(movedName);
+    await page.locator('#empOrg').fill('개인');
+    await page.locator('#empDept').fill('');
+    await page.locator('[data-a="save-employee"]').click();
+    await page.waitForTimeout(300);
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(200);
+    const kindDb = await readDb(page);
+    const kindEdited = kindDb.employees.find(e => e.name === movedName);
+    await assert(kindEdited.org === '개인' && kindEdited.dept === '' && kindEdited.orgKind === '',
+      `changing 소속/부서 by hand must clear the auto-enrollment grouping flag (got org="${kindEdited.org}" orgKind="${kindEdited.orgKind}")`);
+    const kindTitles = await groupTitles();
+    await assert(kindTitles.includes('개인'), `an employee moved to 소속='개인' must land in the 개인 group (got ${JSON.stringify(kindTitles)})`);
+    await assert(kindTitles.includes('세무과'), 'the untouched colleague should stay in the institution group');
+    // 소속·부서를 그대로 두고 메모만 고치면 표식은 유지된다(자동 등록 이력 보존).
+    await openEditFor(stayName);
+    await page.locator('#empNote').fill('메모만 변경');
+    await page.locator('[data-a="save-employee"]').click();
+    await page.waitForTimeout(300);
+    const keptKind = (await readDb(page)).employees.find(e => e.name === stayName);
+    await assert(keptKind.orgKind === 'public', 'editing only the memo must keep orgKind=public (the employee did not move)');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(200);
+
+    // (5) 그룹 헤더 키보드 조작 — role="button"이므로 Enter/Space로도 펼치고 접을 수 있어야 한다.
+    await seedHome([
+      { id: 'kb-1', org: 'A사', orgKind: '', dept: '1팀', name: '갑', amount: 1000 },
+      { id: 'kb-2', org: 'B사', orgKind: '', dept: '2팀', name: '을', amount: 2000 }
+    ]);
+    await assert(await count(page, '.card.employee') === 0, 'two groups should start collapsed');
+    await page.locator('.group-head').first().focus();
+    await assert(await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('group-head')), 'a group header must be reachable by keyboard focus');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.card.employee') === 1, 'Enter on a focused group header must expand it (keyboard parity with tap)');
+    await assert(await count(page, '.group-head[aria-expanded="true"]') === 1, 'the expanded group should report aria-expanded=true after Enter');
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.card.employee') === 0, 'Space on a focused group header must collapse it again');
+    await assert(await page.evaluate(() => window.scrollY === 0), 'Space must not scroll the page when it activates a group header');
+
+    // (6) 자동 펼침(강제 펼침) 상태의 헤더 탭은 상태를 오염시키지 않아야 한다 — 검색을 지우면 원래대로 접혀 있어야 한다.
+    await page.locator('#searchInput').fill('갑');
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.group-head') === 1 && await count(page, '.card.employee') === 1, 'a search should leave the matching group, auto-expanded');
+    await page.locator('.group-head').first().click();
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.card.employee') === 1, 'tapping a force-expanded header must be ignored (it cannot be collapsed right now)');
+    await assert((await page.locator('.group-head').first().getAttribute('aria-expanded')) === 'true', 'a force-expanded header must keep reporting aria-expanded=true');
+    await page.locator('#searchInput').fill('');
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.card.employee') === 0, 'clearing the search must return every group to collapsed — a ghost tap must not have recorded state');
+    await assert(await count(page, '.group-head[aria-expanded="true"]') === 0, 'no group should linger expanded after the search is cleared');
+
     console.log(JSON.stringify({
       ok: true,
       url,
@@ -1045,7 +1352,8 @@ async function main() {
         transactionFlow: true,
         backupV2: true,
         pinResetWipesData: true,
-        backNavigationHistory: true
+        backNavigationHistory: true,
+        homeGroupRegressions: true
       },
       consoleProblems
     }, null, 2));
