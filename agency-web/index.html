@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>선입금대장 — 담당자 업로드</title>
+<title>선입금대장 — 공공기관 담당자(서무) 업로드</title>
 <style>
 :root{--line:#e5e7eb;--muted:#6b7280;--primary:#2e86c1;--danger:#e74c3c;--ok:#27ae60;--warn:#b7791f}
 *{box-sizing:border-box}
@@ -59,12 +59,12 @@ tr.err{background:#fdecea}
 </head>
 <body>
 <div class="wrap">
-<h1>선입금대장 — 담당자 업로드</h1>
+<h1>선입금대장 — 공공기관 담당자(서무) 업로드</h1>
 <div class="meta">직원 명단(직원명·선금 금액)만 암호화해 음식점에 전달합니다(전화번호는 수집하지 않습니다). 서버는 암호화된 내용을 열어볼 수 없습니다.</div>
 <div class="meta" style="margin-top:4px"><b>선금(돈)은 음식점 은행 계좌로 직접 이체하세요. 이 웹은 암호화된 직원 명단만 전달해요.</b></div>
 <ol class="stepper" id="stepper">
 <li data-n="1" id="step-1">인증</li>
-<li data-n="2" id="step-2">기관·음식점</li>
+<li data-n="2" id="step-2">소속 기관·음식점</li>
 <li data-n="3" id="step-3">명단 만들기</li>
 <li data-n="4" id="step-4">확인</li>
 <li data-n="5" id="step-5">보내기</li>
@@ -79,9 +79,9 @@ tr.err{background:#fdecea}
 
 <div class="card" id="authCard">
 <h2>1단계 · 본인 확인</h2>
-<div class="step-help">아래에 기관 이메일을 입력해 인증번호를 받으세요. 명단 작성 전 한 번만 확인하면 됩니다.</div>
+<div class="step-help">아래에 공공기관 이메일을 입력해 인증번호를 받으세요. 명단 작성 전 한 번만 확인하면 됩니다.</div>
 <div id="authStep1">
-<label for="email" class="sr-only">기관 이메일</label>
+<label for="email" class="sr-only">공공기관 이메일</label>
 <div class="row"><input id="email" type="email" autocomplete="email" placeholder="이름@기관.go.kr"><button class="btn-primary" id="authBtn" style="flex:0 0 140px">인증번호 받기</button></div>
 </div>
 <div id="authStep2" class="hide" style="margin-top:8px">
@@ -89,7 +89,7 @@ tr.err{background:#fdecea}
 <div class="row"><input id="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="인증번호 6자리"><button class="btn-primary" id="otpBtn" style="flex:0 0 100px">확인</button></div>
 <button type="button" id="resendBtn" style="min-height:auto;border:none;background:none;color:var(--primary);padding:4px 0 0;font-weight:600;text-decoration:underline">인증번호 재요청</button>
 </div>
-<div class="meta" id="authMsg">기관 이메일(.go.kr 또는 .korea.kr)만 사용할 수 있습니다.</div>
+<div class="meta" id="authMsg">공공기관 이메일(.go.kr 또는 .korea.kr)만 사용할 수 있습니다.</div>
 <div class="meta" style="margin-top:6px">※ 무료로 운영되는 서비스라 <b>이용이 몰리는 날에는 인증번호 이메일 발송이 하루 한도에 걸릴 수 있습니다.</b> 그때는 잠시 후 다시 시도하시고, 계속 안 되면 다음 날 다시 시도해 주십시오.</div>
 </div>
 
@@ -288,7 +288,7 @@ function unlockAfterAuth(){
 // 정직성 원칙(감사 항목 1): 서버가 실제로 이메일 소유를 확인하지 못한 상태(구서버 호환
 // fallback, 또는 pilot 모드에서 이메일 발송 인프라 부재로 OTP를 받을 방법이 없는 경우)를
 // "✅ 인증됨"이라고 표시하면 사용자를 오도한다. 이 경우 공통으로 아래 문구를 사용한다.
-function formatOnlyMsg(e){return '<span class="warn">⚠ 기관 이메일 형식만 확인됨 — 이 서버에서는 인증번호 확인이 진행되지 않았습니다 · '+esc(e)+'</span>'}
+function formatOnlyMsg(e){return '<span class="warn">⚠ 공공기관 이메일 형식만 확인됨 — 이 서버에서는 인증번호 확인이 진행되지 않았습니다 · '+esc(e)+'</span>'}
 function fallbackAuth(e){
   S.authed=true;S.otpMode='fallback';
   $('authStep1').classList.add('hide');
@@ -939,7 +939,7 @@ function showConsent(){
   <h2 id="consentTitle">제3자 제공 동의 (직원명·선금 금액)</h2>
   <div class="muted-box">
   <ul style="margin:0;padding-left:0;list-style:none">
-  <li style="margin-bottom:6px">⓪ 제공하는 기관: ${S.agency?esc(S.agency.name):'(미선택)'}</li>
+  <li style="margin-bottom:6px">⓪ 제공하는 공공기관: ${S.agency?esc(S.agency.name):'(미선택)'}</li>
   <li style="margin-bottom:6px">① 제공받는 자: ${names}</li>
   <li style="margin-bottom:6px">② 제공 목적: 선금 식대 잔액 관리 및 사용 확인</li>
   <li style="margin-bottom:6px">③ 제공 항목: <b>직원명, 선금 금액</b> (전화번호 제외)</li>

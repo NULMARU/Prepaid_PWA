@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="단체 손님·직원 식대 선입금을 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다. 음식점 사장님·기관 담당자(서무)·직원 모두 가입 없이 바로 시작하세요.">
+<meta name="description" content="단체 손님·직원 식대 선입금을 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다. 음식점 사장님·공공기관 담당자(서무)·직원 모두 가입 없이 바로 시작하세요.">
 <link rel="canonical" href="https://bapjangbu.com/">
 <title>밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로</title>
 <!-- Open Graph -->
@@ -35,7 +35,7 @@
   --card:#ffffff;
   --ok:#1a7f4b;--ok-soft:#e9f6ef;--ok-line:#cfe8da;
   --warn:#b7791f;--warn-soft:#fbf3e4;--warn-line:#ecdcbb;
-  /* 이용 주체 3색: 사장님=파랑, 기관 담당자(서무)=금색, 직원=초록 */
+  /* 이용 주체 3색: 사장님=파랑, 공공기관 담당자(서무)=금색, 직원=초록 */
   --owner:#1e4e86;--agency:#8a5a22;--staff:#1a7f4b;--staff-soft:#e9f6ef;--staff-line:#cfe8da;
   --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--s12:48px;--s16:64px;
   --r-sm:10px;--r:14px;--r-lg:18px;
@@ -170,7 +170,7 @@ section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width
 .sec-cta{margin-top:var(--s6)}
 .sec-cta .btn{max-width:440px}
 
-/* 역할 섹션 색 코딩 (사장님 파랑 / 기관 담당자(서무) 금색 / 직원 초록) */
+/* 역할 섹션 색 코딩 (사장님 파랑 / 공공기관 담당자(서무) 금색 / 직원 초록) */
 .role-agency .kicker{color:var(--agency)}
 .role-agency .step .n{background:var(--accent)}
 .role-agency .more{color:var(--agency)}
@@ -285,7 +285,7 @@ body.has-sticky{padding-bottom:84px}
     <p class="sub">단체 손님·직원 식대 장부,<br>수첩 대신 폰으로</p>
     <div class="hero-cta">
       <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 사장님</a>
-      <a class="btn btn-agency" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자(서무)</a>
+      <a class="btn btn-agency" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 공공기관 담당자(서무)</a>
       <a class="btn btn-staff" href="https://nulmaru.github.io/bapjangbu-staff/" target="_blank" rel="noopener"><span aria-hidden="true">🙋</span> 직원 <span style="font-weight:700;font-size:14px">(베타)</span></a>
     </div>
     <p class="hero-hint">가입 절차·비용 없이 바로 시작해요. (새 탭으로 열려요)<br>처음이시면 <a href="#try">아래 사용 흐름</a>이나 <a href="#manuals">사용 매뉴얼</a>을 먼저 보세요.</p>
@@ -297,11 +297,11 @@ body.has-sticky{padding-bottom:84px}
   <div class="wrap">
     <p class="kicker">한눈에 보는 사용 모습</p>
     <h2>시작부터 식사까지, 5단계로 끝나요</h2>
-    <p class="intro">사장님이 앱을 설치하고 <b>우리 가게 등록</b>을 마치면, 기관 담당자(서무)가 선입금대장을 보내요. 사장님이 입금액을 대조·확인하면 바로 직원 사용이 시작돼요.</p>
+    <p class="intro">사장님이 앱을 설치하고 <b>우리 가게 등록</b>을 마치면, 공공기관 담당자(서무)가 선입금대장을 보내요. 사장님이 입금액을 대조·확인하면 바로 직원 사용이 시작돼요. <b>회사(사기업)·개인 선금</b>은 이 흐름을 거치지 않고 <b>사장님이 앱에서 직접 등록</b>하면 돼요.</p>
 
     <div class="flow-legend" aria-hidden="true">
       <span class="fl-chip owner">🍚 음식점 사장님</span>
-      <span class="fl-chip agency">🏛️ 기관 담당자(서무)</span>
+      <span class="fl-chip agency">🏛️ 공공기관 담당자(서무)</span>
       <span class="fl-chip staff">🙋 직원</span>
     </div>
 
@@ -319,13 +319,14 @@ body.has-sticky{padding-bottom:84px}
         <div class="f-card">
           <span class="f-actor">🍚 음식점 사장님</span>
           <h3><span class="f-ic" aria-hidden="true">🏪</span>우리 가게 등록</h3>
-          <p><b>설치할 때 한 번만</b> 하면 되는 필수 단계예요. 가게 이름으로 찾아 등록해야 <b>기관 담당자(서무)가 우리 가게를 찾을 수 있어요.</b></p>
+          <p><b>설치할 때 한 번만</b> 하면 되는 필수 단계예요. 가게 이름으로 찾아 등록해야 <b>공공기관 담당자(서무)가 우리 가게를 찾을 수 있어요.</b></p>
+          <p style="margin-top:6px">회사(사기업)·개인 선금만 받으신다면 이 등록 없이도 <b>수동 등록</b>으로 바로 장부를 쓸 수 있어요.</p>
         </div>
       </li>
       <li class="f-step agency">
         <div class="f-num" aria-hidden="true">3</div>
         <div class="f-card">
-          <span class="f-actor">🏛️ 기관 담당자(서무)</span>
+          <span class="f-actor">🏛️ 공공기관 담당자(서무)</span>
           <h3><span class="f-ic" aria-hidden="true">✅</span>음식점 선택 · 명단 작성</h3>
           <p><b>agency.bapjangbu.com</b>에서 등록된 음식점을 고르고(여러 곳을 한 번에 고를 수 있어요), 직원 명단과 금액을 입력해요.</p>
         </div>
@@ -333,9 +334,9 @@ body.has-sticky{padding-bottom:84px}
       <li class="f-step agency">
         <div class="f-num" aria-hidden="true">4</div>
         <div class="f-card">
-          <span class="f-actor">🏛️ 기관 담당자(서무)</span>
+          <span class="f-actor">🏛️ 공공기관 담당자(서무)</span>
           <h3><span class="f-ic" aria-hidden="true">🔒</span>선입금대장 전달</h3>
-          <p>명단은 <b>암호화되어</b> 음식점 앱으로 전달돼요(바로 보내기 또는 담당자 전달파일·QR). 음식점 앱에서는 <b>자동 등록</b>으로 도착해요. 선금(돈)은 음식점 <b>은행 계좌로 직접 이체</b>해요.</p>
+          <p>명단은 <b>암호화되어</b> 음식점 앱으로 전달돼요(바로 보내기 또는 담당자 전달파일·QR). 음식점 앱에서는 <b>자동 등록 — 공공기관에서 보낸 명단 받기</b>로 도착해요. 선금(돈)은 음식점 <b>은행 계좌로 직접 이체</b>해요.</p>
         </div>
       </li>
       <li class="f-step owner">
@@ -403,18 +404,18 @@ body.has-sticky{padding-bottom:84px}
   </div>
 </section>
 
-<!-- 4. 기관 담당자(서무) 3단계 -->
+<!-- 4. 공공기관 담당자(서무) 3단계 -->
 <section id="agency" class="agency role-agency">
   <div class="wrap">
-    <span class="role-badge">🏛️ 기관 담당자(서무)용</span>
+    <span class="role-badge">🏛️ 공공기관 담당자(서무)용</span>
     <h2>서무 담당자는 이렇게 써요</h2>
     <p class="intro">직원 식대 선금 명단을 음식점에 안전하게 전달하는 일만 하면 돼요. 설치·계약·비용이 없고, 브라우저로 접속해 쓰면 돼요.</p>
     <div class="steps">
       <div class="step">
         <div class="n">1</div>
         <div>
-          <h3>기관 이메일로 본인 확인</h3>
-          <p>기관 이메일로 받은 인증번호(OTP)로 로그인해요.</p>
+          <h3>공공기관 이메일로 본인 확인</h3>
+          <p>공공기관 이메일로 받은 인증번호(OTP)로 로그인해요.</p>
         </div>
       </div>
       <div class="step">
@@ -432,9 +433,9 @@ body.has-sticky{padding-bottom:84px}
         </div>
       </div>
     </div>
-    <a class="more" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">기관 담당자(서무) 사용법 자세히 보기 →</a>
+    <a class="more" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">공공기관 담당자(서무) 사용법 자세히 보기 →</a>
     <div class="sec-cta">
-      <a class="btn btn-agency btn-lg" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 기관 담당자(서무)로 시작하기</a>
+      <a class="btn btn-agency btn-lg" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 공공기관 담당자(서무)로 시작하기</a>
     </div>
   </div>
 </section>
@@ -491,7 +492,7 @@ body.has-sticky{padding-bottom:84px}
       </a>
       <a class="man agency-card" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">
         <span class="ic" aria-hidden="true">🏛️</span>
-        <h3>기관 담당자(서무)</h3>
+        <h3>공공기관 담당자(서무)</h3>
         <p>본인 확인 · 음식점 선택(여러 음식점 한 번에 보내기) · 명단(CSV) 작성 · 전달 방식 2가지 · 보낸 후 할 일</p>
         <span class="go">안내서 보기 →</span>
       </a>
@@ -526,8 +527,8 @@ body.has-sticky{padding-bottom:84px}
     <p class="kicker">자주 묻는 질문</p>
     <h2>궁금한 점을 모았어요</h2>
     <details>
-      <summary>저는 음식점 사장님·기관 담당자(서무)·직원 중 어디에 해당하나요?</summary>
-      <p><b>음식점 사장님</b>은 가게에서 장부를 쓰는 분(<a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a>), <b>기관 담당자(서무)</b>는 구청·회사에서 직원 식대 명단을 음식점에 보내고 선금을 계좌로 이체하는 분(<a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">담당자 웹</a>), <b>직원</b>은 그 식당에서 밥을 먹는 분이에요. 직원은 따로 설치할 것이 없고, 내 잔액을 직접 확인하고 싶을 때만 <a href="#staff">직원용(베타)</a>을 쓰면 돼요.</p>
+      <summary>저는 음식점 사장님·공공기관 담당자(서무)·직원 중 어디에 해당하나요?</summary>
+      <p><b>음식점 사장님</b>은 가게에서 장부를 쓰는 분(<a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a>), <b>공공기관 담당자(서무)</b>는 구청 같은 공공기관에서 직원 식대 명단을 음식점에 보내고 선금을 계좌로 이체하는 분(<a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">담당자 웹</a>), <b>직원</b>은 그 식당에서 밥을 먹는 분이에요. 직원은 따로 설치할 것이 없고, 내 잔액을 직접 확인하고 싶을 때만 <a href="#staff">직원용(베타)</a>을 쓰면 돼요.</p>
     </details>
     <details>
       <summary>정말 무료인가요?</summary>
@@ -535,7 +536,7 @@ body.has-sticky{padding-bottom:84px}
     </details>
     <details>
       <summary>이 앱으로 돈이 오가나요?</summary>
-      <p>아니요. 밥장부는 결제·이체·정산 기능이 없어요. 누가 얼마를 언제 먹었는지 <b>장부에 기록만</b> 해요. 실제 돈은 기관과 음식점이 계좌로 직접 주고받아요.</p>
+      <p>아니요. 밥장부는 결제·이체·정산 기능이 없어요. 누가 얼마를 언제 먹었는지 <b>장부에 기록만</b> 해요. 실제 돈은 선금을 보내는 쪽(공공기관·회사 등)과 음식점이 계좌로 직접 주고받아요.</p>
     </details>
     <details>
       <summary>어떤 기기에 설치하는 게 좋나요?</summary>
@@ -547,11 +548,15 @@ body.has-sticky{padding-bottom:84px}
     </details>
     <details>
       <summary>인터넷이 없어도 되나요?</summary>
-      <p>네. 사용·충전 기록은 인터넷 없이도 돼요. 기관 명단 받기(자동 등록)와 가게 검색만 인터넷이 필요해요.</p>
+      <p>네. 사용·충전 기록은 인터넷 없이도 돼요. 공공기관 명단 받기(자동 등록)와 가게 검색만 인터넷이 필요해요.</p>
     </details>
     <details>
-      <summary>구청 같은 기관은 어떻게 쓰나요?</summary>
-      <p>기관 담당자(서무)가 직원 명단과 금액을 입력해 음식점으로 암호화 전송해요(여러 음식점에 한 번에 보낼 수도 있어요). 음식점 앱에서는 <b>직원 선금대장 등록 → 자동 등록(기관에서 보낸 명단 받기)</b>으로 도착하고, 사장님이 확인해 등록하면 식사할 때마다 차감돼요. <b>선금(돈)은 앱이 아니라 가게 은행 계좌로 따로 입금돼요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b></p>
+      <summary>구청 같은 공공기관은 어떻게 쓰나요?</summary>
+      <p>공공기관 담당자(서무)가 직원 명단과 금액을 입력해 음식점으로 암호화 전송해요(여러 음식점에 한 번에 보낼 수도 있어요). 음식점 앱에서는 <b>직원 선금대장 등록 → 자동 등록 — 공공기관에서 보낸 명단 받기</b>로 도착하고, 사장님이 확인해 등록하면 식사할 때마다 차감돼요. <b>선금(돈)은 앱이 아니라 가게 은행 계좌로 따로 입금돼요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b></p>
+    </details>
+    <details>
+      <summary>회사(사기업)나 개인 선금도 되나요?</summary>
+      <p>네. <b>공공기관 명단은 자동으로 받고</b>, 회사·개인 선금은 설정의 <b>수동 등록(한 명씩 · 엑셀 명단 · 빠른 등록)</b>으로 직접 넣으시면 한 장부에서 함께 관리돼요. 직원마다 <b>소속(선택)</b> 칸에 회사 이름을 적거나 개인이면 '개인'이라고 적어 두면 구분해 보기 편해요. 회사에서 엑셀 명단을 받으실 때는 <b>'부서' 칸을 포함해</b> 달라고 하세요.</p>
     </details>
     <details>
       <summary>직원인데 제 잔액을 직접 보고 싶어요.</summary>
@@ -576,7 +581,7 @@ body.has-sticky{padding-bottom:84px}
         <label>어떤 분이신가요?</label>
         <div class="roles">
           <label><input type="radio" name="role" value="음식점" checked> 음식점 사장님</label>
-          <label><input type="radio" name="role" value="기관"> 기관 담당자(서무)</label>
+          <label><input type="radio" name="role" value="기관"> 공공기관 담당자(서무)</label>
           <label><input type="radio" name="role" value="직원"> 직원</label>
           <label><input type="radio" name="role" value="기타"> 기타</label>
         </div>
@@ -595,7 +600,7 @@ body.has-sticky{padding-bottom:84px}
 <footer class="site">
   <div class="wrap">
     <div class="disclaimer">
-      본 서비스는 <b>결제·이체·정산 기능이 없는 무료 기록 도구</b>입니다. 실제 금전 거래는 기관과 음식점이 직접 진행합니다.
+      본 서비스는 <b>결제·이체·정산 기능이 없는 무료 기록 도구</b>입니다. 실제 금전 거래는 선금을 보내는 쪽(공공기관·회사 등)과 음식점이 직접 진행합니다.
     </div>
     <div class="cols">
       <div>
@@ -604,7 +609,7 @@ body.has-sticky{padding-bottom:84px}
         <p>문의: <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a></p>
         <p>
           <a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a> ·
-          <a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">기관 담당자(서무) 웹</a> ·
+          <a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">공공기관 담당자(서무) 웹</a> ·
           <a href="https://nulmaru.github.io/bapjangbu-staff/" target="_blank" rel="noopener">직원용(베타)</a>
         </p>
       </div>
@@ -612,7 +617,7 @@ body.has-sticky{padding-bottom:84px}
         <h4>사용 매뉴얼</h4>
         <p>
           <a href="https://app.bapjangbu.com/docs/manual-restaurant.html" target="_blank" rel="noopener">음식점 사장님</a> ·
-          <a href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">기관 담당자(서무)</a> ·
+          <a href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">공공기관 담당자(서무)</a> ·
           <a href="https://app.bapjangbu.com/docs/manual-staff.html" target="_blank" rel="noopener">직원(베타)</a>
         </p>
         <h4 style="margin-top:16px">약관 · 데이터</h4>

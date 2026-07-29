@@ -241,6 +241,13 @@ async function main() {
     await assert(registerCalls.length === 0, 'skipping the store step must not send anything to the relay server');
     await assert(await count(page, '[data-a="go-register-store"]') === 1, 'home should keep a persistent banner asking to finish the store registration');
 
+    // 직원이 0명인 홈은 안내로 끝내지 않고 바로 누를 수 있는 CTA를 보여야 한다(막다른 빈 화면 금지).
+    const emptyHome = await page.locator('.card.empty').innerText();
+    await assert(emptyHome.includes('아직 올린 직원이 없어요'), 'the empty home state should use the friendly "아직 올린 직원이 없어요" wording');
+    await assert(await count(page, '.card.empty [data-a="guide-add-employee"]') === 1, 'the empty home state must render a one-tap CTA button to add the first employee');
+    const emptyCta = await page.locator('.card.empty [data-a="guide-add-employee"]').boundingBox();
+    await assert(Boolean(emptyCta) && emptyCta.height >= 52, `the empty-home CTA must be a comfortable tap target (got ${emptyCta && Math.round(emptyCta.height)}px)`);
+
     const setupMeta = await readDb(page);
     const setupMetaMap = (setupMeta.meta || []).reduce((a, r) => (a[r.key] = r.value, a), {});
     await assert(setupMetaMap.contactKakaoLink === 'https://open.kakao.com/o/sHarness', 'contact kakao link entered during onboarding should be saved locally');
@@ -271,7 +278,7 @@ async function main() {
     await assert((await page.locator('.section-title', { hasText: '직원 목록 관리' }).count()) === 1, '직원 관리 section should be renamed to 직원 목록 관리');
     // 용어 체계: 상위 그룹 "직원 선금대장 등록" 아래 [자동 등록]·[수동 등록] 두 카드
     await assert((await page.locator('.section-title', { hasText: '직원 선금대장 등록' }).count()) === 1, 'settings should group enrollment under a single 직원 선금대장 등록 heading');
-    await assert((await page.locator('.section-title', { hasText: '자동 등록 — 기관에서 보낸 명단 받기' }).count()) === 1, 'the relay card should be titled 자동 등록 — 기관에서 보낸 명단 받기');
+    await assert((await page.locator('.section-title', { hasText: '자동 등록 — 공공기관에서 보낸 명단 받기' }).count()) === 1, 'the relay card should be titled 자동 등록 — 공공기관에서 보낸 명단 받기');
     await assert((await page.locator('.section-title', { hasText: '수동 등록 — 직접 입력하기' }).count()) === 1, 'a 수동 등록 — 직접 입력하기 card should hold the manual enrollment actions');
     const settingsText = await page.locator('.app').innerText();
     await assert(!/구청 선금|선금 받기|직원개별등록/.test(settingsText), 'the retired wording (구청 선금 / 선금 받기 / 직원개별등록) must be gone from settings');
@@ -698,7 +705,7 @@ async function main() {
     await assert(regMeta.storeRegisterPending === true, 'a failed registration must keep storeRegisterPending so the home banner stays');
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await assert(await count(page, '[data-a="go-register-store"]') === 1, 'the finish-registration banner must remain after a failed registration');
-    await assert(!(await page.locator('.app').innerText()).includes('기관 명단 받는 중'), 'a failed registration must not render the "receiving" chip');
+    await assert(!(await page.locator('.app').innerText()).includes('공공기관 명단 받는 중'), 'a failed registration must not render the "receiving" chip');
 
     // (2) 성공 경로: register-key 200 → 등록 확정 + 열쇠 백업 유도 + 새 신청 칩
     registerStatus = 200;
@@ -708,19 +715,232 @@ async function main() {
     await assert(regMeta.restaurantId === 'rid-mine-1', 'a successful register-key should persist the picked restaurant id');
     await assert(regMeta.storeRegisterPending === false, 'a successful registration should clear the pending flag');
     const settingsAfterReg = await page.locator('.app').innerText();
-    await assert(settingsAfterReg.includes('기관 명단 받는 중'), 'the settings auto-enrollment card should label the registered store 기관 명단 받는 중');
+    await assert(settingsAfterReg.includes('공공기관 명단 받는 중'), 'the settings auto-enrollment card should label the registered store 공공기관 명단 받는 중');
     await assert(settingsAfterReg.includes('아직 안 함'), 'the key-backup button should carry a ⚠️ badge while the key has never been backed up (B3)');
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.evaluate(() => window.__prepaidTestHooks.refreshInboxCount());
     await page.waitForTimeout(300);
     await assert(await count(page, '[data-a="go-register-store"]') === 0, 'the finish-registration banner must disappear once the store is registered');
-    await assert((await page.locator('.pill-relay').innerText()).includes('기관 명단 받는 중'), 'home should show the 기관 명단 받는 중 status chip');
+    await assert((await page.locator('.pill-relay').innerText()).includes('공공기관 명단 받는 중'), 'home should show the 공공기관 명단 받는 중 status chip');
     await assert(await count(page, '[data-a="dismiss-key-banner"]') === 1, 'home should nudge an un-backed-up key with a dismissible banner (B3)');
     const inboxPill = await page.locator('[data-a="relay-inbox"]').innerText();
     await assert(inboxPill.includes('📩') && inboxPill.includes('2건'), 'a 200 inbox-count should render the 📩 new-request chip on home');
     await page.locator('[data-a="dismiss-key-banner"]').click();
     await page.waitForTimeout(150);
     await assert(await count(page, '[data-a="dismiss-key-banner"]') === 0, 'dismissing the key-backup banner should hide it for this session');
+
+    // ───────────────────────────────────────────────────────────────
+    // 소속(org) 필드: 저장은 분리, 표시는 무변화
+    //   (a) 공공기관 명단(직접 전달) 승인 → org/dept 분리 저장 + 화면은 "공공기관명 부서명" 결합 유지
+    //   (b) 소속을 입력한 한 명씩 등록 → 그룹 헤더가 "소속 부서"
+    //   (c) 소속을 비운 등록 → 현행과 동일(부서만)
+    //   (d) CSV 소속 열 임포트
+    //   (e) 동일인 판정 키 org|dept|name — 같은 키 재등록은 충전 유도, org만 다르면 별개 직원
+    // ───────────────────────────────────────────────────────────────
+    // 직접 전달 성공 후 뒤따르는 "백업 갱신" 확인창이 존재하지 않는 서버로 나가지 않도록 스텁을 덧씌운다.
+    await page.evaluate(() => {
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        const url = String(u);
+        if (url.includes('/api/ledger-backup')) return new Response('{"ok":true,"updated_at":"2026-07-01T00:00:00Z"}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return orig(u, o);
+      };
+    });
+    // 담당자 전달 파일(직접 전달)을 실제 계약대로 만들어 연다 — 서버를 거치지 않는 경로.
+    const dtJson = await page.evaluate(async ({ pubKey, rid }) => {
+      const enc = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const items = [{ name: '공공직원', dept: '세무과', amount: 30000 }];
+      const h = async t => { const d = await crypto.subtle.digest('SHA-256', enc.encode(String(t))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+      const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+      const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify({ items })));
+      const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+      const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
+      return JSON.stringify({
+        v: 1, type: 'direct-transfer', restaurant_id: rid, restaurant_name: 'Harness Shop',
+        institution: '강남구청', department: '세무과', year_month: '2026-07',
+        summary: { total_amount: 30000, member_count: 1, batch_hash },
+        ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
+      });
+    }, { pubKey: regMeta.pubKey, rid: regMeta.restaurantId });
+    await page.locator('#directTransferFile').setInputFiles({ name: 'transfer.json', mimeType: 'application/json', buffer: Buffer.from(dtJson, 'utf8') });
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+    await page.waitForTimeout(400);
+    const orgDb = await readDb(page);
+    const empRelay = orgDb.employees.find(e => e.name === '공공직원');
+    await assert(Boolean(empRelay), 'a direct-transfer batch should create the employee');
+    await assert(empRelay.org === '강남구청', 'the institution must be stored in the new org field, not merged into dept');
+    await assert(empRelay.dept === '세무과', 'the department must be stored on its own (no "기관명 부서명" concatenation)');
+
+    // 레거시(합성 dept, org 없음) 직원을 심어 표시 결과가 신규 저장 방식과 동일함을 확인한다.
+    await page.evaluate(({ t }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['employees'], 'readwrite');
+        tx.objectStore('employees').put({ id: 'legacy-org-1', dept: '서초구청 총무과', name: '레거시직원', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { t: Date.now() });
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    const homeGroupTitles = () => page.locator('.group-title').allInnerTexts();
+    let titles = await homeGroupTitles();
+    await assert(titles.includes('강남구청 세무과'), 'a split org/dept employee must still render the combined "공공기관명 부서명" group header');
+    await assert(titles.includes('서초구청 총무과'), 'a legacy employee (concatenated dept, no org) must render exactly the same way');
+    const relayCardText = await page.locator('.card.employee', { hasText: '공공직원' }).first().innerText();
+    await assert(relayCardText.includes('강남구청 세무과'), 'the employee card dept line should show the combined org+dept label');
+
+    // (b)(c) 소속을 입력한 등록 / 소속을 비운 등록
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.locator('[data-a="add-employee"]').click();
+    await page.waitForSelector('#empOrg');
+    await page.locator('#empOrg').fill('한빛물산');
+    await page.locator('#empDept').fill('총무부');
+    await page.locator('#empName').fill('소속직원');
+    await page.locator('#empOpen').fill('30000');
+    await page.locator('[data-a="save-employee"]').click();
+    await page.waitForTimeout(250);
+    let orgEmps = (await readDb(page)).employees;
+    const empCorp = orgEmps.find(e => e.name === '소속직원');
+    await assert(Boolean(empCorp) && empCorp.org === '한빛물산' && empCorp.dept === '총무부', 'the optional 소속 input should be saved into org, separate from dept');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    titles = await homeGroupTitles();
+    await assert(titles.includes('한빛물산 총무부'), 'an employee registered with 소속 should be grouped under "소속 부서"');
+    await assert(titles.includes('Dept A'), 'an employee registered with an empty 소속 must behave exactly as before (dept only)');
+
+    // (e) 동일인 판정 키 org|dept|name
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    const dupDialogsBefore = dialogs.length;
+    await page.locator('[data-a="add-employee"]').click();
+    await page.waitForSelector('#empOrg');
+    await page.locator('#empOrg').fill('한빛물산');
+    await page.locator('#empDept').fill('총무부');
+    await page.locator('#empName').fill('소속직원');
+    await page.locator('#empOpen').fill('5000');
+    await page.locator('[data-a="save-employee"]').click();
+    await page.waitForTimeout(250);
+    const dupConfirm = dialogs.slice(dupDialogsBefore).find(d => d.type === 'confirm' && d.message.includes('이미 등록되어'));
+    await assert(Boolean(dupConfirm), 're-registering the same org|dept|name must offer a top-up instead of creating a duplicate');
+    await assert(dupConfirm.message.includes('한빛물산 총무부'), 'the duplicate prompt should identify the employee by the combined 소속·부서 label');
+    orgEmps = (await readDb(page)).employees;
+    await assert(orgEmps.filter(e => e.name === '소속직원').length === 1, 'the top-up path must not create a second employee record');
+    // 같은 부서·이름이라도 소속이 다르면 별개 직원이어야 한다(매칭 키 확장의 핵심).
+    await page.locator('[data-a="add-employee"]').click();
+    await page.waitForSelector('#empOrg');
+    await page.locator('#empOrg').fill('다른상사');
+    await page.locator('#empDept').fill('총무부');
+    await page.locator('#empName').fill('소속직원');
+    await page.locator('#empOpen').fill('7000');
+    await page.locator('[data-a="save-employee"]').click();
+    await page.waitForTimeout(250);
+    orgEmps = (await readDb(page)).employees;
+    await assert(orgEmps.filter(e => e.name === '소속직원').length === 2, 'the same dept+name under a different 소속 must be a separate employee');
+
+    // (d) CSV 소속 열 임포트 — 소속이 일치하는 기존 직원은 추가 충전, 새 소속·이름은 신규
+    const csvBody = '소속,부서,이름,금액\r\n한빛물산,총무부,소속직원,3000\r\n한빛물산,총무부,씨에스브이,15000\r\n';
+    await page.locator('#csvFile').setInputFiles({ name: 'roster.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + csvBody, 'utf8') });
+    await page.waitForSelector('.csv-table', { timeout: 5000 });
+    const csvHeaders = await page.locator('.csv-table th').allInnerTexts();
+    await assert(csvHeaders.some(h => h.trim() === '소속'), 'the CSV preview should add a 소속 column when the file carries one');
+    const csvBodyText = await page.locator('.csv-table').innerText();
+    await assert(csvBodyText.includes('추가 충전') && csvBodyText.includes('신규'), 'org-aware matching should mark the known employee as a top-up and the new one as new');
+    await page.locator('[data-a="exec-csv"]').click();
+    await page.waitForTimeout(400);
+    orgEmps = (await readDb(page)).employees;
+    const empCsv = orgEmps.find(e => e.name === '씨에스브이');
+    await assert(Boolean(empCsv) && empCsv.org === '한빛물산' && empCsv.dept === '총무부', 'a CSV 소속 column should land in org, not be merged into dept');
+    await assert(orgEmps.filter(e => e.name === '소속직원').length === 2, 'the CSV top-up row must not duplicate the matched employee');
+
+    // (f) "소속부서" 한 칸짜리 헤더: 소속 열로도 읽혀 org=dept로 중복 저장되면 안 된다(부서로만 처리).
+    const mergedHeaderCsv = '소속부서,이름,금액\r\n영업1과,단일칸직원,10000\r\n';
+    await page.locator('#csvFile').setInputFiles({ name: 'merged-header.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + mergedHeaderCsv, 'utf8') });
+    await page.waitForSelector('.csv-table', { timeout: 5000 });
+    const mergedHeaders = await page.locator('.csv-table th').allInnerTexts();
+    await assert(!mergedHeaders.some(h => h.trim() === '소속'), 'a single "소속부서" column must not be treated as a 소속 column in the preview');
+    await page.locator('[data-a="exec-csv"]').click();
+    await page.waitForTimeout(400);
+    orgEmps = (await readDb(page)).employees;
+    const empMerged = orgEmps.find(e => e.name === '단일칸직원');
+    await assert(Boolean(empMerged), 'the "소속부서" CSV row should be imported');
+    await assert(!empMerged.org && empMerged.dept === '영업1과', `a "소속부서" header must land in dept only (org must stay empty), got org="${empMerged.org}" dept="${empMerged.dept}"`);
+
+    // (g) 레거시(합성 dept, org 없음) 직원 + 소속·부서가 분리된 CSV → 화면 라벨이 같으므로 "충전"이어야 한다(신규 카드 금지).
+    const legacyCsv = '소속,부서,이름,금액\r\n서초구청,총무과,레거시직원,4000\r\n';
+    await page.locator('#csvFile').setInputFiles({ name: 'legacy-match.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + legacyCsv, 'utf8') });
+    await page.waitForSelector('.csv-table', { timeout: 5000 });
+    const legacyPreview = await page.locator('.csv-table').innerText();
+    await assert(legacyPreview.includes('추가 충전'), 'a split 소속/부서 CSV row must match the legacy concatenated-dept employee as a top-up, not a new employee');
+    await page.locator('[data-a="exec-csv"]').click();
+    await page.waitForTimeout(400);
+    const afterLegacyCsv = await readDb(page);
+    await assert(afterLegacyCsv.employees.filter(e => e.name === '레거시직원').length === 1, 'matching a legacy employee must not create a visually identical duplicate card');
+    const legacyTopup = afterLegacyCsv.transactions.find(tx => tx.employeeId === 'legacy-org-1' && tx.type === 'topup');
+    await assert(Boolean(legacyTopup) && Number(legacyTopup.amount) === 4000, 'the legacy match should be recorded as a top-up transaction on the existing employee');
+
+    // (h) 같은 명단을 다음 달에 다시 승인(자동 등록 수신함) → 새 직원이 아니라 기존 직원 충전, 카드 수 불변.
+    const relayMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await page.evaluate(async ({ pubKey }) => {
+      const enc = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const h = async t => { const d = await crypto.subtle.digest('SHA-256', enc.encode(String(t))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      // 지난달과 같은 직원(공공직원 · 강남구청 세무과), 이번 달치 금액만 다른 명단.
+      const items = [{ name: '공공직원', dept: '세무과', amount: 20000 }];
+      const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+      const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+      const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify({ items })));
+      const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+      const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
+      const inboxItem = {
+        summary_id: 'sum-next-month',
+        summary: { restaurant_name: 'Harness Shop', institution: '강남구청', department: '세무과', year_month: '2026-08', total_amount: 20000, member_count: 1, batch_hash },
+        ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
+      };
+      window.__approveCalls = [];
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        const url = String(u);
+        if (url.includes('/api/inbox?')) return new Response(JSON.stringify([inboxItem]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        if (url.includes('/api/approve')) { window.__approveCalls.push(url); return new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+        if (url.includes('/api/challenge')) {
+          const pk = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+          const cc = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pk, enc.encode('TESTTOKEN'));
+          return new Response(JSON.stringify({ challenge_ct: u2b(cc) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.includes('/api/ledger-backup')) return new Response('{"ok":true,"updated_at":"2026-08-01T00:00:00Z"}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return orig(u, o);
+      };
+    }, { pubKey: relayMeta.pubKey });
+    const beforeApprove = await readDb(page);
+    const activeBefore = beforeApprove.employees.filter(e => !e.isDeleted).length;
+    await page.locator('[data-a="relay-inbox"]').first().click();
+    await page.waitForSelector('[data-a="relay-approve"]', { timeout: 8000 });
+    await page.locator('[data-a="relay-approve"]').click();
+    await page.waitForSelector('[data-a="relay-approve"]', { state: 'detached', timeout: 15000 });
+    await page.waitForTimeout(500);
+    const afterApprove = await readDb(page);
+    await assert(afterApprove.employees.filter(e => e.name === '공공직원').length === 1, 're-approving the same roster must top up the existing employee instead of stacking a duplicate card');
+    await assert(afterApprove.employees.filter(e => !e.isDeleted).length === activeBefore, 'the active employee card count must not change when a known roster is approved again');
+    const relayEmpId = afterApprove.employees.find(e => e.name === '공공직원').id;
+    const relayTopup = afterApprove.transactions.find(tx => tx.employeeId === relayEmpId && tx.type === 'topup');
+    await assert(Boolean(relayTopup) && Number(relayTopup.amount) === 20000, 'the second approval should be recorded as a top-up transaction of the new amount');
+    const relayBalance = afterApprove.transactions.filter(tx => tx.employeeId === relayEmpId).reduce((s, tx) => s + (tx.type === 'use' ? -Number(tx.amount || 0) : Number(tx.amount || 0)), 0);
+    await assert(relayBalance === 50000, `the topped-up employee balance should be 30000 + 20000, got ${relayBalance}`);
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(100);
+
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
 
     // ───────────────────────────────────────────────────────────────
     // 안드로이드 하단 뒤로가기: 히스토리 동기화 계층 (돈 다루는 앱 — 안전 최우선)
