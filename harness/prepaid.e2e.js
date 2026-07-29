@@ -850,9 +850,9 @@ async function main() {
     await page.waitForSelector('[data-a="quick-find-emp"]');
     const homeGroupTitles = async () => (await page.locator('.group-title').allInnerTexts()).map(t => t.trim());
     let titles = await homeGroupTitles();
-    // (a) 공공기관(자동 등록) 그룹 헤더는 부서명만 — 기관명을 반복하지 않는다.
-    await assert(titles.includes('세무과'), `an auto-enrolled institution group header should show the department name only (got ${JSON.stringify(titles)})`);
-    await assert(!titles.some(t => t.includes('강남구청 세무과')), 'the institution name must not be repeated in a public group header');
+    // (a) 공공기관(자동 등록) 그룹 헤더는 항상 "기관명 부서명" 결합 라벨이다(beta.15).
+    await assert(titles.includes('강남구청 세무과'), `an auto-enrolled institution group header should show the combined "기관명 부서명" label (got ${JSON.stringify(titles)})`);
+    await assert(!titles.includes('세무과'), 'a public group header must not drop the institution name');
     // (d) 레거시(합성 dept, org 없음) 직원의 헤더는 예전 그대로 결합 라벨을 유지한다.
     await assert(titles.includes('서초구청 총무과'), 'a legacy employee (concatenated dept, no org) must keep its combined header unchanged');
     await expandHomeGroups(page);
@@ -897,8 +897,8 @@ async function main() {
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     titles = await homeGroupTitles();
     await assert(titles.filter(t => t === '개인').length === 1, `소속='개인' employees should land in exactly one "개인" group (got ${JSON.stringify(titles)})`);
-    // 정렬: 공공기관(부서 가나다) → 회사 → 개인 → 무소속·레거시
-    await assert(titles.indexOf('세무과') < titles.indexOf('한빛물산'), 'public-institution groups should sort before company groups');
+    // 정렬: 공공기관(기관명 가나다 → 부서 오름차순) → 회사 → 개인 → 무소속·레거시
+    await assert(titles.indexOf('강남구청 세무과') < titles.indexOf('한빛물산'), 'public-institution groups should sort before company groups');
     await assert(titles.indexOf('한빛물산') < titles.indexOf('개인'), 'company groups should sort before the 개인 group');
     await assert(titles.indexOf('개인') < titles.indexOf('Dept A'), 'the 개인 group should sort before the unaffiliated/legacy groups');
 
@@ -1230,12 +1230,12 @@ async function main() {
     await assert(balanceOfId(bfDb, 'bf-3') === 7000, 'backfilling a colleague who is not on the roster must not touch their balance');
     await assert(bfDb.employees.filter(e => !e.isDeleted).length === 4, 'the roster should add exactly one new employee (2 matched + 1 new)');
     let bfTitles = await groupTitles();
-    await assert(bfTitles.length === 1 && bfTitles[0] === '세무과', `a partially-matched roster must leave one single home group, not split the department in two (got ${JSON.stringify(bfTitles)})`);
+    await assert(bfTitles.length === 1 && bfTitles[0] === '강남구청 세무과', `a partially-matched roster must leave one single home group titled "기관명 부서명", not split the department in two (got ${JSON.stringify(bfTitles)})`);
     await assert((await page.locator('.group-meta').first().innerText()).includes('직원 4명'), 'the single group should hold all four employees');
     await assert(await count(page, '.card.empty') === 0, 'the stale department filter must heal itself instead of showing an empty home');
     await assert((await page.locator('#deptFilterSelect').inputValue()) === '', 'a department filter whose group key no longer exists should fall back to 전체 부서');
 
-    // (2) 표시 제목 충돌 — 공공기관 '세무과'와 무소속 '세무과'가 공존하면 헤더·필터 문구가 서로 구분돼야 한다.
+    // (2) 공공기관 '세무과'와 무소속 '세무과'는 이제 결합 라벨 덕분에 꼬리표 없이도 서로 구분된다(beta.15).
     await seedHome([
       { id: 'dup-1', org: '강남구청', orgKind: 'public', dept: '세무과', name: '공공갑', amount: 1000 },
       { id: 'dup-2', org: '', orgKind: '', dept: '세무과', name: '무소속을', amount: 2000 },
@@ -1243,13 +1243,56 @@ async function main() {
     ]);
     const dupTitles = await groupTitles();
     await assert(new Set(dupTitles).size === dupTitles.length, `home group headers must be unique — the owner cannot tell two identically titled groups apart (got ${JSON.stringify(dupTitles)})`);
-    await assert(dupTitles.includes('세무과 (강남구청)'), `a colliding public group should be qualified with its institution (got ${JSON.stringify(dupTitles)})`);
-    await assert(dupTitles.includes('세무과 (소속 없음)'), `a colliding unaffiliated group should be qualified as 소속 없음 (got ${JSON.stringify(dupTitles)})`);
+    await assert(dupTitles.includes('강남구청 세무과'), `the public group should read "기관명 부서명" with no qualifier (got ${JSON.stringify(dupTitles)})`);
+    await assert(dupTitles.includes('세무과'), `the unaffiliated group keeps its bare label — the combined public title already distinguishes them (got ${JSON.stringify(dupTitles)})`);
+    await assert(!dupTitles.some(t => t.includes('(')), `no qualifier tail should be needed when titles already differ (got ${JSON.stringify(dupTitles)})`);
     const dupOpts = (await filterOptions()).slice(1);
     await assert(new Set(dupOpts).size === dupOpts.length, `department filter options must be unique too (got ${JSON.stringify(dupOpts)})`);
     await assert(dupOpts.join('|') === dupTitles.join('|'), `filter option wording must match the group headers 1:1 (opts ${JSON.stringify(dupOpts)} vs titles ${JSON.stringify(dupTitles)})`);
     // 겹치지 않는 회사 그룹에는 군더더기 꼬리표가 붙지 않는다.
     await assert(dupTitles.includes('한빛물산'), 'a group whose title does not collide must stay unqualified');
+
+    // (2-a) 안전망 유지 — 종류가 다른 그룹끼리 제목이 진짜로 겹치면(회사명을 결합 라벨과 똑같이 입력) 꼬리표가 붙어야 한다.
+    await seedHome([
+      { id: 'clash-1', org: '강남구청', orgKind: 'public', dept: '세무과', name: '공공갑', amount: 1000 },
+      { id: 'clash-2', org: '강남구청 세무과', orgKind: '', dept: '', name: '회사을', amount: 2000 },
+      { id: 'clash-3', org: '', orgKind: '', dept: '강남구청 세무과', name: '레거시병', amount: 3000 }
+    ]);
+    const clashTitles = await groupTitles();
+    await assert(new Set(clashTitles).size === clashTitles.length, `titles that really collide across kinds must still be disambiguated (got ${JSON.stringify(clashTitles)})`);
+    await assert(clashTitles.includes('강남구청 세무과 (공공기관)'), `a colliding public group should be tagged 공공기관 (got ${JSON.stringify(clashTitles)})`);
+    await assert(clashTitles.includes('강남구청 세무과 (회사)'), `a colliding company group should be tagged 회사 (got ${JSON.stringify(clashTitles)})`);
+    await assert(clashTitles.includes('강남구청 세무과 (소속 없음)'), `a colliding legacy group should be tagged 소속 없음 (got ${JSON.stringify(clashTitles)})`);
+    const clashOpts = (await filterOptions()).slice(1);
+    await assert(clashOpts.join('|') === clashTitles.join('|'), `filter options must mirror the disambiguated headers (opts ${JSON.stringify(clashOpts)} vs titles ${JSON.stringify(clashTitles)})`);
+
+    // (2-c) 그룹 순서 — 공공기관(기관명 가나다 → 부서 오름차순) → 회사(가나다) → 개인 → 무소속·레거시(가나다).
+    await seedHome([
+      { id: 'ord-1', org: '서초구청', orgKind: 'public', dept: '세무과', name: '가', amount: 1000 },
+      { id: 'ord-2', org: '강남구청', orgKind: 'public', dept: '총무과', name: '나', amount: 1000 },
+      { id: 'ord-3', org: '강남구청', orgKind: 'public', dept: '세무과', name: '다', amount: 1000 },
+      { id: 'ord-4', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '라', amount: 1000 },
+      { id: 'ord-5', org: '가나상사', orgKind: '', dept: '', name: '마', amount: 1000 },
+      { id: 'ord-6', org: '개인', orgKind: '', dept: '', name: '바', amount: 1000 },
+      { id: 'ord-7', org: '', orgKind: '', dept: '흥부식당 배달팀', name: '사', amount: 1000 },
+      { id: 'ord-8', org: '', orgKind: '', dept: '가정지원과', name: '아', amount: 1000 }
+    ]);
+    const ordTitles = await groupTitles();
+    const ordExpected = ['강남구청 세무과', '강남구청 총무과', '서초구청 세무과', '가나상사', '한빛물산', '개인', '가정지원과', '흥부식당 배달팀'];
+    await assert(ordTitles.join('|') === ordExpected.join('|'),
+      `home groups must sort 공공기관(기관→부서) → 회사 → 개인 → 무소속 (expected ${JSON.stringify(ordExpected)}, got ${JSON.stringify(ordTitles)})`);
+    const ordOpts = (await filterOptions()).slice(1);
+    await assert(ordOpts.join('|') === ordExpected.join('|'), `the department filter must follow the same group order (got ${JSON.stringify(ordOpts)})`);
+    // 설정 > 직원 목록 관리도 같은 원칙으로 정렬된다(그룹핑 키는 결합 라벨 그대로 — 순서만 맞춘다).
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForTimeout(200);
+    const mgrTitles = (await page.locator('.mgr-dept').allInnerTexts()).map(t => t.trim());
+    // 설정 화면의 그룹 이름은 결합 라벨(deptKey) 그대로다 — 회사는 홈과 달리 "회사명 부서명"으로 묶인다(그룹핑 키 불변, 순서만 변경).
+    const mgrExpected = ['강남구청 세무과', '강남구청 총무과', '서초구청 세무과', '가나상사', '한빛물산 영업1팀', '개인', '가정지원과', '흥부식당 배달팀'];
+    await assert(mgrTitles.join('|') === mgrExpected.join('|'),
+      `설정 > 직원 목록 관리 groups must follow the same order as home (expected ${JSON.stringify(mgrExpected)}, got ${JSON.stringify(mgrTitles)})`);
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(150);
 
     // (2-b) 그룹 키는 자유 입력 문자열로 깨지지 않아야 한다(구분자 이스케이프) — 두 그룹이 한 그룹으로 합쳐지면 잔액 소계가 섞인다.
     await seedHome([
@@ -1298,7 +1341,7 @@ async function main() {
       `changing 소속/부서 by hand must clear the auto-enrollment grouping flag (got org="${kindEdited.org}" orgKind="${kindEdited.orgKind}")`);
     const kindTitles = await groupTitles();
     await assert(kindTitles.includes('개인'), `an employee moved to 소속='개인' must land in the 개인 group (got ${JSON.stringify(kindTitles)})`);
-    await assert(kindTitles.includes('세무과'), 'the untouched colleague should stay in the institution group');
+    await assert(kindTitles.includes('강남구청 세무과'), 'the untouched colleague should stay in the institution group');
     // 소속·부서를 그대로 두고 메모만 고치면 표식은 유지된다(자동 등록 이력 보존).
     await openEditFor(stayName);
     await page.locator('#empNote').fill('메모만 변경');

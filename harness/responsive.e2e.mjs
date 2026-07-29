@@ -66,16 +66,20 @@ function check(cond, message) {
 
 // 시드 데이터: 짧은 이름 / 아주 긴 이름 / 7자리 금액 / 긴 "소속 부서" 라벨을 한 화면에 모두 올린다.
 const LONG_NAME = '김수한무거북이와두루미';
-// orgKind:'public' = 자동 등록(승인·직접 전달)으로 들어온 공공기관 직원 → 홈 그룹 헤더가 부서명만으로 나온다.
+// orgKind:'public' = 자동 등록(승인·직접 전달)으로 들어온 공공기관 직원 → 홈 그룹 헤더가 "기관명 부서명" 결합 라벨로 나온다(beta.15).
+// 그래서 공공기관 헤더는 앱에서 가장 긴 제목이 된다 — 일부러 최악의 실제 사례(광역시명이 붙은 기관명 + 긴 과 이름)를 심는다.
+const LONG_ORG = '서울특별시 강남구청';
+const LONG_DEPT = '어르신복지과';
+const LONG_PUBLIC_TITLE = `${LONG_ORG} ${LONG_DEPT}`;
 const SEED_EMPLOYEES = [
   { id: 'r-emp-1', org: '', orgKind: '', dept: '총무부', name: '김민수', amount: 9000 },
-  { id: 'r-emp-2', org: '강남구청', orgKind: 'public', dept: '여성가족정책과', name: LONG_NAME, amount: 1234567 },
+  { id: 'r-emp-2', org: LONG_ORG, orgKind: 'public', dept: LONG_DEPT, name: LONG_NAME, amount: 1234567 },
   { id: 'r-emp-3', org: '한빛물산', orgKind: '', dept: '총무부', name: '이서연', amount: 1000000 }
 ];
 
 async function seed(page) {
   const pinHash = crypto.createHash('sha256').update('1234').digest('hex');
-  await page.evaluate(({ emps, pinHash, t }) => new Promise((resolve, reject) => {
+  await page.evaluate(({ emps, pinHash, t, longDept }) => new Promise((resolve, reject) => {
     const req = indexedDB.open('prepaid-ledger-db');
     req.onerror = () => reject(req.error);
     req.onsuccess = () => {
@@ -93,11 +97,11 @@ async function seed(page) {
       ms.put({ key: 'pinHash', value: pinHash });
       ms.put({ key: 'shopName', value: '반응형 테스트 식당' });
       ms.put({ key: 'shopAddr', value: '서울특별시 광진구 구의동 123-45' });
-      ms.put({ key: 'departments', value: ['총무부', '여성가족정책과'] });
+      ms.put({ key: 'departments', value: ['총무부', longDept] });
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error);
     };
-  }), { emps: SEED_EMPLOYEES, pinHash, t: Date.now() });
+  }), { emps: SEED_EMPLOYEES, pinHash, t: Date.now(), longDept: LONG_DEPT });
 }
 
 async function unlock(page) {
@@ -145,16 +149,31 @@ async function runViewport(context, url, w) {
     const r = h.getBoundingClientRect();
     return { text: h.innerText.replace(/\n/g, ' ').trim(), height: r.height, left: r.left, right: r.right };
   }));
-  check(heads.length === 3, `${w}px 홈: 그룹 헤더 3개(여성가족정책과 / 한빛물산 / 총무부)가 렌더되어야 한다 (${heads.length}개)`);
+  check(heads.length === 3, `${w}px 홈: 그룹 헤더 3개(${LONG_PUBLIC_TITLE} / 한빛물산 / 총무부)가 렌더되어야 한다 (${heads.length}개)`);
   check(heads.some(h => h.text.startsWith('▶') && /직원 \d+명/.test(h.text)), `${w}px 홈: 접힌 그룹 헤더에 ▶와 인원수가 보여야 한다 ${JSON.stringify(heads.map(h => h.text))}`);
   heads.forEach(h => {
     if (w <= 640) check(h.height >= 48, `${w}px 홈: 그룹 헤더 터치 타겟이 48px 미만 (${Math.round(h.height)}px · "${h.text}")`);
     check(h.right <= clientW + 1 && h.left >= -1, `${w}px 홈: 그룹 헤더가 화면 밖으로 나갔다 ("${h.text}")`);
   });
-  // 공공기관(자동 등록) 그룹 헤더는 부서명만, 회사 그룹은 회사명만 — 좁은 화면에서도 문구가 그대로여야 한다.
+  // 공공기관 그룹 헤더는 "기관명 부서명" 결합, 회사 그룹은 회사명만 — 좁은 화면에서도 문구가 그대로여야 한다(축약·생략 금지).
   const headTitles = (await page.locator('.group-title').allInnerTexts()).map(t => t.trim());
-  check(headTitles.includes('여성가족정책과'), `${w}px 홈: 공공기관 그룹 헤더는 부서명만이어야 한다 ${JSON.stringify(headTitles)}`);
+  check(headTitles.includes(LONG_PUBLIC_TITLE), `${w}px 홈: 공공기관 그룹 헤더는 "기관명 부서명" 결합 라벨이어야 한다 ${JSON.stringify(headTitles)}`);
   check(headTitles.includes('한빛물산'), `${w}px 홈: 회사 그룹 헤더는 회사명만이어야 한다 ${JSON.stringify(headTitles)}`);
+  // 정렬(beta.15): 공공기관 → 회사 → 무소속. 헤더 순서 자체가 계약이다.
+  check(headTitles.join('|') === [LONG_PUBLIC_TITLE, '한빛물산', '총무부'].join('|'),
+    `${w}px 홈: 그룹 순서는 공공기관 → 회사 → 무소속이어야 한다 ${JSON.stringify(headTitles)}`);
+  // 긴 결합 제목이 좁은 화면에서 잘리거나 밖으로 밀리지 않아야 한다(줄바꿈은 허용, 생략표는 불가).
+  const longHead = await page.evaluate(({ title }) => {
+    const el = [...document.querySelectorAll('.group-title')].find(t => t.textContent.trim() === title);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { clipped: el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1, left: r.left, right: r.right, text: el.textContent.trim() };
+  }, { title: LONG_PUBLIC_TITLE });
+  check(Boolean(longHead), `${w}px 홈: 긴 결합 제목 헤더("${LONG_PUBLIC_TITLE}")를 찾지 못했다 ${JSON.stringify(headTitles)}`);
+  if (longHead) {
+    check(!longHead.clipped, `${w}px 홈: 긴 결합 제목이 잘렸다 ("${longHead.text}")`);
+    check(longHead.right <= clientW + 1 && longHead.left >= -1, `${w}px 홈: 긴 결합 제목이 화면 밖으로 나갔다 ("${longHead.text}")`);
+  }
 
   // ── 펼친 뒤에도 가로로 밀리지 않아야 한다(기하 단언은 전부 펼친 상태에서) ──
   await expandHomeGroups(page);
@@ -181,7 +200,7 @@ async function runViewport(context, url, w) {
   const balTexts = await page.locator('.card.employee .bal').allInnerTexts();
   check(balTexts.some(t => t.includes('1,234,567원')), `${w}px 홈: 7자리 잔액이 전액(1,234,567원)으로 표기되어야 한다 — 축약 금지`);
   const longCard = page.locator('.card.employee', { hasText: LONG_NAME }).first();
-  check((await longCard.innerText()).includes('강남구청 여성가족정책과'), `${w}px 홈: 소속+부서 결합 라벨이 그대로 보여야 한다`);
+  check((await longCard.innerText()).includes(LONG_PUBLIC_TITLE), `${w}px 홈: 소속+부서 결합 라벨이 그대로 보여야 한다`);
 
   // ── 카드 행 구성: 폰(≤640)은 2행, 태블릿(768)은 1행 ──
   const rows = await page.evaluate(({ name }) => {
@@ -251,30 +270,30 @@ async function runViewport(context, url, w) {
   await page.waitForTimeout(120);
   await noHorizontalOverflow(page, '이력', w);
 
-  // ── 제목이 겹치는 그룹(공공 '여성가족정책과' vs 무소속 '여성가족정책과')은 구분자가 붙어 제목이 길어진다.
-  //    좁은 화면에서 그 긴 제목이 화면 밖으로 밀리거나 잘리지 않아야 한다.
-  await page.evaluate(({ t }) => new Promise((resolve, reject) => {
+  // ── 제목이 겹치는 그룹(공공기관 결합 라벨 vs 레거시 합성 부서명이 글자까지 똑같은 경우)은 종류 꼬리표가 붙어
+  //    제목이 더 길어진다. 좁은 화면에서 그 최악 길이의 제목이 화면 밖으로 밀리거나 잘리지 않아야 한다.
+  await page.evaluate(({ t, dupDept }) => new Promise((resolve, reject) => {
     const req = indexedDB.open('prepaid-ledger-db');
     req.onerror = () => reject(req.error);
     req.onsuccess = () => {
       const db = req.result;
       const tx = db.transaction(['employees', 'transactions'], 'readwrite');
-      tx.objectStore('employees').put({ id: 'r-emp-4', org: '', orgKind: '', dept: '여성가족정책과', name: '박지훈', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
+      tx.objectStore('employees').put({ id: 'r-emp-4', org: '', orgKind: '', dept: dupDept, name: '박지훈', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
       tx.objectStore('transactions').put({ id: 'r-tx-9', employeeId: 'r-emp-4', type: 'open', amount: 9000, beforeBalance: 0, afterBalance: 9000, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t });
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error);
     };
-  }), { t: Date.now() });
+  }), { t: Date.now(), dupDept: LONG_PUBLIC_TITLE });
   await page.reload({ waitUntil: 'load' });
   await unlock(page);
   await noHorizontalOverflow(page, '홈(제목 구분자)', w);
   const dupTitles = (await page.locator('.group-title').allInnerTexts()).map(t => t.trim());
-  check(dupTitles.includes('여성가족정책과 (강남구청)'), `${w}px 홈: 제목이 겹치는 공공기관 그룹은 "부서명 (기관명)"이어야 한다 ${JSON.stringify(dupTitles)}`);
-  check(dupTitles.includes('여성가족정책과 (소속 없음)'), `${w}px 홈: 제목이 겹치는 무소속 그룹은 "제목 (소속 없음)"이어야 한다 ${JSON.stringify(dupTitles)}`);
+  check(dupTitles.includes(`${LONG_PUBLIC_TITLE} (공공기관)`), `${w}px 홈: 제목이 겹치는 공공기관 그룹은 "제목 (공공기관)"이어야 한다 ${JSON.stringify(dupTitles)}`);
+  check(dupTitles.includes(`${LONG_PUBLIC_TITLE} (소속 없음)`), `${w}px 홈: 제목이 겹치는 무소속 그룹은 "제목 (소속 없음)"이어야 한다 ${JSON.stringify(dupTitles)}`);
   check(new Set(dupTitles).size === dupTitles.length, `${w}px 홈: 그룹 제목이 서로 같으면 구분할 수 없다 ${JSON.stringify(dupTitles)}`);
   const dupHeads = await page.evaluate(() => [...document.querySelectorAll('.group-head')].map(h => {
     const r = h.getBoundingClientRect(), t = h.querySelector('.group-title');
-    return { text: t ? t.textContent.trim() : '', left: r.left, right: r.right, clipped: t ? t.scrollWidth > t.clientWidth + 1 : false };
+    return { text: t ? t.textContent.trim() : '', left: r.left, right: r.right, clipped: t ? (t.scrollWidth > t.clientWidth + 1 || t.scrollHeight > t.clientHeight + 1) : false };
   }));
   dupHeads.forEach(h => {
     check(h.right <= clientW + 1 && h.left >= -1, `${w}px 홈: 구분자가 붙은 그룹 헤더가 화면 밖으로 나갔다 ("${h.text}")`);
