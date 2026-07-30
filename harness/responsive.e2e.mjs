@@ -149,7 +149,7 @@ async function runViewport(context, url, w) {
     const r = h.getBoundingClientRect();
     return { text: h.innerText.replace(/\n/g, ' ').trim(), height: r.height, left: r.left, right: r.right };
   }));
-  check(heads.length === 3, `${w}px 홈: 그룹 헤더 3개(${LONG_PUBLIC_TITLE} / 한빛물산 / 총무부)가 렌더되어야 한다 (${heads.length}개)`);
+  check(heads.length === 3, `${w}px 홈: 그룹 헤더 3개(${LONG_PUBLIC_TITLE} / 총무부 / 한빛물산)가 렌더되어야 한다 (${heads.length}개)`);
   check(heads.some(h => h.text.startsWith('▶') && /직원 \d+명/.test(h.text)), `${w}px 홈: 접힌 그룹 헤더에 ▶와 인원수가 보여야 한다 ${JSON.stringify(heads.map(h => h.text))}`);
   heads.forEach(h => {
     if (w <= 640) check(h.height >= 48, `${w}px 홈: 그룹 헤더 터치 타겟이 48px 미만 (${Math.round(h.height)}px · "${h.text}")`);
@@ -159,9 +159,9 @@ async function runViewport(context, url, w) {
   const headTitles = (await page.locator('.group-title').allInnerTexts()).map(t => t.trim());
   check(headTitles.includes(LONG_PUBLIC_TITLE), `${w}px 홈: 공공기관 그룹 헤더는 "기관명 부서명" 결합 라벨이어야 한다 ${JSON.stringify(headTitles)}`);
   check(headTitles.includes('한빛물산'), `${w}px 홈: 회사 그룹 헤더는 회사명만이어야 한다 ${JSON.stringify(headTitles)}`);
-  // 정렬(beta.15): 공공기관 → 회사 → 무소속. 헤더 순서 자체가 계약이다.
-  check(headTitles.join('|') === [LONG_PUBLIC_TITLE, '한빛물산', '총무부'].join('|'),
-    `${w}px 홈: 그룹 순서는 공공기관 → 회사 → 무소속이어야 한다 ${JSON.stringify(headTitles)}`);
+  // 정렬(beta.16): ① 공공기관 ② 그 외 전부 한 블록으로 제목 가나다('총무부' < '한빛물산'). 헤더 순서 자체가 계약이다.
+  check(headTitles.join('|') === [LONG_PUBLIC_TITLE, '총무부', '한빛물산'].join('|'),
+    `${w}px 홈: 그룹 순서는 공공기관 먼저, 그다음 나머지 전부 제목 가나다여야 한다 ${JSON.stringify(headTitles)}`);
   // 긴 결합 제목이 좁은 화면에서 잘리거나 밖으로 밀리지 않아야 한다(줄바꿈은 허용, 생략표는 불가).
   const longHead = await page.evaluate(({ title }) => {
     const el = [...document.querySelectorAll('.group-title')].find(t => t.textContent.trim() === title);

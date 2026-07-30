@@ -592,9 +592,22 @@ async function main() {
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.waitForSelector('[data-a="screen"][data-screen="home"]');
-    await assert(await count(page, '[data-a="monthly-backup-now"]') === 0, 'a month already backed up must not show the month-end banner');
-    const dueEmpty = await page.evaluate(() => window.__prepaidTestHooks.monthlyBackupDue());
-    await assert(dueEmpty === '', 'monthlyBackupDue() must return empty once the due month is recorded as backed up');
+    // ⚠️ 달력 의존 주의: 오늘이 "말일"이면 앱 규칙②(말일 + 이번 달 활동 + 미백업 → 이번 달)가 곧바로 이어 발동한다.
+    //    lastMonthlyBackup은 값이 하나뿐이라 지난달·이번 달을 동시에 기록할 수 없으므로, 말일에는 대상이 이번 달로
+    //    넘어가는 것이 정상 동작이다. 두 갈래 모두 완전한 계약을 단언한다(달력에 따라 검증이 느슨해지지 않게).
+    const nowD = new Date();
+    const curYmStr = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+    const isLastDayToday = (() => { const n = new Date(), t = new Date(); t.setDate(n.getDate() + 1); return t.getMonth() !== n.getMonth(); })();
+    const dueAfterRecord = await page.evaluate(() => window.__prepaidTestHooks.monthlyBackupDue());
+    if (isLastDayToday) {
+      await assert(dueAfterRecord === curYmStr, `on the last day of the month the due target must roll over from ${prevYmStr} to ${curYmStr} (got "${dueAfterRecord}")`);
+      const rollBanner = await page.locator('.banner.warn', { hasText: '지금 저장하기' }).first().innerText();
+      await assert(rollBanner.includes(curYmStr), `the rolled-over month-end banner must name ${curYmStr} (got ${JSON.stringify(rollBanner)})`);
+      await assert(!rollBanner.includes(prevYmStr), `the month already recorded as backed up must not be named by the banner any more (got ${JSON.stringify(rollBanner)})`);
+    } else {
+      await assert(await count(page, '[data-a="monthly-backup-now"]') === 0, 'a month already backed up must not show the month-end banner');
+      await assert(dueAfterRecord === '', 'monthlyBackupDue() must return empty once the due month is recorded as backed up');
+    }
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'no-banner-backed-up.png') }).catch(() => {});
 
     // (6) 자동 클라우드 트리거: 토글 ON + 등록됨 + due 이면 조용히 서버 백업을 호출한다(네트워크 스파이).
@@ -656,7 +669,14 @@ async function main() {
       await window.__prepaidTestHooks.maybeMonthlyAutoBackup();
       return window.__ledgerBackupCalls.length;
     });
-    await assert(again === 0, 'once recorded, the due month must not trigger another server backup');
+    if (isLastDayToday) {
+      // 말일: 지난달을 기록한 순간 이번 달이 새 대상이 되므로 한 번 더 저장되고, 기록도 이번 달로 넘어간다.
+      await assert(again >= 1, `on the last day the rolled-over current month should back up once more (got ${again})`);
+      const mmRoll = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+      await assert(mmRoll.lastMonthlyBackup === curYmStr, `the rolled-over backup must record ${curYmStr} (got ${mmRoll.lastMonthlyBackup})`);
+    } else {
+      await assert(again === 0, 'once recorded, the due month must not trigger another server backup');
+    }
 
     // 정리: 씨앗 지난달 거래·릴레이 메타를 제거해 이후 변조/리셋 시나리오에 영향 주지 않게 한다
     await page.evaluate(({ ts }) => new Promise((resolve) => {
@@ -897,10 +917,15 @@ async function main() {
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     titles = await homeGroupTitles();
     await assert(titles.filter(t => t === '개인').length === 1, `소속='개인' employees should land in exactly one "개인" group (got ${JSON.stringify(titles)})`);
-    // 정렬: 공공기관(기관명 가나다 → 부서 오름차순) → 회사 → 개인 → 무소속·레거시
-    await assert(titles.indexOf('강남구청 세무과') < titles.indexOf('한빛물산'), 'public-institution groups should sort before company groups');
-    await assert(titles.indexOf('한빛물산') < titles.indexOf('개인'), 'company groups should sort before the 개인 group');
-    await assert(titles.indexOf('개인') < titles.indexOf('Dept A'), 'the 개인 group should sort before the unaffiliated/legacy groups');
+    // 정렬(beta.16): ① 공공기관(기관명 가나다 → 부서 오름차순) ② 그 외 전부 한 블록으로 제목 가나다.
+    await assert(titles[0] === '강남구청 세무과', `the only public group must sort ahead of every non-public group (got ${JSON.stringify(titles)})`);
+    const restTitles = titles.slice(1);
+    await assert(restTitles.join('|') === restTitles.slice().sort((a, b) => a.localeCompare(b, 'ko')).join('|'),
+      `every non-public group (회사·개인·무소속) must form ONE 가나다 block (got ${JSON.stringify(restTitles)})`);
+    // 합쳐진 블록의 증거 — 옛 규칙(회사 → 개인 → 무소속)이면 한빛물산이 개인보다 앞이고 Dept A가 마지막이 아니다.
+    await assert(restTitles.indexOf('개인') < restTitles.indexOf('한빛물산'), `"개인" must now sort before "한빛물산" by title, not by kind (got ${JSON.stringify(restTitles)})`);
+    await assert(restTitles.indexOf('서초구청 총무과') < restTitles.indexOf('한빛물산'), `a legacy group must sort by title against a company group (got ${JSON.stringify(restTitles)})`);
+    await assert(restTitles.indexOf('한빛물산') < restTitles.indexOf('Dept A'), `ko collation puts Latin titles last inside the merged block (got ${JSON.stringify(restTitles)})`);
 
     // (e) 동일인 판정 키 org|dept|name
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
@@ -1266,7 +1291,7 @@ async function main() {
     const clashOpts = (await filterOptions()).slice(1);
     await assert(clashOpts.join('|') === clashTitles.join('|'), `filter options must mirror the disambiguated headers (opts ${JSON.stringify(clashOpts)} vs titles ${JSON.stringify(clashTitles)})`);
 
-    // (2-c) 그룹 순서 — 공공기관(기관명 가나다 → 부서 오름차순) → 회사(가나다) → 개인 → 무소속·레거시(가나다).
+    // (2-c) 그룹 순서(beta.16) — ① 공공기관(기관명 가나다 → 부서 오름차순) ② 그 외 전부 한 블록으로 제목 가나다.
     await seedHome([
       { id: 'ord-1', org: '서초구청', orgKind: 'public', dept: '세무과', name: '가', amount: 1000 },
       { id: 'ord-2', org: '강남구청', orgKind: 'public', dept: '총무과', name: '나', amount: 1000 },
@@ -1278,9 +1303,10 @@ async function main() {
       { id: 'ord-8', org: '', orgKind: '', dept: '가정지원과', name: '아', amount: 1000 }
     ]);
     const ordTitles = await groupTitles();
-    const ordExpected = ['강남구청 세무과', '강남구청 총무과', '서초구청 세무과', '가나상사', '한빛물산', '개인', '가정지원과', '흥부식당 배달팀'];
+    // 공공기관 3개가 먼저(강남구청 세무과 → 강남구청 총무과 → 서초구청 세무과), 나머지 5개는 종류 구분 없이 제목 가나다.
+    const ordExpected = ['강남구청 세무과', '강남구청 총무과', '서초구청 세무과', '가나상사', '가정지원과', '개인', '한빛물산', '흥부식당 배달팀'];
     await assert(ordTitles.join('|') === ordExpected.join('|'),
-      `home groups must sort 공공기관(기관→부서) → 회사 → 개인 → 무소속 (expected ${JSON.stringify(ordExpected)}, got ${JSON.stringify(ordTitles)})`);
+      `home groups must sort 공공기관(기관→부서) first, then ALL other groups as one 가나다 block (expected ${JSON.stringify(ordExpected)}, got ${JSON.stringify(ordTitles)})`);
     const ordOpts = (await filterOptions()).slice(1);
     await assert(ordOpts.join('|') === ordExpected.join('|'), `the department filter must follow the same group order (got ${JSON.stringify(ordOpts)})`);
     // 설정 > 직원 목록 관리도 같은 원칙으로 정렬된다(그룹핑 키는 결합 라벨 그대로 — 순서만 맞춘다).
@@ -1288,7 +1314,8 @@ async function main() {
     await page.waitForTimeout(200);
     const mgrTitles = (await page.locator('.mgr-dept').allInnerTexts()).map(t => t.trim());
     // 설정 화면의 그룹 이름은 결합 라벨(deptKey) 그대로다 — 회사는 홈과 달리 "회사명 부서명"으로 묶인다(그룹핑 키 불변, 순서만 변경).
-    const mgrExpected = ['강남구청 세무과', '강남구청 총무과', '서초구청 세무과', '가나상사', '한빛물산 영업1팀', '개인', '가정지원과', '흥부식당 배달팀'];
+    // 정렬 1차키는 회사명('한빛물산')이므로 "한빛물산 영업1팀"은 홈의 '한빛물산'과 같은 자리에 들어간다.
+    const mgrExpected = ['강남구청 세무과', '강남구청 총무과', '서초구청 세무과', '가나상사', '가정지원과', '개인', '한빛물산 영업1팀', '흥부식당 배달팀'];
     await assert(mgrTitles.join('|') === mgrExpected.join('|'),
       `설정 > 직원 목록 관리 groups must follow the same order as home (expected ${JSON.stringify(mgrExpected)}, got ${JSON.stringify(mgrTitles)})`);
     await page.locator('[data-a="screen"][data-screen="home"]').click();
