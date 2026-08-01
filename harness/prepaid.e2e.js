@@ -74,6 +74,8 @@ async function assert(condition, message) {
 
 // beta.18: 잠금 화면의 기본값은 "손님 화면"이다 — PIN 패드는 [사장님용 잠금 해제]를 눌러야 나온다.
 //   (PIN 최초 설정·변경 단계에서는 손님 화면이 없으므로 그때는 곧바로 패드가 떠 있다.)
+// beta.19: 손님이 [사장님께 보여주기]를 누른 뒤에는 이미 PIN 패드("사장님 확인")가 떠 있다 —
+//   그때는 [사장님용 잠금 해제]가 없으므로 이 헬퍼가 곧바로 4자리를 누른다(인계 경로와 그대로 정합).
 async function unlockPin(page) {
   await page.waitForSelector('.cust-screen, [data-a="pin-key"]', { timeout: 8000 });
   if (await page.locator('[data-a="lock-to-pin"]').count()) {
@@ -1191,6 +1193,7 @@ async function main() {
     await assert(prodTimers.pinDelay === 60000, `TIMERS.pinDelay must stay 60000 in production (got ${prodTimers.pinDelay})`);
     await assert(prodTimers.recoveryGate === 60000, `TIMERS.recoveryGate must stay 60000 in production (got ${prodTimers.recoveryGate})`);
     await assert(prodTimers.modalIdleCap === 600000, `TIMERS.modalIdleCap must stay 600000 in production (got ${prodTimers.modalIdleCap})`);
+    await assert(prodTimers.ownerPinIdle === 120000, `TIMERS.ownerPinIdle must stay 120000 in production (got ${prodTimers.ownerPinIdle})`);
     await page.locator('[data-a="lock-to-pin"]').click();
     await page.waitForSelector('[data-a="pin-key"]');
     for (let i = 0; i < 5; i += 1) {
@@ -1654,8 +1657,12 @@ async function main() {
     // 테스트용 상수 주입 — 프로덕션 상수(30초/90초/120초/60초)는 index.html의 TIMERS에 그대로 남는다.
     const setTimers = async (t) => page.evaluate(v => Object.assign(window.__prepaidTestHooks.TIMERS, v), t);
 
-    // (8-a) [손님에게 넘기기] — 1탭으로 즉시 잠금 + 손님 화면. PIN 화면과 왕복도 된다.
-    await assert(await count(page, '.top .tool [data-a="hand-to-customer"]') === 1, 'the home top bar must carry exactly one [손님에게 넘기기] button');
+    // (8-a) [손님 셀프 조회] — 1탭으로 즉시 잠금 + 손님 화면. PIN 화면과 왕복도 된다.
+    await assert(await count(page, '.top .tool [data-a="hand-to-customer"]') === 1, 'the home top bar must carry exactly one [손님 셀프 조회] button');
+    // beta.19 문구 — 액션명(data-a)은 그대로, 라벨·aria-label만 "손님 셀프 조회"로 바뀌었다.
+    const handoffLabel = await page.locator('.top .tool [data-a="hand-to-customer"]').innerText();
+    await assert(handoffLabel.trim() === '손님 셀프 조회', `the handover button must read 손님 셀프 조회 (got ${JSON.stringify(handoffLabel)})`);
+    await assert((await page.locator('.top .tool [data-a="hand-to-customer"]').getAttribute('aria-label') || '').includes('손님 셀프 조회'), 'the handover button must carry a matching aria-label');
     await page.locator('[data-a="hand-to-customer"]').click();
     await page.waitForSelector('.cust-screen');
     await assert((await bt()).locked === true, '[손님에게 넘기기] must lock the app immediately');
@@ -1775,11 +1782,87 @@ async function main() {
     await page.locator('[data-a="cust-confirm"]').click();
     await page.waitForSelector('.cust-bal');
 
-    // (8-f) [사장님께 보여주기] → 요청은 휘발성 · 해제하면 사용 모달이 자동으로 열린다(금액 빈 칸) → 저장까지
+    // (8-e3) 게이트 스윕 확장(beta.19) — 손님이 넘긴 "사장님 확인" 화면에서도 **전 액션**을 눌러본다.
+    //   이 화면은 손님 손에서 사장님 손으로 넘어가는 유일한 지점이라, 여기서 원장 쓰기가 한 바이트라도
+    //   통과하면 잠금 화면 전체의 보장이 무너진다.
     await page.locator('[data-a="cust-call-owner"]').click();
-    await page.waitForSelector('.cust-done');
-    await assert((await page.locator('.cust-done').innerText()).includes('김철수'), 'the confirmation screen must name the customer who asked');
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    const hoGateBefore = await readDb(page);
+    const hoDialogsBefore = dialogs.length;
+    const hoSwept = await page.evaluate(() => {
+      const keys = window.__prepaidTestHooks.clickActionKeys();
+      keys.forEach(k => {
+        const b = document.createElement('button');
+        Object.assign(b.dataset, { a: k, id: 'cx-3', sid: 'sid', key: '1', screen: 'settings', dept: 'X', ctx: 'settings', tab: 'employee', amount: '9000', g: 'g', idx: '0' });
+        document.body.appendChild(b);
+        b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        b.remove();
+      });
+      return keys.length;
+    });
+    // 숨은 파일 input 3종(#restoreFile·#csvFile·#directTransferFile)은 onClick 화이트리스트를 **거치지 않는다**
+    //   — 각자 change 리스너로 직접 들어온다. 스윕이 클릭만 훑으면 이 세 경로가 통째로 검증 밖에 남는다.
+    //   그래서 실제 파일(악성 복원 백업·CSV·직접 전달)을 물려 change를 발화시킨다.
+    const hoEvilBackup = JSON.stringify({
+      app: '선입금대장', version: 1, exportedAt: new Date().toISOString(),
+      employees: [{ id: 'evil-1', org: '침입기관', orgKind: '', dept: '침입과', name: '침입자', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: Date.now(), updatedAt: Date.now() }],
+      transactions: [{ id: 'evil-tx-1', employeeId: 'evil-1', type: 'open', amount: 999999, beforeBalance: 0, afterBalance: 999999, reason: 'x', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: Date.now() }],
+      meta: { setupComplete: true, shopName: '침입식당', departments: [] }
+    });
+    const hoEvilCsv = '소속,부서,이름,금액\n침입기관,침입과,침입자,999999\n';
+    const hoFilePaths = [
+      ['#restoreFile', 'evil-restore.json', 'application/json', hoEvilBackup],
+      ['#csvFile', 'evil-roster.csv', 'text/csv', hoEvilCsv],
+      ['#directTransferFile', 'evil-transfer.json', 'application/json', hoEvilBackup]
+    ];
+    for (const [sel, name, mimeType, body] of hoFilePaths) {
+      await page.setInputFiles(sel, { name, mimeType, buffer: Buffer.from(body, 'utf8') });
+    }
+    await page.waitForTimeout(1000);
+    // 임계는 "50개쯤"이 아니라 **액션 맵 전량**이다 — 맵에 액션이 추가돼도 스윕이 자동으로 따라간다.
+    //   (하한 50은 맵 자체가 쪼그라들어 전량 단언이 공허해지는 사고를 막는 보조 장치다.)
+    const hoActionTotal = await page.evaluate(() => window.__prepaidTestHooks.clickActionKeys().length);
+    await assert(hoSwept === hoActionTotal, `the 사장님 확인 sweep must fire every action in the map (fired ${hoSwept} of ${hoActionTotal})`);
+    await assert(hoActionTotal >= 50, `the action map must not shrink out from under the sweep (got ${hoActionTotal})`);
+    const hoGateAfter = await readDb(page);
+    await assert(JSON.stringify(hoGateAfter.employees) === JSON.stringify(hoGateBefore.employees), 'no action fired on the 사장님 확인 screen may touch the employee store');
+    await assert(JSON.stringify(hoGateAfter.transactions) === JSON.stringify(hoGateBefore.transactions), 'no action fired on the 사장님 확인 screen may touch the ledger');
+    await assert(dialogs.length === hoDialogsBefore, 'no destructive confirm may open from the 사장님 확인 screen');
+    await assert((await bt()).locked === true, 'the 사장님 확인 sweep must leave the app locked');
+    await assert(await count(page, '.nav') === 0 && await count(page, '.modal-back') === 0, 'the 사장님 확인 sweep must not open any owner screen or modal');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('.cust-screen');
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('.cust-bal');
+
+    // (8-f) [사장님께 보여주기] → beta.19: 안내 화면 없이 **곧바로 PIN 화면("사장님 확인")**.
+    //       요청은 휘발성이고, PIN이 맞으면 사용 모달이 자동으로 열린다(금액 빈 칸) → 저장까지.
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await assert(await count(page, '#custSearchInput') === 0, '[사장님께 보여주기] must go straight to the PIN screen (no extra "call the owner" step)');
+    const hoTitle = (await page.locator('.pin-title').innerText()).trim();
+    await assert(hoTitle === '사장님 확인', `the handover PIN screen must be titled 사장님 확인 (got ${JSON.stringify(hoTitle)})`);
+    const hoSub = (await page.locator('.pin-sub').innerText()).replace(/\n/g, ' ');
+    await assert(hoSub.includes('김철수'), `the handover PIN screen must name the customer who handed the phone over (got ${JSON.stringify(hoSub)})`);
+    await assert(hoSub.includes('광진구청 세무과'), `the handover subtitle must show the customer's 소속 too (got ${JSON.stringify(hoSub)})`);
+    await assert(hoSub.includes('비밀번호'), `the handover subtitle must tell the owner to enter the PIN (got ${JSON.stringify(hoSub)})`);
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pinContext === 'handoff', 'the handover PIN screen must run in the handoff context');
+    await assert(await count(page, '[data-a="pin-forgot"]') === 1, 'the handover PIN screen must keep the PIN-recovery entry point');
+    await assert((await page.locator('.cust-foot button').innerText()).includes('처음으로'), 'the handover PIN screen must offer [처음으로] as the way out');
     await assert((await bt()).locked === true, 'calling the owner must keep the app locked');
+    // 뒤로가기(안드로이드 하단 버튼)로 잠금을 우회하거나 인계 요청을 흘리면 안 된다 — 화면 그대로 유지된다.
+    await back();
+    await assert((await bt()).locked === true, 'back on the 사장님 확인 screen must keep the app locked (no lock bypass)');
+    await assert((await page.locator('.pin-title').innerText()).trim() === '사장님 확인' && await count(page, '.nav') === 0, 'back must leave the 사장님 확인 screen exactly as it was');
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pendingCustomerId !== '', 'back must not drop the handover request');
+    // 화면을 껐다 켜도(visibilitychange) 인계 요청·화면이 그대로여야 한다.
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForTimeout(200);
+    await assert((await bt()).locked === true && (await page.locator('.pin-title').innerText()).trim() === '사장님 확인', 'visibilitychange/online must not disturb the 사장님 확인 screen');
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pendingCustomerId !== '', 'visibilitychange/online must not drop the handover request');
     const pendDb = await readDb(page);
     await assert(!JSON.stringify(pendDb).includes('pendingCustomer'), 'the pending handover request must never be written to IndexedDB');
     const txBeforeHandover = pendDb.transactions.length;
@@ -1802,6 +1885,24 @@ async function main() {
     await assert(handoverDb.transactions.length === txBeforeHandover + 1, 'the handover flow must record exactly one new transaction');
     await assert(balanceOfId(handoverDb, 'cx-3') === 29000, `the handover deduction must land on the right employee (30,500 - 1,500 = 29,000, got ${balanceOfId(handoverDb, 'cx-3')})`);
 
+    // (8-g0) TTL 경계 — 기한 **직전**의 요청은 반드시 살아 있어야 한다(만료 판정이 앞당겨지면 인계가 무너진다).
+    //   프로덕션 120초를 그대로 기다릴 수 없으므로 같은 비교식을 축척(1200ms)으로 검증한다.
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await setTimers({ pendingTtl: 1200 });
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await page.waitForTimeout(600);
+    await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    await assert((await page.locator('.modal .receipt').innerText()).includes('김철수'), 'a handover still inside the TTL must open the usage modal');
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+
     // (8-g) 인계 요청 TTL 만료 → 조용히 폐기(사용 모달이 열리지 않는다)
     await page.locator('[data-a="hand-to-customer"]').click();
     await page.waitForSelector('.cust-screen');
@@ -1811,7 +1912,7 @@ async function main() {
     await page.locator('[data-a="cust-confirm"]').click();
     await page.waitForSelector('[data-a="cust-call-owner"]');
     await page.locator('[data-a="cust-call-owner"]').click();
-    await page.waitForSelector('.cust-done');
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
     await page.waitForTimeout(700);
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
@@ -1855,7 +1956,7 @@ async function main() {
     await assert(await count(page, '.cust-screen') === 1 && await count(page, '.modal-back') === 0, 'the capped auto-lock must close the modal and show the customer screen');
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
-    await setTimers({ custIdle: 30000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000 });
+    await setTimers({ custIdle: 30000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000 });
 
     // ───────────────────────────────────────────────────────────────
     // (9) 소속 목록에 등록된 공공기관 추가 — 제안 목록 + orgKind 자동 분류
@@ -1957,50 +2058,200 @@ async function main() {
     await page.waitForSelector('#custSearchInput');
 
     // ═══════════════════════════════════════════════════════════════════════
-    // (12) PIN 화면 방치(HIGH-3) — PIN 화면에서도 30초 유휴 시계가 돈다.
-    //   예전에는 [사장님용 잠금 해제]를 누른 순간 시계가 꺼져 앞 손님의 조회 상태가 무기한 살아남았다.
+    // (12) "사장님 확인" 화면 방치(HIGH-3) — 손님이 넘긴 PIN 화면에서도 30초 유휴 시계가 돈다.
+    //   예전에는 PIN 화면에 들어선 순간 시계가 꺼져 앞 손님의 조회 상태·인계 요청이 무기한 살아남았다.
+    //   beta.19: 시계는 손님 흔적이 남는 handoff 맥락에만 건다(owner 맥락은 12-a2에서 반대로 못 박는다).
     // ═══════════════════════════════════════════════════════════════════════
     await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 700 }));
     await page.locator('#custSearchInput').fill('김철수');
     await page.waitForSelector('.cust-ask');
     await page.locator('[data-a="cust-confirm"]').click();
     await page.waitForSelector('[data-a="cust-call-owner"]');
+    // 손님이 [사장님께 보여주기]로 폰을 넘긴 뒤 사장님이 오지 않은 채 시간이 흐른다.
     await page.locator('[data-a="cust-call-owner"]').click();
-    await page.waitForSelector('.cust-done');
-    // 손님이 [사장님용 잠금 해제]를 눌러 PIN 화면에 세워둔 채 자리를 떠난다.
-    await page.locator('[data-a="lock-to-pin"]').click();
-    await page.waitForSelector('[data-a="pin-key"]');
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
     const pinIdleState = await page.evaluate(() => window.__prepaidTestHooks.lockState());
-    await assert(pinIdleState.custQuery === '' && pinIdleState.custStage === 'search', 'lock-to-pin must drop the previous customer search/lookup immediately');
-    await assert(pinIdleState.pendingCustomerId !== '', 'lock-to-pin must keep the handover request (that is the whole point of the PIN screen)');
+    await assert(pinIdleState.custQuery === '' && pinIdleState.custStage === 'search', 'the handover must drop the previous customer search/lookup immediately');
+    await assert(pinIdleState.pendingCustomerId !== '', 'the handover must keep the request (that is the whole point of the 사장님 확인 screen)');
+    await assert(pinIdleState.pinContext === 'handoff', 'the handover PIN screen must be marked as the handoff context');
     await page.waitForTimeout(1600);
-    await assert(await count(page, '.cust-screen') === 1 && await count(page, '[data-a="pin-key"]') === 0, 'an untouched PIN screen must fall back to the customer screen after the idle timeout');
+    await assert(await count(page, '.cust-screen') === 1 && await count(page, '[data-a="pin-key"]') === 0, 'an untouched 사장님 확인 screen must fall back to the customer screen after the idle timeout');
     await assert((await bt()).locked === true, 'the PIN-screen idle fallback must never unlock the app');
     const afterPinIdle = await page.evaluate(() => window.__prepaidTestHooks.lockState());
     await assert(afterPinIdle.pendingCustomerId === '' && afterPinIdle.custStage === 'search', 'the PIN-screen idle fallback must discard the handover request too');
+    await assert(afterPinIdle.pinContext === '', 'the idle fallback must clear the PIN context');
     await assert((await page.locator('#custSearchInput').inputValue()) === '', 'the PIN-screen idle fallback must land on the empty customer search');
-    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 30000 }));
 
-    // (12-b) 앞 손님의 인계 요청이 뒷 손님에게 붙으면 안 된다(P3) — 결과 1건이면 [cust-pick] 없이 확인 카드로
-    //   바로 넘어가므로, 검색창에 글자를 치는 순간 요청을 버리는지까지 확인한다.
+    const lockSt = () => page.evaluate(() => window.__prepaidTestHooks.lockState());
+    // (12-a2) owner 맥락 PIN 화면의 **두 시계 눈금** — 무한 체류가 아니라 120초(ownerPinIdle)다.
+    //   예전 하니스는 여기서 "owner 화면은 유휴 복귀하지 않는다"를 못 박아 두 결함을 통과시켰다:
+    //     (a) 부분 입력 PIN이 무기한 남아 다음 사람이 1자리만 맞히면 되는 상태(탐색공간 1/10),
+    //     (b) 손님이 [사장님용 잠금 해제]를 오탭하면 태블릿이 PIN 패드에 영구 체류(셀프 조회 정지).
+    //   그래서 단언을 뒤집는다 — 30초(custIdle) 눈금에서는 **버티고**(입력 중 보호), 120초 눈금에서는
+    //   **손님 화면으로 복귀하며 입력하던 숫자가 지워진다**. custIdle=700 / ownerPinIdle=2800(4배 축척).
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { ownerPinIdle: 2800 }));
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    const ownerPinState = await page.evaluate(() => window.__prepaidTestHooks.lockState());
+    await assert(ownerPinState.pinContext === 'owner', 'the owner-initiated PIN screen must run in the owner context');
+    await assert(ownerPinState.pendingCustomerId === '' && ownerPinState.custQuery === '' && ownerPinState.custStage === 'search', 'the owner-initiated PIN screen must carry no leftover customer state at all');
+    await assert((await page.locator('.pin-title').innerText()).trim() === '비밀번호 입력', 'the owner-initiated PIN screen must keep the plain 비밀번호 입력 title');
+    await assert((await page.locator('.cust-foot button').innerText()).includes('손님 화면으로'), 'the owner-initiated PIN screen keeps the [손님 화면으로] label');
+    // 부분 입력 3자리 — 마지막 키 입력이 시계를 다시 무장시키므로 여기서부터 눈금을 잰다.
+    for (const key of ['1', '2', '3']) await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
+    await assert((await lockSt()).pinLen === 3, 'the three keys must actually land in the PIN buffer');
+    await page.waitForTimeout(1400);  // custIdle(700)의 2배 — 여기서 튀면 "입력 중 화면 튐"이다
+    await assert(await count(page, '.pin-screen [data-a="pin-key"]') > 0, 'the owner-initiated PIN screen must NOT bounce back at the 30s (custIdle) mark — the owner may still be picking the four digits');
+    await assert((await lockSt()).pinLen === 3, 'the partially typed PIN must survive the 30s mark');
+    await page.waitForTimeout(1800);  // 누계 3200ms > ownerPinIdle 2800
+    await assert(await count(page, '.cust-screen') === 1 && await count(page, '[data-a="pin-key"]') === 0, 'an abandoned owner-initiated PIN screen must fall back to the customer screen at the 120s (ownerPinIdle) mark');
+    const afterOwnerIdle = await lockSt();
+    await assert(afterOwnerIdle.locked === true, 'the owner PIN idle fallback must never unlock the app');
+    await assert(afterOwnerIdle.pinLen === 0, 'the owner PIN idle fallback must wipe the partially typed PIN (leaving 3 of 4 digits cuts the search space to 1/10)');
+    await assert(afterOwnerIdle.pinContext === '' && afterOwnerIdle.custQuery === '' && afterOwnerIdle.custStage === 'search', 'the owner PIN idle fallback must land on the clean customer screen');
+    await assert((await page.locator('#custSearchInput').inputValue()) === '', 'the owner PIN idle fallback must land on the empty customer search');
+    // 회귀 못 박기: 되돌아온 화면에서 PIN을 다시 열면 점이 하나도 차 있지 않아야 하고,
+    //   남은 1자리('4')를 눌러도 잠금이 풀리면 안 된다(옛 동작에서는 이 한 번으로 풀렸다).
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await assert(await count(page, '.pin-dot.filled') === 0, 'reopening the PIN screen must show an empty PIN buffer');
+    await page.locator('[data-a="pin-key"][data-key="4"]').click();
+    await page.waitForTimeout(200);
+    await assert((await lockSt()).locked === true, 'guessing the single remaining digit must not unlock the app');
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('#custSearchInput');
+
+    // (12-a2b) 손님 오탭 시나리오 — 손님이 [사장님용 잠금 해제]를 잘못 누르고 그냥 가 버린다.
+    //   태블릿이 PIN 패드에 영구 체류하면 다음 손님은 셀프 조회를 시작할 수단 자체가 없다
+    //   (매뉴얼 약속: "계산대 위 태블릿은 늘 잠금=손님 화면"). 120초 뒤에는 반드시 되돌아와야 한다.
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await page.waitForTimeout(3400);  // ownerPinIdle(2800)의 1.2배
+    await assert(await count(page, '#custSearchInput') === 1, 'a customer who mis-tapped [사장님용 잠금 해제] and walked away must not strand the tablet on the PIN pad');
+    await assert((await page.locator('#custSearchInput').inputValue()) === '', 'the mis-tap fallback must clear the previous customer query too');
+    await assert((await lockSt()).locked === true, 'the mis-tap fallback must keep the app locked');
+
+    // (12-a2c) 근본 방어 — 인계 요청이 **살아 있는** 상태에서 lock-to-pin이 들어오면 요청을 버린다.
+    //   (예전 단언은 "owner 화면엔 pending이 없다"를 손님 상태가 애초에 비어 있는 자리에서 확인해
+    //    공허하게 통과했다. 여기서는 요청이 실제로 살아 있는 handoff 화면에서 눌러 본다.
+    //    인계 화면에는 그 버튼이 없으므로, 리포 하니스의 위협모델대로 합성 발화로 들어간다.)
     await page.locator('#custSearchInput').fill('김철수');
     await page.waitForSelector('.cust-ask');
     await page.locator('[data-a="cust-confirm"]').click();
     await page.waitForSelector('[data-a="cust-call-owner"]');
     await page.locator('[data-a="cust-call-owner"]').click();
-    await page.waitForSelector('.cust-done');
-    await page.locator('[data-a="lock-to-pin"]').click();
-    await page.waitForSelector('[data-a="pin-key"]');
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await assert((await lockSt()).pendingCustomerId !== '', 'the handover request must be alive before the lock-to-pin probe');
+    await page.evaluate(() => {
+      const b = document.createElement('button');
+      b.dataset.a = 'lock-to-pin';
+      document.body.appendChild(b);
+      b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      b.remove();
+    });
+    const afterLockToPin = await lockSt();
+    await assert(afterLockToPin.pinContext === 'owner', 'the lock-to-pin probe must land in the owner context');
+    await assert(afterLockToPin.pendingCustomerId === '', 'lock-to-pin must discard a live handover request — an "owner context + live request" pair has no cleanup clock of its own and unlocks into a usage modal the owner never asked for');
+    await assert(afterLockToPin.locked === true, 'the lock-to-pin probe must keep the app locked');
     await page.locator('[data-a="pin-to-cust"]').click();
     await page.waitForSelector('#custSearchInput');
-    await page.locator('#custSearchInput').fill('Alec');
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { ownerPinIdle: 120000 }));
+
+    // (12-a2d) handoffEmp TTL — 요청이 TTL(pendingTtl)을 넘겼는데도 화면이 "사장님 확인 / ○○○님"을
+    //   계속 광고하면 안 된다(잠금 해제 판정과 기준이 달라 사장님이 헛걸음한다). 만료되면 평범한
+    //   [비밀번호 입력]으로 폴백하고 요청 자체를 버린다.
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 30000, pendingTtl: 600 }));
+    await page.locator('#custSearchInput').fill('김철수');
     await page.waitForSelector('.cust-ask');
-    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pendingCustomerId === '', 'typing a new query must drop the previous customer handover request');
     await page.locator('[data-a="cust-confirm"]').click();
     await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await assert((await page.locator('.pin-title').innerText()).trim() === '사장님 확인', 'a fresh handover must still be advertised as 사장님 확인');
+    // 조작 없이 기다린다 — 화면이 "조작이 있을 때만" 갱신된다면 죽은 요청을 계속 광고하게 된다.
+    await page.waitForTimeout(1300);  // TTL 2배 경과(화면 유휴 30초는 아직 멀었다)
+    await assert((await page.locator('.pin-title').innerText()).trim() === '비밀번호 입력', 'an expired handover request must fall back to the plain 비밀번호 입력 title on its own (no user action required)');
+    await assert(!(await page.locator('.pin-sub').innerText()).includes('김철수'), 'an expired handover request must stop naming the customer');
+    await assert((await lockSt()).pendingCustomerId === '', 'an expired handover request must be discarded, not merely hidden');
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('#custSearchInput');
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 700, pendingTtl: 120000 }));
+
+    // (12-a3) 타이머 교차 ① — "사장님 확인" 화면에서 PIN 5회 실패(60초 지연)로 카운트다운이 도는 중에도
+    //   30초 유휴 복귀가 살아 있어야 하고, 되돌아가더라도 **지연 자체는 사라지면 안 된다**(브루트포스 우회 금지).
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { pinDelay: 3000 }));
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    for (let i = 0; i < 5; i += 1) {
+      for (const key of ['9', '9', '9', '9']) await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
+    }
+    await page.waitForSelector('.pin-delay');
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pinDelayLeft > 0, 'five failures on the 사장님 확인 screen must start the input delay');
+    await page.waitForTimeout(1600);
+    await assert(await count(page, '.cust-screen') === 1, 'the idle fallback must still fire while the PIN input delay counts down');
+    const delayAfterIdle = await page.evaluate(() => window.__prepaidTestHooks.lockState());
+    await assert(delayAfterIdle.pinDelayLeft > 0, 'bouncing back to the customer screen must NOT clear the input delay (brute-force bypass)');
+    await assert(delayAfterIdle.pendingCustomerId === '', 'the idle fallback must drop the handover request even mid-delay');
+    await page.waitForTimeout(2200);
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+    await assert(!(await page.locator('[data-a="pin-key"][data-key="1"]').isDisabled()), 'the PIN pad must come back once the delay elapses');
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('#custSearchInput');
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { pinDelay: 60000 }));
+
+    // (12-a4) 타이머 교차 ② — "사장님 확인" 화면에서 [PIN을 잊으셨나요?]로 들어간 복구 화면은
+    //   60초 파괴 게이트가 그대로 살아 있고, 게이트가 끝난 뒤 30초를 더 기다렸다가 손님 화면으로 되돌아간다.
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { recoveryGate: 300 }));
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await page.locator('[data-a="pin-forgot"]').click();
+    await page.waitForSelector('[data-a="pin-forgot-restore"]');
+    await assert(await page.locator('[data-a="pin-reset"]').isDisabled(), 'the 60s destruction gate must still hold on the recovery screen reached from 사장님 확인');
+    await page.waitForTimeout(1800);
+    await assert(await count(page, '.cust-screen') === 1 && await count(page, '[data-a="pin-forgot-restore"]') === 0, 'an abandoned recovery screen must fall back to the customer screen');
+    const afterRecoveryIdle = await page.evaluate(() => window.__prepaidTestHooks.lockState());
+    await assert(afterRecoveryIdle.pinRecovery === false && afterRecoveryIdle.pendingCustomerId === '' && afterRecoveryIdle.pinContext === '', 'the recovery idle fallback must clear recovery, the handover request and the PIN context');
+    await assert((await bt()).locked === true, 'the recovery idle fallback must never unlock the app');
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 30000, recoveryGate: 60000 }));
+
+    // (12-b) 앞 손님의 인계 요청이 뒷 손님에게 붙으면 안 된다(P3) — [처음으로]가 요청을 즉시 버리고,
+    //   그 뒤 새 손님이 넘긴 요청만 살아남아야 한다(결과 1건이면 [cust-pick] 없이 확인 카드로 바로 넘어간다).
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pendingCustomerId !== '', 'the handover request must exist before [처음으로]');
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('#custSearchInput');
+    const afterCancel = await page.evaluate(() => window.__prepaidTestHooks.lockState());
+    await assert(afterCancel.pendingCustomerId === '' && afterCancel.pinContext === '', '[처음으로] on the 사장님 확인 screen must discard the handover request');
+    await page.locator('#custSearchInput').fill('Alec');
+    await page.waitForSelector('.cust-ask');
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pendingCustomerId === '', 'typing a new query must never resurrect a previous handover request');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await assert((await page.locator('.pin-sub').innerText()).includes('Alec'), 'the 사장님 확인 screen must name the customer who is standing there now');
     await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    await assert((await page.locator('.modal .receipt').innerText()).includes('Alec'), 'the handover must open the usage modal for the new customer, never the previous one');
+    await assert(!(await page.locator('.modal .receipt').innerText()).includes('김철수'), 'the previous customer must never reappear in the auto-opened modal');
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
     await page.waitForSelector('[data-a="quick-find-emp"]');
-    await assert(await count(page, '#useAmount') === 0, 'a stale handover request must never open a usage modal for the wrong person');
 
     // ═══════════════════════════════════════════════════════════════════════
     // (12-c) 원장 해시체인 결정성 — 배치 등록(CSV·기관 승인·직접 전달)의 거래 시각.

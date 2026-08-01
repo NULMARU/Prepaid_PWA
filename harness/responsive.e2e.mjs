@@ -481,15 +481,89 @@ async function runViewport(context, url, w) {
     check(b.height >= 48, `${w}px 손님 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
     check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 화면: 버튼 "${b.text}"이(가) 화면 밖이다`);
   });
-  await page.locator('[data-a="cust-call-owner"]').click();
-  await page.waitForSelector('.cust-done');
-  await noHorizontalOverflow(page, '손님 화면(호출 완료)', w);
   await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-customer-${w}.png`) }).catch(() => {});
+
+  // ── "사장님 확인" 인계 화면(beta.19): [사장님께 보여주기]는 곧바로 PIN 화면으로 넘어간다 ──
+  //    긴 이름·긴 부서명(LONG_DEPT)이 그대로 실리는 화면이라 잘림·화면 밖 이탈이 특히 위험하다.
+  await page.locator('[data-a="cust-call-owner"]').click();
+  await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+  await noHorizontalOverflow(page, '사장님 확인 화면', w);
+  const handoff = await page.evaluate(() => {
+    const title = document.querySelector('.pin-title'), sub = document.querySelector('.pin-sub');
+    const t = title.getBoundingClientRect(), s = sub.getBoundingClientRect();
+    const foot = document.querySelector('.cust-foot button'), f = foot ? foot.getBoundingClientRect() : null;
+    const pad = [...document.querySelectorAll('.pin-key')].map(b => { const r = b.getBoundingClientRect(); return { height: r.height, left: r.left, right: r.right }; });
+    return {
+      title: title.innerText.trim(),
+      subText: sub.innerText.replace(/\n/g, ' ').trim(),
+      subLeft: s.left, subRight: s.right, subClipped: sub.scrollWidth > sub.clientWidth + 1,
+      titleLeft: t.left, titleRight: t.right, titleClipped: title.scrollWidth > title.clientWidth + 1,
+      footText: foot ? foot.innerText.trim() : '', footHeight: f ? f.height : 0, footLeft: f ? f.left : 0, footRight: f ? f.right : 0,
+      pad
+    };
+  });
+  check(handoff.title === '사장님 확인', `${w}px 사장님 확인 화면: 제목이 "사장님 확인"이어야 한다 (got "${handoff.title}")`);
+  check(!handoff.titleClipped && handoff.titleLeft >= -1 && handoff.titleRight <= clientW + 1, `${w}px 사장님 확인 화면: 제목이 잘리거나 화면 밖으로 나갔다`);
+  check(handoff.subText.includes('김수한무'), `${w}px 사장님 확인 화면: 인계 대상 이름이 보여야 한다 (got "${handoff.subText}")`);
+  check(handoff.subText.includes('비밀번호'), `${w}px 사장님 확인 화면: 사장님에게 비밀번호 입력을 안내해야 한다 (got "${handoff.subText}")`);
+  check(!handoff.subClipped, `${w}px 사장님 확인 화면: 대상 표시가 잘렸다 ("${handoff.subText}")`);
+  check(handoff.subLeft >= -1 && handoff.subRight <= clientW + 1, `${w}px 사장님 확인 화면: 대상 표시가 화면 밖으로 나갔다`);
+  check(handoff.footText === '처음으로', `${w}px 사장님 확인 화면: 되돌아가기 버튼은 [처음으로]여야 한다 (got "${handoff.footText}")`);
+  check(handoff.footHeight >= 30 && handoff.footLeft >= -1 && handoff.footRight <= clientW + 1, `${w}px 사장님 확인 화면: [처음으로] 버튼이 화면 밖이거나 너무 작다 (${Math.round(handoff.footHeight)}px)`);
+  check(handoff.pad.length === 12, `${w}px 사장님 확인 화면: 숫자판 12키가 모두 있어야 한다 (${handoff.pad.length}개)`);
+  handoff.pad.forEach((k, i) => {
+    check(k.height >= 44, `${w}px 사장님 확인 화면: 숫자키 ${i + 1} 터치 타겟이 작다 (${Math.round(k.height)}px)`);
+    check(k.left >= -1 && k.right <= clientW + 1, `${w}px 사장님 확인 화면: 숫자키 ${i + 1}이(가) 화면 밖이다`);
+  });
+  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-handoff-pin-${w}.png`) }).catch(() => {});
+
+  // ── owner 맥락 PIN 화면: [사장님용 잠금 해제]로 사장님이 스스로 여는 화면 ──
+  //    handoff 화면과 같은 마크업이지만 제목·소제목·되돌아가기 라벨이 다르다(라벨이 6글자로 더 길다).
+  //    beta.19에서 이 화면은 120초 유휴 복귀를 가지므로, 손님이 오탭해도 결국 여기로 되돌아온다 —
+  //    즉 실사용에서 실제로 노출되는 화면이라 4뷰포트 레이아웃 검증을 유지한다.
+  await page.locator('[data-a="pin-to-cust"]').click();
+  await page.waitForSelector('#custSearchInput');
+  await page.locator('[data-a="lock-to-pin"]').click();
+  await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+  await noHorizontalOverflow(page, 'owner PIN 화면', w);
+  const ownerPin = await page.evaluate(() => {
+    const title = document.querySelector('.pin-title'), sub = document.querySelector('.pin-sub');
+    const t = title.getBoundingClientRect(), s = sub.getBoundingClientRect();
+    const foot = document.querySelector('.cust-foot button'), f = foot ? foot.getBoundingClientRect() : null;
+    const dots = [...document.querySelectorAll('.pin-dot')].map(d => { const r = d.getBoundingClientRect(); return { left: r.left, right: r.right, filled: d.classList.contains('filled') }; });
+    const pad = [...document.querySelectorAll('.pin-key')].map(b => { const r = b.getBoundingClientRect(); return { height: r.height, left: r.left, right: r.right }; });
+    return {
+      title: title.innerText.trim(), titleClipped: title.scrollWidth > title.clientWidth + 1,
+      titleLeft: t.left, titleRight: t.right,
+      subText: sub.innerText.replace(/\n/g, ' ').trim(), subClipped: sub.scrollWidth > sub.clientWidth + 1,
+      subLeft: s.left, subRight: s.right,
+      footText: foot ? foot.innerText.trim() : '',
+      footClipped: foot ? (foot.scrollWidth > foot.clientWidth + 1 || foot.scrollHeight > foot.clientHeight + 1) : false,
+      footHeight: f ? f.height : 0, footLeft: f ? f.left : 0, footRight: f ? f.right : 0,
+      dots, pad
+    };
+  });
+  check(ownerPin.title === '비밀번호 입력', `${w}px owner PIN 화면: 제목이 "비밀번호 입력"이어야 한다 (got "${ownerPin.title}")`);
+  check(!ownerPin.titleClipped && ownerPin.titleLeft >= -1 && ownerPin.titleRight <= clientW + 1, `${w}px owner PIN 화면: 제목이 잘리거나 화면 밖으로 나갔다`);
+  check(ownerPin.subText === '비밀번호를 입력하세요', `${w}px owner PIN 화면: 소제목은 손님 이름 없는 일반 안내여야 한다 (got "${ownerPin.subText}")`);
+  check(!ownerPin.subClipped && ownerPin.subLeft >= -1 && ownerPin.subRight <= clientW + 1, `${w}px owner PIN 화면: 소제목이 잘리거나 화면 밖으로 나갔다`);
+  check(ownerPin.footText === '손님 화면으로', `${w}px owner PIN 화면: 되돌아가기 버튼은 [손님 화면으로]여야 한다 (got "${ownerPin.footText}")`);
+  check(!ownerPin.footClipped, `${w}px owner PIN 화면: [손님 화면으로] 라벨이 잘렸다 (좁은 화면에서 가장 먼저 깨지는 6글자 라벨)`);
+  check(ownerPin.footHeight >= 30 && ownerPin.footLeft >= -1 && ownerPin.footRight <= clientW + 1, `${w}px owner PIN 화면: [손님 화면으로] 버튼이 화면 밖이거나 너무 작다 (${Math.round(ownerPin.footHeight)}px)`);
+  check(ownerPin.dots.length === 4, `${w}px owner PIN 화면: 입력 점 4개가 있어야 한다 (${ownerPin.dots.length}개)`);
+  check(ownerPin.dots.every(d => !d.filled), `${w}px owner PIN 화면: 새로 연 화면의 입력 점은 하나도 차 있으면 안 된다`);
+  ownerPin.dots.forEach((d, i) => {
+    check(d.left >= -1 && d.right <= clientW + 1, `${w}px owner PIN 화면: 입력 점 ${i + 1}이(가) 화면 밖이다`);
+  });
+  check(ownerPin.pad.length === 12, `${w}px owner PIN 화면: 숫자판 12키가 모두 있어야 한다 (${ownerPin.pad.length}개)`);
+  ownerPin.pad.forEach((k, i) => {
+    check(k.height >= 44, `${w}px owner PIN 화면: 숫자키 ${i + 1} 터치 타겟이 작다 (${Math.round(k.height)}px)`);
+    check(k.left >= -1 && k.right <= clientW + 1, `${w}px owner PIN 화면: 숫자키 ${i + 1}이(가) 화면 밖이다`);
+  });
+  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-owner-pin-${w}.png`) }).catch(() => {});
 
   // ── PIN 분실 복구 화면(beta.18): 60초 활성화 게이트 안내와 두 파괴 버튼이 4개 뷰포트에서 온전해야 한다 ──
   //    잠금 화면에서 도달 가능한 유일한 파괴 경로라, 안내 문구가 잘리거나 버튼이 화면 밖으로 나가면 안 된다.
-  await page.locator('[data-a="lock-to-pin"]').click();
-  await page.waitForSelector('[data-a="pin-key"]');
   await noHorizontalOverflow(page, 'PIN 화면', w);
   await page.locator('[data-a="pin-forgot"]').click();
   await page.waitForSelector('[data-a="pin-forgot-restore"]');

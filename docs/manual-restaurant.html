@@ -232,8 +232,8 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 
 <p>화면이 잠기는 때는 두 가지예요.</p>
 <ul class="card-list">
-<li><b>아무 조작이 없으면 90초 뒤 자동으로</b> 잠겨요. 바쁠 때 따로 신경 쓰지 않아도 계산대 위 태블릿은 늘 잠금(=손님) 화면이 되어 있어요.</li>
-<li>홈 화면 위쪽의 <span class="btn">손님에게 넘기기</span> 버튼을 누르면 바로 잠겨요. 손님에게 태블릿을 건네기 직전에 한 번 눌러 주시면 돼요.</li>
+<li><b>아무 조작이 없으면 90초 뒤 자동으로</b> 잠겨요. 바쁠 때 따로 신경 쓰지 않아도 계산대 위 태블릿은 늘 잠금(=손님) 화면이 되어 있어요. 누군가 <span class="btn-secondary">사장님용 잠금 해제</span>를 눌러 비밀번호 화면을 열어 둔 채 자리를 떠도, <b>120초 뒤에는 손님 화면으로 저절로 돌아와요.</b></li>
+<li>홈 화면 위쪽의 <span class="btn">손님 셀프 조회</span> 버튼을 누르면 바로 잠겨요. 손님에게 태블릿을 건네기 직전에 한 번 눌러 주시면 돼요.</li>
 </ul>
 
 <p>손님은 이렇게 써요 (사장님이 알려 주실 내용이에요).</p>
@@ -241,12 +241,12 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <div class="step"><div class="step-num">2</div><div class="step-body">결과에는 <b>“기관명 부서명 + 이름”</b>만 나와요(예: <code>광진구청 재무과</code> 김민수). <b>잔액은 이 목록에 보이지 않아요</b> — 남의 이름을 쳐 봐도 잔액은 알 수 없어요.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">본인을 골라요. <b>“본인이 맞나요?”</b> 확인 창이 한 번 더 떠요.</div></div>
 <div class="step"><div class="step-num">4</div><div class="step-body"><b>내 잔액과 최근 5건</b>이 보여요. 서명 이미지는 보이지 않고 <b>“서명 있음 ✓”</b>로만 표시되며, 취소된 건은 <b>회색 “취소됨”</b>으로 구분돼요.</div></div>
-<div class="step"><div class="step-num">5</div><div class="step-body">식사하러 온 손님이면 <span class="btn">사장님께 보여주기</span>를 눌러요. <b>“○○○님 확인 완료 — 사장님을 불러 주세요”</b>가 화면에 떠서, 사장님은 누구 차례인지 바로 알 수 있어요.</div></div>
-<p>손님이 아무것도 누르지 않고 <b>30초</b>가 지나면 <b>처음(검색창) 화면으로 저절로 되돌아가요.</b> 앞 손님의 잔액이 다음 손님에게 남아 보이지 않아요.</p>
+<div class="step"><div class="step-num">5</div><div class="step-body">식사하러 온 손님이면 <span class="btn">사장님께 보여주기</span>를 눌러요. 그러면 <b>곧바로 비밀번호 화면</b>으로 바뀌고, 제목이 <b>“사장님 확인”</b>, 그 아래에 <b>“○○○님 · 사장님이 비밀번호를 입력해 주세요”</b>(소속·부서까지)가 떠요. 손님은 이 화면 그대로 <b>사장님께 태블릿을 건네주면</b> 돼요.</div></div>
+<p>손님이 아무것도 누르지 않고 <b>30초</b>가 지나면 <b>처음(검색창) 화면으로 저절로 되돌아가요.</b> “사장님 확인” 화면도 <b>30초</b>로 똑같아요 — 손님이 부르고 그냥 가 버려도 앞 손님의 요청이 남지 않아요. 손님이 잘못 눌렀으면 <span class="btn-secondary">처음으로</span>를 누르면 바로 취소돼요. 사장님이 직접 <span class="btn-secondary">사장님용 잠금 해제</span>를 눌러 연 <b>비밀번호 화면</b>은 조금 더 넉넉하게 <b>120초(2분)</b>를 기다렸다가 손님 화면으로 돌아가요(비밀번호를 고르는 도중에 화면이 바뀌지 않도록). 이때 <b>입력하던 숫자도 함께 지워져요.</b></p>
 
 <h3>사장님은 PIN만 풀면 돼요</h3>
-<div class="step"><div class="step-num">1</div><div class="step-body">화면 <b>아래쪽</b>의 <span class="btn-secondary">사장님용 잠금 해제</span>를 누르고 PIN(숫자 4자리)을 입력해요.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">손님이 <span class="btn">사장님께 보여주기</span>로 확인을 마친 지 <b>2분 이내</b>라면, <b>그 직원의 사용 등록 창이 저절로 열려요.</b> 이름을 다시 찾을 필요가 없어요.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body">건네받은 화면이 이미 <b>“사장님 확인”</b>이면 그대로 PIN(숫자 4자리)을 입력하면 돼요. <b>잠금 해제 버튼을 따로 찾을 필요가 없어요.</b> (손님 호출 없이 사장님이 직접 열 때는 화면 <b>아래쪽</b>의 <span class="btn-secondary">사장님용 잠금 해제</span>를 누르고 PIN을 입력해요.)</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">손님이 <span class="btn">사장님께 보여주기</span>를 누른 지 <b>2분 이내</b>라면, PIN이 맞는 순간 <b>그 직원의 사용 등록 창이 저절로 열려요.</b> 이름을 다시 찾을 필요가 없어요.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body"><b>금액은 사장님이 입력</b>해요(<span class="btn-secondary">9,000</span> 같은 빠른 금액 버튼도 그대로 있어요). 그다음 서명을 받고 <span class="btn">서명 후 저장</span>을 누르면 끝이에요. 여기서부터는 지금까지 쓰시던 방법과 <b>똑같아요.</b></div></div>
 <p>2분이 지났거나 손님이 확인만 하고 갔다면 사용 등록 창은 열리지 않고 평소의 홈 화면이 나와요. 그때는 평소처럼 <a href="#daily">검색해서 <span class="btn">사용</span></a>을 누르시면 돼요.</p>
 
@@ -320,7 +320,7 @@ footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
 <dt>회사(사기업)나 개인 선금도 되나요?</dt>
 <dd>네. <b>공공기관 명단은 자동으로 받고</b>, 회사·개인 선금은 <a href="#employee">3장 수동 등록</a>(한 명씩 · 엑셀 명단 · 빠른 등록)으로 직접 넣으시면 <b>한 장부에서 함께</b> 관리돼요. <span class="field">소속(선택)</span> 칸에 회사 이름을 적거나 개인이면 '개인'이라고 적어 두면 구분해 보기 편해요(비워 두셔도 돼요). 회사에서 엑셀 명단을 받으실 때는 <b>'부서' 칸을 포함해</b> 달라고 하세요.</dd>
 <dt>손님이 태블릿을 만져도 괜찮나요?</dt>
-<dd>네, 괜찮아요. 화면이 잠겨 있으면(무조작 90초 또는 <span class="btn">손님에게 넘기기</span>) 손님은 <b>자기 이름을 검색해 본인 잔액과 최근 5건을 확인하는 것만</b> 할 수 있어요. <b>장부 기록(사용·충전)·직원 수정·설정·백업은 PIN 없이는 전혀 열리지 않고</b>, 검색 결과 목록에도 <b>잔액은 나오지 않아요.</b> 30초 동안 아무 조작이 없으면 처음 화면으로 되돌아가서 앞 손님 정보도 남지 않아요. (<a href="#daily">4장 — 손님이 직접 잔액을 확인해요</a>)</dd>
+<dd>네, 괜찮아요. 화면이 잠겨 있으면(무조작 90초 또는 <span class="btn">손님 셀프 조회</span>) 손님은 <b>자기 이름을 검색해 본인 잔액과 최근 5건을 확인하는 것만</b> 할 수 있어요. <b>장부 기록(사용·충전)·직원 수정·설정·백업은 PIN 없이는 전혀 열리지 않고</b>, 검색 결과 목록에도 <b>잔액은 나오지 않아요.</b> 손님 화면과 “사장님 확인” 화면은 <b>30초</b>, 사장님이 직접 연 <b>비밀번호 화면은 120초</b> 동안 아무 조작이 없으면 처음 화면으로 되돌아가서 앞 손님 정보도 남지 않아요. (<a href="#daily">4장 — 손님이 직접 잔액을 확인해요</a>)</dd>
 <dt>홈 화면에 직원이 안 보여요.</dt>
 <dd>직원 명단이 <b>소속별 그룹으로 접혀 있어서</b> 그래요. <b>그룹 제목을 탭하면</b> 그 안의 직원 카드가 펼쳐져요. 이름으로 <b>검색</b>(초성만 쳐도 돼요)하거나 <b>소속 필터</b>를 걸면 그룹이 <b>자동으로 펼쳐져요.</b> (<a href="#daily">4장</a>)</dd>
 <dt>홈 화면 아래에 있던 “활성 직원 ○명 · 잔액 합계”는 어디 갔나요?</dt>

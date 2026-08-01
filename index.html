@@ -26,7 +26,7 @@
 /* 홈 상단 [장부 저장] — 상시 노출(월간 배너 대체). 저장 시점(monthlyBackupDue)이면 강조색 + ⚠️ 배지가 붙는다. */
 .tool .ledger-save.due{background:var(--warn-soft);border-color:#e8c9a0;color:#9c4413}
 .tool .ledger-save .due-dot{margin-left:3px;font-size:12px}
-/* [손님에게 넘기기] — 1탭으로 손님 화면(잠금)으로 넘어가는 버튼. 홈에서 가장 자주 쓰는 버튼이라 눈에 띄게 둔다. */
+/* [손님 셀프 조회] — 1탭으로 손님 화면(잠금)으로 넘어가는 버튼. 홈에서 가장 자주 쓰는 버튼이라 눈에 띄게 둔다. */
 .tool .handoff{background:var(--primary);border-color:var(--primary);color:#fff}
 /* 홈 필터 2행 — 1행은 검색창 전폭(폰에서도 300px+), 2행은 소속 필터 + 음성 검색 */
 .home-filters{display:grid;gap:8px;margin-top:10px}
@@ -247,6 +247,10 @@
 .pin-icon svg{width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2}
 .pin-title{font-size:20px;font-weight:800;margin-bottom:4px;color:var(--text);letter-spacing:-.3px}
 .pin-sub{font-size:13px;color:var(--muted);margin-bottom:28px;text-align:center;line-height:1.5}
+/* "사장님 확인"(손님 인계) 화면의 대상 표시 — 긴 부서명·긴 이름에서도 화면 밖으로 나가지 않게 폭을 묶는다 */
+.pin-ho{display:block;max-width:300px;margin:0 auto;font-size:15px;color:var(--text);word-break:keep-all;overflow-wrap:anywhere}
+.pin-ho b{font-size:18px;font-weight:800}
+.pin-ho-label{display:inline-block;margin-top:2px;font-size:12px;color:var(--muted)}
 .pin-dots{display:flex;gap:14px;margin-bottom:32px}
 .pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid #c8ced6;background:#fff;transition:all .2s}
 .pin-dot.filled{background:var(--primary);border-color:var(--primary);transform:scale(1.15)}
@@ -298,8 +302,6 @@
 .cust-tx-amt.in{color:var(--primary)}
 .cust-chip{display:inline-block;font-size:10px;font-weight:700;color:var(--muted);background:#eef1f4;border-radius:6px;padding:2px 6px;margin-left:4px}
 .cust-chip.void{background:var(--danger-soft);color:var(--danger)}
-.cust-done{font-size:26px;font-weight:900;letter-spacing:-.7px;line-height:1.35;word-break:keep-all}
-.cust-done-sub{font-size:16px;font-weight:700;color:var(--primary);margin-top:10px;line-height:1.5;word-break:keep-all}
 .cust-foot{margin-top:22px;text-align:center}
 .cust-foot button{min-height:auto;padding:8px 16px;font-size:12px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px}
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
@@ -338,13 +340,17 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.18',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.19',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
 //   recoveryGate = [PIN을 잊으셨나요?] 화면의 파괴 버튼 활성화까지의 대기(잘못 누름 방지).
 //   modalIdleCap = 모달을 열어둔 채 방치했을 때의 자동 잠금 상한(작업 중 즉시 잠김은 여전히 막는다).
-const TIMERS={custIdle:30000,autoLock:90000,pendingTtl:120000,pinDelay:60000,recoveryGate:60000,modalIdleCap:600000};
+//   ownerPinIdle = 사장님이 스스로 연 PIN 화면(owner 맥락)의 유휴 복귀. 손님 흔적이 남는 화면(custIdle 30초)보다
+//     길게 준다 — 4자리를 고르는 도중 화면이 튀면 안 되기 때문. 그렇다고 무한 체류시키면 (a) 부분 입력 PIN이
+//     무기한 남아 남은 탐색공간이 1/10로 줄고, (b) 손님이 오탭한 태블릿이 PIN 패드에 영구 체류해
+//     "계산대 위 태블릿은 늘 손님 화면"이라는 매뉴얼 약속이 깨진다. 120초가 그 둘 사이의 값이다.
+const TIMERS={custIdle:30000,autoLock:90000,pendingTtl:120000,pinDelay:60000,recoveryGate:60000,modalIdleCap:600000,ownerPinIdle:120000};
 const DEFAULT_RELAY='https://prepaid-relay.sulsul-plus.workers.dev';
 const TERMS_URL='https://app.bapjangbu.com/docs/terms.html',PRIVACY_URL='https://app.bapjangbu.com/docs/privacy.html';
 const DEFAULT_ORG='공공기관';
@@ -354,10 +360,10 @@ const DEFAULT_DEPTS=[];// 신규 설치 시 기본 부서 없음(스펙 수정1)
 const COMMON_DEPTS=[...DEFAULT_DEPTS];
 // 손님 화면 상태(lockView 이하 6개)는 전부 휘발성이다 — IndexedDB·백업 JSON에 절대 기록하지 않는다.
 //   custQuery는 사장님 검색(state.search)과 완전히 분리된 값이다(서로 읽지도 쓰지도 않는다).
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,pendingCustomerId:'',pendingCustomerAt:0,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,pendingCustomerId:'',pendingCustomerAt:0,pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 let repo,signPad=null,modalOpenKey=null,modalReturnFocus=null,modalKeydownHandler=null,qrStream=null,qrDetector=null,qrLoopActive=false;
 // 유휴 타이머(자동 잠금·손님 화면 자동 복귀)와 PIN 지연 카운트다운 타이머 — init()이 위에서 먼저 돌기 때문에 선언은 여기 최상단에 둔다.
-let idleTimer=null,pinDelayTimer=null,recoveryTimer=null;
+let idleTimer=null,pinDelayTimer=null,recoveryTimer=null,handoffTtlTimer=null;
 document.addEventListener('click',onClick);document.addEventListener('input',onInput);document.addEventListener('change',onInput);qs('restoreFile').addEventListener('change',onRestoreFile);qs('csvFile').addEventListener('change',onCsvFile);qs('directTransferFile').addEventListener('change',onDirectTransferFile);
 let composing=false;document.addEventListener('compositionstart',()=>{composing=true});document.addEventListener('compositionend',(e)=>{composing=false;onInput(e)});
 // 온/오프라인 상태 pill 토글 — 상태 저장 없이 재렌더만(navigator.onLine을 직접 읽음)
@@ -413,7 +419,9 @@ window.__prepaidTestHooks={TIMERS,clickActionKeys:()=>Object.keys(clickActions),
 // 읽기 전용 잠금 상태 스냅샷(자동화 검증용) — 쓰기 경로는 없다.
 // 체인 결정성 회귀용(읽기 전용) — 전부 순수 계산 함수다(저장·전송 경로 없음).
 verifyChain,verifyBalanceFor,chainTip,txClock:()=>num(__txClock),txOrder:list=>sortTxAsc(list||state.data.transactions).map(t=>t.id),
-lockState:()=>({locked:!!state.pinLocked,lockView:state.lockView,pinRecovery:!!state.pinRecovery,recoveryLeft:recoveryLeft(),allowLockedRestore:!!state.allowLockedRestore,pinFails:num(state.pinFails),pinDelayLeft:pinDelayLeft(),pendingCustomerId:str(state.pendingCustomerId),custQuery:str(state.custQuery),custStage:str(state.custStage)}),buildCloudBackupBlob,decryptBlob,matchAgencyByRegion,monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,relayBackupSilent,maybeMonthlyAutoBackup,refreshInboxCount:(...a)=>refreshInboxCount(...a)};
+lockState:()=>({locked:!!state.pinLocked,lockView:state.lockView,pinContext:str(state.pinContext),pinRecovery:!!state.pinRecovery,recoveryLeft:recoveryLeft(),allowLockedRestore:!!state.allowLockedRestore,pinFails:num(state.pinFails),pinDelayLeft:pinDelayLeft(),pendingCustomerId:str(state.pendingCustomerId),custQuery:str(state.custQuery),custStage:str(state.custStage),
+// 입력 중인 PIN은 **길이만** 노출한다(값은 절대 내보내지 않는다) — 유휴 복귀가 부분 입력을 실제로 지웠는지 검증용.
+pinLen:str(state.pinInput).length}),buildCloudBackupBlob,decryptBlob,matchAgencyByRegion,monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,relayBackupSilent,maybeMonthlyAutoBackup,refreshInboxCount:(...a)=>refreshInboxCount(...a)};
 
 // ── 유틸리티 ──
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
@@ -847,13 +855,33 @@ async function saveSelectedAgencyName(){const agency=selectedAgency();if(!agency
 function agencyPickerHtml(ctx){const data=state.agencyData;if(!data)return `<div class="agency-tools"><div class="meta">${esc(state.agencyError||'공공기관 목록을 준비하는 중입니다.')}</div><button class="btn" data-a="agency-refresh">목록 불러오기</button></div>`;const rs=regionList(),region=selectedRegion(),cur=selectedAgency(),target=deptTarget(ctx);const suffix=ctx==='setup'?'Setup':'Settings';const regionSelectId='regionSelect'+suffix,agencySelectId='agencySelect'+suffix;const regionOpts=rs.map(r=>`<option value="${esc(r.code)}"${region&&region.code===r.code?' selected':''}>${esc(r.name)}</option>`).join('');const agencyOpts=region?(region.agencies||[]).map(a=>`<option value="${esc(a.id)}"${cur&&cur.id===a.id?' selected':''}>${esc(a.name)}</option>`).join(''):'';const cache=region?state.deptCache[region.code]:null;const explicit=!!(region&&cur&&agencyDeptEntry(region.code,cur.id));const effectiveDepts=(region&&cur)?resolveAgencyDepts(region.code,cur.id):COMMON_DEPTS;const checks=effectiveDepts.length?effectiveDepts.map(d=>`<label class="dept-check"><input type="checkbox" data-a="agency-dept-toggle" data-ctx="${ctx}" data-dept="${esc(d)}"${target.includes(d)?' checked':''}>${esc(d)}</label>`).join(''):'<div class="meta">불러온 과 목록이 없어요. 아래에서 부서명을 직접 추가할 수 있어요.</div>';const failNote=(cache&&cache.failed)?'<div class="meta" style="color:var(--danger)">부서 목록을 불러오지 못해 기본 목록을 보여드려요.</div>':'';const basis=explicit&&cache&&(cache.updatedAt||cache.source)?('부서 목록 기준일 '+esc(cache.updatedAt||'-')):'부서 목록 기준: 기본 목록';return `<div class="agency-tools"><div class="meta" style="margin-bottom:8px">시·도를 고르고, 우리 가게와 거래하는 공공기관을 고르세요.</div><div class="field"><label for="${regionSelectId}">시·도</label><select id="${regionSelectId}" data-ctx="${ctx}">${regionOpts}</select></div><div class="field"><label for="${agencySelectId}">거래 공공기관</label><select id="${agencySelectId}" data-ctx="${ctx}">${agencyOpts}</select></div><div class="agency-actions"><button class="btn-secondary" data-a="agency-add-all" data-ctx="${ctx}">선택한 공공기관의 과 전체 추가</button><button class="btn" data-a="agency-remove-all" data-ctx="${ctx}">선택한 공공기관의 과 제거</button><button class="btn" data-a="agency-refresh">목록 새로고침</button></div>${failNote}<div class="dept-checks">${checks}</div><div class="meta">${basis} · 동주민센터는 빠져 있어요</div></div>`}
 
 // ── PIN 잠금 화면 ──
+// 이 화면에는 두 가지 맥락(state.pinContext)이 있다. 입력·검증 경로는 완전히 같고(handlePinKey 하나),
+//   다른 것은 문구·되돌아가기 라벨·유휴 시계뿐이다.
+//   'owner'   = 손님 화면 아래 [사장님용 잠금 해제]로 사장님이 스스로 들어온 화면 — 남은 손님 흔적이 하나도
+//               없고(인계 요청까지 버린다), 120초 무조작이면 손님 초기 화면으로 되돌아간다.
+//   'handoff' = 손님이 [사장님께 보여주기]를 눌러 그대로 넘긴 화면("사장님 확인") — 인계 대상이 표시되고,
+//               손님 흔적(인계 요청)이 살아 있으므로 30초 무조작이면 손님 초기 화면으로 되돌아간다.
+// TTL(pendingTtl 120초)도 함께 본다 — 잠금 해제 시점의 판정(takePendingCustomer)과 **같은 기준**이어야 한다.
+//   기준이 어긋나면 이미 죽은 요청을 화면만 "사장님 확인 / ○○○님"으로 계속 광고하게 되고, 사장님은
+//   그 사람의 사용 등록이 열릴 줄 알고 PIN을 넣었다가 그냥 홈을 만난다. 만료된 요청은 여기서 폐기하되,
+//   "만료됐다"는 사실은 pendingExpired에 남긴다 — 그래야 사장님이 PIN을 넣었을 때 takePendingCustomer가
+//   예전과 똑같이 "요청이 만료되었습니다" 한 줄을 띄운다(P4의 약속 유지).
+function handoffEmp(){if(state.pinContext!=='handoff')return null;const id=str(state.pendingCustomerId);if(!id)return null;
+const at=num(state.pendingCustomerAt);
+if(!at||now()-at>TIMERS.pendingTtl){state.pendingCustomerId='';state.pendingCustomerAt=0;state.pendingExpired=true;return null}
+return state.data.employees.find(v=>v.id===id&&!v.isDeleted)||null}
 function pinScreenHtml(){
 const hasPin=!!state.data.meta.pinHash;
 const isSetup=!hasPin||state.pinMode==='change';
 const step=isSetup?(state.pinSetup1?'confirm':'new'):'unlock';
 if(step==='unlock'&&state.pinRecovery)return pinRecoveryHtml();
-const titles={new:'비밀번호 설정',confirm:'비밀번호 확인',unlock:'비밀번호 입력'};
-const subs={new:'숫자 4자리를 입력하세요',confirm:'한번 더 입력하세요',unlock:'비밀번호를 입력하세요'};
+// 인계 대상이 사라졌거나(삭제·숨김) 요청이 비었으면 조용히 평범한 잠금 해제 화면으로 되돌아간다.
+const ho=step==='unlock'?handoffEmp():null;
+// 대상이 표시되는 동안에는 TTL 만료 시점에 딱 한 번 다시 그린다. 이게 없으면 화면은 오직 "조작"에만
+//   갱신되는데, 조작이 계속되면 유휴 시계가 계속 밀려 죽은 요청을 영원히 광고하게 된다.
+if(ho)scheduleHandoffTtl();else stopHandoffTtl();
+const titles={new:'비밀번호 설정',confirm:'비밀번호 확인',unlock:ho?'사장님 확인':'비밀번호 입력'};
+const subs={new:'숫자 4자리를 입력하세요',confirm:'한번 더 입력하세요',unlock:ho?`<span class="pin-ho"><b>${esc(ho.name)}</b>님 · 사장님이 비밀번호를 입력해 주세요<br><span class="pin-ho-label">${esc(orgDeptLabel(ho)||'부서 없음')}</span></span>`:'비밀번호를 입력하세요'};
 const dots=[0,1,2,3].map(i=>`<div class="pin-dot${i<state.pinInput.length?' filled':''}${state.pinMsg&&state.pinMsg.includes('틀렸습니다')?' error':''}"></div>`).join('');
 // 5회 실패 → 즉시 [앱 초기화]를 띄우던 옛 화면은 "손님이 장난으로 5번 누르면 초기화 버튼이 보이는" 구조였다.
 //   → 60초 입력 지연(카운트다운)으로 바꾼다. 초기화는 [PIN을 잊으셨나요?] 복구 화면 안에만 남는다.
@@ -866,8 +894,16 @@ const delayBox=delayLeft>0?`<div class="pin-delay">비밀번호를 ${state.pinFa
 if(delayLeft>0)schedulePinDelayTick();
 const forgotBtn=step==='unlock'?`<div class="pin-reset"><button data-a="pin-forgot">PIN을 잊으셨나요?</button></div>`:'';
 // PIN 화면은 사장님 전용 갈림길이다 — 손님이 잘못 들어왔으면 1탭으로 손님 화면으로 돌아갈 수 있어야 한다.
-const backToCust=step==='unlock'?`<div class="cust-foot"><button data-a="pin-to-cust">손님 화면으로</button></div>`:'';
+//   인계 화면("사장님 확인")에서는 [처음으로] — 누르면 인계 요청까지 함께 버린다(pin-to-cust가 전부 정리한다).
+const backToCust=step==='unlock'?`<div class="cust-foot"><button data-a="pin-to-cust">${ho?'처음으로':'손님 화면으로'}</button></div>`:'';
 return `<div class="pin-screen"><div class="pin-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="pin-title">${titles[step]}</div><div class="pin-sub">${subs[step]}</div><div class="pin-dots">${dots}</div><div class="pin-pad">${keys}<button class="pin-key fn" data-a="pin-key" data-key="back"${dis}>←</button><button class="pin-key" data-a="pin-key" data-key="0"${dis}>0</button><button class="pin-key fn" data-a="pin-key" data-key="clear"${dis}>C</button></div><div class="pin-msg">${esc(state.pinMsg)}</div>${delayBox}${forgotBtn}${backToCust}</div>`}
+// 인계 요청 TTL 만료 시점의 1회성 재렌더. 재렌더가 handoffEmp를 다시 태우면 요청이 폐기되고
+//   화면이 평범한 [비밀번호 입력]으로 내려앉는다(그 다음 렌더에서 ho=null → stopHandoffTtl로 자동 종료).
+function stopHandoffTtl(){if(handoffTtlTimer){clearTimeout(handoffTtlTimer);handoffTtlTimer=null}}
+function scheduleHandoffTtl(){stopHandoffTtl();
+const left=num(state.pendingCustomerAt)+TIMERS.pendingTtl-now();
+handoffTtlTimer=setTimeout(()=>{handoffTtlTimer=null;
+if(state.loaded&&state.pinLocked&&state.lockView==='pin'&&state.pinContext==='handoff')render()},Math.max(left,0)+50)}
 // 남은 입력 지연(초). 0이면 지연 없음.
 function pinDelayLeft(){const left=num(state.pinDelayUntil)-now();return left>0?Math.ceil(left/1000):0}
 function stopPinDelayTick(){if(pinDelayTimer){clearInterval(pinDelayTimer);pinDelayTimer=null}}
@@ -914,10 +950,10 @@ if(isSetup){
 if(!state.pinSetup1){state.pinSetup1=pin;state.pinInput='';render();return}
 if(state.pinSetup1!==pin){state.pinSetup1='';state.pinInput='';state.pinMsg='비밀번호가 일치하지 않습니다. 다시 설정하세요.';render();return}
 const h=await hash(pin);state.data.meta.pinHash=h;await repo.apply({meta:{pinHash:h}});
-state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinLocked=false;state.pinMsg='';leaveRecovery();await clearPinGuard();resetCustomerState();render();toast('비밀번호가 설정되었습니다.')
+state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();await clearPinGuard();resetCustomerState();render();toast('비밀번호가 설정되었습니다.')
 }else{
 const h=await hash(pin);
-if(h===state.data.meta.pinHash){state.pinInput='';state.pinLocked=false;state.pinMsg='';leaveRecovery();stopPinDelayTick();await clearPinGuard();
+if(h===state.data.meta.pinHash){state.pinInput='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();stopPinDelayTick();await clearPinGuard();
 // 손님 인계(A-full): 손님이 [사장님께 보여주기]를 누른 직후(120초 이내)라면 그 직원의 사용 모달을 바로 연다.
 //   금액은 절대 미리 채우지 않는다 — 금액을 정하는 주체는 언제나 사장님이다.
 const pending=takePendingCustomer();resetCustomerState();
@@ -950,16 +986,18 @@ try{await wipeLocalData();clearBusy();render();window.alert('✅ 초기화 완�
 //   구조적 보장은 onClick/onInput의 LOCK_ALLOWED 게이트가 담당한다(핸들러 개별 검사에 의존하지 않는다).
 
 // 손님 화면 상태 전부 폐기 — 자동 복귀·잠금 해제·[처음으로] 어디서든 같은 초기화를 쓴다.
-function resetCustomerState(){state.custQuery='';state.custStage='search';state.custSelectedId='';state.custVerify=null;state.pendingCustomerId='';state.pendingCustomerAt=0}
+function resetCustomerState(){state.custQuery='';state.custStage='search';state.custSelectedId='';state.custVerify=null;state.pendingCustomerId='';state.pendingCustomerAt=0;state.pendingExpired=false}
 // 사장님 인계 요청 회수(1회성). TTL(120초) 경과·직원 삭제/숨김이면 조용히 폐기하되, 폐기했다는 사실은 알려준다.
 //   반환값 {id, expired} — id가 있으면 사용 모달을 열고, expired면 사장님에게 한 줄 안내.
-function takePendingCustomer(){const id=str(state.pendingCustomerId),at=num(state.pendingCustomerAt);state.pendingCustomerId='';state.pendingCustomerAt=0;
-if(!id)return{id:'',expired:false};
+function takePendingCustomer(){const id=str(state.pendingCustomerId),at=num(state.pendingCustomerAt),preExpired=!!state.pendingExpired;
+state.pendingCustomerId='';state.pendingCustomerAt=0;state.pendingExpired=false;
+// 화면(handoffEmp)이 이미 만료를 판정해 요청을 버린 뒤일 수 있다 — 그 사실을 여기서 이어받는다.
+if(!id)return{id:'',expired:preExpired};
 if(!at||now()-at>TIMERS.pendingTtl)return{id:'',expired:true};
 const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);return emp?{id,expired:false}:{id:'',expired:true}}
-// 잠금 해제 상태에서 손님 화면(잠금)으로 되돌리기 — 자동 잠금·[손님에게 넘기기] 공용.
+// 잠금 해제 상태에서 손님 화면(잠금)으로 되돌리기 — 자동 잠금·[손님 셀프 조회] 공용.
 //   pinFails/pinDelayUntil은 사장님이 인증을 마친 뒤에만 여기 오므로 함께 비운다(meta까지 영속).
-function lockToCustomer(){state.pinLocked=true;state.lockView='customer';state.pinInput='';state.pinSetup1='';state.pinMsg='';leaveRecovery();stopPinDelayTick();state.modal=null;
+function lockToCustomer(){state.pinLocked=true;state.lockView='customer';state.pinContext='';state.pinInput='';state.pinSetup1='';state.pinMsg='';leaveRecovery();stopPinDelayTick();state.modal=null;
 clearTimeout(state.toastTimer);state.toast='';// 사장님용 토스트가 손님 화면으로 넘어가지 않게 한다
 resetCustomerState();clearPinGuard();render()}
 // 손님 화면을 띄울 수 있는 조건 — PIN이 없거나(최초 설정) 변경 중이면 절대 띄우지 않는다.
@@ -1007,8 +1045,8 @@ const foot=`<div class="cust-foot"><button data-a="lock-to-pin">사장님용 잠
 const wrap=body=>`<div class="cust-screen">${head}${body}${foot}</div>`;
 const sel=state.custSelectedId?d.active.find(e=>e.id===state.custSelectedId):null;
 const stage=sel?(state.custStage||'search'):'search';
-// ③ 사장님 호출 완료 — 잠금은 그대로 유지된다(손님이 이 화면에서 할 수 있는 일은 더 없다).
-if(stage==='called')return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-done">${esc(sel.name)}님 확인 완료</div><div class="cust-done-sub">사장님을 불러 주세요</div><div class="cust-actions"><button class="btn" data-a="cust-back">처음으로</button></div></div></div>`);
+// ③ 사장님 호출(인계) 단계는 이 화면에 없다 — [사장님께 보여주기]는 곧바로 PIN 화면("사장님 확인")으로 넘어간다.
+//    안내 화면을 한 장 두면 사장님이 [사장님용 잠금 해제]를 또 찾아 눌러야 했다(탭 2번 → 1번).
 // ② 본인 화면 — 잔액은 증표(openReceipt)와 똑같은 3중 검증을 통과했을 때만 숫자로 보여준다.
 if(stage==='self'){
 const v=state.custVerify||{};
@@ -1185,8 +1223,8 @@ const subs=g.kind==='company'?groupBy(items,e=>str(e.dept)).sort((a,b)=>(a[0]?1:
 return{key:g.key,kind:g.kind,label:g.label,org:g.org,items,subs,count:items.length,totalBalance:items.reduce((s,e)=>s+e.balance,0)}});const hist=sortTxDesc(state.data.transactions).filter(t=>!state.historyEmployeeId||t.employeeId===state.historyEmployeeId);const historyGroups=groupBy(hist,t=>{const e=empMap.get(t.employeeId);return(e?e.deptKey:'부서 없음')+'||'+(e?e.name:'알 수 없는 직원')+'||'+t.employeeId}).map(([key,items])=>{const[dept,name,eid]=key.split('||');return{dept,name,employeeId:eid,employee:empMap.get(eid)||null,items}}).sort((a,b)=>a.dept.localeCompare(b.dept,'ko')||a.name.localeCompare(b.name,'ko'));const dateHist=sortTxDesc(state.data.transactions);const dateKey=ts=>{const x=new Date(ts);return `${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`};const dateGroups=groupBy(dateHist,t=>dateKey(t.createdAt)).map(([date,items])=>{const useTotal=items.filter(t=>t.type==='use'&&!voided.has(t.id)).reduce((s,t)=>s+num(t.amount),0);return{date,items,useTotal,count:items.length}});return{employees,empMap,active,filtered,total,homeGroups,voided,historyGroups,dateGroups}}
 
 // ── 화면 HTML ──
-function topBar(){const sub={home:'차감과 잔액을 빠르게 처리해요.',history:'거래와 취소 기록을 확인해요.',settings:'직원 관리와 백업을 처리해요.'}[state.screen]||'';// [손님에게 넘기기] — 1탭으로 즉시 잠금 + 손님 화면. PIN이 없으면(설정 전) 잠글 수단이 없으므로 숨긴다.
-const handoff=(state.screen==='home'&&state.data.meta.pinHash)?`<button class="btn handoff" data-a="hand-to-customer" title="지금 바로 잠그고 손님 화면을 띄웁니다">손님에게 넘기기</button>`:'';
+function topBar(){const sub={home:'차감과 잔액을 빠르게 처리해요.',history:'거래와 취소 기록을 확인해요.',settings:'직원 관리와 백업을 처리해요.'}[state.screen]||'';// [손님 셀프 조회] — 1탭으로 즉시 잠금 + 손님 화면. PIN이 없으면(설정 전) 잠글 수단이 없으므로 숨긴다.
+const handoff=(state.screen==='home'&&state.data.meta.pinHash)?`<button class="btn handoff" data-a="hand-to-customer" aria-label="손님 셀프 조회 — 지금 바로 잠그고 손님 화면을 띄웁니다" title="지금 바로 잠그고, 손님이 스스로 잔액을 조회하는 화면을 띄웁니다">손님 셀프 조회</button>`:'';
 const homeBtn=state.screen==='home'?`<button class="btn" data-a="reset-filter">검색 초기화</button>${ledgerSaveBtn()}${handoff}`:`<button class="btn" data-a="go-home">홈</button>`;const btns=state.screen==='history'?'<button class="btn-primary" data-a="export">백업</button>':'';let filters='';if(state.screen==='home'){
 // 부서 선택 옵션은 홈 그룹과 1:1(값=그룹 키, 문구=그룹 헤더) — 고르면 그 그룹만 남고 자동 펼침된다.
 const groupOrder=homeGroupIndex(state.data.employees.filter(e=>!e.isDeleted)).order;
@@ -1284,9 +1322,21 @@ if(state.pinLocked){
 if(!lockScreenActive()||!state.data.meta.pinHash||state.pinMode==='change')return;
 // 복구 화면은 60초 활성화 게이트가 끝나고도 30초를 더 준다 — 게이트를 기다리는 동안 화면이 사라지면 사장님이 복구를 못 한다.
 if(state.pinRecovery){idleTimer=setTimeout(()=>{if(state.pinLocked&&state.pinRecovery)backToCustomerIdle()},recoveryLeft()*1000+TIMERS.custIdle);return}
-// ⚠️ PIN 화면(lockView==='pin')에서도 시계를 건다. 예전에는 여기서 빠져나가 타이머가 아예 꺼졌고,
-//   [사장님용 잠금 해제]를 누른 채 방치하면 앞 손님의 잔액 화면·인계 요청이 무기한 살아남았다.
-if(state.lockView==='pin'){idleTimer=setTimeout(()=>{if(state.pinLocked&&state.lockView==='pin')backToCustomerIdle()},TIMERS.custIdle);return}
+// ⚠️ PIN 화면(lockView==='pin')에는 **언제나** 시계를 건다. 길이만 두 가지다.
+//   · 손님 흔적이 남아 있는 화면 — "사장님 확인"(handoff)이거나 인계 요청이 살아 있으면 30초(custIdle).
+//     방치하면 앞 손님의 요청이 다음 손님에게 남는다(HIGH-3의 본체).
+//   · 사장님이 [사장님용 잠금 해제]로 스스로 연 화면(owner) — 120초(ownerPinIdle).
+//     예전에는 여기에 시계를 아예 걸지 않았다("4자리 고르는 도중 화면이 튀면 안 된다"). 그 대가가 컸다:
+//       (a) 부분 입력된 PIN(예: 3자리)이 무기한 남아 다음 사람이 1자리만 맞히면 되는 상태가 된다(1/10),
+//       (b) 손님이 [사장님용 잠금 해제]를 오탭하고 자리를 뜨면 태블릿이 PIN 패드에 영구 체류해
+//           다음 손님의 셀프 조회가 막힌다(매뉴얼의 "늘 손님 화면" 약속 위반).
+//     120초는 원래의 우려(입력 중 화면 튐)를 그대로 해소하면서 두 결함을 닫는다 — 4자리 입력에
+//     2분이 걸리는 경우는 없고, 어떤 조작이든(키 입력 포함) 시계는 처음부터 다시 돈다.
+//   만료 동작은 한 가지다: 손님 초기 화면 복귀 + 입력 중이던 PIN 폐기 + 손님 상태·인계 요청 폐기.
+if(state.lockView==='pin'){
+const pinIdleMs=(state.pinContext==='handoff'||state.pendingCustomerId)?TIMERS.custIdle:TIMERS.ownerPinIdle;
+idleTimer=setTimeout(()=>{if(state.pinLocked&&state.lockView==='pin')backToCustomerIdle()},pinIdleMs);
+return}
 if(!(state.custQuery||state.custStage!=='search'||state.custSelectedId||state.pendingCustomerId))return;
 idleTimer=setTimeout(()=>{resetCustomerState();render()},TIMERS.custIdle);
 return}
@@ -1294,7 +1344,7 @@ return}
 if(canAutoLock()){idleTimer=setTimeout(()=>{if(canAutoLock())lockToCustomer()},TIMERS.autoLock);return}
 if(canAutoLockBase()&&state.modal){idleTimer=setTimeout(()=>{if(canAutoLockBase()&&state.modal)lockToCustomer()},TIMERS.modalIdleCap)}}
 // PIN 화면 방치 → 손님 초기 화면으로. 잠금은 절대 풀리지 않고, 앞 손님의 흔적(인계 요청 포함)은 전부 사라진다.
-function backToCustomerIdle(){state.lockView='customer';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();resetCustomerState();render()}
+function backToCustomerIdle(){state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
 // 조작이 있으면 시계를 다시 시작한다. 캡처 단계라 어떤 핸들러가 이벤트를 막아도 반드시 실행된다.
 ['click','input','change','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,armIdle,true));
 
@@ -1413,9 +1463,16 @@ const clickActions={
 // 전부 화면 전환·휘발성 상태 변경뿐이다. 이 중 어떤 것도 makeTx/repo.apply에 닿지 않는다.
 'hand-to-customer':()=>{lockToCustomer()},
 // 손님 → 사장님 전환. 앞 손님의 검색·선택·조회 상태는 즉시 버린다(PIN 화면 뒤에 숨겨두지 않는다).
-//   ⚠️ pendingCustomerId/At은 남긴다 — 이것이 바로 인계 경로다(TTL 120초가 관리한다).
-'lock-to-pin':()=>{state.lockView='pin';state.pinInput='';state.pinMsg='';state.custQuery='';state.custStage='search';state.custSelectedId='';state.custVerify=null;render()},
-'pin-to-cust':()=>{state.lockView='customer';state.pinInput='';state.pinMsg='';leaveRecovery();render()},
+//   ⚠️ 인계 요청(pendingCustomerId/At)도 함께 버린다 — **요청은 handoff 경로에서만 유효하다**는 근본 방어다.
+//   이걸 남기면 "owner 맥락 + 살아 있는 인계 요청"이라는 조합이 만들어지는데, 그 화면은 평범한
+//   [비밀번호 입력]으로 보여서(사장님은 요청이 살아 있는 줄 모른다) 잠금 해제 순간 엉뚱한 사용 모달이 뜬다.
+//   부작용: 사장님이 "사장님 확인" 화면에서 굳이 일반 잠금 해제로 갈아타면 인계가 사라진다.
+//   그 전환은 실제로는 거의 없는 경로다(인계 화면에는 [사장님용 잠금 해제] 버튼 자체가 없고, 같은 자리의
+//   [처음으로]도 어차피 요청을 버린다) — 드문 경로 하나를 잃는 대신 위 조합을 구조적으로 없앤다.
+'lock-to-pin':()=>{state.lockView='pin';state.pinContext='owner';state.pinInput='';state.pinMsg='';state.custQuery='';state.custStage='search';state.custSelectedId='';state.custVerify=null;state.pendingCustomerId='';state.pendingCustomerAt=0;render()},
+// [손님 화면으로]/[처음으로] — 어느 맥락에서 눌렸든 손님 흔적을 전부 버리고 초기 손님 화면으로 돌아간다.
+//   ⚠️ 인계 요청(pendingCustomerId)도 여기서 버린다 — "사장님 확인" 화면의 [처음으로]는 취소를 뜻한다.
+'pin-to-cust':()=>{state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();resetCustomerState();render()},
 // 새로 고른 손님이 이전 인계 요청을 덮어쓴다 — 남겨두면 엉뚱한 사람의 사용 모달이 열린다.
 'cust-pick':(el)=>{state.pendingCustomerId='';state.pendingCustomerAt=0;state.custSelectedId=str(el.dataset.id);state.custStage='confirm';state.custVerify=null;render()},
 'cust-confirm':async(el)=>{const id=str(el.dataset.id);const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){resetCustomerState();render();return}
@@ -1426,8 +1483,13 @@ state.custSelectedId=id;state.custVerify=await verifyBalanceFor(id);state.custSt
 'cust-clear':()=>{state.custQuery='';state.custSelectedId='';state.custStage='search';state.custVerify=null;state.pendingCustomerId='';state.pendingCustomerAt=0;render()},
 'cust-back':()=>{resetCustomerState();render()},
 // 사장님 인계 요청 — 기록이 아니라 "요청"이다(휘발성, 저장소에 남기지 않는다). 잠금은 유지된다.
+//   손님이 폰을 건네는 그 동작이 곧 "사장님 차례"이므로 곧바로 PIN 화면("사장님 확인")을 띄운다.
+//   앞 손님의 검색·조회 상태는 여기서 버린다(PIN 화면 뒤에 숨겨두지 않는다) — 남기는 것은 인계 요청뿐이고
+//   그 요청의 수명은 TTL 120초와 이 화면의 30초 유휴 복귀가 함께 관리한다.
 'cust-call-owner':()=>{const id=str(state.custSelectedId);const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){resetCustomerState();render();return}
-state.pendingCustomerId=id;state.pendingCustomerAt=now();state.custStage='called';render()}
+state.pendingCustomerId=id;state.pendingCustomerAt=now();
+state.custQuery='';state.custStage='search';state.custSelectedId='';state.custVerify=null;
+state.lockView='pin';state.pinContext='handoff';state.pinInput='';state.pinMsg='';render()}
 };
 // 잠금 상태에서 실행을 허용하는 액션 화이트리스트(구조적 보장).
 //   여기 없는 data-a는 onClick 진입부에서 통째로 차단된다 — 숨은 파일 input·저장·차감·설정 등 모든 쓰기 경로 포함.
@@ -1662,7 +1724,7 @@ await repo.apply({employees:emps,transactions:txs});emps.forEach(upsertEmp);txs.
 // ── 전체 초기화 ──
 function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[],setupComplete:false}}}
 async function clearAppCachesAndWorker(){if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}}
-function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.homeExpanded={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
+function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.homeExpanded={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
 // 초기화 후 온보딩/수신 상태 누수 방지(S4) — 이전 사용자의 가게 선택·검색 결과·동의·신청 건수가 남으면 안 된다.
 state.setupPickedStore=null;state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreResults=[];state.setupStoreSearching=false;state.setupStoreSearched=false;state.setupStoreFilteredOut=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false}
 async function wipeLocalData(){const empty=emptyAppData();await repo.replaceAll(empty);await clearAppCachesAndWorker();resetUiAfterWipe(empty);return empty}
