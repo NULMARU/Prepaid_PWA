@@ -145,6 +145,48 @@ async function runViewport(context, url, w) {
 
   // ── 그룹 헤더(아코디언): 손가락 터치 타겟 + 화면 안쪽 ──
   const clientW = await page.evaluate(() => document.documentElement.clientWidth);
+
+  // ── 홈 상단바 2행 구조(beta.17) ──
+  //   1행: 검색창 전폭(폰에서도 300px 이상) / 2행: 소속 필터 + 음성 검색
+  //   상단바는 sticky를 유지하고, [장부 저장] 버튼은 홈에 상시 존재해야 한다.
+  const bar = await page.evaluate(() => {
+    const top = document.querySelector('.top');
+    const rows = [...document.querySelectorAll('.home-filters .filter-row')];
+    const box = el => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }; };
+    const search = document.querySelector('#searchInput');
+    const select = document.querySelector('#deptFilterSelect');
+    const mic = document.querySelector('[data-a="voice-search"]');
+    const save = document.querySelector('.top .tool [data-a="monthly-backup-now"]');
+    const reset = document.querySelector('.top .tool [data-a="reset-filter"]');
+    return {
+      sticky: getComputedStyle(top).position,
+      rows: rows.length,
+      row1: rows[0] ? [...rows[0].children].map(c => c.id || c.dataset.a || c.tagName) : [],
+      row2: rows[1] ? [...rows[1].children].map(c => c.id || c.dataset.a || c.tagName) : [],
+      search: search ? box(search) : null,
+      select: select ? box(select) : null,
+      mic: mic ? box(mic) : null,
+      save: save ? { ...box(save), due: save.dataset.due, text: save.innerText.trim() } : null,
+      reset: reset ? box(reset) : null,
+      firstOption: select ? select.options[0].textContent.trim() : ''
+    };
+  });
+  check(bar.sticky === 'sticky', `${w}px 상단바: .top은 sticky를 유지해야 한다 (got ${bar.sticky})`);
+  check(bar.rows === 2, `${w}px 상단바: 홈 필터는 2행(검색창 / 소속 필터+음성)이어야 한다 (${bar.rows}행)`);
+  check(bar.row1.join(',') === 'searchInput', `${w}px 상단바: 첫 행에는 검색창만 있어야 한다 ${JSON.stringify(bar.row1)}`);
+  check(bar.row2.join(',') === 'deptFilterSelect,voice-search', `${w}px 상단바: 둘째 행은 소속 필터 + 음성 검색이어야 한다 ${JSON.stringify(bar.row2)}`);
+  check(Boolean(bar.search) && bar.search.width >= 300, `${w}px 상단바: 검색창이 전폭(300px 이상)이어야 한다 (${bar.search && Math.round(bar.search.width)}px)`);
+  check(Boolean(bar.select) && bar.search.bottom <= bar.select.top + 1, `${w}px 상단바: 소속 필터는 검색창 아래(둘째 행)로 내려가야 한다`);
+  check(bar.firstOption === '전체 소속', `${w}px 상단바: 필터 첫 옵션은 '전체 소속'이어야 한다 (got "${bar.firstOption}")`);
+  [['검색창', bar.search], ['소속 필터', bar.select], ['음성 검색', bar.mic], ['장부 저장', bar.save], ['검색 초기화', bar.reset]].forEach(([label, b]) => {
+    check(Boolean(b), `${w}px 상단바: ${label}이(가) 렌더되지 않았다`);
+    if (b) check(b.right <= clientW + 1 && b.left >= -1, `${w}px 상단바: ${label}이(가) 화면 밖으로 나갔다 (${Math.round(b.left)}~${Math.round(b.right)} / ${clientW})`);
+  });
+  check(Boolean(bar.save) && bar.save.text.includes('장부 저장'), `${w}px 상단바: 홈에는 [장부 저장] 버튼이 상시 있어야 한다 (got "${bar.save && bar.save.text}")`);
+  check(Boolean(bar.save) && bar.save.height >= 36, `${w}px 상단바: [장부 저장] 버튼 터치 타겟이 너무 작다 (${bar.save && Math.round(bar.save.height)}px)`);
+  check(Boolean(bar.mic) && bar.mic.height >= 44, `${w}px 상단바: 음성 검색 버튼 터치 타겟이 너무 작다 (${bar.mic && Math.round(bar.mic.height)}px)`);
+  check(await page.locator('.banner [data-a="monthly-backup-now"]').count() === 0, `${w}px 홈: 월말 백업 배너는 더 이상 렌더되지 않아야 한다(상단 [장부 저장] 버튼으로 대체)`);
+
   const heads = await page.evaluate(() => [...document.querySelectorAll('.group-head')].map(h => {
     const r = h.getBoundingClientRect();
     return { text: h.innerText.replace(/\n/g, ' ').trim(), height: r.height, left: r.left, right: r.right };
@@ -223,10 +265,53 @@ async function runViewport(context, url, w) {
   const nav = await page.locator('.nav').boundingBox();
   check(Boolean(nav) && nav.x >= -1 && nav.x + nav.width <= w + 1, `${w}px: 하단 내비게이션이 화면 밖으로 나갔다 (${nav && (nav.x + nav.width)} > ${w})`);
 
+  // ── 검색 결과 1건 확대 카드(beta.17): 그룹 헤더 없이 한 장만, 긴 이름도 잘리지 않고 화면 안에 ──
+  await page.locator('#searchInput').fill('김수한무');
+  await page.waitForTimeout(200);
+  await noHorizontalOverflow(page, '홈(확대 카드)', w);
+  const solo = await page.evaluate(() => {
+    const c = document.querySelector('.card.employee.solo');
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    const px = sel => parseFloat(getComputedStyle(c.querySelector(sel)).fontSize);
+    const clip = sel => { const el = c.querySelector(sel); return el.scrollWidth > el.clientWidth + 1; };
+    const use = c.querySelector('[data-a="use"]').getBoundingClientRect();
+    return {
+      left: r.left, right: r.right,
+      nameFont: px('.name'), balFont: px('.bal'),
+      clipped: ['.name', '.dept', '.bal'].filter(clip),
+      useRight: use.right, useHeight: use.height,
+      cards: document.querySelectorAll('.card.employee').length,
+      heads: document.querySelectorAll('.group-head').length,
+      summaries: document.querySelectorAll('.card.summary').length
+    };
+  });
+  check(Boolean(solo), `${w}px 홈: 검색 결과가 1명이면 확대 카드(.card.employee.solo)가 떠야 한다`);
+  if (solo) {
+    check(solo.cards === 1 && solo.heads === 0, `${w}px 홈: 확대 카드는 그룹 헤더 없이 한 장만이어야 한다 (카드 ${solo.cards}장 / 헤더 ${solo.heads}개)`);
+    check(solo.summaries === 0, `${w}px 홈: 손님에게 보여주는 확대 카드 화면에는 매출 요약(오늘 사용·전체 잔액)이 남으면 안 된다`);
+    check(solo.nameFont >= 24 && solo.balFont >= 30, `${w}px 홈: 확대 카드의 이름·잔액이 실제로 커야 한다 (이름 ${solo.nameFont}px / 잔액 ${solo.balFont}px)`);
+    check(solo.clipped.length === 0, `${w}px 홈: 확대 카드에서 잘린 텍스트 ${JSON.stringify(solo.clipped)}`);
+    check(solo.left >= -1 && solo.right <= clientW + 1, `${w}px 홈: 확대 카드가 화면 밖으로 나갔다`);
+    check(solo.useRight <= clientW + 1, `${w}px 홈: 확대 카드의 [사용] 버튼이 화면 밖으로 나갔다`);
+    check(solo.useHeight >= 56, `${w}px 홈: 확대 카드의 [사용] 버튼이 커져야 한다 (${Math.round(solo.useHeight)}px)`);
+  }
+
   // ── 사용 등록 모달: 모든 액션 버튼이 화면 안에 있어야 한다(저장 버튼 미노출 회귀 방지) ──
   await page.locator(`[data-a="use"][data-id="r-emp-2"]`).click();
   await page.waitForSelector('#useAmount');
   await noHorizontalOverflow(page, '사용 등록 모달', w);
+  // 빠른 금액 3버튼(beta.17)이 한 줄에 들어가고 화면 밖으로 나가지 않아야 한다.
+  const quick = await page.evaluate(() => [...document.querySelectorAll('[data-a="fill-use"]')].map(b => {
+    const r = b.getBoundingClientRect();
+    return { text: b.innerText.trim(), left: r.left, right: r.right, top: r.top, height: r.height };
+  }));
+  check(quick.length === 3, `${w}px 모달: 빠른 금액 버튼이 3개여야 한다 (${quick.length}개)`);
+  quick.forEach(b => {
+    check(b.left >= -1 && b.right <= clientW + 1, `${w}px 모달: 빠른 금액 "${b.text}" 버튼이 화면 밖이다`);
+    check(b.height >= 44, `${w}px 모달: 빠른 금액 "${b.text}" 버튼 터치 타겟이 작다 (${Math.round(b.height)}px)`);
+  });
+  check(quick.length === 3 && quick.every(b => Math.abs(b.top - quick[0].top) <= 2), `${w}px 모달: 빠른 금액 3버튼은 한 줄에 있어야 한다 ${JSON.stringify(quick.map(b => Math.round(b.top)))}`);
   const btns = await page.evaluate(() => [...document.querySelectorAll('.modal-actions button')].map(b => {
     const r = b.getBoundingClientRect();
     return { text: b.innerText.trim(), left: r.left, right: r.right, top: r.top, width: r.width };
@@ -248,6 +333,8 @@ async function runViewport(context, url, w) {
   });
   await page.locator('.modal-actions [data-a="close-modal"]').click();
   await page.waitForTimeout(80);
+  await page.locator('#searchInput').fill('');
+  await page.waitForTimeout(120);
 
   // ── 설정·이력 화면도 가로로 밀리면 안 된다 ──
   await page.locator('[data-a="screen"][data-screen="settings"]').click();

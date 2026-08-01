@@ -341,16 +341,33 @@ async function main() {
     // 하단 요약은 홈에서 제거되어 설정 > 직원 목록 관리로 옮겨졌다.
     await assert(!(await page.locator('.app').innerText()).includes('잔액 합계'), 'the "잔액 합계" summary must no longer sit at the bottom of home');
 
-    // (e) 검색어가 있으면 매칭 그룹이 자동으로 펼쳐져야 한다(검색이 "안 되는 것처럼" 보이면 안 됨).
+    // (e) 검색 결과가 딱 1명이면 그룹 헤더 없이 "확대 카드" 한 장만 남는다(손님 앞에서 동료 정보 비노출).
     await page.locator('#searchInput').fill('User Q');
     await page.waitForTimeout(150);
-    await assert(await count(page, '.card.employee') === 1, 'a search must auto-expand the matching group without an extra tap');
-    await assert(await count(page, '.group-head[aria-expanded="true"]') === 1, 'the matching group header should report itself expanded during a search');
+    await assert(await count(page, '.card.employee.solo') === 1, 'a single search hit must render exactly one enlarged solo card');
+    await assert(await count(page, '.group-head') === 0, 'the solo card must drop the group headers entirely');
+    await assert(await count(page, '.card.employee') === 1, 'no other employee card may render beside the solo card');
+    await assert(!(await page.locator('.app').innerText()).includes('User A'), 'the solo card must not leak the other employee name on screen');
+    // 확대 카드는 손님에게 그대로 보여주는 화면이다 — 가게 매출이 드러나는 요약(오늘 사용·전체 잔액)은 함께 감춰야 한다.
+    await assert(await count(page, '.card.summary') === 0, 'the shop revenue summary (오늘 사용 · 전체 잔액) must be hidden while the solo card is shown to a customer');
+    await assert(!(await page.locator('.app').innerText()).includes('전체 잔액'), 'no shop-wide balance may remain on screen behind the solo card');
+    // 확대 카드는 "크기만" 다르다 — [사용]·[증표] 조작은 그대로 있어야 한다.
+    await assert(await count(page, '.card.employee.solo [data-a="use"]') === 1, 'the solo card must keep the 사용 button');
+    await assert(await count(page, '.card.employee.solo [data-a="receipt"]') === 1, 'the solo card must keep the 증표 button');
+    const soloSize = await page.evaluate(() => {
+      const c = document.querySelector('.card.employee.solo');
+      const px = sel => parseFloat(getComputedStyle(c.querySelector(sel)).fontSize);
+      const use = c.querySelector('[data-a="use"]').getBoundingClientRect();
+      return { name: px('.name'), bal: px('.bal'), useH: use.height };
+    });
+    await assert(soloSize.name >= 24 && soloSize.bal >= 30, `the solo card must really be enlarged (name ${soloSize.name}px, balance ${soloSize.bal}px)`);
+    await assert(soloSize.useH >= 56, `the solo card [사용] button must be enlarged too (got ${Math.round(soloSize.useH)}px)`);
     await page.locator('#searchInput').fill('');
     await page.waitForTimeout(150);
     await assert(await count(page, '.card.employee') === 0, 'clearing the search should return the groups to the collapsed default');
+    await assert(await count(page, '.card.employee.solo') === 0, 'the solo card must disappear once the search is cleared');
 
-    // 부서 필터도 동일 — 고른 그룹만 남고 자동으로 펼쳐진다(옵션 문구 = 그룹 헤더 문구).
+    // 소속 필터는 검색과 달리 그룹 구조를 유지한다 — 고른 그룹만 남고 자동으로 펼쳐진다(옵션 문구 = 그룹 헤더 문구).
     await page.locator('#deptFilterSelect').selectOption({ label: 'Dept Q' });
     await page.waitForTimeout(150);
     await assert(await count(page, '.group-head') === 1 && await count(page, '.card.employee') === 1, 'picking a department in the filter should leave exactly that group, auto-expanded');
@@ -545,16 +562,34 @@ async function main() {
       };
     }), { ts: prevTs });
 
-    // (3) 활동 있는 지난달이 미백업(미등록) → 홈에 월말 배너 + [지금 저장하기]
+    // (3) 활동 있는 지난달이 미백업(미등록) → 홈 상단바 [장부 저장] 버튼에 ⚠️ 배지가 붙는다(beta.17: 월말 배너 폐지).
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.waitForSelector('[data-a="screen"][data-screen="home"]');
-    await assert(await count(page, '[data-a="monthly-backup-now"]') === 1, 'an unbacked month with activity must show the month-end backup banner on home');
-    const bannerText = await page.locator('.banner.warn', { hasText: '지금 저장하기' }).first().innerText();
-    await assert(bannerText.includes(prevYmStr), `month-end banner should name the due month ${prevYmStr}`);
+    const saveBtn = page.locator('.top .tool [data-a="monthly-backup-now"]');
+    await assert(await saveBtn.count() === 1, 'home top bar must carry exactly one always-on [장부 저장] button');
+    await assert((await saveBtn.innerText()).includes('장부 저장'), 'the top-bar backup button must read 장부 저장');
+    await assert(await count(page, '.banner [data-a="monthly-backup-now"]') === 0, 'the month-end backup banner must be gone — the top-bar button replaces it');
+    await assert(!(await page.locator('.app').innerText()).includes('지금 저장하기'), 'the old 지금 저장하기 banner wording must no longer render anywhere on home');
+    await assert((await saveBtn.getAttribute('data-due')) === '1', 'an unbacked month with activity must flag the [장부 저장] button as due');
+    await assert((await saveBtn.innerText()).includes('⚠️'), 'a due [장부 저장] button must carry the ⚠️ badge');
+    const dueTip = await saveBtn.getAttribute('title');
+    await assert(dueTip.includes(prevYmStr) && dueTip.includes('이번 달 아직'), `the due button must name the due month ${prevYmStr} and say it is still pending (got ${JSON.stringify(dueTip)})`);
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'backup-banner.png') }).catch(() => {});
+    // 눌러 보면 옛 배너의 [지금 저장하기]와 똑같은 저장 흐름(백업 파일 다운로드 + "정말 저장됐나요?" 확인)이 돈다.
+    const savedByBtn = [];
+    const onSaveBtnDownload = d => savedByBtn.push(d);
+    page.on('download', onSaveBtnDownload);
+    const dialogsBefore = dialogs.length;
+    await saveBtn.click();
+    for (let i = 0; i < 30 && !savedByBtn.length; i += 1) await page.waitForTimeout(100);
+    page.off('download', onSaveBtnDownload);
+    await assert(savedByBtn.length === 1 && /^밥장부백업_\d{4}-\d{2}\.json$/.test(savedByBtn[0].suggestedFilename()),
+      `tapping [장부 저장] must download the monthly backup file (got ${JSON.stringify(savedByBtn.map(d => d.suggestedFilename()))})`);
+    await assert(dialogs.slice(dialogsBefore).some(d => d.type === 'confirm' && d.message.includes('파일이 실제로 저장된 것을 확인')),
+      'tapping [장부 저장] must run the save-confirmation dialog flow, exactly like the old banner button');
 
-    // (4) 자동 백업 토글: 기본 켜짐 → 끄면 저장·복원되고 배너에 "꺼져 있어요" 문구가 붙는다
+    // (4) 자동 백업 토글: 기본 켜짐 → 끄면 저장·복원되고 [장부 저장] 버튼 설명에 "꺼져 있어요" 경고가 붙는다
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await page.waitForSelector('[data-a="toggle-auto-cloud"]');
     await assert(await page.locator('[data-a="toggle-auto-cloud"]').isChecked(), 'auto cloud backup toggle should default to ON');
@@ -566,8 +601,9 @@ async function main() {
     let mm = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
     await assert(mm.autoCloudBackup === false, 'unchecking the toggle should persist autoCloudBackup=false');
     await page.locator('[data-a="screen"][data-screen="home"]').click();
-    const bannerOff = await page.locator('.banner.warn', { hasText: '지금 저장하기' }).first().innerText();
-    await assert(bannerOff.includes('꺼져 있어요'), 'with auto backup off, the banner should warn that auto backup is disabled');
+    await page.waitForTimeout(150);
+    const offTip = await page.locator('.top .tool [data-a="monthly-backup-now"]').getAttribute('title');
+    await assert(offTip.includes('꺼져 있어요'), `with auto backup off, the [장부 저장] button must warn that auto backup is disabled (got ${JSON.stringify(offTip)})`);
     // 재로드 후 토글 상태 복원(꺼짐 유지) 확인 → 다시 켠다
     await page.reload({ waitUntil: 'load' });
     await unlock();
@@ -577,7 +613,7 @@ async function main() {
     await page.locator('[data-a="toggle-auto-cloud"]').check();
     await page.waitForTimeout(150);
 
-    // (5) 이미 이번 대상 달을 백업했으면(lastMonthlyBackup 기록) 배너 미표시 + monthlyBackupDue()==''
+    // (5) 이미 이번 대상 달을 백업했으면(lastMonthlyBackup 기록) [장부 저장] 배지 해제 + monthlyBackupDue()=='' (버튼 자체는 계속 남는다)
     await page.evaluate(({ ym }) => new Promise((resolve, reject) => {
       const req = indexedDB.open('prepaid-ledger-db');
       req.onerror = () => reject(req.error);
@@ -599,13 +635,17 @@ async function main() {
     const curYmStr = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
     const isLastDayToday = (() => { const n = new Date(), t = new Date(); t.setDate(n.getDate() + 1); return t.getMonth() !== n.getMonth(); })();
     const dueAfterRecord = await page.evaluate(() => window.__prepaidTestHooks.monthlyBackupDue());
+    const recordedBtn = page.locator('.top .tool [data-a="monthly-backup-now"]');
+    await assert(await recordedBtn.count() === 1, 'the [장부 저장] button must stay on the home top bar in every state (it is always-on, not a banner)');
     if (isLastDayToday) {
       await assert(dueAfterRecord === curYmStr, `on the last day of the month the due target must roll over from ${prevYmStr} to ${curYmStr} (got "${dueAfterRecord}")`);
-      const rollBanner = await page.locator('.banner.warn', { hasText: '지금 저장하기' }).first().innerText();
-      await assert(rollBanner.includes(curYmStr), `the rolled-over month-end banner must name ${curYmStr} (got ${JSON.stringify(rollBanner)})`);
-      await assert(!rollBanner.includes(prevYmStr), `the month already recorded as backed up must not be named by the banner any more (got ${JSON.stringify(rollBanner)})`);
+      await assert((await recordedBtn.getAttribute('data-due')) === '1', 'the rolled-over due month must keep the [장부 저장] button flagged as due');
+      const rollTip = await recordedBtn.getAttribute('title');
+      await assert(rollTip.includes(curYmStr), `the rolled-over due button must name ${curYmStr} (got ${JSON.stringify(rollTip)})`);
+      await assert(!rollTip.includes(prevYmStr), `the month already recorded as backed up must not be named by the button any more (got ${JSON.stringify(rollTip)})`);
     } else {
-      await assert(await count(page, '[data-a="monthly-backup-now"]') === 0, 'a month already backed up must not show the month-end banner');
+      await assert((await recordedBtn.getAttribute('data-due')) === '0', 'a month already backed up must clear the due flag on the [장부 저장] button');
+      await assert(!(await recordedBtn.innerText()).includes('⚠️'), 'a non-due [장부 저장] button must not show the ⚠️ badge');
       await assert(dueAfterRecord === '', 'monthlyBackupDue() must return empty once the due month is recorded as backed up');
     }
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'no-banner-backed-up.png') }).catch(() => {});
@@ -1258,7 +1298,7 @@ async function main() {
     await assert(bfTitles.length === 1 && bfTitles[0] === '강남구청 세무과', `a partially-matched roster must leave one single home group titled "기관명 부서명", not split the department in two (got ${JSON.stringify(bfTitles)})`);
     await assert((await page.locator('.group-meta').first().innerText()).includes('직원 4명'), 'the single group should hold all four employees');
     await assert(await count(page, '.card.empty') === 0, 'the stale department filter must heal itself instead of showing an empty home');
-    await assert((await page.locator('#deptFilterSelect').inputValue()) === '', 'a department filter whose group key no longer exists should fall back to 전체 부서');
+    await assert((await page.locator('#deptFilterSelect').inputValue()) === '', 'a department filter whose group key no longer exists should fall back to 전체 소속');
 
     // (2) 공공기관 '세무과'와 무소속 '세무과'는 이제 결합 라벨 덕분에 꼬리표 없이도 서로 구분된다(beta.15).
     await seedHome([
@@ -1271,6 +1311,9 @@ async function main() {
     await assert(dupTitles.includes('강남구청 세무과'), `the public group should read "기관명 부서명" with no qualifier (got ${JSON.stringify(dupTitles)})`);
     await assert(dupTitles.includes('세무과'), `the unaffiliated group keeps its bare label — the combined public title already distinguishes them (got ${JSON.stringify(dupTitles)})`);
     await assert(!dupTitles.some(t => t.includes('(')), `no qualifier tail should be needed when titles already differ (got ${JSON.stringify(dupTitles)})`);
+    // 필터 첫 옵션 문구는 '전체 소속' — 공공기관뿐 아니라 사기업·개인 그룹도 담기 때문에 '부서'가 아니다(beta.17).
+    await assert((await filterOptions())[0] === '전체 소속', `the first filter option must read 전체 소속 (got ${JSON.stringify((await filterOptions())[0])})`);
+    await assert((await page.locator('#deptFilterSelect').getAttribute('aria-label')).includes('소속'), 'the filter select must be labelled by 소속, not 부서');
     const dupOpts = (await filterOptions()).slice(1);
     await assert(new Set(dupOpts).size === dupOpts.length, `department filter options must be unique too (got ${JSON.stringify(dupOpts)})`);
     await assert(dupOpts.join('|') === dupTitles.join('|'), `filter option wording must match the group headers 1:1 (opts ${JSON.stringify(dupOpts)} vs titles ${JSON.stringify(dupTitles)})`);
@@ -1330,7 +1373,7 @@ async function main() {
     const sepKeys = await page.$$eval('.group-head', els => els.map(el => el.dataset.g));
     await assert(new Set(sepKeys).size === 2, `group keys must stay distinct for values containing the separator (got ${JSON.stringify(sepKeys)})`);
 
-    // (3) 필터를 켠 채 소속을 수정하면 필터 키가 사라진다 → 홈 복귀 시 전체 부서로 자기치유되고 직원이 보여야 한다.
+    // (3) 필터를 켠 채 소속을 수정하면 필터 키가 사라진다 → 홈 복귀 시 전체 소속으로 자기치유되고 직원이 보여야 한다.
     await seedHome([
       { id: 'heal-1', org: 'A사', orgKind: '', dept: '1팀', name: '갑', amount: 1000 },
       { id: 'heal-2', org: 'B사', orgKind: '', dept: '2팀', name: '을', amount: 2000 }
@@ -1344,7 +1387,7 @@ async function main() {
     await page.waitForTimeout(300);
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.waitForTimeout(250);
-    await assert((await page.locator('#deptFilterSelect').inputValue()) === '', 'editing the filtered group away should reset the filter to 전체 부서');
+    await assert((await page.locator('#deptFilterSelect').inputValue()) === '', 'editing the filtered group away should reset the filter to 전체 소속');
     await assert(await count(page, '.card.empty') === 0, 'home must not be stuck on "검색 결과가 없습니다" after the filtered group key changed');
     await assert(await count(page, '.group-head') === 2, 'both groups should be listed again after the filter healed');
     await assert((await groupTitles()).includes('A사(변경)'), 'the renamed 소속 should show up as its own group');
@@ -1380,9 +1423,11 @@ async function main() {
     await page.waitForTimeout(200);
 
     // (5) 그룹 헤더 키보드 조작 — role="button"이므로 Enter/Space로도 펼치고 접을 수 있어야 한다.
+    // '갑돌'은 (6)에서 검색 결과가 2건이 되게 하는 씨앗이다 — 1건이면 확대 카드로 바뀌어 그룹 헤더가 사라진다(beta.17).
     await seedHome([
       { id: 'kb-1', org: 'A사', orgKind: '', dept: '1팀', name: '갑', amount: 1000 },
-      { id: 'kb-2', org: 'B사', orgKind: '', dept: '2팀', name: '을', amount: 2000 }
+      { id: 'kb-2', org: 'B사', orgKind: '', dept: '2팀', name: '을', amount: 2000 },
+      { id: 'kb-3', org: 'B사', orgKind: '', dept: '2팀', name: '갑돌', amount: 3000 }
     ]);
     await assert(await count(page, '.card.employee') === 0, 'two groups should start collapsed');
     await page.locator('.group-head').first().focus();
@@ -1397,17 +1442,109 @@ async function main() {
     await assert(await page.evaluate(() => window.scrollY === 0), 'Space must not scroll the page when it activates a group header');
 
     // (6) 자동 펼침(강제 펼침) 상태의 헤더 탭은 상태를 오염시키지 않아야 한다 — 검색을 지우면 원래대로 접혀 있어야 한다.
+    //     검색 결과가 2건이므로 그룹 구조(헤더)가 유지된다 — 1건이면 확대 카드로 바뀌어 이 회귀를 볼 수 없다.
     await page.locator('#searchInput').fill('갑');
     await page.waitForTimeout(200);
-    await assert(await count(page, '.group-head') === 1 && await count(page, '.card.employee') === 1, 'a search should leave the matching group, auto-expanded');
+    await assert(await count(page, '.card.employee.solo') === 0, 'two search hits must NOT collapse into the solo card');
+    await assert(await count(page, '.group-head') === 2 && await count(page, '.card.employee') === 2, 'a search should leave the matching groups, auto-expanded');
     await page.locator('.group-head').first().click();
     await page.waitForTimeout(200);
-    await assert(await count(page, '.card.employee') === 1, 'tapping a force-expanded header must be ignored (it cannot be collapsed right now)');
+    await assert(await count(page, '.card.employee') === 2, 'tapping a force-expanded header must be ignored (it cannot be collapsed right now)');
     await assert((await page.locator('.group-head').first().getAttribute('aria-expanded')) === 'true', 'a force-expanded header must keep reporting aria-expanded=true');
     await page.locator('#searchInput').fill('');
     await page.waitForTimeout(200);
     await assert(await count(page, '.card.employee') === 0, 'clearing the search must return every group to collapsed — a ghost tap must not have recorded state');
     await assert(await count(page, '.group-head[aria-expanded="true"]') === 0, 'no group should linger expanded after the search is cleared');
+
+    // ───────────────────────────────────────────────────────────────
+    // (7) 검색·차감 1단계(beta.17): 초성 검색 · 공백 무시 · 최근 사용 순 · 확대 카드 · 사용 모달 빠른 금액 · 저장 후 검색어 초기화
+    // ───────────────────────────────────────────────────────────────
+    await seedHome([
+      { id: 'sx-1', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '김민수', amount: 50000 },
+      { id: 'sx-2', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '김미래', amount: 60000 },
+      { id: 'sx-3', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '이순신', amount: 70000 },
+      { id: 'sx-4', org: '가나상사', orgKind: '', dept: '', name: '박보검', amount: 80000 }
+    ]);
+    const cardNames = async () => (await page.locator('.card.employee .name').allInnerTexts()).map(t => t.trim());
+
+    // (7-a) 초성 검색 — 'ㄱㅁ'은 김민수·김미래만 잡고 이순신(ㅇㅅㅅ)·박보검(ㅂㅂㄱ)은 잡지 않는다.
+    await page.locator('#searchInput').fill('ㄱㅁ');
+    await page.waitForTimeout(200);
+    const chosungNames = await cardNames();
+    await assert(chosungNames.length === 2 && chosungNames.includes('김민수') && chosungNames.includes('김미래'),
+      `초성 'ㄱㅁ' must match exactly 김민수/김미래 (got ${JSON.stringify(chosungNames)})`);
+    await assert(!chosungNames.includes('이순신') && !chosungNames.includes('박보검'), '초성 검색 must not match unrelated names');
+    // 초성 검색은 이름에만 걸린다 — 소속·부서는 검색 대상이 아니다('ㅎㅂ' = 한빛물산의 초성).
+    await page.locator('#searchInput').fill('ㅎㅂ');
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.card.employee') === 0, '초성 검색 must stay name-only — 소속/부서 must not be searched');
+
+    // (7-b) 공백 무시 — '이 순신'으로 쳐도 이순신이 잡힌다.
+    await page.locator('#searchInput').fill('이 순신');
+    await page.waitForTimeout(200);
+    await assert((await cardNames()).join('|') === '이순신', `spaces typed inside a name must be ignored (got ${JSON.stringify(await cardNames())})`);
+
+    // (7-c) 확대 카드 — 결과 1건이면 그룹 헤더 없이 그 한 명만 크게, 다른 직원 카드는 없다.
+    await assert(await count(page, '.card.employee.solo') === 1 && await count(page, '.group-head') === 0, 'a single hit must render the solo card with no group headers');
+    await assert(!(await page.locator('.app').innerText()).includes('김민수'), 'the solo card must hide every other employee');
+
+    // (7-d) 최근 사용 순 — 검색 중에는 마지막 거래가 최신인 직원이 위로 온다(검색이 없을 때 그룹 정렬은 불변).
+    await page.evaluate(({ ts }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['transactions'], 'readwrite');
+        // 김민수(sx-1)에게 가장 최근 사용 거래를 하나 붙인다. txHash 없이 넣어 해시체인 검증은 건너뛴다.
+        tx.objectStore('transactions').put({ id: 'sx-recent', employeeId: 'sx-1', type: 'use', amount: 1000, beforeBalance: 50000, afterBalance: 49000, reason: '', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: ts });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { ts: Date.now() + 60000 });
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await expandHomeGroups(page);
+    const defaultOrder = await cardNames();
+    await assert(defaultOrder.indexOf('김미래') < defaultOrder.indexOf('김민수'),
+      `without a search the group order must stay unchanged (가나다: 김미래 → 김민수, got ${JSON.stringify(defaultOrder)})`);
+    await page.locator('#searchInput').fill('ㄱㅁ');
+    await page.waitForTimeout(200);
+    const recentOrder = await cardNames();
+    await assert(recentOrder.join('|') === '김민수|김미래',
+      `during a search the most recently used employee must come first (got ${JSON.stringify(recentOrder)})`);
+
+    // (7-e) 사용 모달 빠른 금액 — 한 번 눌러 금액이 채워지고, 그대로 고쳐 쓸 수 있다.
+    await page.locator('#searchInput').fill('박보검');
+    await page.waitForTimeout(200);
+    await page.locator('#deptFilterSelect').selectOption({ label: '가나상사' });
+    await page.waitForTimeout(200);
+    const keptFilter = await page.locator('#deptFilterSelect').inputValue();
+    await assert(await count(page, '.card.employee.solo') === 1, 'the filtered + searched single hit should still be the solo card');
+    await page.locator('.card.employee.solo [data-a="use"]').click();
+    await page.waitForSelector('#useAmount');
+    await assert(await count(page, '[data-a="fill-use"]') === 3, 'the usage modal must offer three quick-amount buttons');
+    await page.locator('[data-a="fill-use"][data-amount="18000"]').click();
+    await assert((await page.locator('#useAmount').inputValue()) === '18000', 'one tap on a quick amount must fill the usage amount field');
+    await page.locator('#useAmount').fill('9000');
+    await assert((await page.locator('#useAmount').inputValue()) === '9000', 'a quick-filled amount must remain hand-editable');
+
+    // (7-f) 저장이 끝나면 검색어는 비워지고(다음 손님) 소속 필터는 그대로 남는다.
+    const sBox = await page.locator('#signCanvas').boundingBox();
+    await page.mouse.move(sBox.x + 30, sBox.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(sBox.x + 120, sBox.y + 45, { steps: 5 });
+    await page.mouse.move(sBox.x + 220, sBox.y + 100, { steps: 5 });
+    await page.mouse.up();
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForSelector('.receipt-modal', { timeout: 5000 });
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(150);
+    await assert((await page.locator('#searchInput').inputValue()) === '', 'saving a deduction must clear the search box for the next customer');
+    await assert((await page.locator('#deptFilterSelect').inputValue()) === keptFilter, 'saving a deduction must keep the 소속 filter (the group usually keeps coming)');
+    await assert(await count(page, '.card.employee.solo') === 0, 'clearing the search after a save must drop the solo card');
+    const sxDb = await readDb(page);
+    await assert(balanceOfId(sxDb, 'sx-4') === 71000, 'the deduction itself must still be recorded (80000 - 9000)');
 
     console.log(JSON.stringify({
       ok: true,
