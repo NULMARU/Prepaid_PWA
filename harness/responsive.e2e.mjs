@@ -104,8 +104,13 @@ async function seed(page) {
   }), { emps: SEED_EMPLOYEES, pinHash, t: Date.now(), longDept: LONG_DEPT });
 }
 
+// beta.18: 잠금 화면의 기본값은 손님 화면 — PIN 패드는 [사장님용 잠금 해제]를 눌러야 나온다.
 async function unlock(page) {
-  await page.waitForSelector('[data-a="pin-key"]');
+  await page.waitForSelector('.cust-screen, [data-a="pin-key"]', { timeout: 8000 });
+  if (await page.locator('[data-a="lock-to-pin"]').count()) {
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+  }
   for (const key of ['1', '2', '3', '4']) await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
   await page.waitForSelector('[data-a="quick-find-emp"]', { timeout: 8000 });
 }
@@ -386,6 +391,132 @@ async function runViewport(context, url, w) {
     check(h.right <= clientW + 1 && h.left >= -1, `${w}px 홈: 구분자가 붙은 그룹 헤더가 화면 밖으로 나갔다 ("${h.text}")`);
     check(!h.clipped, `${w}px 홈: 구분자가 붙은 그룹 제목이 잘렸다 ("${h.text}")`);
   });
+
+
+  // ── 손님 화면(beta.18): 검색창·결과 행·확인 카드·최근 5건·버튼이 4개 뷰포트에서 온전해야 한다 ──
+  //    손님이 직접 만지는 유일한 화면이라 터치 타겟(48px+)과 비잘림이 특히 중요하다.
+  await page.locator('[data-a="hand-to-customer"]').click();
+  await page.waitForSelector('.cust-screen');
+  await noHorizontalOverflow(page, '손님 화면(검색)', w);
+  const custSearch = await page.evaluate(() => {
+    const i = document.querySelector('#custSearchInput');
+    const owner = document.querySelector('[data-a="lock-to-pin"]');
+    if (!i) return null;
+    const r = i.getBoundingClientRect(), o = owner.getBoundingClientRect();
+    return { left: r.left, right: r.right, width: r.width, height: r.height, ownerTop: o.top, ownerHeight: o.height, rows: document.querySelectorAll('.cust-row').length };
+  });
+  check(Boolean(custSearch), `${w}px 손님 화면: 검색창(#custSearchInput)이 렌더되어야 한다`);
+  if (custSearch) {
+    check(custSearch.rows === 0, `${w}px 손님 화면: 이름을 입력하기 전에는 아무도 보이면 안 된다 (${custSearch.rows}행)`);
+    check(custSearch.height >= 48, `${w}px 손님 화면: 검색창 터치 타겟이 작다 (${Math.round(custSearch.height)}px)`);
+    check(custSearch.width >= 280, `${w}px 손님 화면: 검색창이 충분히 넓어야 한다 (${Math.round(custSearch.width)}px)`);
+    check(custSearch.left >= -1 && custSearch.right <= clientW + 1, `${w}px 손님 화면: 검색창이 화면 밖으로 나갔다`);
+  }
+  // 결과 행 — 긴 "기관명 부서명" 라벨 + 긴 이름이 함께 있어도 잘리거나 밀리면 안 된다.
+  await page.locator('#custSearchInput').fill('김');
+  await page.waitForTimeout(200);
+  await noHorizontalOverflow(page, '손님 화면(결과)', w);
+  const custRows = await page.evaluate(() => [...document.querySelectorAll('.cust-row')].map(el => {
+    const r = el.getBoundingClientRect();
+    const clip = sel => { const t = el.querySelector(sel); return t ? (t.scrollWidth > t.clientWidth + 1) : false; };
+    return { text: el.innerText.replace(/\n/g, ' ').trim(), height: r.height, left: r.left, right: r.right, clipped: ['.cust-row-label', '.cust-row-name'].filter(clip) };
+  }));
+  check(custRows.length === 2, `${w}px 손님 화면: '김' 검색은 2명(김민수·긴 이름)을 내놓아야 한다 (${custRows.length}행)`);
+  custRows.forEach(r => {
+    check(r.height >= 48, `${w}px 손님 화면: 결과 행 터치 타겟이 48px 미만 (${Math.round(r.height)}px · "${r.text}")`);
+    check(r.left >= -1 && r.right <= clientW + 1, `${w}px 손님 화면: 결과 행이 화면 밖으로 나갔다 ("${r.text}")`);
+    check(r.clipped.length === 0, `${w}px 손님 화면: 결과 행에서 잘린 텍스트 ${JSON.stringify(r.clipped)} ("${r.text}")`);
+  });
+  check(!/\d{1,3},\d{3}원/.test(custRows.map(r => r.text).join(' ')), `${w}px 손님 화면: 결과 행에는 잔액이 절대 보이면 안 된다`);
+
+  // 확인 카드 — [네, 맞아요]/[아니요] 두 버튼 모두 큰 터치 타겟이어야 한다.
+  await page.locator('#custSearchInput').fill('김수한무');
+  await page.waitForSelector('.cust-ask');
+  await noHorizontalOverflow(page, '손님 화면(확인 카드)', w);
+  const custConfirm = await page.evaluate(() => {
+    const card = document.querySelector('.cust-card'), r = card.getBoundingClientRect();
+    const name = card.querySelector('.cust-name');
+    return {
+      left: r.left, right: r.right,
+      nameClipped: name.scrollWidth > name.clientWidth + 1,
+      buttons: [...card.querySelectorAll('.cust-actions button')].map(b => { const q = b.getBoundingClientRect(); return { text: b.innerText.trim(), height: q.height, left: q.left, right: q.right }; })
+    };
+  });
+  check(custConfirm.left >= -1 && custConfirm.right <= clientW + 1, `${w}px 손님 화면: 확인 카드가 화면 밖으로 나갔다`);
+  check(!custConfirm.nameClipped, `${w}px 손님 화면: 확인 카드의 이름이 잘렸다`);
+  check(custConfirm.buttons.length === 2, `${w}px 손님 화면: 확인 카드에는 [네, 맞아요]/[아니요] 두 버튼이 있어야 한다 (${custConfirm.buttons.length}개)`);
+  custConfirm.buttons.forEach(b => {
+    check(b.height >= 48, `${w}px 손님 화면: 확인 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
+    check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 화면: 확인 버튼 "${b.text}"이(가) 화면 밖이다`);
+  });
+
+  // 본인 화면 — 7자리 잔액 전액 표기 + 최근 거래 슬림 행(서명 이미지 없음) + 두 버튼.
+  await page.locator('[data-a="cust-confirm"]').click();
+  await page.waitForSelector('.cust-bal');
+  await noHorizontalOverflow(page, '손님 화면(본인)', w);
+  const custSelf = await page.evaluate(() => {
+    const card = document.querySelector('.cust-card');
+    const bal = card.querySelector('.cust-bal');
+    const br = bal.getBoundingClientRect();
+    return {
+      balText: bal.textContent.trim(), balFont: parseFloat(getComputedStyle(bal).fontSize),
+      balClipped: bal.scrollWidth > bal.clientWidth + 1, balLeft: br.left, balRight: br.right,
+      imgs: card.querySelectorAll('img').length,
+      txs: [...card.querySelectorAll('.cust-tx')].map(t => { const r = t.getBoundingClientRect(); return { left: r.left, right: r.right, clipped: t.scrollWidth > t.clientWidth + 1 }; }),
+      buttons: [...card.querySelectorAll('.cust-actions button')].map(b => { const q = b.getBoundingClientRect(); return { text: b.innerText.trim(), height: q.height, left: q.left, right: q.right }; })
+    };
+  });
+  check(custSelf.balText.includes('1,234,567원'), `${w}px 손님 화면: 7자리 잔액이 전액으로 표기되어야 한다 (got "${custSelf.balText}")`);
+  check(!custSelf.balClipped, `${w}px 손님 화면: 잔액이 잘렸다 ("${custSelf.balText}")`);
+  check(custSelf.balLeft >= -1 && custSelf.balRight <= clientW + 1, `${w}px 손님 화면: 잔액이 화면 밖으로 나갔다`);
+  check(custSelf.balFont >= 30, `${w}px 손님 화면: 잔액 글자가 충분히 커야 한다 (${custSelf.balFont}px)`);
+  check(custSelf.imgs === 0, `${w}px 손님 화면: 손님 화면에는 서명 이미지가 절대 없어야 한다 (${custSelf.imgs}장)`);
+  check(custSelf.txs.length >= 1 && custSelf.txs.length <= 5, `${w}px 손님 화면: 최근 거래는 1~5건이어야 한다 (${custSelf.txs.length}건)`);
+  custSelf.txs.forEach((t, i) => {
+    check(t.left >= -1 && t.right <= clientW + 1, `${w}px 손님 화면: 최근 거래 ${i + 1}행이 화면 밖으로 나갔다`);
+    check(!t.clipped, `${w}px 손님 화면: 최근 거래 ${i + 1}행이 잘렸다`);
+  });
+  check(custSelf.buttons.length === 2, `${w}px 손님 화면: 본인 화면에는 [사장님께 보여주기]/[처음으로] 두 버튼이 있어야 한다 (${custSelf.buttons.length}개)`);
+  custSelf.buttons.forEach(b => {
+    check(b.height >= 48, `${w}px 손님 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
+    check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 화면: 버튼 "${b.text}"이(가) 화면 밖이다`);
+  });
+  await page.locator('[data-a="cust-call-owner"]').click();
+  await page.waitForSelector('.cust-done');
+  await noHorizontalOverflow(page, '손님 화면(호출 완료)', w);
+  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-customer-${w}.png`) }).catch(() => {});
+
+  // ── PIN 분실 복구 화면(beta.18): 60초 활성화 게이트 안내와 두 파괴 버튼이 4개 뷰포트에서 온전해야 한다 ──
+  //    잠금 화면에서 도달 가능한 유일한 파괴 경로라, 안내 문구가 잘리거나 버튼이 화면 밖으로 나가면 안 된다.
+  await page.locator('[data-a="lock-to-pin"]').click();
+  await page.waitForSelector('[data-a="pin-key"]');
+  await noHorizontalOverflow(page, 'PIN 화면', w);
+  await page.locator('[data-a="pin-forgot"]').click();
+  await page.waitForSelector('[data-a="pin-forgot-restore"]');
+  await noHorizontalOverflow(page, 'PIN 복구 화면', w);
+  const recovery = await page.evaluate(() => {
+    const gate = document.querySelector('.pin-screen .pin-delay');
+    const g = gate ? gate.getBoundingClientRect() : null;
+    return {
+      gateText: gate ? gate.innerText.replace(/\n/g, ' ').trim() : '',
+      gateLeft: g ? g.left : 0, gateRight: g ? g.right : 0,
+      gateClipped: gate ? gate.scrollHeight > gate.clientHeight + 1 : false,
+      buttons: [...document.querySelectorAll('.pin-screen .action-btn')].map(b => {
+        const r = b.getBoundingClientRect();
+        return { text: b.innerText.replace(/\n/g, ' ').trim().slice(0, 24), height: r.height, left: r.left, right: r.right, disabled: b.disabled };
+      })
+    };
+  });
+  check(recovery.gateText.includes('잘못 누름 방지'), `${w}px PIN 복구 화면: 60초 활성화 게이트 안내가 보여야 한다 (got "${recovery.gateText}")`);
+  check(!recovery.gateClipped, `${w}px PIN 복구 화면: 게이트 안내 문구가 잘렸다 ("${recovery.gateText}")`);
+  check(recovery.gateLeft >= -1 && recovery.gateRight <= clientW + 1, `${w}px PIN 복구 화면: 게이트 안내가 화면 밖으로 나갔다`);
+  check(recovery.buttons.length === 2, `${w}px PIN 복구 화면: 복구/초기화 두 버튼이 있어야 한다 (${recovery.buttons.length}개)`);
+  recovery.buttons.forEach(b => {
+    check(b.disabled === true, `${w}px PIN 복구 화면: 게이트가 도는 동안 "${b.text}" 버튼은 비활성이어야 한다`);
+    check(b.height >= 48, `${w}px PIN 복구 화면: "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
+    check(b.left >= -1 && b.right <= clientW + 1, `${w}px PIN 복구 화면: "${b.text}" 버튼이 화면 밖이다`);
+  });
+  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-pin-recovery-${w}.png`) }).catch(() => {});
 
   await page.close();
 }

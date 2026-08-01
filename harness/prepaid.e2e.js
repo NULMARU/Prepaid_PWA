@@ -72,6 +72,19 @@ async function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+// beta.18: 잠금 화면의 기본값은 "손님 화면"이다 — PIN 패드는 [사장님용 잠금 해제]를 눌러야 나온다.
+//   (PIN 최초 설정·변경 단계에서는 손님 화면이 없으므로 그때는 곧바로 패드가 떠 있다.)
+async function unlockPin(page) {
+  await page.waitForSelector('.cust-screen, [data-a="pin-key"]', { timeout: 8000 });
+  if (await page.locator('[data-a="lock-to-pin"]').count()) {
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+  }
+  for (const key of ['1', '2', '3', '4']) {
+    await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
+  }
+}
+
 // 홈 그룹은 기본 접힘(아코디언, beta.14)이다 — 직원 카드를 눌러야 하는 시나리오에서는 먼저 그룹 헤더를 탭해 펼친다.
 // 검색어·부서 필터를 켠 경로는 앱이 스스로 펼치므로 이 함수를 쓰지 않는다(자동 펼침을 그대로 검증하기 위함).
 async function expandHomeGroups(page) {
@@ -526,11 +539,7 @@ async function main() {
     // ───────────────────────────────────────────────────────────────
     // 월 단위 백업: 파일명 · 활동 게이트 · 월말 배너 · 자동백업 토글 · 조용한 클라우드 트리거
     // ───────────────────────────────────────────────────────────────
-    const unlock = async () => {
-      for (const key of ['1', '2', '3', '4']) {
-        await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
-      }
-    };
+    const unlock = async () => { await unlockPin(page); };
     // (1) 일반 백업 파일명은 월 기준(밥장부백업_YYYY-MM.json), 최종백업은 날짜까지 유지
     await assert(/^밥장부백업_\d{4}-\d{2}\.json$/.test(jsonDownload.name), `monthly backup file name should be 밥장부백업_YYYY-MM.json, got ${jsonDownload.name}`);
     const finalFn = await page.evaluate(() => window.__prepaidTestHooks.backupFileName(true));
@@ -757,9 +766,7 @@ async function main() {
       };
     }));
     await page.reload({ waitUntil: 'load' });
-    for (const key of ['1', '2', '3', '4']) {
-      await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
-    }
+    await unlock();
     await page.waitForSelector('.group-head');
     await expandHomeGroups(page);
     await page.waitForSelector('[data-a="receipt"]');
@@ -1155,23 +1162,83 @@ async function main() {
     await assert(toastTxt.includes('한 번 더'), '(c) a "press once more to exit" toast should be shown');
     await page.evaluate(() => window.__prepaidBackTest.disarm());
 
-    // (f) PIN 잠금 상태에서 뒤로가기 → 잠금 유지(홈 안 열림, 잠금 우회 금지)
+    // (f) 잠금 상태에서 뒤로가기 → 잠금 유지(홈 안 열림, 잠금 우회 금지). beta.18: 잠금 화면 = 손님 화면.
     await page.reload({ waitUntil: 'load' });
-    await page.waitForSelector('[data-a="pin-key"]');
+    await page.waitForSelector('.cust-screen');
     st = await bt();
-    await assert(st.locked === true, 'app should be PIN-locked after reload');
+    await assert(st.locked === true, 'app should be locked after reload');
     await back();
     st = await bt();
-    await assert(st.locked === true, '(f) back on the lock screen must keep the app locked (no lock bypass)');
-    await assert(await count(page, '.pin-screen') === 1 && await count(page, '.nav') === 0, '(f) lock screen must remain; home/nav must not appear');
+    await assert(st.locked === true, '(f) back on the customer (lock) screen must keep the app locked (no lock bypass)');
+    await assert(await count(page, '.cust-screen') === 1 && await count(page, '.nav') === 0, '(f) customer lock screen must remain; home/nav must not appear');
+    // PIN 화면으로 넘어간 뒤에도 뒤로가기가 잠금을 풀면 안 된다.
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+    await back();
+    st = await bt();
+    await assert(st.locked === true, '(f) back on the PIN screen must keep the app locked as well');
+    await assert(await count(page, '.pin-screen') === 1 && await count(page, '.nav') === 0, '(f) PIN screen must remain; home/nav must not appear');
 
+    // (10) PIN 5회 실패 → 즉시 [앱 초기화]가 아니라 60초 입력 지연(meta 영속).
+    //      초기화는 [PIN을 잊으셨나요?] 복구 화면 안에서 "60초 활성화 게이트"를 지나야만 눌린다.
     await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('.cust-screen');
+    // 프로덕션 상수 값 자체를 못 박는다 — 검증 편의로 짧게 줄여놓고 커밋하는 사고를 막는다.
+    const prodTimers = await page.evaluate(() => Object.assign({}, window.__prepaidTestHooks.TIMERS));
+    await assert(prodTimers.custIdle === 30000, `TIMERS.custIdle must stay 30000 in production (got ${prodTimers.custIdle})`);
+    await assert(prodTimers.autoLock === 90000, `TIMERS.autoLock must stay 90000 in production (got ${prodTimers.autoLock})`);
+    await assert(prodTimers.pendingTtl === 120000, `TIMERS.pendingTtl must stay 120000 in production (got ${prodTimers.pendingTtl})`);
+    await assert(prodTimers.pinDelay === 60000, `TIMERS.pinDelay must stay 60000 in production (got ${prodTimers.pinDelay})`);
+    await assert(prodTimers.recoveryGate === 60000, `TIMERS.recoveryGate must stay 60000 in production (got ${prodTimers.recoveryGate})`);
+    await assert(prodTimers.modalIdleCap === 600000, `TIMERS.modalIdleCap must stay 600000 in production (got ${prodTimers.modalIdleCap})`);
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
     for (let i = 0; i < 5; i += 1) {
       for (const key of ['9', '9', '9', '9']) {
         await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
       }
     }
-    await assert(await count(page, '[data-a="pin-reset"]') === 1, 'app reset should appear after five PIN failures');
+    await page.waitForSelector('.pin-delay');
+    const delayText = await page.locator('.pin-delay').innerText();
+    await assert(/\d+초/.test(delayText) && delayText.includes('5번'), `five PIN failures must show a countdown delay, got ${JSON.stringify(delayText)}`);
+    await assert(await count(page, '.pin-screen [data-a="pin-reset"]') === 0, 'the PIN screen must NOT offer [앱 초기화] after five failures (a customer could tap it)');
+    await assert(await page.locator('[data-a="pin-key"][data-key="1"]').isDisabled(), 'the PIN pad must be disabled while the 60s delay is running');
+    // 영속 검증(P1) — 새로고침 한 번으로 실패 횟수·지연이 사라지면 지연이 아니다(무제한 브루트포스).
+    const guardMeta = (await readDb(page)).meta.reduce((acc, row) => (acc[row.key] = row.value, acc), {});
+    await assert(Number(guardMeta.pinFails) === 5, `pinFails must be persisted to meta (got ${JSON.stringify(guardMeta.pinFails)})`);
+    await assert(Number(guardMeta.pinDelayUntil) > Date.now(), 'pinDelayUntil must be persisted to meta and still in the future');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('.cust-screen');
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('.pin-delay');
+    await assert((await page.locator('.pin-delay').innerText()).includes('5번'), 'the failure count must survive a reload');
+    await assert(await page.locator('[data-a="pin-key"][data-key="1"]').isDisabled(), 'a reload must NOT clear the input delay (brute-force bypass)');
+    // 지연 중에도 [PIN을 잊으셨나요?] 복구 경로는 열려 있어야 한다 — 초기화는 오직 이 안에서, 그것도 60초 뒤에만.
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { recoveryGate: 700 }));
+    await page.locator('[data-a="pin-forgot"]').click();
+    await page.waitForSelector('[data-a="pin-forgot-restore"]');
+    await assert(await count(page, '[data-a="pin-reset"]') === 1, 'app reset must live inside the PIN-recovery screen only');
+    // 게이트가 도는 동안 두 파괴 버튼은 비활성 + 사유가 화면에 보여야 한다.
+    await assert(await page.locator('[data-a="pin-reset"]').isDisabled(), 'the recovery [초기화] button must be disabled while the 60s gate is running');
+    await assert(await page.locator('[data-a="pin-forgot-restore"]').isDisabled(), 'the recovery [백업 파일로 복구] button must be disabled while the 60s gate is running');
+    const gateText = await page.locator('.pin-screen .pin-delay').innerText();
+    await assert(gateText.includes('잘못 누름 방지') && /\d+초/.test(gateText), `the recovery gate must explain itself (got ${JSON.stringify(gateText)})`);
+    // 비활성 버튼에 합성 클릭을 쏘아도 핸들러 자체가 막아야 한다(disabled에만 기대지 않는다).
+    const dialogsBeforeGateProbe = dialogs.length;
+    const gateProbeBefore = await readDb(page);
+    await page.evaluate(() => {
+      ['pin-reset', 'pin-forgot-restore'].forEach(a => {
+        const el = document.querySelector(`[data-a="${a}"]`);
+        if (el) el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    });
+    await page.waitForTimeout(400);
+    await assert(dialogs.length === dialogsBeforeGateProbe, 'no confirm dialog may open from the recovery screen before the gate elapses');
+    const gateProbeAfter = await readDb(page);
+    await assert(JSON.stringify(gateProbeAfter.employees) === JSON.stringify(gateProbeBefore.employees), 'the gated recovery buttons must not touch the ledger before the gate elapses');
+    // 게이트 경과 → 그때서야 활성화된다.
+    await page.waitForTimeout(1000);
+    await assert(!(await page.locator('[data-a="pin-reset"]').isDisabled()), 'the recovery buttons must become enabled once the gate elapses');
     const dialogsBeforeReset = dialogs.length;
     await page.locator('[data-a="pin-reset"]').click();
     await page.waitForTimeout(500);
@@ -1546,6 +1613,758 @@ async function main() {
     const sxDb = await readDb(page);
     await assert(balanceOfId(sxDb, 'sx-4') === 71000, 'the deduction itself must still be recorded (80000 - 9000)');
 
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (8) 잠금 화면 = 손님 화면 (beta.18)
+    //   지도 원칙: "손님은 '요청'을 만들 수 있고 '기록'은 만들 수 없다."
+    //   잠금 상태에서 원장 쓰기(makeTx/repo.apply)에 닿는 경로가 단 하나도 없어야 한다.
+    // ═══════════════════════════════════════════════════════════════════════
+    await seedHome([
+      // 동명이인은 구분 마커('·2','·3'…)로 갈라진다 — 첫 사람은 이름 그대로, 두 번째부터 마커를 받는다.
+      { id: 'cx-1', org: '광진구청', orgKind: 'public', dept: '세무과', name: '홍길동', amount: 50000 },
+      { id: 'cx-2', org: '광진구청', orgKind: 'public', dept: '세무과', name: '홍길동·2', amount: 60000 },
+      { id: 'cx-3', org: '광진구청', orgKind: 'public', dept: '세무과', name: '김철수', amount: 30000 },
+      { id: 'cx-4', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '김영희', amount: 20000 },
+      { id: 'cx-5', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '이순신', amount: 10000 }
+    ], { orgName: '광진구청' });
+    // 김철수에게 거래 6건을 더 심는다(취소된 사용 1건 + 서명 있는 사용 1건) → 최근 5건 렌더러 검증용.
+    const cxBase = Date.now();
+    await page.evaluate(({ t }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['transactions'], 'readwrite');
+        const ts = tx.objectStore('transactions');
+        // txHash 없이 넣는다(레거시 취급) — 해시체인 검증은 건너뛰고 잔액 재계산은 그대로 맞는다.
+        const put = (id, type, amount, at, extra) => ts.put(Object.assign({ id, employeeId: 'cx-3', type, amount, beforeBalance: 0, afterBalance: 0, reason: '', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: at }, extra || {}));
+        put('cxt-1', 'use', 1000, t + 1000);
+        put('cxt-2', 'use', 2000, t + 2000);
+        put('cxt-3', 'void', 2000, t + 3000, { targetTransactionId: 'cxt-2' });
+        put('cxt-4', 'topup', 5000, t + 4000);
+        put('cxt-5', 'use', 3000, t + 5000, { signatureData: 'data:image/png;base64,iVBORw0KGgo=' });
+        put('cxt-6', 'use', 500, t + 6000);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { t: cxBase });
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    // 테스트용 상수 주입 — 프로덕션 상수(30초/90초/120초/60초)는 index.html의 TIMERS에 그대로 남는다.
+    const setTimers = async (t) => page.evaluate(v => Object.assign(window.__prepaidTestHooks.TIMERS, v), t);
+
+    // (8-a) [손님에게 넘기기] — 1탭으로 즉시 잠금 + 손님 화면. PIN 화면과 왕복도 된다.
+    await assert(await count(page, '.top .tool [data-a="hand-to-customer"]') === 1, 'the home top bar must carry exactly one [손님에게 넘기기] button');
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await assert((await bt()).locked === true, '[손님에게 넘기기] must lock the app immediately');
+    await assert(await count(page, '.nav') === 0 && await count(page, '.card.employee') === 0, 'the customer screen must not leak any owner UI');
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('.pin-screen');
+    await assert(await count(page, '[data-a="pin-to-cust"]') === 1, 'the PIN screen must offer a way back to the customer screen');
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('.cust-screen');
+
+    // (8-b) 질의 전 명단 0명 · 결과 행에 잔액 비표시 · 초성 검색
+    await assert(await count(page, '.cust-row') === 0, 'the customer screen must list nobody before a query is typed');
+    const custIdle0 = await page.locator('.cust-screen').innerText();
+    await assert(!/\d{1,3},\d{3}원/.test(custIdle0), 'no balance may appear on the idle customer screen');
+    await page.locator('#custSearchInput').fill('김');
+    await page.waitForTimeout(200);
+    const custNames = (await page.locator('.cust-row-name').allInnerTexts()).map(t => t.trim());
+    await assert(custNames.length === 2 && custNames.includes('김철수') && custNames.includes('김영희'), `the customer search must match by name (got ${JSON.stringify(custNames)})`);
+    const custListText = await page.locator('.cust-list').innerText();
+    await assert(!/\d{1,3},\d{3}원/.test(custListText), 'the customer result list must NEVER show balances');
+    await assert((await page.locator('.cust-row-label').first().innerText()).includes('광진구청 세무과'), 'each result row must carry the 기관명 부서명 label above the name');
+    await page.locator('#custSearchInput').fill('ㄱㅊㅅ');
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.cust-ask') === 1, '초성 검색 with a single hit must jump straight to the confirmation card');
+    const custConfirmText = await page.locator('.cust-card').innerText();
+    await assert(custConfirmText.includes('김철수') && custConfirmText.includes('광진구청 세무과'), 'the confirmation card must show the label and the name');
+    await assert(!/\d{1,3},\d{3}원/.test(custConfirmText), 'the confirmation card must not reveal the balance yet');
+    await page.locator('[data-a="cust-cancel"]').click();
+    await page.waitForSelector('#custSearchInput');
+
+    // (8-c) 동명이인(구분 마커 ·2)은 한 줄로 병합되고 선택할 수 없다. 표시 이름은 마커를 뗀 기본 이름이다.
+    await page.locator('#custSearchInput').fill('홍길동');
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.cust-row.dup') === 1, 'marked 동명이인 must merge into a single row');
+    await assert(await count(page, '.cust-row[data-a]') === 0, 'the merged 동명이인 row must not be selectable');
+    const dupText = await page.locator('.cust-row.dup').innerText();
+    await assert(dupText.includes('홍길동 (동명이인 2명)'), `the merged row must show the base name untruncated (got ${JSON.stringify(dupText)})`);
+    await assert(dupText.includes('동명이인 2명') && dupText.includes('사장님께'), `the merged row must ask the customer to talk to the owner (got ${JSON.stringify(dupText)})`);
+    await page.locator('.cust-row.dup').click();
+    await page.waitForTimeout(200);
+    await assert(await count(page, '#custSearchInput') === 1 && await count(page, '.cust-ask') === 0, 'tapping the merged row must do nothing at all');
+
+    // (8-d) 본인 확인 → 잔액 + 최근 5건(서명 이미지 없음 · 취소 버튼 없음 · 취소건 회색)
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('.cust-bal');
+    await assert((await page.locator('.cust-bal').innerText()).includes('30,500원'), `the customer balance must match the ledger (got ${await page.locator('.cust-bal').innerText()})`);
+    await assert(await count(page, '.cust-tx') === 5, `the customer detail must show exactly the 5 most recent transactions (got ${await count(page, '.cust-tx')})`);
+    await assert(await count(page, '.cust-screen img') === 0, 'signature images must never render on the customer screen');
+    await assert(await count(page, '.cust-screen [data-a="void"]') === 0, 'the customer screen must not offer the void button');
+    const custTxText = await page.locator('.cust-txs').innerText();
+    await assert(custTxText.includes('서명 있음'), 'a signed transaction must be marked with text only');
+    await assert(await count(page, '.cust-tx.voided') === 1 && (await page.locator('.cust-tx.voided').innerText()).includes('취소됨'), 'a voided transaction must render grayed out with a 취소됨 mark');
+
+    // (8-e) 게이트 스윕 — 허용 목록 밖의 모든 액션은 잠금 상태에서 통째로 차단된다(원장 불변).
+    const lockAllowed = (await page.evaluate(() => window.__prepaidTestHooks.lockAllowed())).slice().sort();
+    const expectedAllowed = ['pin-key', 'pin-reset', 'pin-forgot', 'pin-forgot-cancel', 'pin-forgot-restore', 'lock-to-pin', 'pin-to-cust', 'cust-pick', 'cust-confirm', 'cust-cancel', 'cust-clear', 'cust-back', 'cust-call-owner'].sort();
+    await assert(JSON.stringify(lockAllowed) === JSON.stringify(expectedAllowed), `the lock allowlist must stay exactly the PIN/customer actions (got ${JSON.stringify(lockAllowed)})`);
+    const gateBefore = await readDb(page);
+    const swept = await page.evaluate(() => {
+      const allowed = new Set(window.__prepaidTestHooks.lockAllowed());
+      const keys = window.__prepaidTestHooks.clickActionKeys().filter(k => !allowed.has(k));
+      keys.forEach(k => {
+        const b = document.createElement('button');
+        Object.assign(b.dataset, { a: k, id: 'cx-3', sid: 'sid', key: '1', screen: 'settings', dept: 'X', ctx: 'settings', tab: 'employee', amount: '9000', g: 'g', idx: '0' });
+        document.body.appendChild(b);
+        b.click();
+        b.remove();
+      });
+      return keys;
+    });
+    await page.waitForTimeout(800);
+    await assert(swept.length >= 40, `the gate sweep must cover every non-allowlisted action (got ${swept.length})`);
+    const gateAfter = await readDb(page);
+    await assert(JSON.stringify(gateAfter.employees) === JSON.stringify(gateBefore.employees), 'no locked-screen action may touch the employee store');
+    await assert(JSON.stringify(gateAfter.transactions) === JSON.stringify(gateBefore.transactions), 'no locked-screen action may touch the ledger');
+    await assert((await bt()).locked === true, 'the gate sweep must leave the app locked');
+    await assert(await count(page, '.cust-screen') === 1 && await count(page, '.modal-back') === 0 && await count(page, '.nav') === 0, 'no modal or owner screen may open from the lock screen');
+
+    // (8-e2) 관대함 봉인 — 허용 목록까지 **포함한 전 액션**을 눌러도 원장 바이트는 그대로여야 한다.
+    //   pin-reset은 이제 "복구 화면에만 있다"가 아니라 "복구 화면 + 60초 게이트를 지나야 산다"로 지켜진다.
+    //   이 스윕은 복구 화면에 막 들어간 직후를 만들어내므로(게이트 0초 경과) 초기화가 실행되면 즉시 잡힌다.
+    const fullBefore = await readDb(page);
+    const fullDialogsBefore = dialogs.length;
+    const sweptAll = await page.evaluate(() => {
+      const keys = window.__prepaidTestHooks.clickActionKeys();
+      keys.forEach(k => {
+        const b = document.createElement('button');
+        Object.assign(b.dataset, { a: k, id: 'cx-3', sid: 'sid', key: '1', screen: 'settings', dept: 'X', ctx: 'settings', tab: 'employee', amount: '9000', g: 'g', idx: '0' });
+        document.body.appendChild(b);
+        b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        b.remove();
+      });
+      return keys;
+    });
+    await page.waitForTimeout(1000);
+    await assert(sweptAll.length === swept.length + lockAllowed.length, `the full sweep must be exactly "every action" (${sweptAll.length} vs ${swept.length}+${lockAllowed.length})`);
+    await assert(sweptAll.includes('pin-reset') && sweptAll.includes('pin-forgot-restore') && sweptAll.includes('full-reset'), 'the full sweep must include the destructive actions');
+    const fullAfter = await readDb(page);
+    await assert(JSON.stringify(fullAfter.employees) === JSON.stringify(fullBefore.employees), 'not one action — allowlisted or not — may change the employee store while locked');
+    await assert(JSON.stringify(fullAfter.transactions) === JSON.stringify(fullBefore.transactions), 'not one action — allowlisted or not — may change the ledger while locked');
+    await assert(dialogs.length === fullDialogsBefore, 'no destructive confirm may open from the lock screen (the 60s recovery gate has not elapsed)');
+    await assert((await bt()).locked === true, 'the full sweep must leave the app locked');
+    await assert(await count(page, '.nav') === 0 && await count(page, '.modal-back') === 0, 'the full sweep must not open any owner screen or modal');
+    // 복구 화면에 들어갔다면 두 파괴 버튼은 반드시 비활성 상태여야 한다.
+    const sweptRecovery = await page.locator('[data-a="pin-reset"]');
+    if (await sweptRecovery.count()) {
+      await assert(await sweptRecovery.isDisabled(), 'the recovery reset button must be disabled right after entering the recovery screen');
+    }
+    // 스윕이 휘발 상태를 헤집어 놓았으므로 깨끗한 잠금 화면에서 다시 시작한다.
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('.cust-screen');
+    await assert((await bt()).locked === true, 'a reload after the sweep must come back locked');
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('.cust-bal');
+
+    // (8-f) [사장님께 보여주기] → 요청은 휘발성 · 해제하면 사용 모달이 자동으로 열린다(금액 빈 칸) → 저장까지
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.cust-done');
+    await assert((await page.locator('.cust-done').innerText()).includes('김철수'), 'the confirmation screen must name the customer who asked');
+    await assert((await bt()).locked === true, 'calling the owner must keep the app locked');
+    const pendDb = await readDb(page);
+    await assert(!JSON.stringify(pendDb).includes('pendingCustomer'), 'the pending handover request must never be written to IndexedDB');
+    const txBeforeHandover = pendDb.transactions.length;
+    await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    await assert((await page.locator('#useAmount').inputValue()) === '', 'the auto-opened usage modal must NOT prefill the amount');
+    await assert((await page.locator('.modal .receipt').innerText()).includes('김철수'), 'the handover must open the usage modal for the customer who asked');
+    await page.locator('#useAmount').fill('1500');
+    const hBox = await page.locator('#signCanvas').boundingBox();
+    await page.mouse.move(hBox.x + 30, hBox.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(hBox.x + 120, hBox.y + 45, { steps: 5 });
+    await page.mouse.move(hBox.x + 210, hBox.y + 95, { steps: 5 });
+    await page.mouse.up();
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForSelector('.receipt-modal', { timeout: 6000 });
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(150);
+    const handoverDb = await readDb(page);
+    await assert(handoverDb.transactions.length === txBeforeHandover + 1, 'the handover flow must record exactly one new transaction');
+    await assert(balanceOfId(handoverDb, 'cx-3') === 29000, `the handover deduction must land on the right employee (30,500 - 1,500 = 29,000, got ${balanceOfId(handoverDb, 'cx-3')})`);
+
+    // (8-g) 인계 요청 TTL 만료 → 조용히 폐기(사용 모달이 열리지 않는다)
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await setTimers({ pendingTtl: 300 });
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.cust-done');
+    await page.waitForTimeout(700);
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await assert(await count(page, '#useAmount') === 0, 'an expired handover request must be dropped silently (no usage modal)');
+    // 조용히 버리되 사장님에게는 한 줄 알린다 — 안 그러면 "왜 안 열리지?" 하고 헤맨다(P4).
+    await assert((await page.locator('.toast').innerText().catch(() => '')).includes('만료'), 'an expired handover must tell the owner why nothing opened');
+
+    // (8-h) 손님 화면 무조작 자동 복귀(프로덕션 30초) — 질의·선택·요청이 전부 폐기된다.
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await setTimers({ custIdle: 500 });
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.waitForTimeout(1400);
+    await assert(await count(page, '.cust-ask') === 0 && await count(page, '#custSearchInput') === 1, 'the customer screen must fall back to the empty search after the idle timeout');
+    await assert((await page.locator('#custSearchInput').inputValue()) === '', 'the idle reset must discard the previous query');
+    await assert((await bt()).locked === true, 'the idle reset must never unlock the app');
+
+    // (8-i) 자동 잠금(프로덕션 90초) — 모달이 열려 있는 동안(서명 중)에는 잠기지 않는다.
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await setTimers({ autoLock: 500 });
+    await expandHomeGroups(page);
+    await page.locator('[data-a="use"][data-id="cx-3"]').click();
+    await page.waitForSelector('#useAmount');
+    await page.waitForTimeout(1400);
+    await assert(await count(page, '#useAmount') === 1 && (await bt()).locked === false, 'an open modal (signature in progress) must block the auto-lock');
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(1400);
+    await assert((await bt()).locked === true && await count(page, '.cust-screen') === 1, 'the app must auto-lock straight into the customer screen when idle');
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+
+    // (8-i2) 모달 방치 상한(프로덕션 10분) — 서명 중 즉시 잠김은 여전히 막되, 방치는 결국 잠근다(MEDIUM-3).
+    await setTimers({ autoLock: 100000, modalIdleCap: 900 });
+    await expandHomeGroups(page);
+    await page.locator('[data-a="use"][data-id="cx-3"]').click();
+    await page.waitForSelector('#useAmount');
+    await page.waitForTimeout(1800);
+    await assert((await bt()).locked === true, 'a modal left untouched past the cap must eventually auto-lock');
+    await assert(await count(page, '.cust-screen') === 1 && await count(page, '.modal-back') === 0, 'the capped auto-lock must close the modal and show the customer screen');
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await setTimers({ custIdle: 30000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000 });
+
+    // ───────────────────────────────────────────────────────────────
+    // (9) 소속 목록에 등록된 공공기관 추가 — 제안 목록 + orgKind 자동 분류
+    //     ⚠️ 매칭 키(라벨|이름)는 그대로다 — 저장되는 org/dept 문자열이 바뀌면 안 된다.
+    // ───────────────────────────────────────────────────────────────
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('#quickAddOrg');
+    const quickOrgOpts = await page.locator('#quickAddOrgList option').evaluateAll(els => els.map(e => e.value));
+    await assert(quickOrgOpts[0] === '개인' && quickOrgOpts[1] === '광진구청', `빠른 등록 소속 제안은 '개인' 다음에 등록된 공공기관명이어야 한다 (got ${JSON.stringify(quickOrgOpts)})`);
+    await page.locator('[data-a="add-employee"]').click();
+    await page.waitForSelector('#empOrg');
+    const modalOrgOpts = await page.locator('#empOrgList option').evaluateAll(els => els.map(e => e.value));
+    await assert(modalOrgOpts[0] === '개인' && modalOrgOpts[1] === '광진구청', `한 명씩 등록 소속 제안도 '개인' + 공공기관명이어야 한다 (got ${JSON.stringify(modalOrgOpts)})`);
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(120);
+    await page.locator('#quickAddOrg').fill('광진구청');
+    await page.locator('#quickAddDept').fill('민원과');
+    await page.locator('#quickAddName').fill('새직원');
+    await page.locator('#quickAddOpen').fill('9000');
+    await page.locator('[data-a="quick-add-employee"]').click();
+    await page.waitForTimeout(300);
+    const pubDb = await readDb(page);
+    const pubEmp = pubDb.employees.find(e => e.name === '새직원');
+    await assert(Boolean(pubEmp) && pubEmp.orgKind === 'public', `registering with the registered agency name must mark the employee public (got orgKind="${pubEmp && pubEmp.orgKind}")`);
+    await assert(pubEmp.org === '광진구청' && pubEmp.dept === '민원과', 'org/dept must be stored exactly as typed — the match key must not change');
+    await assert(balanceOfId(pubDb, pubEmp.id) === 9000, 'the initial charge must still go through the existing open-transaction logic');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(200);
+    const pubTitles = await groupTitles();
+    await assert(pubTitles.includes('광진구청 민원과'), `a public-classified employee must land in the 공공기관 block (got ${JSON.stringify(pubTitles)})`);
+    await assert(pubTitles.indexOf('광진구청 민원과') < pubTitles.indexOf('한빛물산'), `the 공공기관 block must sort ahead of the company block (got ${JSON.stringify(pubTitles)})`);
+
+    // (10) 손님 화면 상태는 백업 파일에도 남지 않는다.
+    const custBackups = [];
+    const onCustBackup = d => custBackups.push(d);
+    page.on('download', onCustBackup);
+    await page.locator('.top .tool [data-a="monthly-backup-now"]').click();
+    for (let i = 0; i < 25 && !custBackups.length; i += 1) await page.waitForTimeout(100);
+    page.off('download', onCustBackup);
+    await assert(custBackups.length >= 1, 'the [장부 저장] button should still download a backup');
+    const custBackupText = await fsp.readFile(await custBackups[0].path(), 'utf8');
+    await assert(!/pendingCustomer|custQuery|lockView|custStage/.test(custBackupText), 'no customer-screen state may leak into the backup file');
+    await assert(!/"pinFails"|"pinDelayUntil"/.test(custBackupText), 'the device lock state (pinFails/pinDelayUntil) must not travel inside a backup file');
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (11) 동명이인 구분 마커 '·N' — 라틴 이름 회귀 (HIGH-1/2)
+    //   옛 규칙(이름 끝 라틴 소문자)은 ① 'Alex'에 접미사를 못 붙이고 ② 'Alex'/'Alec'을 오병합했다.
+    // ═══════════════════════════════════════════════════════════════════════
+    // 해시체인이 깨끗한 상태에서 시작한다(앞 절들이 레거시 거래를 섞어 넣어 잔액 검증이 경고를 띄운다).
+    await seedHome([
+      { id: 'dp-1', org: '광진구청', orgKind: 'public', dept: '세무과', name: '김철수', amount: 30000 }
+    ], { orgName: '광진구청' });
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('#csvFile', { state: 'attached' });
+    const latinCsv = '소속,부서,이름,금액\r\n한빛물산,영업1팀,Alex,10000\r\n한빛물산,영업1팀,Alex,20000\r\n한빛물산,영업1팀,Alec,30000\r\n';
+    await page.locator('#csvFile').setInputFiles({ name: 'latin-dup.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + latinCsv, 'utf8') });
+    await page.waitForSelector('.csv-table', { timeout: 5000 });
+    const latinPreview = await page.locator('.modal').innerText();
+    await assert(latinPreview.includes('·2'), `the CSV preview must show the new 구분 마커 for a Latin duplicate (got ${JSON.stringify(latinPreview.slice(0, 400))})`);
+    await assert(!/[a-z]\/[a-z]\/[a-z] 접미사/.test(latinPreview), 'the CSV preview must no longer promise a/b/c suffixes');
+    await page.locator('[data-a="exec-csv"]').click();
+    await page.waitForTimeout(500);
+    const latinDb = await readDb(page);
+    const latinNames = latinDb.employees.filter(e => /^Ale/.test(e.name)).map(e => e.name).sort();
+    await assert(JSON.stringify(latinNames) === JSON.stringify(['Alec', 'Alex', 'Alex·2']), `a Latin-name duplicate must get the '·2' marker while a different name is left alone (got ${JSON.stringify(latinNames)})`);
+    // first-wins 회귀: 같은 라벨|이름 활성 직원은 절대 두 명이 될 수 없다(마커가 키를 갈라놓는다).
+    const activeKeys = latinDb.employees.filter(e => !e.isDeleted).map(e => `${[e.org, e.dept].filter(Boolean).join(' ')}|${e.name}`);
+    await assert(new Set(activeKeys).size === activeKeys.length, `duplicate match keys must not exist among active employees (got ${JSON.stringify(activeKeys.filter((k, i) => activeKeys.indexOf(k) !== i))})`);
+    // 사장님용 토스트가 떠 있는 채로 손님에게 넘겨도 손님 화면에는 그 문구가 남으면 안 된다(P4).
+    await page.locator('[data-a="quick-add-employee"]').click();
+    await page.waitForSelector('.toast');
+    await assert((await page.locator('.toast').innerText()).includes('직원명'), 'the owner toast must be showing before the handover');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(150);
+    // 손님 화면: Alex 두 사람만 병합, Alec은 그대로 조회 가능해야 한다.
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await assert(await count(page, '.toast') === 0, 'an owner-facing toast must never survive into the customer screen');
+    await page.locator('#custSearchInput').fill('Alex');
+    await page.waitForTimeout(250);
+    await assert(await count(page, '.cust-row.dup') === 1, 'the two Alex rows must merge into exactly one 동명이인 row');
+    await assert((await page.locator('.cust-row.dup').innerText()).includes('Alex (동명이인 2명)'), `the merged Latin row must keep the full base name (got ${JSON.stringify(await page.locator('.cust-row.dup').innerText())})`);
+    await page.locator('#custSearchInput').fill('Alec');
+    await page.waitForTimeout(250);
+    await assert(await count(page, '.cust-row.dup') === 0, 'Alec must never be merged with Alex');
+    await page.waitForSelector('.cust-ask', { timeout: 4000 });
+    await assert((await page.locator('.cust-card').innerText()).includes('Alec'), 'Alec must be able to reach the confirmation card on their own');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('.cust-card .cust-name', { timeout: 6000 });
+    await assert((await page.locator('.cust-card').innerText()).includes('Alec님'), 'Alec must reach their own detail screen (not merged away)');
+    const alecId = latinDb.employees.find(e => e.name === 'Alec').id;
+    await assert(balanceOfId(latinDb, alecId) === 30000, 'Alec must own their own balance in the ledger');
+    // 손님 화면의 잔액 숫자 — 바로 위에서 3행 CSV를 한 번에 임포트했으므로, 예전(createdAt=now()+Math.random())
+    //   이라면 정렬과 체인 순서가 어긋나 여기서 "잔액을 표시할 수 없어요"가 떴다(실행마다 흔들리는 오판).
+    //   이제 배치 거래 시각은 단조 증가하고 검증은 체인 연결을 따라가므로 항상 숫자가 보여야 한다.
+    await assert(await count(page, '.cust-warn') === 0, 'a healthy ledger must never show the "잔액을 표시할 수 없어요" warning right after a CSV batch import');
+    await assert((await page.locator('.cust-bal').innerText()).includes('30,000원'), 'the customer screen must show the balance figure after a batch import');
+    await page.locator('[data-a="cust-back"]').click();
+    await page.waitForSelector('#custSearchInput');
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (12) PIN 화면 방치(HIGH-3) — PIN 화면에서도 30초 유휴 시계가 돈다.
+    //   예전에는 [사장님용 잠금 해제]를 누른 순간 시계가 꺼져 앞 손님의 조회 상태가 무기한 살아남았다.
+    // ═══════════════════════════════════════════════════════════════════════
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 700 }));
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.cust-done');
+    // 손님이 [사장님용 잠금 해제]를 눌러 PIN 화면에 세워둔 채 자리를 떠난다.
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+    const pinIdleState = await page.evaluate(() => window.__prepaidTestHooks.lockState());
+    await assert(pinIdleState.custQuery === '' && pinIdleState.custStage === 'search', 'lock-to-pin must drop the previous customer search/lookup immediately');
+    await assert(pinIdleState.pendingCustomerId !== '', 'lock-to-pin must keep the handover request (that is the whole point of the PIN screen)');
+    await page.waitForTimeout(1600);
+    await assert(await count(page, '.cust-screen') === 1 && await count(page, '[data-a="pin-key"]') === 0, 'an untouched PIN screen must fall back to the customer screen after the idle timeout');
+    await assert((await bt()).locked === true, 'the PIN-screen idle fallback must never unlock the app');
+    const afterPinIdle = await page.evaluate(() => window.__prepaidTestHooks.lockState());
+    await assert(afterPinIdle.pendingCustomerId === '' && afterPinIdle.custStage === 'search', 'the PIN-screen idle fallback must discard the handover request too');
+    await assert((await page.locator('#custSearchInput').inputValue()) === '', 'the PIN-screen idle fallback must land on the empty customer search');
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 30000 }));
+
+    // (12-b) 앞 손님의 인계 요청이 뒷 손님에게 붙으면 안 된다(P3) — 결과 1건이면 [cust-pick] 없이 확인 카드로
+    //   바로 넘어가므로, 검색창에 글자를 치는 순간 요청을 버리는지까지 확인한다.
+    await page.locator('#custSearchInput').fill('김철수');
+    await page.waitForSelector('.cust-ask');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await page.locator('[data-a="cust-call-owner"]').click();
+    await page.waitForSelector('.cust-done');
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('#custSearchInput');
+    await page.locator('#custSearchInput').fill('Alec');
+    await page.waitForSelector('.cust-ask');
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pendingCustomerId === '', 'typing a new query must drop the previous customer handover request');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('[data-a="cust-call-owner"]');
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await assert(await count(page, '#useAmount') === 0, 'a stale handover request must never open a usage modal for the wrong person');
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (12-c) 원장 해시체인 결정성 — 배치 등록(CSV·기관 승인·직접 전달)의 거래 시각.
+    //   회귀 대상: createdAt을 `Date.now()+Math.random()`으로 만들던 시절, 한 배치가 같은
+    //   밀리초에 몰리면 "만든 순서"(체인 연결)와 "시각 순서"(검증·표시 정렬)가 어긋나
+    //   멀쩡한 장부가 '체인 단절'로 오판됐다 → 손님 화면 "잔액을 표시할 수 없어요",
+    //   잔액증표 경고. 실행마다 결과가 흔들리는 비결정적 버그였으므로 반복 실행으로 증명한다.
+    // ═══════════════════════════════════════════════════════════════════════
+    const chainReport = () => page.evaluate(async () => {
+      const c = await window.__prepaidTestHooks.verifyChain();
+      return { ok: c.ok, checked: c.checked, legacy: c.legacy, broken: (c.broken || []).map(b => `${b.id}(${b.reason})`) };
+    });
+    const balanceReport = id => page.evaluate(eid => window.__prepaidTestHooks.verifyBalanceFor(eid), id);
+    // 배치 거래를 체인 연결 순서(prevHash→txHash)대로 늘어놓는다.
+    //   이 순서와 createdAt 순서가 어긋나는 순간이 바로 예전의 오판 조건이다.
+    const chainWalk = (batch) => {
+      const byPrev = new Map();
+      batch.forEach(t => byPrev.set(String(t.prevHash || ''), t));
+      const own = new Set(batch.map(t => String(t.txHash)));
+      const head = batch.find(t => !own.has(String(t.prevHash || '')));
+      const out = [];
+      let cur = head;
+      while (cur && out.length <= batch.length) { out.push(cur); cur = byPrev.get(String(cur.txHash)); }
+      return out;
+    };
+    const assertBatchOrder = async (batch, label) => {
+      const walk = chainWalk(batch);
+      await assert(walk.length === batch.length, `${label}: a batch must form exactly one unbroken chain (walked ${walk.length} of ${batch.length})`);
+      for (let i = 0; i < walk.length; i += 1) {
+        await assert(Number.isInteger(walk[i].createdAt), `${label}: createdAt must be an integer millisecond, got ${walk[i].createdAt}`);
+        if (i) await assert(walk[i].createdAt > walk[i - 1].createdAt, `${label}: chain order must equal time order (#${i} ${walk[i].createdAt} <= #${i - 1} ${walk[i - 1].createdAt})`);
+      }
+    };
+    const waitForNewTx = async (before, n, label) => {
+      for (let i = 0; i < 75; i += 1) {
+        const txs = (await readDb(page)).transactions.filter(t => !before.has(t.id));
+        if (txs.length >= n) return txs;
+        await page.waitForTimeout(200);
+      }
+      throw new Error(`${label}: timed out waiting for ${n} new transactions`);
+    };
+
+    // 깨끗한 장부 + 가게 등록 상태(공공기관 수신함·직접 전달 경로를 쓰기 위해)에서 시작한다.
+    await seedHome([
+      { id: 'det-seed', org: '체인상사', orgKind: '', dept: '회계과', name: '기준직원', amount: 10000 }
+    ], { restaurantId: 'harness-chain-shop', relayStoreName: 'Harness Chain Shop', relayRegisteredAt: Date.now(), receivedBatchHashes: [] });
+    const chainStart = await chainReport();
+    await assert(chainStart.ok, `the determinism suite must start from a healthy ledger (broken: ${chainStart.broken.join(', ')})`);
+
+    // ── (a) CSV 10행 임포트 × 20회 — 매번 체인 검증·손님 화면 판정이 통과해야 한다 ──
+    const detNames = Array.from({ length: 10 }, (_, i) => `체인직원${i + 1}`);
+    const detCsv = amount => '﻿소속,부서,이름,금액\r\n' + detNames.map(n => `체인상사,회계과,${n},${amount}`).join('\r\n') + '\r\n';
+    const runCsvImport = async (csvText, label) => {
+      const before = new Set((await readDb(page)).transactions.map(t => t.id));
+      await page.locator('#csvFile').setInputFiles({ name: 'chain.csv', mimeType: 'text/csv', buffer: Buffer.from(csvText, 'utf8') });
+      await page.waitForSelector('.csv-table', { timeout: 8000 });
+      await page.locator('[data-a="exec-csv"]').click();
+      await page.waitForSelector('.csv-table', { state: 'detached', timeout: 15000 });
+      return waitForNewTx(before, 1, label);
+    };
+    let detExpected = 0;
+    let detEmpId = '';
+    for (let round = 1; round <= 20; round += 1) {
+      const amount = 1000 + round;
+      const batch = await runCsvImport(detCsv(amount), `CSV round ${round}`);
+      detExpected += amount;
+      await assert(batch.length === 10, `CSV round ${round}: 10 rows must produce 10 transactions (got ${batch.length})`);
+      await assertBatchOrder(batch, `CSV round ${round}`);
+      const rep = await chainReport();
+      await assert(rep.ok, `CSV round ${round}: the hash chain must verify (broken: ${rep.broken.join(', ')})`);
+      if (!detEmpId) detEmpId = (await readDb(page)).employees.find(e => e.name === '체인직원1').id;
+      const bal = await balanceReport(detEmpId);
+      await assert(bal.integrityOk && bal.crossOk, `CSV round ${round}: the customer screen / receipt verdict must pass (integrity=${bal.integrityOk}, cross=${bal.crossOk})`);
+    }
+    const detDb = await readDb(page);
+    await assert(detDb.employees.filter(e => detNames.includes(e.name)).length === 10, 'repeating the same roster must top up the same 10 employees, not stack duplicates');
+    await assert(balanceOfId(detDb, detEmpId) === detExpected, `20 imports should accumulate to ${detExpected}, got ${balanceOfId(detDb, detEmpId)}`);
+
+    // 잔액증표(사장님)도 실제로 숫자를 보여줘야 한다(경고 화면이 아니라).
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForSelector('#searchInput');
+    await page.locator('#searchInput').fill('체인직원1');
+    await page.locator(`[data-a="receipt"][data-id="${detEmpId}"]`).click();
+    await page.waitForSelector('.receipt-modal', { timeout: 5000 });
+    await assert(await count(page, '.receipt-warn') === 0, 'after 20 batch imports the receipt must still show a balance, not an integrity warning');
+    await assert((await page.locator('.namecard').innerText()).includes(detExpected.toLocaleString('en-US')), 'the receipt must show the accumulated balance');
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(50);
+    await page.locator('#searchInput').fill('');
+
+    // ── (c) 같은 밀리초 강제 — Date.now를 고정한 채 배치를 만든다(옛 코드가 무너지던 조건) ──
+    await page.evaluate(() => { const fixed = Date.now(); window.__frozenNow = Date.now; Date.now = () => fixed; });
+    let frozenBatch;
+    try {
+      frozenBatch = await runCsvImport(detCsv(9900), 'frozen-clock import');
+    } finally {
+      await page.evaluate(() => { if (window.__frozenNow) { Date.now = window.__frozenNow; delete window.__frozenNow; } });
+    }
+    await assert(frozenBatch.length === 10, `a frozen-clock import must still write all 10 transactions (got ${frozenBatch.length})`);
+    await assertBatchOrder(frozenBatch, 'frozen-clock import');
+    const frozenStamps = frozenBatch.map(t => t.createdAt);
+    await assert(new Set(frozenStamps).size === frozenStamps.length, 'transactions created within one millisecond must still get distinct createdAt values');
+    const frozenRep = await chainReport();
+    await assert(frozenRep.ok, `a frozen-clock batch must verify (broken: ${frozenRep.broken.join(', ')})`);
+    detExpected += 9900;
+    await assert(balanceOfId(await readDb(page), detEmpId) === detExpected, 'a frozen-clock batch must still land the right balance');
+    const frozenBal = await balanceReport(detEmpId);
+    await assert(frozenBal.integrityOk && frozenBal.crossOk, 'a frozen-clock batch must leave the customer-screen verdict healthy');
+
+    // ── (b) 기관 배치 — 공공기관 승인(수신함) 10회 + 담당자 직접 전달 5회 ──
+    const detMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(Boolean(detMeta.pubKey), 'the institution batch scenarios need the device keypair');
+    await page.evaluate(({ pubKey }) => {
+      const enc = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const h = async t => { const d = await crypto.subtle.digest('SHA-256', enc.encode(String(t))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      window.__mkBatch = async (items) => {
+        const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+        const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+        const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify({ items })));
+        const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+        const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
+        return { batch_hash, ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) } };
+      };
+      window.__chainInbox = [];
+      const orig = window.fetch.bind(window);
+      const json = (body) => new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+      window.fetch = async (u, o) => {
+        const url = String(u);
+        if (url.includes('/api/inbox?')) return json(JSON.stringify(window.__chainInbox));
+        if (url.includes('/api/approve')) return json('{"ok":true}');
+        if (url.includes('/api/ledger-backup')) return json('{"ok":true,"updated_at":"2026-08-01T00:00:00Z"}');
+        if (url.includes('/api/challenge')) {
+          const pk = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+          const cc = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pk, enc.encode('TESTTOKEN'));
+          return json(JSON.stringify({ challenge_ct: u2b(cc) }));
+        }
+        return orig(u, o);
+      };
+    }, { pubKey: detMeta.pubKey });
+
+    const relayRounds = 10;
+    const relayRosters = Array.from({ length: relayRounds }, (_, r) => Array.from({ length: 10 }, (_, i) => ({
+      name: i < 5 ? `기관직원${i + 1}` : `기관신규${r + 1}_${i + 1}`,
+      dept: '세무과',
+      amount: 2000 + r * 10 + i
+    })));
+    await page.evaluate(async (rosters) => {
+      const items = [];
+      for (let i = 0; i < rosters.length; i += 1) {
+        const b = await window.__mkBatch(rosters[i]);
+        items.push({
+          summary_id: 'chain-sum-' + i,
+          summary: {
+            restaurant_name: 'Harness Chain Shop', institution: '강남구청', department: '세무과', year_month: '2026-08',
+            total_amount: rosters[i].reduce((s, x) => s + x.amount, 0), member_count: rosters[i].length, batch_hash: b.batch_hash
+          },
+          ciphertext: b.ciphertext
+        });
+      }
+      window.__chainInbox = items;
+    }, relayRosters);
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('[data-a="relay-inbox"]', { timeout: 8000 });
+    await page.locator('[data-a="relay-inbox"]').first().click();
+    await page.waitForSelector('[data-a="relay-approve"]', { timeout: 10000 });
+    for (let r = 0; r < relayRounds; r += 1) {
+      const sid = 'chain-sum-' + r;
+      const before = new Set((await readDb(page)).transactions.map(t => t.id));
+      await page.locator(`[data-a="relay-approve"][data-sid="${sid}"]`).click();
+      await page.waitForSelector(`[data-a="relay-approve"][data-sid="${sid}"]`, { state: 'detached', timeout: 20000 });
+      const batch = await waitForNewTx(before, 10, `institution approval ${r + 1}`);
+      await assertBatchOrder(batch, `institution approval ${r + 1}`);
+      const rep = await chainReport();
+      await assert(rep.ok, `institution approval ${r + 1}: the hash chain must verify (broken: ${rep.broken.join(', ')})`);
+    }
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(100);
+    const relayDb = await readDb(page);
+    const relayEmp = relayDb.employees.find(e => e.name === '기관직원1');
+    await assert(Boolean(relayEmp), 'the approved roster must create the employee');
+    await assert(relayDb.employees.filter(e => e.name === '기관직원1').length === 1, 're-approving the same roster must never stack duplicate cards');
+    const relayExpected = relayRosters.reduce((s, roster) => s + roster[0].amount, 0);
+    await assert(balanceOfId(relayDb, relayEmp.id) === relayExpected, `10 approvals should accumulate to ${relayExpected}, got ${balanceOfId(relayDb, relayEmp.id)}`);
+    const relayVerdict = await balanceReport(relayEmp.id);
+    await assert(relayVerdict.integrityOk && relayVerdict.crossOk, 'the customer-screen verdict must stay healthy after 10 institution approvals');
+
+    for (let r = 0; r < 5; r += 1) {
+      const items = Array.from({ length: 10 }, (_, i) => ({
+        name: i < 5 ? `전달직원${i + 1}` : `전달신규${r + 1}_${i + 1}`, dept: '복지과', amount: 3000 + r * 10 + i
+      }));
+      const payloadJson = await page.evaluate(async ({ items, rid }) => {
+        const b = await window.__mkBatch(items);
+        return JSON.stringify({
+          v: 1, type: 'direct-transfer', restaurant_id: rid, restaurant_name: 'Harness Chain Shop',
+          institution: '서초구청', department: '복지과', year_month: '2026-08',
+          summary: { total_amount: items.reduce((s, x) => s + x.amount, 0), member_count: items.length, batch_hash: b.batch_hash },
+          ciphertext: b.ciphertext
+        });
+      }, { items, rid: 'harness-chain-shop' });
+      const before = new Set((await readDb(page)).transactions.map(t => t.id));
+      await page.locator('#directTransferFile').setInputFiles({ name: 'transfer.json', mimeType: 'application/json', buffer: Buffer.from(payloadJson, 'utf8') });
+      const batch = await waitForNewTx(before, 10, `direct transfer ${r + 1}`);
+      await assertBatchOrder(batch, `direct transfer ${r + 1}`);
+      const rep = await chainReport();
+      await assert(rep.ok, `direct transfer ${r + 1}: the hash chain must verify (broken: ${rep.broken.join(', ')})`);
+    }
+
+    // ── (d) 레거시 장부 호환 — 소수·동률 createdAt이 섞인 옛 백업을 복원해도 검증이 통과해야 한다 ──
+    //   옛 배치는 `now()+Math.random()`으로 시각을 뿌렸으므로 "체인 연결 순서 ≠ 시각 순서"인 장부가
+    //   이미 사용자 기기에 남아 있다. 그런 장부에서 검증이 깨지면 잔액이 영영 안 보인다.
+    const legBase = Date.now() - 3600000;
+    const legEmpOf = (id, name) => ({ id, org: '강남상사', orgKind: '', dept: '총무부', name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: legBase, updatedAt: legBase });
+    const legRaw = [
+      // [id, 직원, 유형, 금액, 전잔액, 후잔액, createdAt] — 만든 순서(=체인 순서). 시각은 뒤죽박죽이다.
+      ['lt-1', 'leg-a', 'open', 31000, 0, 31000, legBase + 0.83],
+      ['lt-2', 'leg-b', 'open', 21000, 0, 21000, legBase + 0.12],
+      ['lt-3', 'leg-c', 'open', 11000, 0, 11000, legBase + 0.55],
+      ['lt-4', 'leg-a', 'topup', 5200, 31000, 36200, legBase + 60000],     // 동률(같은 밀리초)
+      ['lt-5', 'leg-b', 'topup', 5300, 21000, 26300, legBase + 60000],     // 동률(같은 밀리초)
+      ['lt-6', 'leg-c', 'topup', 5400, 11000, 16400, legBase + 60000.9],
+      ['lt-7', 'leg-a', 'use', 2100, 36200, 34100, legBase + 120000]
+    ];
+    let legPrev = '';
+    const legTx = legRaw.map(([id, employeeId, type, amount, beforeBalance, afterBalance, createdAt]) => {
+      const txHash = crypto.createHash('sha256').update(`${employeeId}|${amount}|${afterBalance}|${legPrev}|${createdAt}`, 'utf8').digest('hex');
+      const row = { id, employeeId, type, amount, beforeBalance, afterBalance, reason: '레거시 기록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash, prevHash: legPrev, createdAt };
+      legPrev = txHash;
+      return row;
+    });
+    // 해시가 아예 없던 더 옛 거래(체인 밖) — 예전처럼 legacy로 세고 검증에서 건너뛰어야 한다.
+    legTx.push({ id: 'lt-8', employeeId: 'leg-c', type: 'topup', amount: 1700, beforeBalance: 16400, afterBalance: 18100, reason: '해시 이전 기록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: legBase + 180000 });
+    const legacyBackup = JSON.stringify({
+      schemaVersion: 3, appName: '선입금대장', appVersion: 'legacy', exportedAt: Date.now(),
+      payload: {
+        employees: [legEmpOf('leg-a', '레거시가'), legEmpOf('leg-b', '레거시나'), legEmpOf('leg-c', '레거시다')],
+        transactions: legTx,
+        meta: Object.assign({}, detMeta)   // PIN·열쇠·가게 등록은 이 기기 것 그대로 유지
+      }
+    });
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('#restoreFile', { state: 'attached' });
+    await page.locator('#restoreFile').setInputFiles({ name: 'legacy-backup.json', mimeType: 'application/json', buffer: Buffer.from(legacyBackup, 'utf8') });
+    for (let i = 0; i < 60; i += 1) {
+      const db = await readDb(page);
+      if (db.employees.length === 3 && db.employees.every(e => /^레거시/.test(e.name))) break;
+      await page.waitForTimeout(200);
+    }
+    const legDb = await readDb(page);
+    await assert(legDb.employees.length === 3 && legDb.transactions.length === 8, `the legacy backup must restore (got ${legDb.employees.length} employees / ${legDb.transactions.length} transactions)`);
+    const legRep = await chainReport();
+    await assert(legRep.ok, `a legacy ledger with fractional/tied createdAt must still verify (broken: ${legRep.broken.join(', ')})`);
+    await assert(legRep.checked === 7 && legRep.legacy === 1, `the hashless legacy transaction must be counted as legacy, not verified (checked=${legRep.checked}, legacy=${legRep.legacy})`);
+    await assert(balanceOfId(legDb, 'leg-a') === 34100 && balanceOfId(legDb, 'leg-b') === 26300 && balanceOfId(legDb, 'leg-c') === 18100, 'restoring a legacy ledger must reproduce the exact same balances');
+    for (const id of ['leg-a', 'leg-b', 'leg-c']) {
+      const verdict = await balanceReport(id);
+      await assert(verdict.integrityOk && verdict.crossOk, `${id}: a legacy ledger must pass the customer-screen / receipt verdict`);
+    }
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForSelector('#searchInput');
+    await page.locator('#searchInput').fill('레거시가');
+    await page.locator('[data-a="receipt"][data-id="leg-a"]').click();
+    await page.waitForSelector('.receipt-modal', { timeout: 5000 });
+    await assert(await count(page, '.receipt-warn') === 0, 'a restored legacy ledger must show the balance on the receipt, not a warning');
+    await assert((await page.locator('.namecard').innerText()).includes('34,100원'), 'the legacy receipt must show the recomputed balance');
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('#searchInput').fill('');
+
+    // ── (e) 거래 순서는 이력·잔액·검증에서 동일해야 한다 ──
+    //   화면(이력)이 쓰는 순서와 잔액 재계산이 쓰는 순서가 같은 비교자(createdAt→id)여야 한다.
+    await page.locator('[data-a="screen"][data-screen="history"]').click();
+    await page.waitForSelector('.txn', { timeout: 8000 });
+    const shownAmounts = (await page.locator('.txn .amt').allInnerTexts()).map(s => s.trim());
+    const expectedOrder = ['+1,700원', '-2,100원', '+5,400원', '+5,300원', '+5,200원', '+31,000원', '+11,000원', '+21,000원'];
+    await assert(JSON.stringify(shownAmounts) === JSON.stringify(expectedOrder), `the history screen must list transactions in the canonical order (createdAt, then id) — got ${JSON.stringify(shownAmounts)}`);
+    const orderIds = await page.evaluate(() => window.__prepaidTestHooks.txOrder());
+    await assert(JSON.stringify(orderIds) === JSON.stringify(['lt-2', 'lt-3', 'lt-1', 'lt-4', 'lt-5', 'lt-6', 'lt-7', 'lt-8']), `the canonical ascending order must be stable for tied/fractional timestamps — got ${JSON.stringify(orderIds)}`);
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForSelector('#searchInput');
+
+    // 레거시 장부 위에 새 거래를 얹어도 체인이 갈라지면 안 된다(체인 꼬리 = 시각 최댓값이 아니다).
+    const legTopupBatch = await runCsvImport('﻿소속,부서,이름,금액\r\n강남상사,총무부,레거시가,900\r\n', 'legacy top-up import');
+    await assert(legTopupBatch.length === 1, 'the legacy top-up import must write exactly one transaction');
+    const afterLegacyRep = await chainReport();
+    await assert(afterLegacyRep.ok, `appending to a legacy ledger must keep the chain verifiable (broken: ${afterLegacyRep.broken.join(', ')})`);
+    await assert(balanceOfId(await readDb(page), 'leg-a') === 35000, 'the legacy top-up must land on the existing employee');
+    const legacyAfterVerdict = await balanceReport('leg-a');
+    await assert(legacyAfterVerdict.integrityOk && legacyAfterVerdict.crossOk, 'appending to a legacy ledger must keep the customer-screen verdict healthy');
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (13) 잠금 중 파일 input 3종 직접 발화 — change 이벤트만으로도 뚫리면 안 된다(CRITICAL-2).
+    // ═══════════════════════════════════════════════════════════════════════
+    const evilBackup = JSON.stringify({
+      schemaVersion: 3, appName: '선입금대장', appVersion: 'x', exportedAt: Date.now(),
+      payload: {
+        employees: [{ id: 'evil-1', org: '침입자', orgKind: '', dept: '', name: '해커', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: Date.now(), updatedAt: Date.now() }],
+        transactions: [],
+        meta: { setupComplete: true, shopName: 'PWNED', departments: [], orgName: '침입자' }
+      }
+    });
+    // 반드시 잠금(손님) 화면에서 쏜다 — 사장님 화면에서는 이 경로가 정상 기능이다.
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    const fileGateBefore = await readDb(page);
+    const fileDialogsBefore = dialogs.length;
+    await page.locator('#restoreFile').setInputFiles({ name: 'evil.json', mimeType: 'application/json', buffer: Buffer.from(evilBackup, 'utf8') });
+    await page.waitForTimeout(600);
+    await page.locator('#csvFile').setInputFiles({ name: 'evil.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿부서,이름,금액\r\n침입,해커,99999\r\n', 'utf8') });
+    await page.waitForTimeout(600);
+    await page.locator('#directTransferFile').setInputFiles({ name: 'evil-transfer.json', mimeType: 'application/json', buffer: Buffer.from(evilBackup, 'utf8') });
+    await page.waitForTimeout(600);
+    const fileGateAfter = await readDb(page);
+    await assert(JSON.stringify(fileGateAfter.employees) === JSON.stringify(fileGateBefore.employees), 'firing change on the hidden file inputs while locked must not touch the employee store');
+    await assert(JSON.stringify(fileGateAfter.transactions) === JSON.stringify(fileGateBefore.transactions), 'firing change on the hidden file inputs while locked must not touch the ledger');
+    await assert(dialogs.length === fileDialogsBefore, 'no restore preview dialog may open from a locked screen');
+    await assert((await bt()).locked === true && await count(page, '.cust-screen') === 1, 'the file-input probes must leave the customer screen locked');
+    await assert(await count(page, '.busy') === 0, 'a blocked file probe must not leave the busy overlay stuck on screen');
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (14) 정식 복구 경로 — 60초 게이트를 지난 [① 백업 파일로 복구]만이 잠금 중 복원을 통과한다.
+    //   ⚠️ 이 검증은 장부를 백업 내용으로 갈아치우므로 반드시 마지막에 둔다.
+    // ═══════════════════════════════════════════════════════════════════════
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { recoveryGate: 700 }));
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+    await page.locator('[data-a="pin-forgot"]').click();
+    await page.waitForSelector('[data-a="pin-forgot-restore"]');
+    await assert(await page.locator('[data-a="pin-forgot-restore"]').isDisabled(), 'the restore button must start disabled behind the gate');
+    // 게이트 전에는 allowLockedRestore 플래그가 절대 서지 않는다.
+    await page.evaluate(() => document.querySelector('[data-a="pin-forgot-restore"]').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).allowLockedRestore === false, 'the locked-restore exception must not be granted before the gate elapses');
+    await page.waitForTimeout(1200);
+    await assert(!(await page.locator('[data-a="pin-forgot-restore"]').isDisabled()), 'the restore button must enable once the gate elapses');
+    const goodBackup = JSON.stringify({
+      schemaVersion: 3, appName: '선입금대장', appVersion: 'x', exportedAt: Date.now(),
+      payload: {
+        employees: [{ id: 'rec-1', org: '', orgKind: '', dept: '복구부', name: '복구된직원', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: Date.now(), updatedAt: Date.now() }],
+        transactions: [],
+        meta: { setupComplete: true, shopName: '복구된가게', departments: [] }
+      }
+    });
+    const [recoveryChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('[data-a="pin-forgot-restore"]').click()
+    ]);
+    await recoveryChooser.setFiles({ name: 'good-backup.json', mimeType: 'application/json', buffer: Buffer.from(goodBackup, 'utf8') });
+    await page.waitForTimeout(1500);
+    const recoveredDb = await readDb(page);
+    await assert(recoveredDb.employees.length === 1 && recoveredDb.employees[0].name === '복구된직원', `the gated recovery path must actually restore the backup (got ${JSON.stringify(recoveredDb.employees.map(e => e.name))})`);
+    // 플래그는 1회용 — 복원이 끝난 뒤 곧바로 회수돼야 한다.
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).allowLockedRestore === false, 'the locked-restore exception must be consumed exactly once');
+    // 백업에는 pinHash가 없으므로 복구 뒤에는 새 비밀번호 설정 화면이 떠야 한다.
+    await page.waitForSelector('.pin-screen', { timeout: 5000 });
+    await assert((await page.locator('.pin-title').innerText()).includes('비밀번호 설정'), 'after a PIN-loss recovery the owner must be asked to set a new PIN');
+    // 복원 직후에도 잠금 중 파일 경로는 다시 닫혀 있어야 한다(플래그가 남지 않았다는 증거).
+    const postRestoreBefore = await readDb(page);
+    await page.locator('#restoreFile').setInputFiles({ name: 'evil2.json', mimeType: 'application/json', buffer: Buffer.from(evilBackup, 'utf8') });
+    await page.waitForTimeout(600);
+    const postRestoreAfter = await readDb(page);
+    await assert(JSON.stringify(postRestoreAfter.employees) === JSON.stringify(postRestoreBefore.employees), 'the restore file path must be closed again right after a legitimate recovery');
+
     console.log(JSON.stringify({
       ok: true,
       url,
@@ -1560,7 +2379,14 @@ async function main() {
         backupV2: true,
         pinResetWipesData: true,
         backNavigationHistory: true,
-        homeGroupRegressions: true
+        homeGroupRegressions: true,
+        customerLockScreen: true,
+        publicOrgSuggestions: true,
+        lockedDestructiveGate: true,
+        duplicateNameMarker: true,
+        pinScreenIdleFallback: true,
+        pinGuardPersisted: true,
+        ledgerChainDeterminism: true
       },
       consoleProblems
     }, null, 2));
