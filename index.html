@@ -70,6 +70,11 @@
 .quick-add-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
 .quick-add-form input{flex:1 1 120px;min-width:100px}
 .quick-add-form button{flex:0 0 auto;min-width:72px}
+/* 소속 추천 칩 줄 — 입력 한 줄 아래에 통째로 깔린다(입력들의 한 줄 배치는 그대로 둔다).
+   폰에서 datalist는 자동으로 열리지 않으므로, 등록된 공공기관명은 이렇게 **눈에 보여야** 쓸 수 있다. */
+.quick-add-form .quick-add-orgpicks{flex:1 1 100%;display:flex;align-items:flex-start;gap:8px;margin-top:2px}
+.quick-add-pickhint{flex:0 0 auto;font-size:11px;font-weight:700;color:var(--muted);padding-top:7px;white-space:nowrap}
+.quick-add-form .org-picks{margin-top:0;flex:1 1 auto}
 .phone-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .phone-consent{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--muted);min-height:32px;padding:0 6px}
 .phone-consent input{width:auto;min-height:auto;margin:0;accent-color:var(--primary)}
@@ -294,7 +299,9 @@
 .cust-req-step{margin-top:14px;font-size:14px;font-weight:800;color:var(--muted);word-break:keep-all}
 .cust-req-amt{font-size:44px;font-weight:900;letter-spacing:-1.4px;color:var(--primary);margin:8px 0 4px;line-height:1.1;word-break:keep-all}
 .cust-req-bal{font-size:14px;font-weight:700;color:var(--muted);line-height:1.7;word-break:keep-all}
-.cust-req-err{min-height:20px;margin-top:8px;font-size:14px;font-weight:800;color:var(--danger);line-height:1.5;word-break:keep-all}
+/* 오류 한 줄의 자리는 **항상** 잡혀 있다 — 뜨든 안 뜨든 아래 배치가 움직이지 않는다(min-height ≥ 한 줄).
+   14px × line-height 1.5 = 21px이므로 22px. 이 값이 한 줄보다 작으면 오류가 뜰 때 화면이 밀린다(beta.24의 L4). */
+.cust-req-err{min-height:22px;margin-top:8px;font-size:14px;font-weight:800;color:var(--danger);line-height:1.5;word-break:keep-all}
 .cust-req-quick{margin-top:6px}
 .cust-req-quick button{min-height:56px;font-size:17px}
 .cust-req-field{margin-top:12px;text-align:left}
@@ -329,6 +336,33 @@
 .cust-chip.void{background:var(--danger-soft);color:var(--danger)}
 .cust-foot{margin-top:22px;text-align:center}
 .cust-foot button{min-height:auto;padding:8px 16px;font-size:12px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px}
+/* ─── beta.24: 요청 작성 화면의 보조 링크 두 개 ─────────────────────────────
+   [최근 사용 내역 보기] = 선택적 상세 화면(잔액·최근 5건)으로. 조회만 하러 온 손님의 길.
+   [금액을 모르겠어요 / 사장님 부르기] = A단계 인계. 잔액 초과·단체 식사처럼 손님이 금액을 정할 수
+   없는 자리의 탈출구다 — 이 링크가 없으면 그 손님은 요청 화면에서 막힌다.
+   ⚠️ '작은 링크'라도 손가락 표적은 48px 이상이다(어르신 손님). 그래서 두 줄짜리 버튼 2개를 한 줄에 둔다. */
+.cust-links{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.cust-links button{min-height:48px;padding:6px 8px;border-radius:12px;border:1.5px solid var(--line);background:#f5f8fc;color:var(--primary);font-size:13px;font-weight:700;line-height:1.35;word-break:keep-all}
+/* 상세 화면의 한 줄 안내 — "돌아가면 서명만 다시" (왕복 보존 계약을 손님에게 말로 알리는 자리).
+   ⚠️ beta.25에서 **한 줄로 압축**했다 — beta.24의 두 줄짜리 문구가 상세 화면에 세로 72px를 더해
+   버튼 줄을 통째로 접힘 아래로 밀어냈다(360×640 실측). 안내는 남기되 줄 수를 늘리지 않는다. */
+.cust-draft-note{margin-top:10px;font-size:13px;color:var(--text);background:#fff8e6;border:1px solid #f0e0b0;border-radius:10px;padding:7px 10px;line-height:1.4;word-break:keep-all}
+/* ─── beta.25: 상세(최근 내역) 화면도 "폰 세로 한 화면"에 담는다 ────────────────────
+   beta.24 실측(거래 5건, 360×640·390×664): [사용 요청 계속하기]·[사장님 부르기]·[처음으로] 셋 다
+   초기 뷰포트 밖(682~866px)이었다. 412×732에서도 둘이 밖이었다. 초안(금액)을 들고 잠깐 내역을
+   보러 온 손님에게 **작성 화면으로 돌아갈 유일한 길이 보이지 않는다** — 어르신 손님은 그 자리에서 멈춘다.
+   → 화면 높이를 뷰포트로 못 박고, 늘어나는 것은 **최근 내역 목록 하나뿐**으로 만든다(목록 내부 스크롤).
+     5건이 다 보이지 않아도 된다(스크롤로 닿는다). 버튼 줄은 어떤 뷰포트에서도 반드시 화면 안이다.
+   ⚠️ 여기도 전부 CSS다 — 정보를 지우거나 DOM을 재배치하지 않는다. */
+.cust-screen.cust-detail{height:100vh;height:100svh;min-height:0;overflow-y:auto}
+.cust-detail .cust-body{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
+.cust-detail .cust-card{display:flex;flex-direction:column;min-height:0}
+/* 목록만 줄어든다(min-height는 "적어도 한 줄은 보인다"의 보장선). 나머지 조각은 절대 찌그러지지 않는다. */
+.cust-detail .cust-txs{flex:1 1 auto;min-height:52px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.cust-detail .cust-tx{flex-shrink:0}
+.cust-detail .cust-label,.cust-detail .cust-name,.cust-detail .cust-bal,.cust-detail .cust-warn,.cust-detail .cust-tx-title,.cust-detail .cust-draft-note,.cust-detail .cust-actions{flex-shrink:0}
+/* 폰에서 '얼마를 쓰시나요?'와 큰 숫자를 한 줄로 붙이는 자리(세로 압축) — 태블릿·데스크톱은 원래대로 두 줄. */
+.cust-amt-line{display:block}
 /* ─── beta.23: 손님 통합 요청 화면을 "폰 세로 한 화면"에 담는다 ────────────────────
    beta.22에서 금액 화면과 서명 화면을 하나로 합치면서 카드가 세로 1070px까지 자랐다.
    실측(iPhone 13, 가시 높이 664px): 서명판은 180px 중 107px만 보이고 [사장님 확인 받기]는
@@ -347,34 +381,67 @@
    도중에 캔버스 높이가 바뀌어 그림이 다시 그려진다(보존은 되지만 눈앞에서 출렁인다).
    svh는 "주소창이 다 보이는 최악의 경우" 높이라 스크롤 중에도 변하지 않고, 그 최악의 경우에도 화면에 들어온다.
    첫 줄 150px는 svh를 모르는 옛 브라우저용 대비값이다(둘째 선언 전체가 무시된다). */
-.cust-sig .signature{height:150px;height:clamp(120px,20svh,170px)}
-@media(min-width:768px){.cust-sig .signature{height:220px}}
+/* beta.25: 20svh → 18svh. 세로가 짧은 폰에서 오류 줄이 떴을 때의 여유를 벌기 위한 값이다
+   (360×640에서 128→120px). 최소 보장선 120px은 그대로다 — 그 아래로는 손가락 서명이 성립하지 않는다. */
+.cust-sig .signature{height:150px;height:clamp(120px,18svh,170px)}
+@media(min-width:768px){.cust-sig .signature{height:210px}}
+/* 버튼 3개 — [사장님 확인 받기]는 한 줄 전체(가장 큰 표적), 보조 2개는 나란히.
+   beta.24에서 이 배치를 **모든 폭**으로 넓혔다: 태블릿에서도 세로 3단 쌓기는 보조 링크 한 줄이 들어갈
+   자리를 통째로 잡아먹어 [금액을 모르겠어요]가 첫 화면 밖으로 밀려났다(768×1024 실측). */
+.cust-req-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.cust-req-actions button:first-child{grid-column:1/-1}
 @media(max-width:767px){
-.cust-screen{padding:12px 14px 20px}
-.cust-screen.cust-compose .cust-head{margin-bottom:8px}
+.cust-screen{padding:10px 14px 16px}
+.cust-screen.cust-compose .cust-head{margin-bottom:4px}
 .cust-screen.cust-compose .cust-title{display:none}
-.cust-screen.cust-compose .cust-card{padding:14px}
+.cust-screen.cust-compose .cust-card{padding:10px}
+.cust-compose .cust-who{gap:0 8px}
+.cust-compose .cust-who .cust-label{font-size:13px;line-height:1.4}
 .cust-compose .cust-who .cust-name{font-size:22px;letter-spacing:-.5px}
-.cust-compose .cust-req-step{margin-top:6px;font-size:13px}
+.cust-compose .cust-req-step{margin-top:4px;font-size:13px}
+/* 큰 숫자·입력 글자는 줄이지 않는다 — 어르신이 자기가 넣은 금액을 확인하는 유일한 자리다.
+   되찾은 세로는 전부 '여백'에서만 걷었다(L4). */
 .cust-compose .cust-req-amt{font-size:30px;margin:2px 0 0;letter-spacing:-.9px}
-.cust-compose .cust-req-bal{margin-top:2px;font-size:13px;line-height:1.45}
+.cust-compose .cust-req-bal{margin-top:1px;font-size:12px;line-height:1.4}
 .cust-compose .cust-req-bal br{display:none}
 .cust-compose .cust-req-bal #custAmtAfter::before{content:' · '}
-.cust-compose .cust-req-err{min-height:0;margin-top:3px;font-size:13px}
-.cust-compose .cust-req-err:empty{margin-top:0}
-.cust-compose .cust-req-quick{margin-top:6px}
+/* ── beta.25(L4): 오류 줄 자리를 **미리 확보**한다 — 레이아웃 이동 0 ──────────────
+   beta.24에서는 오류가 뜰 때만 줄이 생겨(한 줄 23px) 화면 전체가 아래로 밀렸다. 그 결과
+   "잔액보다 많아요"가 뜨는 순간 여유가 15px까지(둘 다 뜨면 -7px, 즉 접힘 아래) 떨어졌다 —
+   손님이 오류를 읽는 바로 그 순간에 [사장님 확인 받기]가 손가락 밑에서 움직이거나 사라진다.
+   → 두 오류 줄(#custAmtErr·#custSignErr) 모두 항상 한 줄 높이를 차지한다. 뜨든 안 뜨든 배치가 같다.
+   그 원가(약 46px)는 아래 여백들을 고루 깎아 되돌려 받았다(정보는 하나도 지우지 않는다). */
+.cust-compose .cust-req-err{min-height:19px;margin-top:2px;font-size:13px;line-height:1.4}
+.cust-compose .cust-req-quick{margin-top:4px}
 .cust-compose .cust-req-quick button{min-height:48px;font-size:16px}
-.cust-compose .cust-req-field{margin-top:8px}
+.cust-compose .cust-req-field{margin-top:6px}
 /* 라벨은 "시각적으로만" 숨긴다 — 바로 위 "얼마를 쓰시나요?"와 글자가 겹치기 때문이다.
    DOM에서 지우지는 않는다(for/aria 연결 유지 → 스크린리더에는 그대로 읽힌다). */
 .cust-compose .cust-req-field label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-.cust-compose .cust-req-field input{min-height:56px;font-size:24px}
-.cust-compose .cust-sign-title{margin-top:8px;padding-top:8px;font-size:13px}
-.cust-compose .cust-sig{margin-top:6px}
-/* 버튼 3개 — [사장님 확인 받기]는 한 줄 전체(가장 큰 표적), 보조 2개는 나란히. 세로 68px를 돌려받는다. */
-.cust-req-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
-.cust-req-actions button{min-height:52px;font-size:16px}
-.cust-req-actions button:first-child{grid-column:1/-1}
+.cust-compose .cust-req-field input{min-height:52px;font-size:24px}
+.cust-compose .cust-sign-title{margin-top:4px;padding-top:4px;font-size:13px}
+.cust-compose .cust-sig{margin-top:2px}
+.cust-req-actions{gap:6px;margin-top:6px}
+.cust-req-actions button{min-height:48px;font-size:16px}
+/* ── beta.24에서 되찾은 세로(보조 링크 한 줄 = 48+6px의 원가) ─────────────────
+   정보는 여전히 하나도 지우지 않는다 — '얼마를 쓰시나요?'와 큰 숫자를 한 줄로 붙이고(약 22px),
+   버튼 높이 52→48(8px), 서명 구획 여백(4px), 카드·머리 여백(4px)에서 나눠 걷었다. */
+.cust-amt-line{display:flex;align-items:baseline;justify-content:center;gap:8px;flex-wrap:wrap}
+.cust-compose .cust-links{margin-top:6px}
+.cust-compose .cust-links button{font-size:12px;padding:5px 6px}
+/* ── beta.25: 상세(최근 내역) 화면의 폰 압축 — 버튼 줄을 화면 안으로 되돌린 나머지 절반 ── */
+.cust-screen.cust-detail .cust-head{margin-bottom:4px}
+.cust-screen.cust-detail .cust-title{display:none}
+.cust-screen.cust-detail .cust-card{padding:12px}
+.cust-detail .cust-label{font-size:13px;line-height:1.4}
+.cust-detail .cust-name{font-size:24px}
+.cust-detail .cust-bal{font-size:34px;margin:8px 0 2px}
+.cust-detail .cust-tx-title{margin-top:10px;padding-top:8px}
+.cust-detail .cust-txs{margin-top:6px}
+.cust-detail .cust-draft-note{margin-top:8px;padding:6px 9px;font-size:12px}
+.cust-detail .cust-actions{margin-top:10px;gap:6px}
+.cust-detail .cust-actions button{min-height:48px;font-size:16px}
+.cust-detail .cust-foot{margin-top:10px}
 }
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
 /* 폰: 빠른 금액은 3개를 한 줄에(세로로 길게 늘어져 스크롤되는 것 방지).
@@ -412,7 +479,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.23',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.25',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -923,7 +990,24 @@ return[PERSONAL_ORG,...pub,...rest]}
 function orgKindFor(org){const v=str(org),on=str(state.data.meta.orgName);
 if(!v||!on||on===DEFAULT_ORG||on===PERSONAL_ORG)return '';
 return v===on?'public':''}
-function orgField(id,value){const opts=orgSuggestions().map(v=>`<option value="${esc(v)}">`).join('');return `<div class="field"><label for="${id}">소속 (선택)</label><input id="${id}" value="${esc(value||'')}" placeholder="예: 한빛물산 · 개인" list="${id}List"><datalist id="${id}List">${opts}</datalist><div class="meta" style="font-size:11px">회사명·공공기관명을 적거나, 개인 선금이면 '개인'</div></div>`}
+// 소속 추천 목록의 **유일한** DOM 표현. 예전에는 [한 명씩 등록] 모달과 [빠른 등록] 폼이 각자
+//   <datalist>를 하나씩 그렸다(empOrgList / quickAddOrgList) — 같은 목록이 두 벌이라, 한쪽만 고치면
+//   두 화면의 추천이 조용히 갈라진다. 두 입력이 **같은 한 개**를 가리키도록 문서에 한 번만 그린다
+//   (overlaysHtml 경유 → 홈·설정·모달 어디서 열든 반드시 문서에 있다). id 중복은 구조적으로 불가능하다.
+const ORG_LIST_ID='orgSuggestList';
+function orgDatalistHtml(){return `<datalist id="${ORG_LIST_ID}">${orgSuggestions().map(v=>`<option value="${esc(v)}">`).join('')}</datalist>`}
+// 소속(선택) 입력 — 추천은 두 겹이다.
+//   (1) <datalist> — 타이핑하면 브라우저가 걸러 준다(데스크톱에서 익숙한 길).
+//   (2) 눈에 보이는 칩 — 부서명 칸과 같은 방식. 폰에서는 datalist 목록이 **자동으로 열리지 않는다**
+//       (모달이 이 칸에 포커스를 먼저 주면 더더욱). 등록된 공공기관명이 "안 보인다"는 현장 보고의 정체가
+//       그것이었다 — 목록은 있는데 손님·사장님 눈앞에 뜨질 않는다. 칩은 언제나 그냥 보인다.
+// ⚠️ beta.25: 칩을 그리는 자리는 **여기 하나뿐**이다. beta.24에서는 모달(orgField)에만 칩을 달고
+//   [빠른 등록]에는 datalist만 남겼다 — 그런데 "폰에서 datalist가 자동으로 열리지 않는다"는 근거는
+//   빠른 등록에도 똑같이 성립한다(같은 사장님, 같은 폰, 같은 목록). 한쪽만 고치면 결함이 절반 남는다.
+//   대상 입력은 칩이 직접 들고 다닌다(data-for) → 어느 화면에 붙여도 같은 액션이 그대로 맞는다.
+function orgChipsHtml(id,value){return `<div class="dept-picks org-picks">${orgSuggestions().map(v=>`<span class="dept-pick org-pick${value===v?' on':''}" data-a="pick-org" data-org="${esc(v)}" data-for="${esc(id)}">${esc(v)}</span>`).join('')}</div>`}
+function orgField(id,value){
+return `<div class="field"><label for="${id}">소속 (선택)</label><input id="${id}" value="${esc(value||'')}" placeholder="예: 한빛물산 · 개인" list="${ORG_LIST_ID}">${orgChipsHtml(id,value)}<div class="meta" style="font-size:11px">회사명·공공기관명을 적거나, 개인 선금이면 '개인'</div></div>`}
 function deptField(id,label,value,ph){const depts=state.data.meta.departments||[];const chips=depts.map(d=>`<span class="dept-pick${value===d?' on':''}" data-a="pick-dept" data-dept="${esc(d)}">${esc(d)}</span>`).join('');return `<div class="field"><label for="${id}">${esc(label)}</label><input id="${id}" value="${esc(value)}" placeholder="${esc(ph||'')}"><div class="dept-picks">${chips}</div></div>`}
 
 // ── 기관 데이터 v2: 전국 2단 계층(시·도 → 기관). 인덱스(agency-index.json) 로드 후 시·도별 부서 파일은 lazy fetch + 캐시. 실패 시 레거시(agency-departments.json) 폴백. ──
@@ -987,7 +1071,7 @@ function agencyPickerHtml(ctx){const data=state.agencyData;if(!data)return `<div
 //   다른 것은 문구·되돌아가기 라벨·유휴 시계뿐이다.
 //   'owner'   = 손님 화면 아래 [사장님용 잠금 해제]로 사장님이 스스로 들어온 화면 — 남은 손님 흔적이 하나도
 //               없고(인계 요청까지 버린다), 120초 무조작이면 손님 초기 화면으로 되돌아간다.
-//   'handoff' = 손님이 요청을 넘긴 화면("사장님 확인") — [사용 요청하기](금액·서명 포함)이든 [사장님 부르기](대상만)든
+//   'handoff' = 손님이 요청을 넘긴 화면("사장님 확인") — [사장님 확인 받기](금액·서명 포함)이든 [사장님 부르기](대상만)든
 //               같은 화면이다. 인계 대상(B면 금액·서명까지)이 표시되고,
 //               손님 흔적(인계 요청)이 살아 있으므로 30초 무조작이면 손님 초기 화면으로 되돌아간다.
 // TTL(pendingTtl 120초)도 함께 본다 — 잠금 해제 시점의 판정(takePendingCustomer)과 **같은 기준**이어야 한다.
@@ -1092,7 +1176,7 @@ const h=await hash(pin);
 if(h===state.data.meta.pinHash){state.pinInput='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();stopPinDelayTick();await clearPinGuard();
 // 손님 인계: 손님이 요청을 넘긴 직후(120초 이내)라면 그 직원의 사용 모달을 바로 연다.
 //   · A([사장님 부르기]) = 대상만 넘어온다 → 금액 빈 칸(사장님이 정한다).
-//   · B([사용 요청하기]) = 금액·서명이 함께 넘어온다 → 프리필하되 **금액은 그대로 수정 가능**하다.
+//   · B([사장님 확인 받기]) = 금액·서명이 함께 넘어온다 → 프리필하되 **금액은 그대로 수정 가능**하다.
 //     프리필은 "손님이 이렇게 요청했다"는 초안일 뿐이고, 확정하는 주체는 여전히 사장님이다
 //     (저장은 기존 saveUse 경로 = 금액·전후 잔액 confirm을 반드시 거친다).
 const pending=takePendingCustomer();resetCustomerState();
@@ -1221,25 +1305,45 @@ const sel=state.custSelectedId?d.active.find(e=>e.id===state.custSelectedId):nul
 let stage=sel?(state.custStage||'search'):'search';
 // 잔액을 신뢰할 수 없는 상태(증표와 같은 3중 검증 실패)에서는 요청 작성 화면을 아예 띄우지 않는다 —
 //   "잔액 초과 불가"를 걸 기준 숫자가 없기 때문이다. 이때 손님에게 남는 길은 [사장님 부르기]뿐이다.
+//   잔액 0 이하도 같다(어떤 금액을 넣어도 "잔액보다 많아요"에 걸리는 막다른 길).
+//   ⚠️ 이 강등은 **최후의 방벽**이다 — 정상 경로에서는 cust-confirm이 애초에 compose로 보내지 않는다.
+//     두 겹으로 두는 이유: 새 경로가 stage를 직접 'compose'로 세팅해도 여기서 반드시 걸린다.
+//   ⚠️ beta.25: 강등할 때 **state.custStage도 함께 정정**한다. 예전에는 지역 변수 stage만 바꿔
+//     화면은 상세인데 state는 'compose'로 남았다 — 그 상태를 읽는 곳이 셋이나 있다:
+//       custComposeActive()(있지도 않은 캔버스를 지키느라 render를 강등), armIdle(작성용 시계 선택),
+//       그리고 하니스·회귀 단언(화면과 state가 어긋나면 무엇을 검증하는지 알 수 없다).
+//     주석이 "강등한다"고 말하면 state도 실제로 강등되어야 한다.
 const verifyBad=!!(state.custVerify&&(state.custVerify.integrityOk===false||state.custVerify.crossOk===false));
-if(verifyBad&&stage==='compose')stage='self';
+if(stage==='compose'&&(verifyBad||num(sel.balance)<=0)){stage='self';state.custStage='self'}
 // ③ 사장님 호출(인계) 안내 단계는 이 화면에 없다 — 인계 버튼은 곧바로 PIN 화면("사장님 확인")으로 넘어간다.
 //    안내 화면을 한 장 두면 사장님이 [사장님용 잠금 해제]를 또 찾아 눌러야 했다(탭 2번 → 1번).
-// ② 본인 화면 — 잔액은 증표(openReceipt)와 똑같은 3중 검증을 통과했을 때만 숫자로 보여준다.
+// ② 상세 화면(잔액 + 최근 5건) — beta.24에서 **필수 단계에서 내려왔다**.
+//    beta.23까지 이 화면은 [맞아요] 직후 반드시 거치는 관문이었다: 손님은 잔액을 보고 [사용 요청하기]를
+//    한 번 더 눌러야 금액 칸에 닿았다. 어르신 손님에게 그 한 탭은 "여기서 뭘 해야 하지"의 정지 지점이었다.
+//    → 지금은 [맞아요] → 곧바로 요청 작성(compose)이고, 이 화면은 두 경우에만 뜬다:
+//      (a) compose에서 [최근 사용 내역 보기]를 눌렀을 때(선택적 상세 — 돌아가면 금액은 그대로다)
+//      (b) 애초에 금액을 넣을 수 없는 손님(잔액 검증 실패·잔액 0 이하) — compose로 보내면 막다른 길이다.
+//    잔액은 증표(openReceipt)와 똑같은 3중 검증을 통과했을 때만 숫자로 보여준다.
 if(stage==='self'){
 const bad=verifyBad;
 const balBlock=bad?`<div class="cust-warn">잔액을 표시할 수 없어요.<br>사장님께 문의해 주세요.</div>`:`<div class="cust-bal">${money(sel.balance)}</div>`;
 const recent=sortTxDesc(state.data.transactions.filter(t=>t.employeeId===sel.id)).slice(0,5);
 const txs=recent.length?recent.map(t=>custTxHtml(t,d.voided)).join(''):'<div class="cust-hint">아직 기록이 없어요.</div>';
 // 손님이 여기서 고를 수 있는 길은 셋이다.
-//   [사용 요청하기](B) — 금액·서명까지 미리 써서 넘긴다. 사장님은 확인하고 저장만 하면 된다(계산대가 빨라진다).
+//   [사용 요청 계속하기](B) — 작성하던 요청 화면으로 돌아간다. **금액은 그대로 살아 있고 서명만 다시** 받는다.
+//     (서명은 state가 아니라 캔버스에 산다 — 화면이 바뀌면 DOM과 함께 사라진다. 사본을 남기지 않는 것이
+//      '요청은 휘발성'이라는 약속을 지키는 방법이므로, 살리는 대신 아래 한 줄로 분명히 알린다.)
 //   [사장님 부르기](A) — 대상만 넘긴다. 금액을 손님이 정할 수 없는 자리(단체 식사·사장님이 정하는 금액·
 //     잔액을 넘겨 써야 하는 상황)에는 이 길이 반드시 남아 있어야 한다. B가 A를 대체하지 못하는 이유다.
-//   [처음으로] — 조회만 하고 돌아간다.
-// 잔액이 0 이하면 요청 자체가 성립하지 않는다(어떤 금액을 넣어도 "잔액보다 많아요"에 걸린다)
-//   — 막다른 길로 밀어넣지 않고 처음부터 [사장님 부르기]만 남긴다.
-const reqBtn=(bad||num(sel.balance)<=0)?'':'<button class="btn-primary" data-a="cust-request">사용 요청하기</button>';
-return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</div><div class="cust-name">${esc(sel.name)}님</div>${balBlock}<div class="cust-tx-title">최근 5건</div><div class="cust-txs">${txs}</div><div class="cust-actions">${reqBtn}<button class="${bad?'btn-primary':'btn-secondary'}" data-a="cust-call-owner">사장님 부르기</button><button class="btn" data-a="cust-back">처음으로</button></div></div></div>`)}
+//   [처음으로] — 조회만 하고 돌아간다(잔액·내역만 확인하러 온 손님의 끝).
+// 잔액이 0 이하거나 검증 실패면 요청 자체가 성립하지 않는다(어떤 금액을 넣어도 "잔액보다 많아요"에 걸린다)
+//   — 막다른 길로 밀어넣지 않고 [사장님 부르기]만 남긴다.
+const canRequest=!(bad||num(sel.balance)<=0);
+const reqBtn=canRequest?'<button class="btn-primary" data-a="cust-request">사용 요청 계속하기</button>':'';
+// 안내는 **한 줄**이다(beta.25). 두 줄짜리 문구가 이 화면에 세로 72px를 더해 버튼 줄을 통째로
+//   접힘 아래로 밀어낸 것이 beta.24의 결함이었다 — 말은 남기되 줄 수는 늘리지 않는다.
+const draftNote=canRequest?`<div class="cust-hint cust-draft-note">${str(state.custAmount)?'<b>금액은 그대로</b> · ':''}<b>서명만 다시</b> 해 주세요.</div>`:'';
+return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</div><div class="cust-name">${esc(sel.name)}님</div>${balBlock}<div class="cust-tx-title">최근 5건</div><div class="cust-txs">${txs}</div>${draftNote}<div class="cust-actions">${reqBtn}<button class="${bad?'btn-primary':'btn-secondary'}" data-a="cust-call-owner">사장님 부르기</button><button class="btn" data-a="cust-back">처음으로</button></div></div></div>`,'cust-detail')}
 // ① 요청 작성 — **금액과 서명이 한 화면**이다(beta.22). 예전에는 금액 화면 → 서명 화면 2장이었다.
 //   화면을 나누면 어르신이 [다음]을 한 번 더 찾아 눌러야 하고, 두 화면 사이에서 유휴 시계가 한 번 더 돈다.
 //   합치면 손님은 "얼마 · 이름" 한 번에 끝낸다.
@@ -1261,7 +1365,15 @@ const quick=[9000,18000,27000].map(v=>`<button data-a="cust-amt-quick" data-amou
 // beta.23: 이름·소속을 한 줄(.cust-who)로 묶고 화면에 'cust-compose'를 달아 폰에서만 세로를 압축한다.
 //   부분 갱신 대상 4조각(#custAmtBig·#custAmtBal·#custAmtAfter·#custAmtErr)의 id는 그대로다 —
 //   여기 id가 하나라도 바뀌면 custAmountPatch가 false를 돌려 render로 빠지고 서명이 사라진다.
-return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-who"><span class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</span><span class="cust-name">${esc(sel.name)}님</span></div><div class="cust-req-step">얼마를 쓰시나요?</div><div class="cust-req-amt" id="custAmtBig">${esc(view.big)}</div><div class="cust-req-bal"><span id="custAmtBal">${esc(view.bal)}</span><br><span id="custAmtAfter">${esc(view.after)}</span></div><div class="cust-req-err" id="custAmtErr">${esc(view.c.err)}</div><div class="quick cust-req-quick">${quick}</div><div class="cust-req-field"><label for="custAmountInput">직접 넣기 (원)</label><input id="custAmountInput" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="예: 9000" aria-label="사용할 금액을 원 단위로 입력" value="${esc(state.custAmount)}"></div><div class="cust-sign-title">여기에 서명해 주세요</div><div class="sig-box cust-sig"><canvas id="signCanvas" class="signature"></canvas></div><div class="cust-req-err" id="custSignErr"></div><div class="cust-actions cust-req-actions"><button class="btn-primary" data-a="cust-sign-submit">사장님 확인 받기</button><button class="btn-secondary" data-a="cust-sign-clear">지우고 다시</button><button class="btn" data-a="cust-compose-back">뒤로</button></div></div></div>`,'cust-compose')}
+// beta.24: 이 화면이 **본인 확인 직후 첫 화면**이 되었다. 그래서 두 가지가 더 붙는다.
+//   (1) 이름·소속·현재 잔액이 상단에 그대로 있다 → "잔액만 확인하러 온 손님"도 여기서 목적을 이룬다.
+//   (2) 보조 링크 두 개(.cust-links) — [최근 사용 내역 보기](선택적 상세 화면)와
+//       [금액을 모르겠어요 / 사장님 부르기](A단계 인계). 후자는 잔액 초과·단체 식사처럼 손님이 금액을
+//       정할 수 없는 자리의 탈출구다. self 화면을 필수 단계에서 뺐다고 이 두 길까지 잃으면 안 된다.
+//   ⚠️ 링크가 늘어난 만큼 폰 세로는 CSS에서 되돌려 받았다(아래 @media 블록) — "스크롤 없이 한 화면" 계약은
+//     금액칸·서명판 전체·버튼·링크 **전부**에 그대로 걸려 있다(harness/responsive.e2e.mjs).
+// 폰에서는 '얼마를 쓰시나요?'와 큰 숫자가 한 줄로 붙는다(.cust-amt-line) — 링크 한 줄 값의 세로를 여기서 벌었다.
+return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-who"><span class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</span><span class="cust-name">${esc(sel.name)}님</span></div><div class="cust-amt-line"><div class="cust-req-step">얼마를 쓰시나요?</div><div class="cust-req-amt" id="custAmtBig">${esc(view.big)}</div></div><div class="cust-req-bal"><span id="custAmtBal">${esc(view.bal)}</span><br><span id="custAmtAfter">${esc(view.after)}</span></div><div class="cust-req-err" id="custAmtErr">${esc(view.c.err)}</div><div class="quick cust-req-quick">${quick}</div><div class="cust-req-field"><label for="custAmountInput">직접 넣기 (원)</label><input id="custAmountInput" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="예: 9000" aria-label="사용할 금액을 원 단위로 입력" value="${esc(state.custAmount)}"></div><div class="cust-sign-title">여기에 서명해 주세요</div><div class="sig-box cust-sig"><canvas id="signCanvas" class="signature"></canvas></div><div class="cust-req-err" id="custSignErr"></div><div class="cust-actions cust-req-actions"><button class="btn-primary" data-a="cust-sign-submit">사장님 확인 받기</button><button class="btn-secondary" data-a="cust-sign-clear">지우고 다시</button><button class="btn" data-a="cust-back">처음으로</button></div><div class="cust-links"><button data-a="cust-history">최근 사용<br>내역 보기</button><button data-a="cust-call-owner">금액을 모르겠어요<br>사장님 부르기</button></div></div></div>`,'cust-compose')}
 // ① 본인 확인 카드 — 남의 잔액을 잘못 보는 일을 막는 마지막 관문.
 const confirmCard=e=>wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-ask">본인이 맞나요?</div><div class="cust-label">${esc(orgDeptLabel(e)||'부서 없음')}</div><div class="cust-name">${esc(e.name)}</div><div class="cust-actions"><button class="btn-primary" data-a="cust-confirm" data-id="${esc(e.id)}">네, 맞아요</button><button class="btn" data-a="cust-cancel">아니요</button></div></div></div>`);
 if(stage==='confirm')return confirmCard(sel);
@@ -1315,6 +1427,10 @@ return true}
 //   이 함수는 캔버스(#signCanvas)를 **읽지도 쓰지도 않는다** — 손대지 않는 것이 곧 보존이다.
 // 빠른 금액 버튼도 이 경로를 쓴다(입력창의 value만 직접 대입 — 사용 모달의 fill-use와 같은 패턴).
 function custComposeActive(){return !!(lockScreenActive()&&state.lockView==='customer'&&customerViewAllowed()&&state.custStage==='compose')}
+// "손님이 지금 뭔가 적어 두었는가" — 금액(state)이든 서명 획(캔버스)이든 하나라도 있으면 참.
+//   ⚠️ 서명은 state가 아니라 캔버스에만 산다(사본 없음 = '요청은 휘발성'). 그래서 여기서도 캔버스를
+//     읽기만 한다(signPad.isEmpty). 이 함수는 어떤 것도 지우지 않는다 — 지울지 말지를 부르는 쪽이 정한다.
+function custDraftDirty(){if(str(state.custAmount))return true;try{return !!(signPad&&typeof signPad.isEmpty==='function'&&!signPad.isEmpty())}catch(e){return false}}
 function custAmountPatch(){
 if(!custComposeActive())return false;
 const sel=state.custSelectedId?derive().active.find(e=>e.id===state.custSelectedId):null;
@@ -1429,7 +1545,9 @@ rec.onerror=function(ev){toast('음성 인식 오류'+(ev&&ev.error?': '+ev.erro
 rec.start()}catch(e){console.error(e);toast('음성 인식을 시작할 수 없습니다.')}}
 
 // ── 렌더 (포커스 보존) ──
-function overlaysHtml(){return `${state.toast?`<div class="toast">${esc(state.toast)}</div>`:''}${state.busy?`<div class="busy"><div>${esc(state.busy)}</div></div>`:''}`}
+// ⚠️ 소속 추천 datalist는 여기(문서 끝)에 **딱 한 번** 붙는다 — 화면·모달이 각자 그리면 id가 겹치고,
+//   브라우저는 앞의 것만 참조한다(뒤에 그려진 모달 입력이 엉뚱한/빈 목록을 보는 사고의 원인).
+function overlaysHtml(){return `${orgDatalistHtml()}${state.toast?`<div class="toast">${esc(state.toast)}</div>`:''}${state.busy?`<div class="busy"><div>${esc(state.busy)}</div></div>`:''}`}
 // render()는 그대로 두고 바깥에서 유휴 타이머만 **다시 계산**한다(화면이 바뀌면 시계의 길이가 달라진다 —
 //   예: 조회 30초 ↔ 요청 작성 60초 ↔ 자동 잠금 90초). armIdle은 만료 **시각**을 다시 계산할 뿐
 //   시계를 연장하지 않는다(만료 기준은 lastInputAt = 마지막 사용자 조작 시각).
@@ -1591,7 +1709,7 @@ function navHtml(){return `<div class="nav"><button class="${state.screen==='hom
 // ── 모달 HTML ──
 function modalHtml(d){if(!state.modal)return '';
 if(state.modal.type==='terms'){return `<div class="modal-back"><div class="modal"><h2>약관 동의</h2><p class="help">서비스를 계속 이용하려면 약관에 동의해 주세요. 한 번만 확인하면 됩니다.</p>${termsAgreeBlockHtml('terms-toggle','termsChk',false)}<div class="modal-actions"><button class="btn-primary" id="termsAgreeBtn" data-a="terms-agree" disabled>동의하고 시작</button></div></div></div>`}
-if(state.modal.type==='employee'){const edit=state.modal.mode==='edit',e=edit?d.empMap.get(state.modal.id):null;return `<div class="modal-back"><div class="modal"><h2>${edit?'직원 정보 수정':'한 명씩 등록'}</h2><p class="help">${edit?'직원 기본 정보만 바뀝니다.':'초기 선입금액은 첫 거래로 등록됩니다.'}</p><div class="form">${orgField('empOrg',e?e.org:'')}${deptField('empDept','부서명',e?e.dept:'','예: 거래처A')}${field('empName','직원명',e?e.name:'','예: 홍길동')}${!edit?`<div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-open" data-amount="9000">9,000원</button><button data-a="fill-open" data-amount="18000">18,000원</button><button data-a="fill-open" data-amount="27000">27,000원</button></div></div>${field('empOpen','초기 선입금액','','예: 9000','number')}`:''}${field('empNote','메모',e?e.note:'','비고')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-employee">${edit?'수정 저장':'직원 저장'}</button></div></div></div>`}
+if(state.modal.type==='employee'){const edit=state.modal.mode==='edit',e=edit?d.empMap.get(state.modal.id):null;return `<div class="modal-back"><div class="modal"><h2>${edit?'직원 정보 수정':'한 명씩 등록'}</h2><p class="help">${edit?'직원 기본 정보만 바뀝니다.':'초기 선입금액은 첫 거래로 등록됩니다.'}</p><div class="form">${orgField('empOrg',e?e.org:'')}${deptField('empDept','부서명',e?e.dept:'','예: 거래처A')}${field('empName','직원명',e?e.name:'','예: 홍길동','text','data-modal-focus')}${!edit?`<div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-open" data-amount="9000">9,000원</button><button data-a="fill-open" data-amount="18000">18,000원</button><button data-a="fill-open" data-amount="27000">27,000원</button></div></div>${field('empOpen','초기 선입금액','','예: 9000','number')}`:''}${field('empNote','메모',e?e.note:'','비고')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-employee">${edit?'수정 저장':'직원 저장'}</button></div></div></div>`}
 if(state.modal.type==='topup'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>추가 충전</h2><p class="help">${esc(e.name)} · 현재 잔액 ${money(e.balance)}</p><div class="form">${field('topupAmount','충전 금액','9000','예: 9000','number')}${field('topupReason','사유','','예: 추가 선입금')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-topup">충전 저장</button></div></div></div>`}
 if(state.modal.type==='adjust'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>잔액 조정</h2><p class="help">현재 잔액은 ${money(e.balance)}입니다.</p><div class="form">${field('adjustBalance','새 잔액',String(e.balance),'예: 27000','number')}${field('adjustReason','조정 사유','','예: 장부 확인 후 정정')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-warn" data-a="save-adjust">조정 저장</button></div></div></div>`}
 if(state.modal.type==='usage'){const e=d.empMap.get(state.modal.id);if(!e)return '';const smsPhone=state.modal.smsPhone||'';const smsBox=smsPhone?`<div class="field"><label>문자 안내 (선택)</label><div class="meta">${esc(formatPhone(smsPhone))}로 저장 직후 문자 앱이 자동으로 열립니다.<br>문자 앱이 열리면 <b>보내기</b>를 눌러 주세요(자동 발송은 되지 않습니다).</div></div>`:'';
@@ -1691,7 +1809,13 @@ if(!(state.custQuery||state.custStage!=='search'||state.custSelectedId||state.pe
 //   beta.22에서 화면이 하나로 합쳐졌으므로 조건도 한 줄이다(예전에는 'amount'|'sign' 두 가지였다).
 //   재무장은 두 갈래로 온다: 전역 캡처 리스너(click/input/…)와 캔버스의 그리기 이벤트(initSignPad의 armIfDrawing).
 //   만료 동작은 같다: resetCustomerState가 작성 중이던 금액·서명까지 전부 버리고 손님 초기 화면으로.
-const custIdleMs=(state.custStage==='compose')?TIMERS.custComposeIdle:TIMERS.custIdle;
+//   ⚠️ beta.25: 기준은 화면(stage)이 아니라 **작성 중인 초안이 있는가**다.
+//     beta.24까지는 stage==='compose'만 봤다 → 손님이 금액을 적어 둔 채 [최근 사용 내역 보기]로
+//     넘어가면 조회용 30초가 걸렸다. 그런데 그 상세 화면은 손님에게 "금액은 그대로 있어요"라고
+//     약속한다 — 어르신이 지난 내역을 30초 넘게 들여다보면 약속한 금액이 소리 없이 사라졌다.
+//     초안(state.custAmount)을 들고 있는 한 어느 화면에 있든 작성 중으로 보고 60초를 준다.
+const composing=state.custStage==='compose'||!!str(state.custAmount);
+const custIdleMs=composing?TIMERS.custComposeIdle:TIMERS.custIdle;
 idleAt(custIdleMs,()=>{resetCustomerState();render()});
 return}
 // 자동 잠금 — 모달(서명 캔버스 포함)·저장 중·설정/안내 화면에서는 걸지 않는다(작업 중에 잠기면 안 된다).
@@ -1724,7 +1848,13 @@ const clickActions={
 'fill-open':(el)=>{const i=qs('empOpen');if(i)i.value=el.dataset.amount||''},
 // 사용 모달 빠른 금액 — 한 번 눌러 채우고, 그대로 직접 수정할 수 있다(등록 모달의 fill-open과 같은 패턴).
 'fill-use':(el)=>{const i=qs('useAmount');if(i)i.value=el.dataset.amount||''},
-'pick-dept':(el)=>{const input=qs('empDept');if(input){input.value=el.dataset.dept||'';input.focus()}document.querySelectorAll('.dept-pick').forEach(c=>c.classList.toggle('on',c.dataset.dept===el.dataset.dept))},
+'pick-dept':(el)=>{const input=qs('empDept');if(input){input.value=el.dataset.dept||'';input.focus()}document.querySelectorAll('.dept-pick:not(.org-pick)').forEach(c=>c.classList.toggle('on',c.dataset.dept===el.dataset.dept))},
+// 소속 칩 — 부서 칩과 같은 동작(값 대입 + 선택 표시). 대상 입력은 칩이 직접 들고 있다(data-for)
+//   → orgField를 다른 화면에 또 써도 이 액션은 그대로 맞는다.
+//   선택 표시(.on)는 **누른 칩이 속한 묶음 안에서만** 바꾼다 — 설정 화면의 빠른 등록 칩과 모달의 칩이
+//   문서에 함께 있을 수 있고(모달을 열어도 뒤 화면은 남는다), 전역으로 토글하면 안 만진 폼까지 물든다.
+'pick-org':(el)=>{const input=qs(str(el.dataset.for)||'empOrg');if(input){input.value=el.dataset.org||'';input.focus()}
+const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').forEach(c=>c.classList.toggle('on',c.dataset.org===el.dataset.org))},
 'clear-sign':()=>{if(signPad)signPad.clear()},
 // [서명 다시 받기] — 손님이 미리 한 서명을 버리고 빈 캔버스로 되돌린다(사장님 앞에서 다시 받는 길).
 // ⚠️ render를 부르기 전에 반드시 captureUsageInputs()를 지난다 — 그러지 않으면 사장님이 고쳐 넣은 금액·비고가
@@ -1833,8 +1963,17 @@ const clickActions={
 'pin-to-cust':()=>{state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();resetCustomerState();render()},
 // 새로 고른 손님이 이전 인계 요청을 덮어쓴다 — 남겨두면 엉뚱한 사람의 사용 모달이 열린다.
 'cust-pick':(el)=>{clearPendingRequest();clearCustCompose();state.custSelectedId=str(el.dataset.id);state.custStage='confirm';state.custVerify=null;render()},
+// [네, 맞아요] — beta.24부터 **곧바로 요청 작성(compose)** 이다(중간 잔액 화면을 거치지 않는다).
+//   손님 절차는 이제 넷이다: 이름 검색 → 본인 확인 → 금액·서명 → [사장님 확인 받기].
+//   ⚠️ 금액을 넣을 수 없는 손님(잔액 검증 실패·잔액 0 이하)만 상세 화면(self)으로 보낸다 —
+//     compose로 보내면 무엇을 넣어도 "잔액보다 많아요"에 걸리는 막다른 길이다.
+//   앞 손님의 작성 잔재(금액)는 여기서 반드시 버린다 — 확인 카드는 '새 손님의 시작점'이다.
 'cust-confirm':async(el)=>{const id=str(el.dataset.id);const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){resetCustomerState();render();return}
-state.custSelectedId=id;state.custVerify=await verifyBalanceFor(id);state.custStage='self';render()},
+clearCustCompose();clearPendingRequest();
+state.custSelectedId=id;state.custVerify=await verifyBalanceFor(id);
+const v=state.custVerify,bad=!!(v&&(v.integrityOk===false||v.crossOk===false));
+const live=derive().active.find(e=>e.id===id);
+state.custStage=(bad||!live||num(live.balance)<=0)?'self':'compose';render()},
 // [아니요] — 검색어까지 지우고 처음 화면으로. 검색어를 남기면 결과가 1건일 때 같은 확인 카드가 다시 떠
 //   손님이 빠져나갈 길이 없어진다(결과 1건이면 곧바로 확인 카드로 가는 규칙 때문).
 'cust-cancel':()=>{resetCustomerState();render()},
@@ -1846,13 +1985,27 @@ const i=qs('custSearchInput');if(i&&custSearchPatch()){i.value='';try{i.focus()}
 //   손님이 폰을 건네는 그 동작이 곧 "사장님 차례"이므로 곧바로 PIN 화면("사장님 확인")을 띄운다.
 //   앞 손님의 검색·조회 상태는 여기서 버린다(PIN 화면 뒤에 숨겨두지 않는다) — 남기는 것은 인계 요청뿐이고
 //   그 요청의 수명은 TTL 120초와 이 화면의 30초 유휴 복귀가 함께 관리한다.
+//   ⚠️ beta.25: 이 버튼은 작성 중이던 **금액과 서명을 버린다**(A단계 인계는 대상만 넘긴다).
+//     같은 화면의 [최근 사용 내역 보기]는 "금액은 그대로"라고 약속하는데, 바로 옆의 이 버튼이
+//     말없이 반대로 행동하면 손님은 어느 쪽 말을 믿어야 할지 알 수 없다. 적어 둔 것이 있을 때만
+//     한 번 물어본다 — 빈 화면(대부분의 경우)에서는 아무것도 묻지 않아 탭 수가 늘지 않는다.
+//     취소하면 그대로 남는다(유휴 시계만 다시 감는다 — 물음에 답한 것도 조작이다).
 'cust-call-owner':()=>{const id=str(state.custSelectedId);const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){resetCustomerState();render();return}
+if(custDraftDirty()&&!window.confirm('적어 두신 금액과 서명을 지우고 사장님을 부를까요?\n\n· 사장님이 금액을 직접 넣어 드립니다.\n· 계속 직접 적으시려면 [취소]를 눌러 주세요.')){armIdle();return}
 handToOwner(id,0,'')},
 // ── B단계 ──────────────────────────────────────────────────────────────
-// [사용 요청하기] — 금액·서명 통합 화면으로(beta.22: 중간 금액 화면이 없어졌다).
+// [사용 요청 계속하기] — 상세 화면 → 금액·서명 통합 화면(beta.22: 중간 금액 화면이 없어졌다).
 //   여기서부터 유휴 시계가 60초(custComposeIdle)로 늘어난다(armIdle).
+//   ⚠️ beta.24: **작성 중이던 금액(state.custAmount)을 지우지 않는다** — [최근 사용 내역 보기]로 잠깐
+//     빠져나갔다 돌아오는 왕복이 이 경로이기 때문이다. 여기서 clearCustCompose를 부르면 손님이 적어 둔
+//     금액이 조용히 사라진다. 앞 손님의 잔재는 검색 입력·확인 카드(cust-confirm)·유휴 복귀가 이미 지운다.
+//     서명은 캔버스에만 살아 있어 화면 전환과 함께 사라진다(상세 화면이 그 사실을 한 줄로 알린다).
 'cust-request':()=>{const id=str(state.custSelectedId);const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){resetCustomerState();render();return}
-clearCustCompose();clearPendingRequest();state.custStage='compose';render()},
+clearPendingRequest();state.custStage='compose';render()},
+// [최근 사용 내역 보기] — 요청 작성 화면 → 선택적 상세 화면(잔액 + 최근 5건). 조회만 하려는 손님의 길이다.
+//   금액은 state에 있어 그대로 살아남고, 서명은 캔버스와 함께 사라진다(상세 화면에서 그렇게 안내한다).
+'cust-history':()=>{const id=str(state.custSelectedId);const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){resetCustomerState();render();return}
+state.custStage='self';render()},
 // 빠른 금액 — 입력창 value를 직접 채우고 표시 세 조각만 갱신한다.
 //   ⚠️ render 금지가 두 겹이다: (a) 숫자 키보드가 닫힌다, (b) beta.22부터는 **같은 화면의 서명이 지워진다**.
 //     custAmountPatch가 실패하면 render로 빠지지만, 그때도 custComposeGuard가 획을 지켜 준다.
@@ -1875,10 +2028,9 @@ if(ae){ae.textContent=msg;const se=qs('custSignErr');if(se)se.textContent='';arm
 if(!signPad||signPad.isEmpty()){const err=qs('custSignErr');if(err){err.textContent='서명을 해주세요.';armIdle()}else render();return}
 const sig=signPad.toDataUrl();
 if(!sig){const err=qs('custSignErr');if(err){err.textContent='서명을 다시 해주세요.';armIdle()}else render();return}
-handToOwner(sel.id,c.amount,sig)},
-// [뒤로] — 통합 화면 → 잔액 화면. 작성 중이던 **금액과 서명을 함께** 버린다
-//   (서명은 state가 아니라 캔버스에 있고, 화면이 바뀌며 DOM과 함께 사라진다 — 지울 사본이 없다).
-'cust-compose-back':()=>{clearCustCompose();state.custStage='self';render()}
+handToOwner(sel.id,c.amount,sig)}
+// [처음으로] — 요청 작성 화면에서 나가는 길은 이제 하나다(cust-back). 검색·선택·작성 상태를 전부 버린다.
+//   beta.23까지 있던 [뒤로](compose → self)는 사라졌다 — self가 필수 단계에서 내려오면서 '뒤'가 없어졌다.
 };
 // 손님 → 사장님 인계. A(금액·서명 없음)와 B(금액·서명 포함)가 **같은 한 곳**을 쓴다 —
 //   요청을 세우는 자리가 둘로 갈라지면 한쪽만 앞 손님의 상태를 비우는 사고가 난다.
@@ -1891,10 +2043,11 @@ state.lockView='pin';state.pinContext='handoff';state.pinInput='';state.pinMsg='
 // 잠금 상태에서 실행을 허용하는 액션 화이트리스트(구조적 보장).
 //   여기 없는 data-a는 onClick 진입부에서 통째로 차단된다 — 숨은 파일 input·저장·차감·설정 등 모든 쓰기 경로 포함.
 //   ⚠️ 이 목록에 원장을 쓰는 액션을 추가하지 말 것. 손님은 '요청'만 만들 수 있고 '기록'은 만들 수 없다.
-//   beta.21에 더한 요청 작성 액션(cust-request·cust-amt-quick·cust-sign-clear·cust-sign-submit·cust-compose-back)도
+//   beta.21에 더한 요청 작성 액션(cust-request·cust-amt-quick·cust-sign-clear·cust-sign-submit)도
 //   전부 휘발성 state만 건드린다 — repo.apply/makeTx에 닿는 줄이 단 하나도 없다.
 //   beta.22에서 cust-amt-next는 사라졌다(금액·서명이 한 화면이 되어 '다음' 단계 자체가 없다).
-const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-amt-quick','cust-sign-clear','cust-sign-submit','cust-compose-back']);
+//   beta.24에서 cust-compose-back이 사라지고(→ cust-back) cust-history가 들어왔다(선택적 상세 화면).
+const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit']);
 async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;
 if(lockScreenActive()&&!LOCK_ALLOWED.has(el.dataset.a))return;// 잠금 게이트 — 손님 화면에서 원장 쓰기 경로는 구조적으로 도달 불가
 const fn=clickActions[el.dataset.a];if(fn)await fn(el)}
@@ -2296,13 +2449,13 @@ const manualCard=`<div class="card settings-card">
 </div>
 <div class="section-kicker" style="margin-top:12px">빠른 등록 — 소속(선택)·부서명·직원명·선입금액을 입력하고 추가하세요(부서가 없으면 자동 생성)</div>
 <div class="quick-add-form">
-<input id="quickAddOrg" placeholder="소속(선택)" list="quickAddOrgList">
-<datalist id="quickAddOrgList">${orgSuggestions().map(v=>`<option value="${esc(v)}">`).join('')}</datalist>
+<input id="quickAddOrg" placeholder="소속(선택)" list="${ORG_LIST_ID}">
 <input id="quickAddDept" placeholder="부서명" list="quickAddDeptList">
 <datalist id="quickAddDeptList">${depts.map(d=>`<option value="${esc(d)}">`).join('')}</datalist>
 <input id="quickAddName" placeholder="직원명">
 <input id="quickAddOpen" type="number" step="1" placeholder="선입금액(선택)">
 <button class="btn-primary" data-a="quick-add-employee">추가</button>
+<div class="quick-add-orgpicks"><span class="quick-add-pickhint">소속 추천</span>${orgChipsHtml('quickAddOrg','')}</div>
 </div>
 <div class="meta" style="font-size:11px;margin-top:6px">소속은 회사명·공공기관명을 적거나, 개인 선금이면 '개인'이라고 적어요. 비워도 됩니다.</div>
 </div>`;

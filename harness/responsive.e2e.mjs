@@ -71,10 +71,15 @@ const LONG_NAME = '김수한무거북이와두루미';
 const LONG_ORG = '서울특별시 강남구청';
 const LONG_DEPT = '어르신복지과';
 const LONG_PUBLIC_TITLE = `${LONG_ORG} ${LONG_DEPT}`;
+// beta.25: 긴 이름 직원에게는 거래를 **5건** 심는다(등록 1 + 충전 4).
+//   상세(최근 내역) 화면은 "최근 5건"을 보여주는 화면이다 — 1건짜리 시드로 재면 그 화면이 가장 길어지는
+//   실제 상태를 통째로 못 본다. beta.24의 결함(버튼 3개가 전부 접힘 아래)이 정확히 그 사각지대에 있었다.
+//   합계는 그대로 1,234,567원이다(등록 1,234,563 + 1원 충전 4번) — 다른 금액 단언은 하나도 흔들리지 않는다.
+const TOPUPS = 4;
 const SEED_EMPLOYEES = [
-  { id: 'r-emp-1', org: '', orgKind: '', dept: '총무부', name: '김민수', amount: 9000 },
-  { id: 'r-emp-2', org: LONG_ORG, orgKind: 'public', dept: LONG_DEPT, name: LONG_NAME, amount: 1234567 },
-  { id: 'r-emp-3', org: '한빛물산', orgKind: '', dept: '총무부', name: '이서연', amount: 1000000 }
+  { id: 'r-emp-1', org: '', orgKind: '', dept: '총무부', name: '김민수', amount: 9000, topups: 0 },
+  { id: 'r-emp-2', org: LONG_ORG, orgKind: 'public', dept: LONG_DEPT, name: LONG_NAME, amount: 1234567, topups: TOPUPS },
+  { id: 'r-emp-3', org: '한빛물산', orgKind: '', dept: '총무부', name: '이서연', amount: 1000000, topups: 0 }
 ];
 
 async function seed(page, employees = SEED_EMPLOYEES) {
@@ -89,7 +94,11 @@ async function seed(page, employees = SEED_EMPLOYEES) {
       emps.forEach((e, i) => {
         es.put({ id: e.id, org: e.org, orgKind: e.orgKind, dept: e.dept, name: e.name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
         // txHash 없이 넣는다(레거시 취급) — 잔액 계산에는 영향이 없고 해시체인 검증도 건너뛴다.
-        ts.put({ id: 'r-tx-' + i, employeeId: e.id, type: 'open', amount: e.amount, beforeBalance: 0, afterBalance: e.amount, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t });
+        const n = e.topups || 0, open = e.amount - n;
+        ts.put({ id: 'r-tx-' + i, employeeId: e.id, type: 'open', amount: open, beforeBalance: 0, afterBalance: open, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t });
+        for (let k = 0; k < n; k += 1) {
+          ts.put({ id: `r-tx-${i}-t${k}`, employeeId: e.id, type: 'topup', amount: 1, beforeBalance: open + k, afterBalance: open + k + 1, reason: '추가 선입금', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t + k + 1 });
+        }
       });
       ms.put({ key: 'setupComplete', value: true });
       ms.put({ key: 'termsAgreedAt', value: t });
@@ -149,7 +158,8 @@ async function fitsInFirstViewport(page, tag) {
       scrollY: window.scrollY, vh: window.innerHeight,
       input: box(document.querySelector('#custAmountInput')),
       canvas: box(document.querySelector('.cust-sig #signCanvas')),
-      buttons: [...document.querySelectorAll('.cust-actions button')].map(b => ({ text: b.innerText.trim(), ...box(b) }))
+      buttons: [...document.querySelectorAll('.cust-actions button')].map(b => ({ text: b.innerText.trim(), ...box(b) })),
+      links: [...document.querySelectorAll('.cust-links button')].map(b => ({ text: b.innerText.replace(/\n/g, ' ').trim(), ...box(b) }))
     };
   });
   const vis = r => r.top >= -1 && r.bottom <= m.vh + 1;
@@ -161,6 +171,57 @@ async function fitsInFirstViewport(page, tag) {
     check(vis(b), `${tag} 통합 요청 화면: 버튼 "${b.text}"이(가) 스크롤 없이 보이지 않는다 (아래로 ${Math.max(0, Math.round(b.bottom - m.vh))}px 벗어남 / vh ${m.vh})`);
     check(b.height >= 48, `${tag} 통합 요청 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
   });
+  // beta.24: 보조 링크 두 개([최근 사용 내역 보기] · [금액을 모르겠어요/사장님 부르기])도 같은 계약을 진다.
+  //   이 둘은 "조회만 하러 온 손님"과 "금액을 정할 수 없는 손님"이 갈 수 있는 유일한 길이다 —
+  //   접힌 곳 아래로 밀려나면 그 손님들에게는 없는 것과 같다(작은 링크라도 48px 표적을 지킨다).
+  check(m.links.length === 2, `${tag} 통합 요청 화면: 보조 링크는 2개여야 한다 (${m.links.length}개)`);
+  m.links.forEach(b => {
+    check(vis(b), `${tag} 통합 요청 화면: 보조 링크 "${b.text}"이(가) 스크롤 없이 보이지 않는다 (아래로 ${Math.max(0, Math.round(b.bottom - m.vh))}px 벗어남 / vh ${m.vh})`);
+    check(b.height >= 48, `${tag} 통합 요청 화면: 보조 링크 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
+  });
+  // beta.25(L4): 여유(slack)까지 계약이다. "간신히 들어온다"는 상태는 오류 한 줄·글꼴 한 단계에 곧바로 깨진다.
+  const slack = Math.round(m.vh - Math.max(m.canvas.bottom, ...m.buttons.map(b => b.bottom), ...m.links.map(b => b.bottom)));
+  check(slack >= 30, `${tag} 통합 요청 화면: 마지막 요소 아래 여유가 ${slack}px뿐이다(30px 이상이어야 한다 — 오류 한 줄이면 곧바로 접힌다)`);
+  return { ...m, slack };
+}
+
+// ── 상세(최근 내역) 화면도 같은 계약을 진다 (beta.25) ──────────────────────────
+//   beta.24 실측: 거래 5건 손님 기준 360×640·390×664에서 [사용 요청 계속하기]·[사장님 부르기]·[처음으로]
+//   **셋 다** 초기 뷰포트 밖이었다(412×732에서도 둘이 밖). 초안을 들고 잠깐 내역을 보러 온 손님에게
+//   작성 화면으로 돌아갈 길이 통째로 보이지 않았다 — 그런데 이 계약이 compose에만 걸려 있어 못 봤다.
+//   → 목록(.cust-txs)은 잘려도 된다(내부 스크롤로 닿는다). **버튼 줄은 언제나 화면 안**이다.
+async function detailFitsInFirstViewport(page, tag) {
+  const m = await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const box = el => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; };
+    const txs = document.querySelector('.cust-txs');
+    return {
+      scrollY: window.scrollY, vh: window.innerHeight, docH: document.documentElement.scrollHeight,
+      bal: box(document.querySelector('.cust-bal')),
+      txCount: document.querySelectorAll('.cust-tx').length,
+      txsScrollable: txs ? getComputedStyle(txs).overflowY : '',
+      txsClipped: txs ? txs.scrollHeight > txs.clientHeight + 1 : false,
+      note: document.querySelector('.cust-draft-note') ? box(document.querySelector('.cust-draft-note')) : null,
+      noteLines: document.querySelector('.cust-draft-note') ? Math.round(document.querySelector('.cust-draft-note').getBoundingClientRect().height) : 0,
+      buttons: [...document.querySelectorAll('.cust-actions button')].map(b => ({ text: b.innerText.trim(), ...box(b) }))
+    };
+  });
+  const vis = r => r.top >= -1 && r.bottom <= m.vh + 1;
+  check(m.scrollY === 0, `${tag} 상세 화면: 검사는 초기 뷰포트(스크롤 0)에서 이뤄져야 한다`);
+  check(m.txCount === 5, `${tag} 상세 화면: 최근 5건 시드에서는 5건이 렌더되어야 한다 (${m.txCount}건)`);
+  check(vis(m.bal), `${tag} 상세 화면: 잔액이 스크롤 없이 보이지 않는다 (${Math.round(m.bal.top)}~${Math.round(m.bal.bottom)} / vh ${m.vh})`);
+  check(m.buttons.length === 3, `${tag} 상세 화면: 버튼이 3개여야 한다 (${m.buttons.length}개)`);
+  m.buttons.forEach(b => {
+    check(vis(b), `${tag} 상세 화면: 버튼 "${b.text}"이(가) 스크롤 없이 보이지 않는다 (아래로 ${Math.max(0, Math.round(b.bottom - m.vh))}px 벗어남 / vh ${m.vh})`);
+    check(b.height >= 48, `${tag} 상세 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
+  });
+  // 초안 안내는 **한 줄**이다 — 두 줄이 되면 그 자체가 버튼을 밀어내는 원가가 된다(beta.24의 실제 원인).
+  if (m.note) {
+    check(vis(m.note), `${tag} 상세 화면: 초안 안내가 스크롤 없이 보이지 않는다`);
+    check(m.noteLines <= 34, `${tag} 상세 화면: 초안 안내는 한 줄이어야 한다 (높이 ${m.noteLines}px)`);
+  }
+  // 목록이 잘릴 때는 반드시 목록 **자체가** 스크롤 영역이어야 한다(화면 전체가 스크롤되면 버튼이 접힘 아래로 간다).
+  if (m.txsClipped) check(m.txsScrollable === 'auto' || m.txsScrollable === 'scroll', `${tag} 상세 화면: 최근 내역이 잘렸는데 목록이 스크롤 영역이 아니다 (overflow-y: ${m.txsScrollable})`);
   return m;
 }
 
@@ -499,10 +560,34 @@ async function runViewport(context, url, w, h) {
     check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 화면: 확인 버튼 "${b.text}"이(가) 화면 밖이다`);
   });
 
-  // 본인 화면 — 7자리 잔액 전액 표기 + 최근 거래 슬림 행(서명 이미지 없음) + 두 버튼.
+  // beta.24: [네, 맞아요]는 **요청 작성 화면**으로 곧장 간다 — 그 전에 확인 카드 다음이 무엇인지부터 못 박는다.
   await page.locator('[data-a="cust-confirm"]').click();
+  await page.waitForSelector('#custAmountInput');
+  await noHorizontalOverflow(page, '손님 화면(본인 확인 직후)', w);
+  const straightToCompose = await page.evaluate(() => ({
+    hasAmount: !!document.querySelector('#custAmountInput'),
+    hasCanvas: !!document.querySelector('.cust-sig #signCanvas'),
+    hasBalScreen: !!document.querySelector('.cust-bal'),
+    links: [...document.querySelectorAll('.cust-links button')].map(b => { const r = b.getBoundingClientRect(); return { text: b.innerText.replace(/\n/g, ' ').trim(), height: r.height, left: r.left, right: r.right, clipped: b.scrollWidth > b.clientWidth + 1 || b.scrollHeight > b.clientHeight + 1 }; })
+  }));
+  check(straightToCompose.hasAmount && straightToCompose.hasCanvas, `${w}px 손님 화면: [네, 맞아요] 직후 곧바로 금액칸+서명판이 떠야 한다(중간 잔액 화면 경유 금지)`);
+  check(!straightToCompose.hasBalScreen, `${w}px 손님 화면: 본인 확인 직후 화면은 잔액 화면이 아니어야 한다`);
+  check(straightToCompose.links.length === 2, `${w}px 손님 요청 화면: 보조 링크 2개(최근 내역·사장님 부르기)가 있어야 한다 (${straightToCompose.links.length}개)`);
+  straightToCompose.links.forEach(b => {
+    check(b.height >= 48, `${w}px 손님 요청 화면: 보조 링크 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
+    check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 요청 화면: 보조 링크 "${b.text}"이(가) 화면 밖이다`);
+    check(!b.clipped, `${w}px 손님 요청 화면: 보조 링크 "${b.text}" 라벨이 잘렸다`);
+  });
+
+  // 상세 화면(선택) — 7자리 잔액 전액 표기 + 최근 거래 슬림 행(서명 이미지 없음) + 세 버튼.
+  //   beta.24부터 이 화면은 [최근 사용 내역 보기]로만 열린다(필수 단계가 아니다).
+  //   beta.25: **초안(금액)을 든 채로** 들어간다 — 그것이 실제 왕복 경로이고, beta.24에서 버튼 3개가
+  //   전부 접힘 아래로 사라졌던 바로 그 상태다(거래 5건 + 초안 안내 한 줄이 함께 있는 최악 높이).
+  await page.locator('#custAmountInput').fill('12000');
+  await page.waitForTimeout(120);
+  await page.locator('[data-a="cust-history"]').click();
   await page.waitForSelector('.cust-bal');
-  await noHorizontalOverflow(page, '손님 화면(본인)', w);
+  await noHorizontalOverflow(page, '손님 화면(최근 내역)', w);
   const custSelf = await page.evaluate(() => {
     const card = document.querySelector('.cust-card');
     const bal = card.querySelector('.cust-bal');
@@ -525,9 +610,24 @@ async function runViewport(context, url, w, h) {
     check(t.left >= -1 && t.right <= clientW + 1, `${w}px 손님 화면: 최근 거래 ${i + 1}행이 화면 밖으로 나갔다`);
     check(!t.clipped, `${w}px 손님 화면: 최근 거래 ${i + 1}행이 잘렸다`);
   });
-  // beta.21: 본인 화면의 갈림길이 셋으로 늘었다 — [사용 요청하기](B) · [사장님 부르기](A) · [처음으로].
-  check(custSelf.buttons.length === 3, `${w}px 손님 화면: 본인 화면에는 [사용 요청하기]/[사장님 부르기]/[처음으로] 세 버튼이 있어야 한다 (${custSelf.buttons.length}개)`);
-  check(custSelf.buttons[0] && custSelf.buttons[0].text === '사용 요청하기', `${w}px 손님 화면: 첫 버튼은 [사용 요청하기]여야 한다 (got "${custSelf.buttons[0] && custSelf.buttons[0].text}")`);
+  // beta.24: 상세 화면의 갈림길 셋 — [사용 요청 계속하기](작성하던 요청으로 복귀) · [사장님 부르기](A) · [처음으로].
+  check(custSelf.buttons.length === 3, `${w}px 손님 화면: 상세 화면에는 [사용 요청 계속하기]/[사장님 부르기]/[처음으로] 세 버튼이 있어야 한다 (${custSelf.buttons.length}개)`);
+  check(custSelf.buttons[0] && custSelf.buttons[0].text === '사용 요청 계속하기', `${w}px 손님 화면: 첫 버튼은 [사용 요청 계속하기]여야 한다 (got "${custSelf.buttons[0] && custSelf.buttons[0].text}")`);
+  // 왕복 보존 계약을 손님에게 알리는 한 줄이 이 화면에 있어야 한다(없으면 서명한 줄 알고 제출한다).
+  const draftNote = await page.evaluate(() => {
+    const el = document.querySelector('.cust-draft-note');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { text: el.innerText.replace(/\n/g, ' ').trim(), left: r.left, right: r.right, clipped: el.scrollWidth > el.clientWidth + 1 };
+  });
+  check(Boolean(draftNote) && draftNote.text.includes('서명만 다시'), `${w}px 손님 화면: 상세 화면은 "돌아가면 서명만 다시"를 알려야 한다 (got ${JSON.stringify(draftNote && draftNote.text)})`);
+  check(Boolean(draftNote) && draftNote.text.includes('금액은 그대로'), `${w}px 손님 화면: 초안을 들고 들어왔으면 "금액은 그대로"라고 말해야 한다 (got ${JSON.stringify(draftNote && draftNote.text)})`);
+  if (draftNote) {
+    check(draftNote.left >= -1 && draftNote.right <= clientW + 1, `${w}px 손님 화면: 보존 계약 안내가 화면 밖으로 나갔다`);
+    check(!draftNote.clipped, `${w}px 손님 화면: 보존 계약 안내가 잘렸다`);
+  }
+  // ── beta.25 HIGH-1 회귀: 상세 화면도 **스크롤 없이** 버튼 줄까지 보여야 한다 ──────────
+  await detailFitsInFirstViewport(page, `${w}px`);
   custSelf.buttons.forEach(b => {
     check(b.height >= 48, `${w}px 손님 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
     check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 화면: 버튼 "${b.text}"이(가) 화면 밖이다`);
@@ -539,9 +639,14 @@ async function runViewport(context, url, w, h) {
   //    7자리 잔액(1,234,567원)을 가진 시드로 들어오므로 큰 숫자가 잘리기 가장 쉬운 조건이기도 하다.
   //    beta.22에서 두 화면이 하나가 되면서 세로가 길어졌다 — 좁은 폰에서 무엇 하나 잘리거나
   //    화면 밖으로 밀려나지 않는지, 그리고 가로 스크롤이 절대 생기지 않는지가 이 절의 핵심이다.
+  // [사용 요청 계속하기]로 요청 작성 화면에 되돌아온다(왕복의 반대 방향).
   await page.locator('[data-a="cust-request"]').click();
   await page.waitForSelector('#custAmountInput');
   await page.waitForSelector('.cust-sig #signCanvas');
+  // 왕복 보존 계약 — 상세 화면이 약속한 대로 금액이 그대로 돌아와야 한다. 확인한 뒤 비우고 아래 검사를 이어간다.
+  check((await page.locator('#custAmountInput').inputValue()) === '12000', `${w}px 손님 요청 화면: 상세 화면을 다녀와도 적어 둔 금액은 그대로여야 한다`);
+  await page.locator('#custAmountInput').fill('');
+  await page.waitForTimeout(150);
   await noHorizontalOverflow(page, '손님 요청 화면', w);
   const amtView = await page.evaluate(() => {
     const big = document.querySelector('.cust-req-amt'), input = document.querySelector('#custAmountInput');
@@ -570,8 +675,9 @@ async function runViewport(context, url, w, h) {
     check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 금액 화면: 빠른 금액 "${b.text}"이(가) 화면 밖이다`);
     check(!b.clipped, `${w}px 손님 금액 화면: 빠른 금액 "${b.text}" 라벨이 잘렸다`);
   });
-  // 버튼은 이제 셋이다 — 통합 화면의 끝은 [사장님 확인 받기]·[지우고 다시]·[뒤로]다([다음 (서명)]은 사라졌다).
-  check(amtView.actions.length === 3, `${w}px 손님 요청 화면: [사장님 확인 받기]/[지우고 다시]/[뒤로] 세 버튼이어야 한다 (${amtView.actions.length}개)`);
+  // 버튼은 이제 셋이다 — 통합 화면의 끝은 [사장님 확인 받기]·[지우고 다시]·[처음으로]다(beta.24: [뒤로]는 사라졌다).
+  check(amtView.actions.length === 3, `${w}px 손님 요청 화면: [사장님 확인 받기]/[지우고 다시]/[처음으로] 세 버튼이어야 한다 (${amtView.actions.length}개)`);
+  check(amtView.actions[2] && amtView.actions[2].text === '처음으로', `${w}px 손님 요청 화면: 마지막 버튼은 [처음으로]여야 한다 (got "${amtView.actions[2] && amtView.actions[2].text}")`);
   check(amtView.actions[0] && amtView.actions[0].text === '사장님 확인 받기', `${w}px 손님 요청 화면: 첫 버튼은 [사장님 확인 받기]여야 한다 (got "${amtView.actions[0] && amtView.actions[0].text}")`);
   amtView.actions.forEach(b => {
     check(b.height >= 48, `${w}px 손님 요청 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
@@ -621,7 +727,29 @@ async function runViewport(context, url, w, h) {
   //   그래서 "iPhone 13에서 [사장님 확인 받기]가 화면 밖 174px 아래"인 상태가 그대로 통과했다.
   //   어르신 손님은 화면을 밀어 버튼을 찾지 않는다 — 보이지 않으면 그 자리에서 멈춘다.
   //   → 기준을 초기 뷰포트(scrollY=0)로 되돌린다. 금액 칸 · 서명판 **전체** · 버튼 **셋 다**가 대상이다.
-  await fitsInFirstViewport(page, `${w}px`);
+  const fitClean = await fitsInFirstViewport(page, `${w}px`);
+  // ── beta.25(L4): **오류가 떠 있는 상태**에서도 같은 계약이다 ─────────────────────────
+  //   beta.24에서는 오류 한 줄이 나타날 때만 자리를 차지해(23px) 화면 전체가 아래로 밀렸다.
+  //   여유가 6~15px까지 떨어졌고 둘 다 뜨면 -7px, 즉 [사장님 확인 받기]가 접힘 아래로 사라졌다 —
+  //   손님이 "잔액보다 많아요"를 읽는 바로 그 순간에 고칠 버튼이 없어지는 셈이다.
+  //   → 오류 줄은 항상 자리를 잡고 있어야 하고(배치 이동 0), 그 상태에서도 전부 화면 안이어야 한다.
+  const submitTop = () => page.evaluate(() => Math.round(document.querySelector('[data-a="cust-sign-submit"]').getBoundingClientRect().top));
+  const cleanTop = await submitTop();
+  await page.locator('#custAmountInput').fill('99999999');
+  await page.waitForTimeout(150);
+  check((await page.locator('#custAmtErr').innerText()).includes('잔액보다 많아요'), `${w}px 손님 요청 화면: 잔액 초과는 금액 칸 바로 위에서 말해야 한다`);
+  await fitsInFirstViewport(page, `${w}px(잔액 초과 오류)`);
+  check(Math.abs((await submitTop()) - cleanTop) <= 1, `${w}px 손님 요청 화면: 잔액 초과 오류가 떴다고 [사장님 확인 받기]가 움직이면 안 된다 (${cleanTop} → ${await submitTop()})`);
+  await page.locator('#custAmountInput').fill('9000');
+  await page.waitForTimeout(120);
+  await page.locator('[data-a="cust-sign-submit"]').click();
+  await page.waitForTimeout(180);
+  check((await page.locator('#custSignErr').innerText()).includes('서명'), `${w}px 손님 요청 화면: 서명 누락은 캔버스 바로 아래에서 말해야 한다`);
+  await fitsInFirstViewport(page, `${w}px(서명 누락 오류)`);
+  check(Math.abs((await submitTop()) - cleanTop) <= 1, `${w}px 손님 요청 화면: 서명 누락 오류가 떴다고 버튼이 움직이면 안 된다 (${cleanTop} → ${await submitTop()})`);
+  check(fitClean.slack >= 30, `${w}px 손님 요청 화면: 오류 없는 상태의 여유가 ${fitClean.slack}px뿐이다`);
+  await page.locator('#custAmountInput').fill('');
+  await page.waitForTimeout(150);
   // 아래로 끝까지 내려도 가로 스크롤은 여전히 0이어야 한다(세로만 허용).
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.waitForTimeout(80);
@@ -727,9 +855,11 @@ async function runViewport(context, url, w, h) {
   await page.locator('#custSearchInput').fill('김수한무');
   await page.waitForSelector('.cust-ask');
   await page.locator('[data-a="cust-confirm"]').click();
-  await page.waitForSelector('.cust-bal');
+  await page.waitForSelector('#custAmountInput');
 
   // ── "사장님 확인" 인계 화면(beta.19): [사장님 부르기]는 곧바로 PIN 화면으로 넘어간다 ──
+  //    beta.24: 이 A단계 인계는 이제 **요청 작성 화면의 보조 링크**에서 출발한다 — 금액을 넣을 수 없는
+  //    손님(단체 식사·잔액 초과·사장님이 금액을 정하는 자리)의 탈출구가 여기서도 살아 있는지 함께 본다.
   //    긴 이름·긴 부서명(LONG_DEPT)이 그대로 실리는 화면이라 잘림·화면 밖 이탈이 특히 위험하다.
   await page.locator('[data-a="cust-call-owner"]').click();
   await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -1081,10 +1211,10 @@ async function runTypingProfile(browser, url, label, contextOpts) {
     await page.locator('#custSearchInput').fill('이서연');
     await page.waitForSelector('.cust-ask', { timeout: 4000 });
     await page.locator('[data-a="cust-confirm"]').click();
-    await page.waitForSelector('.cust-bal');
-    await page.locator('[data-a="cust-request"]').click();
     await page.waitForSelector('#custAmountInput');
     await page.waitForSelector('.cust-sig #signCanvas');
+    // beta.24: 실기기 프로파일에서도 [네, 맞아요] 다음이 곧바로 금액 칸이어야 한다(중간 잔액 화면 없음).
+    check(await page.locator('.cust-bal').count() === 0, `${label} 손님 화면: [네, 맞아요] 직후에 잔액 화면이 끼어들면 안 된다`);
     check(await page.locator('#custAmountInput').count() === 1 && await page.locator('.cust-sig #signCanvas').count() === 1,
       `${label} 통합 요청 화면: 금액 칸과 서명 캔버스가 한 화면에 함께 있어야 한다`);
     await drawSignature(page, touch);
