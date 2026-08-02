@@ -1629,7 +1629,11 @@ async function main() {
       { id: 'cx-2', org: '광진구청', orgKind: 'public', dept: '세무과', name: '홍길동·2', amount: 60000 },
       { id: 'cx-3', org: '광진구청', orgKind: 'public', dept: '세무과', name: '김철수', amount: 30000 },
       { id: 'cx-4', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '김영희', amount: 20000 },
-      { id: 'cx-5', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '이순신', amount: 10000 }
+      { id: 'cx-5', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '이순신', amount: 10000 },
+      // beta.22 접두 검색 회귀용 한 쌍 — '영'으로 시작하는 사람과, '영'이 **끝에** 들어간 사람.
+      //   부분 일치로 되돌아가면 손님이 '영' 한 글자를 쳤을 때 이 둘이 함께 뜬다(남의 이름이 섞인 목록).
+      { id: 'cx-6', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '영업맨', amount: 15000 },
+      { id: 'cx-7', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '홍룬영', amount: 16000 }
     ], { orgName: '광진구청' });
     // 김철수에게 거래 6건을 더 심는다(취소된 사용 1건 + 서명 있는 사용 1건) → 최근 5건 렌더러 검증용.
     const cxBase = Date.now();
@@ -1720,9 +1724,17 @@ async function main() {
     await page.waitForTimeout(200);
     const noneText = (await page.locator('#custResults').innerText()).replace(/\n/g, ' ');
     await assert(await count(page, '.cust-row') === 0, 'an unmatched query must produce no result rows');
-    await assert(noneText.includes("'없는사람'(으)로 등록된 이름이 없어요."), `the empty-result notice must echo the typed name (got ${JSON.stringify(noneText)})`);
+    await assert(noneText.includes("'없는사람'(으)로 시작하는 이름이 없어요."), `the empty-result notice must echo the typed name (got ${JSON.stringify(noneText)})`);
     await assert(noneText.includes('사장님께 말씀해 주세요'), `the empty-result notice must tell the customer to ask the owner (got ${JSON.stringify(noneText)})`);
-    await assert(noneText.includes('초성만 쳐도 돼요'), `the empty-result notice must carry the 초성 tip (got ${JSON.stringify(noneText)})`);
+    await assert(noneText.includes('초성도 돼요'), `the empty-result notice must carry the 초성 tip (got ${JSON.stringify(noneText)})`);
+    // beta.23(LOW-6) — 검색은 앞글자 일치다(nameStartsWith). 규칙을 말해 주지 않으면 손님은
+    //   '홍길동'을 '길동'으로 치고 "등록이 안 됐다"고 오해한 채 돌아선다. 규칙 + 예시를 그 자리에서 준다.
+    await assert(noneText.includes('앞글자부터'), `the 0-hit notice must teach the prefix rule (got ${JSON.stringify(noneText)})`);
+    await assert(noneText.includes('뒷부분'), `the 0-hit notice must contrast with "not the tail" (got ${JSON.stringify(noneText)})`);
+    await assert(noneText.includes('홍길동') && noneText.includes("'홍'"), `the 0-hit notice must carry a worked example (got ${JSON.stringify(noneText)})`);
+    const custPlaceholder = await page.locator('#custSearchInput').getAttribute('placeholder');
+    await assert(String(custPlaceholder).includes('앞글자부터') && String(custPlaceholder).includes('초성'),
+      `the customer search placeholder must state the prefix rule and the 초성 hint (got ${JSON.stringify(custPlaceholder)})`);
     // 이스케이프 — 손님이 친 글자는 절대 HTML로 해석되지 않는다.
     await page.locator('#custSearchInput').fill('<img src=x onerror=alert(1)>');
     await page.waitForTimeout(200);
@@ -1736,7 +1748,7 @@ async function main() {
     await page.locator('[data-a="cust-clear"]').click();
     await page.waitForTimeout(200);
     const emptyText = (await page.locator('#custResults').innerText()).replace(/\n/g, ' ');
-    await assert(emptyText.includes('이름을 입력하면'), `the pre-query customer screen must show the guidance line (got ${JSON.stringify(emptyText)})`);
+    await assert(emptyText.includes('앞글자부터 입력하면'), `the pre-query customer screen must show the prefix guidance line (got ${JSON.stringify(emptyText)})`);
     await assert(!emptyText.includes('없어요'), 'the pre-query customer screen must NEVER show the empty-result notice');
     await assert(await count(page, '.cust-clear') === 0, 'the ✕ clear button must disappear once the query is empty');
 
@@ -1751,6 +1763,60 @@ async function main() {
     await page.locator('.cust-row.dup').click();
     await page.waitForTimeout(200);
     await assert(await count(page, '#custSearchInput') === 1 && await count(page, '.cust-ask') === 0, 'tapping the merged row must do nothing at all');
+
+    // ── (8-c2) 손님 검색은 **접두(앞글자) 일치**다 (beta.22) ────────────────────
+    //   손님은 자기 이름 하나만 찾으면 된다. 부분 일치면 '영' 한 글자에 '영업맨'과 '홍룬영'이 함께 뜨고,
+    //   손님은 남의 이름이 섞인 목록에서 자기를 골라야 한다 — 오탭 한 번이면 남의 잔액 화면 앞에 선다.
+    //   ⚠️ 이 규칙은 **손님 화면에만** 적용된다. 사장님 홈 검색(state.search)은 부분 일치 그대로다
+    //     (사장님은 기억나는 조각으로 찾는다 — 아래에서 함께 못 박는다).
+    //   결과가 1명이면 앱이 스스로 확인 카드로 넘어간다(기존 계약) — 그때는 카드의 이름 한 개를 결과로 읽는다.
+    const custRowNames = async (q) => {
+      if (await count(page, '#custSearchInput') === 0) {
+        await page.locator('[data-a="cust-cancel"], [data-a="cust-back"], [data-a="cust-compose-back"]').first().click();
+        await page.waitForSelector('#custSearchInput');
+      }
+      await page.locator('#custSearchInput').fill(q);
+      await page.waitForTimeout(200);
+      if (await count(page, '.cust-ask')) return (await page.locator('.cust-card .cust-name').allInnerTexts()).map(t => t.trim());
+      return (await page.locator('.cust-row-name').allInnerTexts()).map(t => t.trim());
+    };
+    const yeong = await custRowNames('영');
+    await assert(JSON.stringify(yeong) === JSON.stringify(['영업맨']), `'영' must match ONLY the name that starts with it (got ${JSON.stringify(yeong)})`);
+    await assert(!yeong.some(n => n.includes('홍룬영')), "'영' must never surface 홍룬영 — a mid/tail match puts a stranger's name in front of the customer");
+    const yeongCho = await custRowNames('ㅇㅇ');
+    await assert(JSON.stringify(yeongCho) === JSON.stringify(['영업맨']), `초성 'ㅇㅇ' must also be prefix-only (got ${JSON.stringify(yeongCho)})`);
+    // 중간 일치·꼬리 일치는 어느 쪽도 노출되지 않는다.
+    for (const [q, why] of [['업', '가운데 글자'], ['맨', '끝 글자'], ['룬', '가운데 글자(다른 사람)'], ['ㅇㅁ', '가운데 초성']]) {
+      const rows = await custRowNames(q);
+      await assert(rows.length === 0, `${why} "${q}" must match nobody under the prefix rule (got ${JSON.stringify(rows)})`);
+      const none = (await page.locator('#custResults').innerText()).replace(/\n/g, ' ');
+      await assert(none.includes(`'${q}'(으)로 시작하는 이름이 없어요.`), `the 0-hit notice must still echo the query "${q}" (got ${JSON.stringify(none)})`);
+      await assert(none.includes('초성도 돼요'), `the 0-hit notice must keep the 초성 tip for "${q}"`);
+      await assert(none.includes('앞글자부터'), `the 0-hit notice must keep the prefix rule for "${q}"`);
+    }
+    // 접두 규칙은 공백 무시·동명이인 병합·20건 상한과 함께 살아 있어야 한다.
+    await assert(JSON.stringify(await custRowNames(' 영 업 ')) === JSON.stringify(['영업맨']), 'the prefix rule must still ignore spaces on both sides');
+    const hongRows = await custRowNames('ㅎ');
+    await assert(hongRows.length === 2 && hongRows[0].startsWith('홍길동') && hongRows[1] === '홍룬영', `'ㅎ' must list both 홍-names (got ${JSON.stringify(hongRows)})`);
+    await assert(await count(page, '.cust-row.dup') === 1, '동명이인 병합 행은 접두 검색에서도 한 줄이어야 한다(병합 판정도 접두 매처를 쓴다)');
+    await assert(hongRows[0].includes('동명이인 2명'), `the merged row must keep its 동명이인 wording under the prefix rule (got ${JSON.stringify(hongRows[0])})`);
+    // 사장님 홈 검색은 **부분 일치 그대로**다 — 두 매처가 한 몸이 되면 사장님의 사용 습관이 깨진다.
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await page.locator('#searchInput').fill('영');
+    await page.waitForTimeout(250);
+    await expandHomeGroups(page);
+    const ownerText = (await page.locator('.app').innerText()).replace(/\n/g, ' ');
+    await assert(ownerText.includes('영업맨') && ownerText.includes('홍룬영'), `the OWNER's home search must stay a substring match — '영' must still find both 영업맨 and 홍룬영 (got ${JSON.stringify(ownerText.slice(0, 400))})`);
+    // 사장님 화면의 초성 검색도 부분 일치 그대로다('ㅇㅁ'은 영업맨의 가운데 초성).
+    await page.locator('#searchInput').fill('ㅇㅁ');
+    await page.waitForTimeout(250);
+    await expandHomeGroups(page);
+    await assert(((await page.locator('.app').innerText()).replace(/\n/g, ' ')).includes('영업맨'), "the owner's 초성 search must stay a substring match too (ㅇㅁ → 영업맨)");
+    await page.locator('#searchInput').fill('');
+    await page.waitForTimeout(150);
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('#custSearchInput');
 
     // (8-d) 본인 확인 → 잔액 + 최근 5건(서명 이미지 없음 · 취소 버튼 없음 · 취소건 회색)
     await page.locator('#custSearchInput').fill('김철수');
@@ -1767,9 +1833,11 @@ async function main() {
 
     // (8-e) 게이트 스윕 — 허용 목록 밖의 모든 액션은 잠금 상태에서 통째로 차단된다(원장 불변).
     const lockAllowed = (await page.evaluate(() => window.__prepaidTestHooks.lockAllowed())).slice().sort();
-    // beta.21에서 손님 액션 6개(요청 작성)가 더해졌다 — 전부 휘발성 state만 만지는 '요청' 경로다.
+    // beta.21에서 손님 액션(요청 작성)이 더해졌다 — 전부 휘발성 state만 만지는 '요청' 경로다.
+    //   beta.22에서 cust-amt-next가 빠졌다(금액·서명이 한 화면이 되어 '다음' 단계 자체가 없어졌다).
     //   이 목록이 늘어나는 것 자체가 위험 신호이므로 값을 통째로 못 박아 둔다(원장 쓰기 액션이 섞이면 즉시 실패).
-    const expectedAllowed = ['pin-key', 'pin-reset', 'pin-forgot', 'pin-forgot-cancel', 'pin-forgot-restore', 'lock-to-pin', 'pin-to-cust', 'cust-pick', 'cust-confirm', 'cust-cancel', 'cust-clear', 'cust-back', 'cust-call-owner', 'cust-request', 'cust-amt-quick', 'cust-amt-next', 'cust-sign-clear', 'cust-sign-submit', 'cust-compose-back'].sort();
+    const expectedAllowed = ['pin-key', 'pin-reset', 'pin-forgot', 'pin-forgot-cancel', 'pin-forgot-restore', 'lock-to-pin', 'pin-to-cust', 'cust-pick', 'cust-confirm', 'cust-cancel', 'cust-clear', 'cust-back', 'cust-call-owner', 'cust-request', 'cust-amt-quick', 'cust-sign-clear', 'cust-sign-submit', 'cust-compose-back'].sort();
+    await assert(!lockAllowed.includes('cust-amt-next'), 'the removed intermediate step (cust-amt-next) must not linger in the lock allowlist');
     await assert(JSON.stringify(lockAllowed) === JSON.stringify(expectedAllowed), `the lock allowlist must stay exactly the PIN/customer actions (got ${JSON.stringify(lockAllowed)})`);
     const gateBefore = await readDb(page);
     const swept = await page.evaluate(() => {
@@ -2008,13 +2076,17 @@ async function main() {
     await setTimers({ custIdle: 30000, custComposeIdle: 60000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000 });
 
     // ═══════════════════════════════════════════════════════════════════════
-    // (8-B) B단계 — 손님이 금액·서명까지 미리 작성하는 '요청' (beta.21)
+    // (8-B) B단계 — 손님이 금액·서명까지 미리 작성하는 '요청' (beta.21 → beta.22 한 화면)
     //
     //   지도 원칙은 A단계와 한 글자도 다르지 않다:
     //     "손님은 '요청'을 만들고, 사장님은 '기록'을 만든다."
     //   손님이 금액을 치고 서명까지 해도 그것은 끝까지 요청이다 — 원장에 줄이 생기는 순간은
     //   오직 사장님이 PIN을 풀고 사용 모달의 confirm을 누른 때다. 이 절의 모든 단언은
     //   그 경계가 어디에서도 새지 않는지를 본다(요청이 저장되면 이 앱은 즉시 '무인 결제기'가 된다).
+    //
+    //   beta.22: 금액 화면과 서명 화면이 **한 화면**으로 합쳐졌다([사용 요청하기] → 곧바로 통합 화면).
+    //   합치면서 생긴 유일한 새 위험은 "금액 한 글자가 서명을 지운다"이다 — 전면 재렌더 구조에서
+    //   입력창과 캔버스가 같은 화면에 공존하기 때문이다. (B-u)가 그 위험을 전담해 못 박는다.
     // ═══════════════════════════════════════════════════════════════════════
     await seedHome([
       { id: 'br-1', org: '광진구청', orgKind: 'public', dept: '세무과', name: '김요청', amount: 30000 },
@@ -2061,15 +2133,222 @@ async function main() {
     };
     const lockSt2 = () => page.evaluate(() => window.__prepaidTestHooks.lockState());
     const txCount = async () => (await readDb(page)).transactions.length;
-    // 요청 작성 화면까지 한 번에 — 금액을 넣고 서명하고 [사장님 확인 받기]를 누르기 직전까지.
+    // 통합 요청 화면(금액 + 서명)까지 한 번에 — 서명을 그리고 [사장님 확인 받기]를 누르기 직전까지.
+    //   beta.22: 금액 화면 → [다음] → 서명 화면 이었던 두 걸음이 여기서 사라졌다. 캔버스는 처음부터 떠 있다.
     const composeTo = async (name, amountText) => {
       await toCustomer();
       await custLookup(name);
       await page.locator('[data-a="cust-request"]').click();
       await page.waitForSelector('#custAmountInput');
+      await page.waitForSelector('.cust-sig #signCanvas');
       if (amountText !== null) await page.locator('#custAmountInput').fill(amountText);
       await page.waitForTimeout(80);
     };
+    // 캔버스에 남긴 표식(expando)과 획의 생존을 한 번에 읽는다 — 노드만 같고 그림이 비면 아무 의미가 없다.
+    const markCanvas = () => page.evaluate(() => { document.querySelector('#signCanvas').__bapStroke = 'alive'; });
+    const canvasState = () => page.evaluate(() => {
+      const c = document.querySelector('#signCanvas');
+      const i = document.querySelector('#custAmountInput');
+      const H = window.__prepaidTestHooks.lockState();
+      return {
+        hasCanvas: !!c, sameNode: !!c && c.__bapStroke === 'alive',
+        hasInput: !!i, sameInput: !!i && i.__bapProbe === 'alive', value: i ? i.value : null,
+        focused: !!i && document.activeElement === i,
+        blurs: window.__amtBlurs || 0,
+        empty: H.signPadEmpty, live: H.signPadLive, amount: H.custAmount, stage: H.custStage
+      };
+    });
+
+    // ── (B-u) 통합 화면(beta.22): 금액을 치는 동안 서명이 절대 지워지지 않는다 ────────────
+    //   이 앱은 화면을 통째로 다시 그린다(#app.innerHTML). 그러므로 "금액 입력"과 "서명 캔버스"가 한 화면에
+    //   있다는 사실 자체가 사고의 씨앗이다 — 한 글자마다 render가 돌면 캔버스 노드가 교체되고,
+    //   손님이 절반쯤 쓴 이름이 소리 없이 사라진다. 손님은 자기가 잘못 쓴 줄 알고 처음부터 다시 쓴다.
+    //   여기서 재는 것은 셋이다: ①캔버스 **노드 동일성** ②실제 **획**의 생존 ③입력 포커스 유실 0.
+    await composeTo('김요청', null);
+    await assert(await count(page, '#custAmountInput') === 1 && await count(page, '.cust-sig #signCanvas') === 1,
+      'the request screen must carry the amount field and the signature canvas at the SAME time (the intermediate amount-only screen is gone)');
+    await assert(await count(page, '[data-a="cust-amt-next"]') === 0, 'the intermediate [다음 (서명)] button must be gone — one screen means one step');
+    const composeBtns = (await page.locator('.cust-actions button').allInnerTexts()).map(t => t.trim());
+    await assert(JSON.stringify(composeBtns) === JSON.stringify(['사장님 확인 받기', '지우고 다시', '뒤로']),
+      `the unified screen must end with exactly [사장님 확인 받기]·[지우고 다시]·[뒤로] (got ${JSON.stringify(composeBtns)})`);
+    // 순서도 계약이다 — 위에서 아래로 대상 → 금액 → 서명 → 버튼.
+    const composeOrder = await page.evaluate(() => {
+      const y = s => { const el = document.querySelector(s); return el ? el.getBoundingClientRect().top : NaN; };
+      return { name: y('.cust-name'), big: y('#custAmtBig'), input: y('#custAmountInput'), canvas: y('#signCanvas'), submit: y('[data-a="cust-sign-submit"]') };
+    });
+    await assert(composeOrder.name < composeOrder.big && composeOrder.big < composeOrder.input
+      && composeOrder.input < composeOrder.canvas && composeOrder.canvas < composeOrder.submit,
+      `the unified screen must read top-to-bottom: 대상 → 금액 → 서명 → 버튼 (got ${JSON.stringify(composeOrder)})`);
+    // ① 먼저 서명을 그리고, 그 위에서 금액을 한 글자씩 친다(현실의 순서 — 손님은 이름부터 쓰기도 한다).
+    await drawOn('.cust-sig #signCanvas');
+    await markCanvas();
+    await page.evaluate(() => {
+      window.__amtBlurs = 0;
+      document.addEventListener('focusout', e => { if (e.target && e.target.id === 'custAmountInput') window.__amtBlurs += 1; }, true);
+      document.querySelector('#custAmountInput').__bapProbe = 'alive';
+    });
+    await page.locator('#custAmountInput').click();
+    for (const [i, ch] of [...'12345'].entries()) {
+      await page.keyboard.type(ch, { delay: 25 });
+      await page.waitForTimeout(60);
+      const s = await canvasState();
+      await assert(s.hasCanvas && s.sameNode, `typing character ${i + 1} must not replace the signature canvas node`);
+      await assert(!s.empty, `typing character ${i + 1} must not wipe the strokes already drawn`);
+      await assert(s.sameInput, `typing character ${i + 1} must not replace the amount input node (the phone keypad would close)`);
+      await assert(s.focused, `typing character ${i + 1} must not steal focus from the amount input`);
+      await assert(s.value === '12345'.slice(0, i + 1), `character ${i + 1} must land in the input (got ${JSON.stringify(s.value)})`);
+      await assert(s.blurs === 0, `typing character ${i + 1} must not raise a focusout (${s.blurs} so far)`);
+    }
+    await assert((await page.locator('#custAmtBig').innerText()).trim() === '12,345원', 'the big number must follow every typed character');
+    // ② 서명이 있는 상태에서 빠른 금액을 눌러도 서명은 그대로다.
+    await page.locator('[data-a="cust-amt-quick"][data-amount="18000"]').click();
+    await page.waitForTimeout(120);
+    let s2 = await canvasState();
+    await assert(s2.sameNode && !s2.empty, 'tapping a quick amount must not disturb the signature already drawn');
+    await assert(s2.value === '18000' && s2.amount === '18000', `the quick amount must replace the typed one (got ${JSON.stringify(s2.value)})`);
+    // ③ 지우고 서명을 다시 그려도 금액은 남는다 / 금액을 고쳐도 서명은 남는다.
+    await page.locator('[data-a="cust-sign-clear"]').click();
+    await page.waitForTimeout(120);
+    s2 = await canvasState();
+    await assert(s2.sameNode, '[지우고 다시] must not tear the canvas node down (a re-render would wipe the amount too)');
+    await assert(s2.empty === true, '[지우고 다시] must actually clear the strokes');
+    await assert(s2.value === '18000' && s2.amount === '18000', '[지우고 다시] must clear ONLY the signature — the amount the customer typed must stay');
+    await drawOn('.cust-sig #signCanvas');
+    await markCanvas();
+    await page.locator('#custAmountInput').fill('7000');
+    await page.waitForTimeout(120);
+    s2 = await canvasState();
+    await assert(s2.sameNode && !s2.empty, 'editing the amount after signing must not wipe the signature');
+    await assert((await page.locator('#custAmtBig').innerText()).trim() === '7,000원', 'the big number must follow the edited amount');
+
+    // ④ 비동기 render 공격 — 아무도 아무것도 누르지 않았는데 화면을 갈아엎으려는 경로들.
+    //    토스트(3초 뒤 스스로 사라짐)·네트워크 플랩·탭 복귀·수신함 폴링. 어느 것도 서명·금액을 건드릴 수 없다.
+    await page.evaluate(() => { window.dispatchEvent(new Event('offline')); window.dispatchEvent(new Event('online')); });
+    await page.evaluate(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await page.evaluate(() => window.__prepaidTestHooks.refreshInboxCount());
+    await page.evaluate(() => { window.__prepaidTestHooks.renderIsDisruptive(); });
+    await page.waitForTimeout(500);
+    s2 = await canvasState();
+    await assert(s2.hasCanvas && s2.sameNode && !s2.empty, 'an async render (network flap / visibility / inbox poll) must never replace or blank the signature canvas');
+    await assert(s2.value === '7000' && s2.amount === '7000', 'an async render must not roll the amount back either');
+    await assert(await page.evaluate(() => window.__prepaidTestHooks.renderIsDisruptive()) === true, 'a screen carrying live strokes must be judged disruptive to render');
+    // ⑤ 최후의 방벽 — 누군가 대놓고 render()를 불러도(향후 새 경로가 게이트를 빼먹는 경우) 서명은 살아남는다.
+    await page.evaluate(() => { window.__prepaidTestHooks.forceRender(); });
+    await page.waitForTimeout(150);
+    s2 = await canvasState();
+    await assert(s2.hasCanvas && s2.sameNode && !s2.empty, 'even a direct render() call must be downgraded to a partial update while strokes are alive');
+    await assert(s2.value === '7000', 'the downgraded render must leave the typed amount untouched');
+
+    // ── ⑤-b beta.23(MEDIUM-2): 가드가 막는 동안에도 **바뀌어야 할 것은 바뀐다** ────────────
+    //   forceRender 훅만으로는 "서명이 살아남았다"는 절반만 본다. 나머지 절반이 더 위험하다:
+    //   예전에는 render()가 가드로 강등돼도 꼬리의 armIdle()이 유휴 시계를 **처음부터 다시** 걸었다.
+    //   → 게이트를 빼먹은 경로 하나가 반복해서 render를 부르면(200ms 폴링이면 충분하다)
+    //     손님 이름·잔액이 뜬 화면이 **영원히** 사라지지 않는다. 화면이 굳는 것이 곧 개인정보 노출이다.
+    //   beta.23부터 유휴 만료는 "마지막 사용자 조작 시각(lastInputAt)"으로 판정한다 — 렌더는 시계를 못 늘린다.
+    await setTimers({ custIdle: 400, custComposeIdle: 1600 });
+    await page.locator('#custAmountInput').fill('9000');
+    await page.waitForTimeout(80);
+    await drawOn('.cust-sig #signCanvas');
+    await markCanvas();
+    await page.evaluate(() => { window.__spamRender = setInterval(() => window.__prepaidTestHooks.forceRender(), 100); });
+    await page.waitForTimeout(300);
+    // (1) 폭격 중에도 부분 갱신은 살아 있다 — 손님이 누른 금액이 큰 숫자에 즉시 반영돼야 한다.
+    await page.locator('[data-a="cust-amt-quick"][data-amount="18000"]').click();
+    await page.waitForTimeout(200);
+    await assert((await page.locator('#custAmtBig').innerText()).trim() === '18,000원',
+      'while the guard is downgrading renders the amount display must STILL be repainted (that is what the guard promises in exchange)');
+    const spamState = await canvasState();
+    await assert(spamState.sameNode && !spamState.empty, 'the render storm must not cost the signature');
+    await assert((await lockSt2()).idleSinceInput < 900, 'a real tap must reset the idle clock (only user input may)');
+    // (2) 유휴 복귀는 렌더 폭격에 굶어 죽지 않는다 — 마지막 **조작**으로부터 1600ms 뒤 손님 초기 화면으로.
+    await page.waitForTimeout(2400);
+    await page.evaluate(() => { clearInterval(window.__spamRender); window.__spamRender = null; });
+    await assert(await count(page, '#custSearchInput') === 1,
+      'a repeating render() must NOT starve the idle return — the customer name/balance would otherwise stay on screen forever');
+    await assert(await count(page, '#signCanvas') === 0, 'the idle return must also tear the canvas out (the draft signature must not survive it)');
+    const starved = await lockSt2();
+    await assert(starved.custStage === 'search' && starved.custAmount === '' && starved.signPadLive === false,
+      `the idle return must discard the whole draft (got ${JSON.stringify({ stage: starved.custStage, amount: starved.custAmount, live: starved.signPadLive })})`);
+    // (3) 반대 방향도 계약이다 — **실제 조작**은 시계를 확실히 밀어야 한다(서명하는 동안 화면이 튀면 안 된다).
+    //     1000ms 시계를 250ms 간격의 드로잉 6번(총 1500ms)으로 넘긴다. 렌더가 아니라 손이 시계를 민다.
+    await setTimers({ custIdle: 400, custComposeIdle: 1000 });
+    await composeTo('김요청', '9000');
+    await drawOn('.cust-sig #signCanvas');
+    await markCanvas();
+    for (let i = 0; i < 6; i += 1) { await drawOn('.cust-sig #signCanvas'); await page.waitForTimeout(150); }
+    const keptAlive = await canvasState();
+    await assert(keptAlive.hasCanvas && keptAlive.sameNode && !keptAlive.empty,
+      'drawing (a real user input) must keep extending the idle clock — the screen must not jump while the customer is still signing');
+    // (4) 가드가 걸린 상태에서도 **잠금 전환**은 반드시 일어난다(가드는 "같은 화면에 머무는 렌더"만 강등한다).
+    await page.evaluate(() => { window.__spamRender = setInterval(() => window.__prepaidTestHooks.forceRender(), 100); });
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]', { timeout: 5000 });
+    await page.evaluate(() => { clearInterval(window.__spamRender); window.__spamRender = null; });
+    await assert((await lockSt2()).lockView === 'pin' && await count(page, '#signCanvas') === 0,
+      'a render storm must not be able to block the handoff to the owner PIN screen (screen transitions always win over the guard)');
+    // 돌아와서 (5) 화면 전환([뒤로])도 같은 성질인지 본다.
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('#custSearchInput', { timeout: 5000 });
+    await setTimers({ custIdle: 30000, custComposeIdle: 60000 });
+    await composeTo('김요청', '9000');
+    await drawOn('.cust-sig #signCanvas');
+    await page.evaluate(() => { window.__spamRender = setInterval(() => window.__prepaidTestHooks.forceRender(), 100); });
+    await page.locator('[data-a="cust-compose-back"]').click();
+    await page.waitForSelector('.cust-bal', { timeout: 5000 });
+    await page.evaluate(() => { clearInterval(window.__spamRender); window.__spamRender = null; });
+    await assert(await count(page, '#signCanvas') === 0 && (await lockSt2()).custStage === 'self',
+      'a render storm must not be able to block [뒤로] either — the balance screen must actually repaint');
+
+    // 이후 검사는 원래의 흐름(서명 있는 통합 화면)에서 이어진다.
+    await page.locator('[data-a="cust-request"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await page.locator('#custAmountInput').fill('7000');
+    await page.waitForTimeout(80);
+    await drawOn('.cust-sig #signCanvas');
+    await markCanvas();
+    // ⑥ 제출 검증 — 서명은 있으나 금액이 없으면 넘어가지 않는다(그리고 서명은 그대로 남는다).
+    await page.locator('#custAmountInput').fill('');
+    await page.waitForTimeout(100);
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForTimeout(200);
+    await assert((await lockSt2()).pendingCustomerId === '', 'an empty amount must not create a request even with a signature drawn');
+    await assert((await page.locator('#custAmtErr').innerText()).trim().length > 0, 'an empty amount must say what is missing, right under the amount');
+    s2 = await canvasState();
+    await assert(s2.sameNode && !s2.empty, 'the amount error must not cost the customer the signature they already drew');
+    // 잔액 초과도 같은 자리에서 막힌다.
+    await page.locator('#custAmountInput').fill('30001');
+    await page.waitForTimeout(120);
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForTimeout(200);
+    await assert((await lockSt2()).pendingCustomerId === '', 'an over-balance amount must not create a request');
+    await assert((await page.locator('#custAmtErr').innerText()).includes('잔액보다 많아요'), 'the over-balance block must say so in the customer\'s own words');
+    s2 = await canvasState();
+    await assert(s2.sameNode && !s2.empty, 'the over-balance error must not cost the signature either');
+    // ⑦ 금액은 있으나 서명이 없으면 넘어가지 않는다(그리고 금액은 그대로 남는다).
+    await page.locator('#custAmountInput').fill('9000');
+    await page.waitForTimeout(120);
+    await page.locator('[data-a="cust-sign-clear"]').click();
+    await page.waitForTimeout(120);
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForTimeout(200);
+    await assert((await lockSt2()).pendingCustomerId === '', 'a cleared signature must count as no signature');
+    await assert((await page.locator('#custSignErr').innerText()).includes('서명'), 'the missing signature must be named right under the canvas');
+    await assert((await page.locator('#custAmountInput').inputValue()) === '9000', 'the signature error must not cost the customer the amount they already typed');
+    // ⑧ [뒤로]는 둘 다 버리고 잔액 화면으로 — 다음 손님에게 앞 손님의 금액·서명이 남으면 안 된다.
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-compose-back"]').click();
+    await page.waitForSelector('.cust-bal');
+    const backState = await lockSt2();
+    await assert(backState.custAmount === '' && backState.custStage === 'self', '[뒤로] must discard the draft amount and land on the balance screen');
+    await assert(backState.signPadLive === false, '[뒤로] must detach the signature canvas (the drawing must be unreachable, not merely off-screen)');
+    await assert(await count(page, '#signCanvas') === 0, '[뒤로] must tear the canvas out of the DOM');
+    // 다시 들어가면 처음부터다.
+    await page.locator('[data-a="cust-request"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    const reentry = await canvasState();
+    await assert(reentry.value === '' && reentry.empty === true, 're-entering the request screen must start from an empty amount AND an empty canvas');
+    await page.locator('[data-a="cust-compose-back"]').click();
+    await page.waitForSelector('.cust-bal');
 
     // ── (B-a) 해피패스 — 손님 9,000원 + 서명 → 사장님 확인 → PIN → 프리필 → 저장 → 원장 ──
     await toCustomer();
@@ -2106,9 +2385,7 @@ async function main() {
     const composeDb = await readDb(page);
     await assert(!JSON.stringify(composeDb).includes('custAmount') && !JSON.stringify(composeDb).includes('pendingAmount'), 'a half-written request must never reach IndexedDB');
 
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
-    await assert((await page.locator('.cust-req-amt').innerText()).includes('9,000원'), 'the signature screen must keep showing the amount the customer typed');
+    await assert((await page.locator('.cust-req-amt').innerText()).includes('9,000원'), 'the request screen must keep showing the amount the customer typed, right above the canvas they sign on');
     await drawOn('.cust-sig #signCanvas');
     const submitLabel = (await page.locator('[data-a="cust-sign-submit"]').innerText()).trim();
     await assert(submitLabel === '사장님 확인 받기', `the request must be handed over with the [사장님 확인 받기] label (got ${JSON.stringify(submitLabel)})`);
@@ -2205,8 +2482,6 @@ async function main() {
     //   ("나는 9,000원에 서명했다"). 그래서 금액이 요청과 달라지면 저장을 멈추고 서명을 다시 받는다.
     //   ⚠️ 이 절은 옛 계약("금액을 고쳐도 서명은 잃지 않는다")을 **대체**한다. 되돌리지 말 것.
     await composeTo('김요청', '9000');
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -2252,8 +2527,6 @@ async function main() {
     // ── (B-c) 사장님이 모달을 닫으면 요청은 폐기된다(원장 불변·재생 불가) ──
     const beforeCancel = await readDb(page);
     await composeTo('김요청', '5000');
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -2276,10 +2549,15 @@ async function main() {
     await composeTo('최소액', '2000');   // 잔액 1,000원
     await assert((await page.locator('#custAmtErr').innerText()).includes('잔액보다 많아요'), 'an over-balance amount must say so in the customer\'s own words');
     await assert((await page.locator('#custAmtErr').innerText()).includes('사장님께 말씀해 주세요'), 'the over-balance notice must point the customer at the owner');
-    await page.locator('[data-a="cust-amt-next"]').click();
+    // beta.22: 넘어갈 '다음 화면'이 없으므로 차단은 제출 지점에서 일어난다 — 요청 자체가 세워지지 않는다.
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForTimeout(200);
-    await assert(await count(page, '#signCanvas') === 0, 'an over-balance amount must not reach the signature screen');
-    await assert(await count(page, '#custAmountInput') === 1, 'the blocked customer must stay on the amount screen');
+    await assert((await lockSt2()).pendingCustomerId === '', 'an over-balance amount must not become a request even when the signature is there');
+    await assert(await count(page, '#custAmountInput') === 1, 'the blocked customer must stay on the request screen');
+    await assert((await lockSt2()).signPadEmpty === false, 'the over-balance block must not cost the customer the signature already drawn');
+    await page.locator('[data-a="cust-sign-clear"]').click();
+    await page.waitForTimeout(100);
     // 경계: 잔액과 정확히 같은 금액은 통과해야 한다(1원 차이로 막으면 "다 쓰기"가 불가능해진다).
     await page.locator('#custAmountInput').fill('1000');
     await page.waitForTimeout(120);
@@ -2298,44 +2576,49 @@ async function main() {
       await page.waitForTimeout(100);
       const err = (await page.locator('#custAmtErr').innerText()).trim();
       await assert(err.length > 0, `${why} ("${bad}") must raise a visible error`);
-      await page.locator('[data-a="cust-amt-next"]').click();
+      // 서명까지 마친 상태로 제출해도 통과하지 않는다(요청이 세워지지 않는다).
+      await drawOn('.cust-sig #signCanvas');
+      await page.locator('[data-a="cust-sign-submit"]').click();
       await page.waitForTimeout(120);
-      await assert(await count(page, '#signCanvas') === 0, `${why} ("${bad}") must not reach the signature screen`);
+      await assert((await lockSt2()).pendingCustomerId === '', `${why} ("${bad}") must never become a request`);
+      await assert(await count(page, '#custAmountInput') === 1, `${why} ("${bad}") must leave the customer on the request screen`);
       await assert((await page.locator('#custAmtBig').innerText()).trim() === '0원', `${why} ("${bad}") must never be echoed as a real amount`);
+      await page.locator('[data-a="cust-sign-clear"]').click();
+      await page.waitForTimeout(80);
     }
-    // 빈 칸으로 [다음]을 눌러도 넘어가지 않는다.
+    // 빈 칸으로 제출해도 넘어가지 않는다.
     await page.locator('#custAmountInput').fill('');
     await page.waitForTimeout(100);
-    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForTimeout(120);
-    await assert(await count(page, '#signCanvas') === 0, 'an empty amount must not reach the signature screen');
+    await assert((await lockSt2()).pendingCustomerId === '', 'an empty amount must never become a request');
     await assert((await page.locator('#custAmtErr').innerText()).trim().length > 0, 'an empty amount must say what is missing');
 
     // ── (B-f) 서명 없이 진행 불가 ──
     await page.locator('#custAmountInput').fill('500');
     await page.waitForTimeout(100);
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForTimeout(200);
-    await assert(await count(page, '.cust-sig #signCanvas') === 1, 'submitting without a signature must keep the customer on the signature screen');
+    await assert(await count(page, '.cust-sig #signCanvas') === 1, 'submitting without a signature must keep the customer on the request screen');
     await assert((await page.locator('#custSignErr').innerText()).includes('서명'), 'submitting without a signature must say a signature is needed');
     await assert((await lockSt2()).pendingCustomerId === '', 'submitting without a signature must not create a request');
+    await assert((await page.locator('#custAmountInput').inputValue()) === '500', 'the missing-signature notice must not cost the amount already typed');
     // [지우고 다시] 뒤에도 마찬가지다 — 지운 서명은 서명이 아니다.
     await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-clear"]').click();
     await page.waitForTimeout(120);
-    await assert(await count(page, '.cust-sig #signCanvas') === 1, '[지우고 다시] must not tear the canvas down (a re-render would wipe it anyway)');
+    await assert(await count(page, '.cust-sig #signCanvas') === 1, '[지우고 다시] must not tear the canvas down (a re-render would wipe the amount too)');
+    await assert((await page.locator('#custAmountInput').inputValue()) === '500', '[지우고 다시] must clear only the signature — the amount must stay');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForTimeout(200);
     await assert((await lockSt2()).pendingCustomerId === '', 'a cleared signature must count as no signature');
-    // [뒤로]는 금액을 남긴 채 금액 화면으로 되돌아간다(다시 처음부터 치게 하면 안 된다).
-    await page.locator('[data-a="cust-compose-back"]').click();
-    await page.waitForSelector('#custAmountInput');
-    await assert((await page.locator('#custAmountInput').inputValue()) === '500', 'stepping back from the signature must keep the amount already typed');
+    // [뒤로]는 한 번에 잔액 화면으로 — 금액과 서명을 함께 버린다(중간에 머무를 화면이 없다).
+    await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-compose-back"]').click();
     await page.waitForSelector('.cust-bal');
-    await assert((await lockSt2()).custAmount === '', 'stepping back to the balance screen must discard the draft amount');
+    const backState2 = await lockSt2();
+    await assert(backState2.custAmount === '' && backState2.signPadLive === false, '[뒤로] must discard the draft amount and the signature together');
+    await assert(await count(page, '#custAmountInput') === 0 && await count(page, '#signCanvas') === 0, '[뒤로] must leave neither the amount field nor the canvas behind');
 
     // ── (g) 요청 작성 중 유휴 60초(custComposeIdle) — 조회 화면의 30초보다 길다 ──
     //   프로덕션 값은 index.html의 TIMERS에 그대로 남는다(아래에서 소스로 못 박는다). 여기서는 축척한다.
@@ -2346,22 +2629,20 @@ async function main() {
     await setTimers({ custIdle: 400, custComposeIdle: 1600 });
     await rearm('#custAmountInput');
     await page.waitForTimeout(900);   // custIdle(400)의 2배 — 여기서 튀면 작성 중 화면이 사라진 것이다
-    await assert(await count(page, '#custAmountInput') === 1, 'the amount screen must NOT bounce back at the lookup-idle (30s) mark — the customer is still choosing');
+    await assert(await count(page, '#custAmountInput') === 1, 'the request screen must NOT bounce back at the lookup-idle (30s) mark — the customer is still choosing');
     await assert((await page.locator('#custAmountInput').inputValue()) === '1000', 'the typed amount must survive the 30s mark');
     await page.waitForTimeout(1400);  // 누계 2300ms > custComposeIdle 1600
-    await assert(await count(page, '#custSearchInput') === 1, 'an abandoned amount screen must fall back to the empty customer search at the 60s mark');
+    await assert(await count(page, '#custSearchInput') === 1, 'an abandoned request screen must fall back to the empty customer search at the 60s mark');
     const afterComposeIdle = await lockSt2();
     await assert(afterComposeIdle.custAmount === '' && afterComposeIdle.custStage === 'search', 'the compose idle fallback must discard everything the customer had written');
     await assert((await bt()).locked === true, 'the compose idle fallback must never unlock the app');
-    // 서명 화면도 같은 시계를 쓴다.
+    // 서명을 그리는 중에도 같은 시계다(같은 화면이므로 시계도 하나다).
     await setTimers({ custIdle: 30000, custComposeIdle: 60000 });
     await composeTo('김요청', '1000');
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await setTimers({ custIdle: 400, custComposeIdle: 1600 });
     await rearm('.cust-req-step');
     await page.waitForTimeout(900);
-    await assert(await count(page, '.cust-sig #signCanvas') === 1, 'the signature screen must also hold past the 30s mark');
+    await assert(await count(page, '.cust-sig #signCanvas') === 1, 'the request screen must also hold past the 30s mark while the customer is signing');
     // 서명을 그리는 동작(pointermove/touchmove)만으로도 시계가 다시 무장돼야 한다 —
     //   전역 캡처 리스너에는 그리는 이벤트가 잡히지 않아서, 이게 없으면 서명 도중에 화면이 튄다.
     for (let i = 0; i < 4; i += 1) {
@@ -2370,7 +2651,7 @@ async function main() {
     }
     await assert(await count(page, '.cust-sig #signCanvas') === 1, 'drawing must re-arm the idle clock — a slow signature must never be interrupted by the screen resetting');
     await page.waitForTimeout(2200);
-    await assert(await count(page, '#custSearchInput') === 1, 'an abandoned signature screen must still fall back once the drawing stops');
+    await assert(await count(page, '#custSearchInput') === 1, 'an abandoned request screen must still fall back once the drawing stops');
     const afterSignIdle = await lockSt2();
     await assert(afterSignIdle.signPadLive === false, 'the idle fallback must detach the signature canvas — the drawing must be unreachable, not merely off-screen');
     await assert(afterSignIdle.pendingSignLen === 0 && afterSignIdle.custAmount === '', 'the idle fallback must discard the drawn signature and the amount together');
@@ -2392,8 +2673,6 @@ async function main() {
     //   (잠금 해제 클릭 4번의 지연이 경계 판정에 섞이지 않게 하기 위함).
     const ttlProbe = async (ageMs) => {
       await composeTo('박두번', '3000');
-      await page.locator('[data-a="cust-amt-next"]').click();
-      await page.waitForSelector('.cust-sig #signCanvas');
       await drawOn('.cust-sig #signCanvas');
       const t0 = Date.now();
       await page.locator('[data-a="cust-sign-submit"]').click();
@@ -2413,11 +2692,11 @@ async function main() {
     await assert((await page.locator('.toast').innerText().catch(() => '')).includes('만료'), 'an expired B request must tell the owner why nothing opened');
     await setTimers({ pendingTtl: 120000 });
 
-    // ── (j) 잠금 상태 전 액션 스윕 — 금액 화면·서명 화면에서도 원장 바이트는 그대로다 ──
+    // ── (j) 잠금 상태 전 액션 스윕 — 통합 요청 화면(서명 전·서명 후)에서도 원장 바이트는 그대로다 ──
     //   허용 목록 밖은 게이트가 통째로 막고, 허용 목록 안(손님 액션)은 애초에 원장에 닿지 않는다.
     for (const [stage, enter] of [
-      ['금액', async () => { await composeTo('김요청', '7000'); }],
-      ['서명', async () => { await composeTo('김요청', '7000'); await page.locator('[data-a="cust-amt-next"]').click(); await page.waitForSelector('.cust-sig #signCanvas'); await drawOn('.cust-sig #signCanvas'); }]
+      ['요청(서명 전)', async () => { await composeTo('김요청', '7000'); }],
+      ['요청(서명 후)', async () => { await composeTo('김요청', '7000'); await drawOn('.cust-sig #signCanvas'); }]
     ]) {
       await enter();
       const sweepBefore = await readDb(page);
@@ -2452,8 +2731,6 @@ async function main() {
 
     // ── (k) 새 손님이 오면 앞 손님의 요청은 즉시 폐기된다(대상·금액·서명 전부) ──
     await composeTo('김요청', '1000');
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -2469,8 +2746,6 @@ async function main() {
     await assert((await page.locator('#custAmountInput').inputValue()) === '', 'the new customer must start from an empty amount');
     await page.locator('#custAmountInput').fill('4000');
     await page.waitForTimeout(100);
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -2484,8 +2759,6 @@ async function main() {
     await page.locator('.modal-actions [data-a="close-modal"]').click();
     await page.waitForSelector('[data-a="quick-find-emp"]');
     await composeTo('김요청', '1000');
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -2506,8 +2779,6 @@ async function main() {
       await page.waitForSelector('#custAmountInput');
       await page.locator('#custAmountInput').fill(amt);
       await page.waitForTimeout(100);
-      await page.locator('[data-a="cust-amt-next"]').click();
-      await page.waitForSelector('.cust-sig #signCanvas');
       await drawOn('.cust-sig #signCanvas');
       await page.locator('[data-a="cust-sign-submit"]').click();
       await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -2537,8 +2808,6 @@ async function main() {
     await page.waitForTimeout(1200);   // autoLock(400)의 3배
     await assert(await count(page, '#custAmountInput') === 1, 'the auto-lock clock must not touch the compose screen — the app is already locked, and only custComposeIdle governs here');
     await assert((await bt()).locked === true, 'the compose screen must stay locked throughout');
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -2565,8 +2834,6 @@ async function main() {
     //   여기서 재는 것은 "돌아가지 않는다"이지 "보기 좋다"가 아니다 — 저장된 금액까지 따라간다.
     const openPrefilled = async (name, amountText) => {
       await composeTo(name, amountText);
-      await page.locator('[data-a="cust-amt-next"]').click();
-      await page.waitForSelector('.cust-sig #signCanvas');
       await drawOn('.cust-sig #signCanvas');
       await page.locator('[data-a="cust-sign-submit"]').click();
       await page.waitForSelector('.pin-screen [data-a="pin-key"]');
@@ -2654,9 +2921,12 @@ async function main() {
     //   서명 캔버스는 preventDefault 때문에 **절대 포커스를 받지 않는다** — activeElement만 보는 판정으로는
     //   "지금 서명 중"을 영원히 못 잡는다. 손님이 이름을 반쯤 쓴 순간 백그라운드 render 하나가 돌면
     //   획이 통째로 사라지고, 손님은 자기가 잘못 쓴 줄 안다.
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
+    //   ⚠️ 먼저 금액 칸에서 포커스를 뗀다 — 통합 화면(beta.22)에서는 입력 포커스만으로도 판정이 true가 되므로,
+    //     "빈 캔버스 자체는 렌더를 막지 않는다"를 재려면 다른 원인을 모두 걷어내야 한다.
+    await page.evaluate(() => { const el = document.querySelector('#custAmountInput'); if (el) el.blur(); });
+    await page.waitForTimeout(80);
     await assert(await page.evaluate(() => window.__prepaidTestHooks.renderIsDisruptive()) === false, 'a blank signature canvas must NOT block rendering — mere existence would freeze the screen forever');
+    await assert(await page.evaluate(() => window.__prepaidTestHooks.custComposeActive()) === true, 'the unified request screen must report itself active (the guard keys off exactly this)');
     await drawOn('.cust-sig #signCanvas');
     await assert(await page.evaluate(() => window.__prepaidTestHooks.signInProgress()) === true, 'a canvas with strokes on it must count as "signing in progress"');
     await assert(await page.evaluate(() => window.__prepaidTestHooks.renderIsDisruptive()) === true, 'rendering over a signature in progress must be judged disruptive');
@@ -2705,8 +2975,6 @@ async function main() {
     //   태블릿을 계산대에 두면 캔버스 위에 손바닥·커서가 그냥 얹혀 있는 시간이 길다. 그 움직임까지
     //   "조작"으로 세면 이름·잔액이 뜬 화면이 무한히 방치된다(자동 복귀가 영원히 오지 않는다).
     await composeTo('박두번', '1000');
-    await page.locator('[data-a="cust-amt-next"]').click();
-    await page.waitForSelector('.cust-sig #signCanvas');
     await setTimers({ custIdle: 800, custComposeIdle: 1200 });
     await rearm('.cust-req-step');
     const hoverBox = await page.locator('.cust-sig #signCanvas').boundingBox();
@@ -3423,6 +3691,36 @@ async function main() {
     await page.waitForTimeout(600);
     const postRestoreAfter = await readDb(page);
     await assert(JSON.stringify(postRestoreAfter.employees) === JSON.stringify(postRestoreBefore.employees), 'the restore file path must be closed again right after a legitimate recovery');
+
+    // ── beta.23: consoleProblems는 이제 **단언 대상**이다 ─────────────────────────────
+    // 여태 이 배열은 수집만 하고 아무도 검사하지 않았다. 그 사이에 렌더 예외 10건이 조용히 통과했다:
+    //   "Failed to set the 'innerHTML' property … The node to be removed is no longer a child of this node."
+    //   = 사장님 홈 검색창이 화면에서 사라질 때 늦은 change 이벤트가 onInput→render를 재진입시켜
+    //     **그 렌더가 통째로 실패**한 것이다(화면이 반쯤 옛 상태로 남는다). HEAD에도 있던 결함이다.
+    //   beta.23에서 원인을 고쳤다(onInput이 searchInput의 change를 받지 않는다 — 손님 검색창과 같은 규칙).
+    // 남겨 두는 예외는 **하니스가 일부러 만든 네트워크 실패**뿐이고, 그것도 상한을 둔다.
+    //   상한을 넘거나 목록에 없는 오류가 하나라도 나오면 실패한다(신규·증가 = 회귀).
+    const EXPECTED_CONSOLE = [
+      { name: 'mocked HTTP 404/500', re: /Failed to load resource: the server responded with a status of (404|500)/, max: 60 },
+      { name: 'offline/DNS 실패 시나리오', re: /net::ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_REFUSED|FAILED)/, max: 8 },
+      { name: '위 실패에 대한 앱의 정상적인 오류 로깅', re: /^error: (silent cloud backup|register-key|relay|keygen|key-backup)/, max: 8 }
+    ];
+    const consoleTally = new Map(EXPECTED_CONSOLE.map(e => [e.name, 0]));
+    const consoleUnexpected = [];
+    consoleProblems.forEach(msg => {
+      const hit = EXPECTED_CONSOLE.find(e => e.re.test(msg));
+      if (hit) consoleTally.set(hit.name, consoleTally.get(hit.name) + 1);
+      else consoleUnexpected.push(msg);
+    });
+    const consoleOverflow = EXPECTED_CONSOLE
+      .filter(e => consoleTally.get(e.name) > e.max)
+      .map(e => `${e.name}: ${consoleTally.get(e.name)}건 > 상한 ${e.max}`);
+    await assert(consoleUnexpected.length === 0,
+      `the browser console must stay clean — ${consoleUnexpected.length} unexpected error/warning(s): ${JSON.stringify([...new Set(consoleUnexpected)].slice(0, 5))}`);
+    await assert(consoleOverflow.length === 0,
+      `known harness-induced console noise must not grow: ${JSON.stringify(consoleOverflow)}`);
+    await assert(!consoleProblems.some(m => /innerHTML/.test(m)),
+      `no render may fail with an innerHTML replacement error (onInput→render re-entrancy): ${JSON.stringify(consoleProblems.filter(m => /innerHTML/.test(m)).slice(0, 2))}`);
 
     console.log(JSON.stringify({
       ok: true,

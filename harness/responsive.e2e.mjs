@@ -136,9 +136,46 @@ async function noHorizontalOverflow(page, label, w) {
   check(m.bodyScroll <= m.docClient + 1, `${w}px ${label}: body 가로 스크롤 발생 (${m.bodyScroll} > ${m.docClient})`);
 }
 
-async function runViewport(context, url, w) {
+// ── 통합 요청 화면이 "폰 세로 한 화면"에 들어오는가 (beta.23 HIGH-1의 못) ──────────────
+// 관대함 봉인: scrollIntoView 뒤에 재지 않는다. **초기 뷰포트**(scrollY=0)에서 잰다.
+//   대상은 셋이다 — 금액 입력칸 / 서명판 **전체**(윗변·아랫변 모두) / 버튼 3개 전부.
+//   하나라도 접힌 곳(fold) 아래에 있으면 실패다. 실측 근거: beta.22 iPhone 13에서 서명판은
+//   180px 중 107px만 보였고 [사장님 확인 받기]는 화면 밖 174px 아래였다.
+async function fitsInFirstViewport(page, tag) {
+  const m = await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const box = el => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; };
+    return {
+      scrollY: window.scrollY, vh: window.innerHeight,
+      input: box(document.querySelector('#custAmountInput')),
+      canvas: box(document.querySelector('.cust-sig #signCanvas')),
+      buttons: [...document.querySelectorAll('.cust-actions button')].map(b => ({ text: b.innerText.trim(), ...box(b) }))
+    };
+  });
+  const vis = r => r.top >= -1 && r.bottom <= m.vh + 1;
+  check(m.scrollY === 0, `${tag} 통합 요청 화면: 검사는 초기 뷰포트(스크롤 0)에서 이뤄져야 한다`);
+  check(vis(m.input), `${tag} 통합 요청 화면: 금액 입력칸이 스크롤 없이 보이지 않는다 (${Math.round(m.input.top)}~${Math.round(m.input.bottom)} / vh ${m.vh})`);
+  check(vis(m.canvas), `${tag} 통합 요청 화면: 서명판이 스크롤 없이 **전부** 보이지 않는다 (${Math.round(m.canvas.top)}~${Math.round(m.canvas.bottom)} / vh ${m.vh}, 잘린 높이 ${Math.max(0, Math.round(m.canvas.bottom - m.vh))}px)`);
+  check(m.buttons.length === 3, `${tag} 통합 요청 화면: 버튼이 3개여야 한다 (${m.buttons.length}개)`);
+  m.buttons.forEach(b => {
+    check(vis(b), `${tag} 통합 요청 화면: 버튼 "${b.text}"이(가) 스크롤 없이 보이지 않는다 (아래로 ${Math.max(0, Math.round(b.bottom - m.vh))}px 벗어남 / vh ${m.vh})`);
+    check(b.height >= 48, `${tag} 통합 요청 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
+  });
+  return m;
+}
+
+// ⚠️ 높이는 더 이상 780 고정이 아니다(beta.23) — 780px는 어떤 실기기의 가시영역보다도 넉넉해서
+//   "폰에서 버튼이 화면 밖에 있다"는 결함을 통째로 가려 준다. 실제 브라우저 가시높이로 잰다.
+//   360×640(작은 안드로이드) · 390×664(iPhone 13 Safari) · 412×732(Pixel 7 Chrome) · 768×1024(태블릿).
+const VIEWPORTS = [
+  { w: 360, h: 640 },
+  { w: 390, h: 664 },
+  { w: 412, h: 732 },
+  { w: 768, h: 1024 }
+];
+async function runViewport(context, url, w, h) {
   const page = await context.newPage();
-  await page.setViewportSize({ width: w, height: 780 });
+  await page.setViewportSize({ width: w, height: h });
   page.on('dialog', d => d.accept());
   await page.goto(url, { waitUntil: 'load' });
   await seed(page);
@@ -497,12 +534,15 @@ async function runViewport(context, url, w) {
   });
   await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-customer-${w}.png`) }).catch(() => {});
 
-  // ── 요청 작성 화면(beta.21): 금액 입력 · 서명 ─────────────────────────────
+  // ── 요청 작성 화면(beta.22): 금액 입력 **+** 서명이 한 화면 ────────────────────
   //    손님이 직접 숫자를 치고 손가락으로 서명하는, 이 앱에서 손님 손이 가장 오래 머무는 화면이다.
   //    7자리 잔액(1,234,567원)을 가진 시드로 들어오므로 큰 숫자가 잘리기 가장 쉬운 조건이기도 하다.
+  //    beta.22에서 두 화면이 하나가 되면서 세로가 길어졌다 — 좁은 폰에서 무엇 하나 잘리거나
+  //    화면 밖으로 밀려나지 않는지, 그리고 가로 스크롤이 절대 생기지 않는지가 이 절의 핵심이다.
   await page.locator('[data-a="cust-request"]').click();
   await page.waitForSelector('#custAmountInput');
-  await noHorizontalOverflow(page, '손님 금액 화면', w);
+  await page.waitForSelector('.cust-sig #signCanvas');
+  await noHorizontalOverflow(page, '손님 요청 화면', w);
   const amtView = await page.evaluate(() => {
     const big = document.querySelector('.cust-req-amt'), input = document.querySelector('#custAmountInput');
     const br = big.getBoundingClientRect(), ir = input.getBoundingClientRect();
@@ -530,29 +570,98 @@ async function runViewport(context, url, w) {
     check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 금액 화면: 빠른 금액 "${b.text}"이(가) 화면 밖이다`);
     check(!b.clipped, `${w}px 손님 금액 화면: 빠른 금액 "${b.text}" 라벨이 잘렸다`);
   });
-  check(amtView.actions.length === 2, `${w}px 손님 금액 화면: [다음 (서명)]/[뒤로] 두 버튼이 있어야 한다 (${amtView.actions.length}개)`);
+  // 버튼은 이제 셋이다 — 통합 화면의 끝은 [사장님 확인 받기]·[지우고 다시]·[뒤로]다([다음 (서명)]은 사라졌다).
+  check(amtView.actions.length === 3, `${w}px 손님 요청 화면: [사장님 확인 받기]/[지우고 다시]/[뒤로] 세 버튼이어야 한다 (${amtView.actions.length}개)`);
+  check(amtView.actions[0] && amtView.actions[0].text === '사장님 확인 받기', `${w}px 손님 요청 화면: 첫 버튼은 [사장님 확인 받기]여야 한다 (got "${amtView.actions[0] && amtView.actions[0].text}")`);
   amtView.actions.forEach(b => {
-    check(b.height >= 48, `${w}px 손님 금액 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
-    check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 금액 화면: 버튼 "${b.text}"이(가) 화면 밖이다`);
+    check(b.height >= 48, `${w}px 손님 요청 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
+    check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 요청 화면: 버튼 "${b.text}"이(가) 화면 밖이다`);
   });
-  // beta.20 회귀 규칙(부분 갱신) — 금액을 치는 동안 입력 노드가 살아 있어야 한다(폰 키보드가 닫히면 안 된다).
-  //   빠른 금액 탭도 같은 규칙을 따른다(값만 대입하고 표시 세 조각만 갈아끼운다).
+
+  // ── 캔버스도 같은 화면 안에 있다 — 금액 칸 아래, 버튼 위 ────────────────────
+  //    캔버스가 충분히 크고(어르신이 손가락으로 이름을 쓴다) 화면 밖으로 나가지 않아야 한다.
+  const signView = await page.evaluate(() => {
+    const box = document.querySelector('.cust-sig'), canvas = document.querySelector('#signCanvas');
+    const br = box.getBoundingClientRect(), cr = canvas.getBoundingClientRect();
+    const amt = document.querySelector('.cust-req-amt'), input = document.querySelector('#custAmountInput');
+    const title = document.querySelector('.cust-sign-title');
+    const submit = document.querySelector('[data-a="cust-sign-submit"]');
+    return {
+      boxLeft: br.left, boxRight: br.right,
+      canvasW: cr.width, canvasH: cr.height, canvasLeft: cr.left, canvasRight: cr.right, canvasTop: cr.top, canvasBottom: cr.bottom,
+      backingW: canvas.width, backingH: canvas.height,
+      amtText: amt.textContent.trim(), amtClipped: amt.scrollWidth > amt.clientWidth + 1,
+      inputBottom: input.getBoundingClientRect().bottom,
+      titleText: title ? title.innerText.trim() : '', titleClipped: title ? title.scrollWidth > title.clientWidth + 1 : false,
+      submitTop: submit.getBoundingClientRect().top,
+      actions: [...document.querySelectorAll('.cust-actions button')].map(b => { const r = b.getBoundingClientRect(); return { text: b.innerText.trim(), height: r.height, left: r.left, right: r.right, clipped: b.scrollWidth > b.clientWidth + 1 }; })
+    };
+  });
+  check(signView.amtText === '0원', `${w}px 손님 요청 화면: 아직 입력 전이므로 금액은 0원이어야 한다 (got "${signView.amtText}")`);
+  check(!signView.amtClipped, `${w}px 손님 요청 화면: 금액이 잘렸다`);
+  check(signView.titleText.includes('서명'), `${w}px 손님 요청 화면: 서명 구획에 안내 문구가 있어야 한다 (got "${signView.titleText}")`);
+  check(!signView.titleClipped, `${w}px 손님 요청 화면: 서명 안내 문구가 잘렸다`);
+  // 배치 순서 — 금액 칸 → 캔버스 → 버튼. 이 순서가 뒤집히면 손님이 서명부터 하고 금액을 못 찾는다.
+  check(signView.inputBottom <= signView.canvasTop + 1, `${w}px 손님 요청 화면: 서명 캔버스는 금액 칸 아래에 와야 한다 (input ${Math.round(signView.inputBottom)} / canvas ${Math.round(signView.canvasTop)})`);
+  check(signView.canvasBottom <= signView.submitTop + 1, `${w}px 손님 요청 화면: [사장님 확인 받기]는 캔버스 아래에 와야 한다`);
+  // beta.23: 서명판 높이는 뷰포트 비례(clamp(120px,20dvh,170px), 태블릿 220px)다 — 최소 보장선은 120px.
+  check(signView.canvasH >= 120, `${w}px 손님 요청 화면: 서명 캔버스가 너무 낮다 (${Math.round(signView.canvasH)}px)`);
+  if (w >= 768) check(signView.canvasH >= 200, `${w}px(태블릿) 손님 요청 화면: 태블릿에서는 서명판이 더 커야 한다 (${Math.round(signView.canvasH)}px)`);
+  check(signView.canvasW >= 240, `${w}px 손님 요청 화면: 서명 캔버스가 너무 좁다 (${Math.round(signView.canvasW)}px)`);
+  check(signView.canvasLeft >= -1 && signView.canvasRight <= clientW + 1, `${w}px 손님 요청 화면: 서명 캔버스가 화면 밖으로 나갔다`);
+  check(signView.boxLeft >= -1 && signView.boxRight <= clientW + 1, `${w}px 손님 요청 화면: 서명 상자가 화면 밖으로 나갔다`);
+  // 캔버스 백킹 스토어가 CSS 크기 × DPR로 맞춰져야 흐릿하지 않고, 좌표도 어긋나지 않는다(initSignPad 계약).
+  check(Math.abs(signView.backingW - signView.canvasW * 2) <= 2, `${w}px 손님 요청 화면: 캔버스 해상도가 화면 크기와 어긋났다 (backing ${signView.backingW} vs css ${Math.round(signView.canvasW)}×2)`);
+  check(Math.abs(signView.backingH - signView.canvasH * 2) <= 2, `${w}px 손님 요청 화면: 캔버스 세로 해상도가 어긋났다 (backing ${signView.backingH} vs css ${Math.round(signView.canvasH)}×2)`);
+  signView.actions.forEach(b => {
+    check(!b.clipped, `${w}px 손님 요청 화면: 버튼 "${b.text}" 라벨이 잘렸다`);
+  });
+  // ── beta.23 최우선 회귀: **스크롤 없이** 한 화면에 다 들어와야 한다 ─────────────────
+  //   beta.22의 이 자리는 scrollIntoView로 버튼을 끌어올린 **뒤에** 재는 관대한 검사였다.
+  //   그래서 "iPhone 13에서 [사장님 확인 받기]가 화면 밖 174px 아래"인 상태가 그대로 통과했다.
+  //   어르신 손님은 화면을 밀어 버튼을 찾지 않는다 — 보이지 않으면 그 자리에서 멈춘다.
+  //   → 기준을 초기 뷰포트(scrollY=0)로 되돌린다. 금액 칸 · 서명판 **전체** · 버튼 **셋 다**가 대상이다.
+  await fitsInFirstViewport(page, `${w}px`);
+  // 아래로 끝까지 내려도 가로 스크롤은 여전히 0이어야 한다(세로만 허용).
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(80);
+  await noHorizontalOverflow(page, '손님 요청 화면(하단까지 스크롤)', w);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(80);
+
+  // ── beta.22 최우선 회귀: **금액을 치는 동안 서명이 지워지면 안 된다** ─────────────
+  //    먼저 서명을 그려 두고 그 위에서 한 글자씩 친다. 캔버스 노드 동일성·획 생존·포커스 유실 0을 함께 본다.
+  //    (beta.20의 입력 노드 유실 규칙은 그대로다 — 빠른 금액 탭도 값만 대입하고 표시 조각만 갈아끼운다.)
+  const sigDraw = await page.locator('.cust-sig #signCanvas').boundingBox();
+  await page.mouse.move(sigDraw.x + 25, sigDraw.y + sigDraw.height * 0.6);
+  await page.mouse.down();
+  await page.mouse.move(sigDraw.x + sigDraw.width * 0.5, sigDraw.y + sigDraw.height * 0.3, { steps: 6 });
+  await page.mouse.move(sigDraw.x + sigDraw.width * 0.8, sigDraw.y + sigDraw.height * 0.7, { steps: 6 });
+  await page.mouse.up();
   await page.evaluate(() => {
     window.__amtBlurs = 0;
     document.addEventListener('focusout', e => { if (e.target && e.target.id === 'custAmountInput') window.__amtBlurs += 1; }, true);
     document.querySelector('#custAmountInput').__bapProbe = 'alive';
+    document.querySelector('#signCanvas').__bapStroke = 'alive';
   });
+  check((await page.evaluate(() => window.__prepaidTestHooks.lockState().signPadEmpty)) === false, `${w}px 손님 요청 화면: 사전 서명이 실제로 그려져야 이후 회귀 검증이 성립한다`);
   if (w <= 640) await page.locator('#custAmountInput').tap(); else await page.locator('#custAmountInput').click();
   for (const [i, ch] of [...'12000'].entries()) {
     await page.keyboard.type(ch, { delay: 30 });
     await page.waitForTimeout(50);
     const s = await page.evaluate(() => {
-      const el = document.querySelector('#custAmountInput');
-      return { same: !!el && el.__bapProbe === 'alive', value: el ? el.value : null, focused: !!el && document.activeElement === el, blurs: window.__amtBlurs, big: (document.querySelector('.cust-req-amt') || {}).textContent };
+      const el = document.querySelector('#custAmountInput'), c = document.querySelector('#signCanvas');
+      return {
+        same: !!el && el.__bapProbe === 'alive', value: el ? el.value : null, focused: !!el && document.activeElement === el,
+        blurs: window.__amtBlurs, canvasSame: !!c && c.__bapStroke === 'alive',
+        empty: window.__prepaidTestHooks.lockState().signPadEmpty
+      };
     });
     check(s.same, `${w}px 손님 금액 입력: ${i + 1}번째 글자에서 입력 노드가 교체됐다(폰 숫자 키보드가 닫힌다)`);
     check(s.focused, `${w}px 손님 금액 입력: ${i + 1}번째 글자 뒤 포커스가 입력창에서 벗어났다`);
     check(s.value === '12000'.slice(0, i + 1), `${w}px 손님 금액 입력: ${i + 1}번째 글자가 입력창에 남아야 한다 (got ${JSON.stringify(s.value)})`);
+    check(s.canvasSame, `${w}px 손님 금액 입력: ${i + 1}번째 글자에서 서명 캔버스 노드가 교체됐다(그린 서명이 사라진다)`);
+    check(s.empty === false, `${w}px 손님 금액 입력: ${i + 1}번째 글자에서 그려 둔 서명 획이 지워졌다`);
   }
   const typedState = await page.evaluate(() => ({
     blurs: window.__amtBlurs,
@@ -565,46 +674,19 @@ async function runViewport(context, url, w) {
   if (w <= 640) await page.locator('[data-a="cust-amt-quick"][data-amount="18000"]').tap(); else await page.locator('[data-a="cust-amt-quick"][data-amount="18000"]').click();
   await page.waitForTimeout(100);
   const quickState = await page.evaluate(() => {
-    const el = document.querySelector('#custAmountInput');
-    return { same: !!el && el.__bapProbe === 'alive', value: el ? el.value : null, big: document.querySelector('.cust-req-amt').textContent.trim() };
-  });
-  check(quickState.same, `${w}px 손님 금액 화면: 빠른 금액 탭이 입력 노드를 갈아치웠다`);
-  check(quickState.value === '18000' && quickState.big === '18,000원', `${w}px 손님 금액 화면: 빠른 금액이 입력창과 큰 숫자에 함께 반영돼야 한다 (got ${JSON.stringify(quickState.value)} / "${quickState.big}")`);
-  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-cust-amount-${w}.png`) }).catch(() => {});
-
-  // 서명 화면 — 캔버스가 충분히 크고(어르신이 손가락으로 이름을 쓴다) 화면 밖으로 나가지 않아야 한다.
-  await page.locator('[data-a="cust-amt-next"]').click();
-  await page.waitForSelector('.cust-sig #signCanvas');
-  await noHorizontalOverflow(page, '손님 서명 화면', w);
-  const signView = await page.evaluate(() => {
-    const box = document.querySelector('.cust-sig'), canvas = document.querySelector('#signCanvas');
-    const br = box.getBoundingClientRect(), cr = canvas.getBoundingClientRect();
-    const amt = document.querySelector('.cust-req-amt');
+    const el = document.querySelector('#custAmountInput'), c = document.querySelector('#signCanvas');
     return {
-      boxLeft: br.left, boxRight: br.right,
-      canvasW: cr.width, canvasH: cr.height, canvasLeft: cr.left, canvasRight: cr.right,
-      backingW: canvas.width, backingH: canvas.height,
-      amtText: amt.textContent.trim(), amtClipped: amt.scrollWidth > amt.clientWidth + 1,
-      actions: [...document.querySelectorAll('.cust-actions button')].map(b => { const r = b.getBoundingClientRect(); return { text: b.innerText.trim(), height: r.height, left: r.left, right: r.right, clipped: b.scrollWidth > b.clientWidth + 1 }; })
+      same: !!el && el.__bapProbe === 'alive', value: el ? el.value : null,
+      big: document.querySelector('.cust-req-amt').textContent.trim(),
+      canvasSame: !!c && c.__bapStroke === 'alive', empty: window.__prepaidTestHooks.lockState().signPadEmpty
     };
   });
-  check(signView.amtText === '18,000원', `${w}px 손님 서명 화면: 서명할 금액이 그대로 보여야 한다 (got "${signView.amtText}")`);
-  check(!signView.amtClipped, `${w}px 손님 서명 화면: 금액이 잘렸다`);
-  check(signView.canvasH >= 140, `${w}px 손님 서명 화면: 서명 캔버스가 너무 낮다 (${Math.round(signView.canvasH)}px)`);
-  check(signView.canvasW >= 240, `${w}px 손님 서명 화면: 서명 캔버스가 너무 좁다 (${Math.round(signView.canvasW)}px)`);
-  check(signView.canvasLeft >= -1 && signView.canvasRight <= clientW + 1, `${w}px 손님 서명 화면: 서명 캔버스가 화면 밖으로 나갔다`);
-  check(signView.boxLeft >= -1 && signView.boxRight <= clientW + 1, `${w}px 손님 서명 화면: 서명 상자가 화면 밖으로 나갔다`);
-  // 캔버스 백킹 스토어가 CSS 크기 × DPR로 맞춰져야 흐릿하지 않고, 좌표도 어긋나지 않는다(initSignPad 계약).
-  check(Math.abs(signView.backingW - signView.canvasW * 2) <= 2, `${w}px 손님 서명 화면: 캔버스 해상도가 화면 크기와 어긋났다 (backing ${signView.backingW} vs css ${Math.round(signView.canvasW)}×2)`);
-  check(Math.abs(signView.backingH - signView.canvasH * 2) <= 2, `${w}px 손님 서명 화면: 캔버스 세로 해상도가 어긋났다 (backing ${signView.backingH} vs css ${Math.round(signView.canvasH)}×2)`);
-  check(signView.actions.length === 3, `${w}px 손님 서명 화면: [사장님 확인 받기]/[지우고 다시]/[뒤로] 세 버튼이 있어야 한다 (${signView.actions.length}개)`);
-  check(signView.actions[0] && signView.actions[0].text === '사장님 확인 받기', `${w}px 손님 서명 화면: 첫 버튼은 [사장님 확인 받기]여야 한다 (got "${signView.actions[0] && signView.actions[0].text}")`);
-  signView.actions.forEach(b => {
-    check(b.height >= 48, `${w}px 손님 서명 화면: 버튼 "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
-    check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 서명 화면: 버튼 "${b.text}"이(가) 화면 밖이다`);
-    check(!b.clipped, `${w}px 손님 서명 화면: 버튼 "${b.text}" 라벨이 잘렸다`);
-  });
-  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-cust-sign-${w}.png`) }).catch(() => {});
+  check(quickState.same, `${w}px 손님 요청 화면: 빠른 금액 탭이 입력 노드를 갈아치웠다`);
+  check(quickState.value === '18000' && quickState.big === '18,000원', `${w}px 손님 요청 화면: 빠른 금액이 입력창과 큰 숫자에 함께 반영돼야 한다 (got ${JSON.stringify(quickState.value)} / "${quickState.big}")`);
+  check(quickState.canvasSame && quickState.empty === false, `${w}px 손님 요청 화면: 빠른 금액 탭이 그려 둔 서명을 지웠다`);
+  // 통합 화면은 세로로 길다 — 그럼에도 가로 스크롤은 절대 생기지 않아야 한다(세로 스크롤은 허용).
+  await noHorizontalOverflow(page, '손님 요청 화면(입력 후)', w);
+  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-cust-compose-${w}.png`) }).catch(() => {});
 
   // 요청을 실제로 넘겨 "사장님 확인" 화면의 요청 블록(금액·서명 썸네일) 기하까지 본다.
   const sigBox = await page.locator('.cust-sig #signCanvas').boundingBox();
@@ -834,6 +916,36 @@ async function imeTypeHangul(page, steps) {
   }, steps);
 }
 
+// 서명 캔버스에 획을 하나 긋는다. 터치 프로파일(iPhone 13 등)에서는 브라우저가 마우스 이벤트를 내주지
+//   않으므로 실제 손가락과 같은 TouchEvent를 직접 만들어 쏜다(캔버스가 듣는 것도 touchstart/touchmove/touchend다).
+async function drawSignature(page, touch) {
+  const box = await page.locator('.cust-sig #signCanvas').boundingBox();
+  if (!touch) {
+    await page.mouse.move(box.x + 20, box.y + box.height * 0.6);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3, { steps: 6 });
+    await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.7, { steps: 6 });
+    await page.mouse.up();
+    return;
+  }
+  await page.evaluate(pts => {
+    const c = document.querySelector('#signCanvas');
+    const mk = (type, x, y) => {
+      const t = new Touch({ identifier: 1, target: c, clientX: x, clientY: y });
+      const list = type === 'touchend' ? [] : [t];
+      return new TouchEvent(type, { bubbles: true, cancelable: true, touches: list, targetTouches: list, changedTouches: [t] });
+    };
+    c.dispatchEvent(mk('touchstart', pts[0][0], pts[0][1]));
+    for (let i = 1; i < pts.length; i += 1) c.dispatchEvent(mk('touchmove', pts[i][0], pts[i][1]));
+    c.dispatchEvent(mk('touchend', pts[pts.length - 1][0], pts[pts.length - 1][1]));
+  }, [
+    [box.x + 20, box.y + box.height * 0.6],
+    [box.x + box.width * 0.35, box.y + box.height * 0.4],
+    [box.x + box.width * 0.5, box.y + box.height * 0.3],
+    [box.x + box.width * 0.8, box.y + box.height * 0.7]
+  ]);
+}
+
 // 실제 디바이스 프로파일(터치·모바일 UA·모바일 뷰포트)로 손님 화면 타이핑을 통째로 검증한다.
 async function runTypingProfile(browser, url, label, contextOpts) {
   const context = await browser.newContext(contextOpts);
@@ -862,7 +974,7 @@ async function runTypingProfile(browser, url, label, contextOpts) {
     });
     // 결과 영역(#custResults)은 부분 갱신의 착지점이다 — 없으면 타이핑마다 전체 render로 되돌아간 것이다.
     check(before.has, `${label} 손님 화면: 결과 영역 #custResults가 있어야 한다(부분 갱신의 착지점 — 없으면 글자마다 전체 재렌더로 되돌아간 것)`);
-    check(before.text.includes('이름을 입력하면'), `${label} 손님 화면: 질의 전에는 안내 문구가 보여야 한다 (got "${before.text}")`);
+    check(before.text.includes('앞글자부터 입력하면'), `${label} 손님 화면: 질의 전 안내도 접두 규칙을 알려 줘야 한다 (got "${before.text}")`);
     check(!before.text.includes('없어요'), `${label} 손님 화면: 질의 전에는 0건 문구를 절대 띄우면 안 된다 (got "${before.text}")`);
     check(before.clear === 0, `${label} 손님 화면: 질의 전에는 ✕ 지우기 버튼이 없어야 한다`);
 
@@ -893,7 +1005,7 @@ async function runTypingProfile(browser, url, label, contextOpts) {
     check(st.value === '', `${label} ✕ 지우기: 검색어가 비워져야 한다 (got ${JSON.stringify(st.value)})`);
     check(st.sameNode, `${label} ✕ 지우기: 입력창 노드가 교체됐다(폰 키보드가 닫힌다)`);
     check(st.focused, `${label} ✕ 지우기: 지운 뒤에도 포커스는 검색창에 남아야 한다`);
-    check(st.rows === 0 && st.hint.includes('이름을 입력하면'), `${label} ✕ 지우기: 질의 전 안내로 되돌아가야 한다 (got "${st.hint}")`);
+    check(st.rows === 0 && st.hint.includes('앞글자부터 입력하면'), `${label} ✕ 지우기: 질의 전 안내로 되돌아가야 한다 (got "${st.hint}")`);
     check(await page.locator('.cust-clear').count() === 0, `${label} ✕ 지우기: 검색어가 비면 ✕ 버튼도 사라져야 한다`);
 
     // ── (4) 한글 조합(IME) '김민수' — 음절 확정 키에서 글자가 유실되면 안 된다 ──
@@ -938,9 +1050,17 @@ async function runTypingProfile(browser, url, label, contextOpts) {
     for (const ch of [...'홍길동']) { await page.keyboard.type(ch, { delay: 30 }); await page.waitForTimeout(40); }
     const none = await typingState(page);
     check(none.rows === 0, `${label} 결과 없음: '홍길동'은 0건이어야 한다 (${none.rows}행)`);
-    check(none.hint.includes("'홍길동'(으)로 등록된 이름이 없어요."), `${label} 결과 없음: 손님이 친 이름을 그대로 되돌려 줘야 한다 (got "${none.hint}")`);
+    check(none.hint.includes("'홍길동'(으)로 시작하는 이름이 없어요."), `${label} 결과 없음: 손님이 친 이름을 그대로 되돌려 줘야 한다 (got "${none.hint}")`);
     check(none.hint.includes('사장님께 말씀해 주세요'), `${label} 결과 없음: 사장님께 말씀해 달라는 안내가 있어야 한다 (got "${none.hint}")`);
-    check(none.hint.includes('초성만 쳐도 돼요'), `${label} 결과 없음: 초성 검색 팁을 한 줄 병기해야 한다 (got "${none.hint}")`);
+    check(none.hint.includes('초성도 돼요'), `${label} 결과 없음: 초성 검색 팁을 한 줄 병기해야 한다 (got "${none.hint}")`);
+    // ── beta.23(LOW-6): 검색은 **앞글자 일치**다. 0건 안내가 그 규칙을 말하지 않으면 손님은 "등록이 안 됐다"고
+    //   오해한 채 돌아선다 — 실제로는 '홍길동'을 '길동'으로 친 경우가 대부분이다. 규칙 + 예시를 그 자리에서 준다.
+    check(none.hint.includes('앞글자부터'), `${label} 결과 없음: "앞글자부터" 입력하라는 접두 규칙 안내가 있어야 한다 (got "${none.hint}")`);
+    check(none.hint.includes('뒷부분'), `${label} 결과 없음: "뒷부분 말고"라는 대비 설명이 있어야 한다 (got "${none.hint}")`);
+    check(none.hint.includes('홍길동') && none.hint.includes("'홍'"), `${label} 결과 없음: 접두 규칙은 예시(홍길동 → '홍')와 함께 줘야 한다 (got "${none.hint}")`);
+    const ph = await page.locator('#custSearchInput').getAttribute('placeholder');
+    check(String(ph).includes('앞글자부터'), `${label} 검색창: placeholder가 접두 규칙을 알려 줘야 한다 (got "${ph}")`);
+    check(String(ph).includes('초성'), `${label} 검색창: placeholder에 초성 안내도 남아 있어야 한다 (got "${ph}")`);
     check(none.sameNode && none.focused && none.blurs === 0, `${label} 결과 없음: 0건이어도 입력창 노드·포커스는 그대로여야 한다`);
 
     // ── (7) 결과 없음 문구의 이스케이프 — 손님이 친 글자는 절대 HTML로 해석되지 않는다 ──
@@ -955,6 +1075,134 @@ async function runTypingProfile(browser, url, label, contextOpts) {
     check(escaped.text.includes('<img src=x onerror=alert(1)>&'), `${label} 결과 없음: 입력값이 글자 그대로 보여야 한다 (got "${escaped.text}")`);
     check(escaped.html.includes('&amp;') && escaped.html.includes('&lt;img'), `${label} 결과 없음: 입력값은 esc()를 거쳐야 한다`);
 
+    // ── (8) 통합 요청 화면(beta.22): 실제 디바이스 프로파일에서도 금액 타이핑이 서명을 지우면 안 된다 ──
+    //   4뷰포트 검증(runViewport)과 같은 회귀를 **터치·모바일 UA·모바일 뷰포트**에서 한 번 더 못 박는다.
+    //   이 화면은 손님 손이 가장 오래 머무는 자리이고, 여기서 서명이 사라지면 손님은 처음부터 다시 써야 한다.
+    await page.locator('#custSearchInput').fill('이서연');
+    await page.waitForSelector('.cust-ask', { timeout: 4000 });
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('.cust-bal');
+    await page.locator('[data-a="cust-request"]').click();
+    await page.waitForSelector('#custAmountInput');
+    await page.waitForSelector('.cust-sig #signCanvas');
+    check(await page.locator('#custAmountInput').count() === 1 && await page.locator('.cust-sig #signCanvas').count() === 1,
+      `${label} 통합 요청 화면: 금액 칸과 서명 캔버스가 한 화면에 함께 있어야 한다`);
+    await drawSignature(page, touch);
+    await page.evaluate(() => {
+      window.__composeBlurs = 0;
+      document.addEventListener('focusout', e => { if (e.target && e.target.id === 'custAmountInput') window.__composeBlurs += 1; }, true);
+      document.querySelector('#custAmountInput').__bapProbe = 'alive';
+      document.querySelector('#signCanvas').__bapStroke = 'alive';
+    });
+    check((await page.evaluate(() => window.__prepaidTestHooks.lockState().signPadEmpty)) === false, `${label} 통합 요청 화면: 사전 서명이 실제로 그려져야 회귀 검증이 성립한다`);
+    if (touch) await page.locator('#custAmountInput').tap(); else await page.locator('#custAmountInput').click();
+    for (const [i, ch] of [...'12345'].entries()) {
+      await page.keyboard.type(ch, { delay: 30 });
+      await page.waitForTimeout(50);
+      const s = await page.evaluate(() => {
+        const el = document.querySelector('#custAmountInput'), c = document.querySelector('#signCanvas');
+        return {
+          same: !!el && el.__bapProbe === 'alive', value: el ? el.value : null, focused: !!el && document.activeElement === el,
+          blurs: window.__composeBlurs, canvasSame: !!c && c.__bapStroke === 'alive',
+          empty: window.__prepaidTestHooks.lockState().signPadEmpty
+        };
+      });
+      check(s.same, `${label} 통합 요청 화면: ${i + 1}번째 글자에서 금액 입력 노드가 교체됐다`);
+      check(s.focused && s.blurs === 0, `${label} 통합 요청 화면: ${i + 1}번째 글자에서 포커스를 잃었다 (blurs=${s.blurs})`);
+      check(s.value === '12345'.slice(0, i + 1), `${label} 통합 요청 화면: ${i + 1}번째 글자가 입력창에 남아야 한다 (got ${JSON.stringify(s.value)})`);
+      check(s.canvasSame, `${label} 통합 요청 화면: ${i + 1}번째 글자에서 서명 캔버스 노드가 교체됐다`);
+      check(s.empty === false, `${label} 통합 요청 화면: ${i + 1}번째 글자에서 그려 둔 서명이 지워졌다`);
+    }
+    // [지우고 다시]는 서명만 지운다 — 금액은 그대로여야 한다.
+    if (touch) await page.locator('[data-a="cust-sign-clear"]').tap(); else await page.locator('[data-a="cust-sign-clear"]').click();
+    await page.waitForTimeout(100);
+    const cleared = await page.evaluate(() => ({
+      value: document.querySelector('#custAmountInput').value,
+      empty: window.__prepaidTestHooks.lockState().signPadEmpty,
+      canvasSame: !!document.querySelector('#signCanvas') && document.querySelector('#signCanvas').__bapStroke === 'alive'
+    }));
+    check(cleared.empty === true, `${label} 통합 요청 화면: [지우고 다시]가 서명을 실제로 지워야 한다`);
+    check(cleared.value === '12345', `${label} 통합 요청 화면: [지우고 다시]는 금액을 건드리면 안 된다 (got ${JSON.stringify(cleared.value)})`);
+    check(cleared.canvasSame, `${label} 통합 요청 화면: [지우고 다시]가 캔버스 노드를 갈아치우면 안 된다`);
+
+    // ── beta.23 HIGH-1: **실기기 가시영역**에서 스크롤 없이 한 화면 ────────────────────
+    //   devices['iPhone 13'].viewport(390×664)는 그 기기 Safari의 실제 가시높이다 — 780 고정 뷰포트가
+    //   가려 주던 결함이 여기서 드러난다. 데스크톱(≥768px)은 폰 압축 규칙 대상이 아니라 제외한다.
+    const vp = page.viewportSize();
+    if (vp && vp.width <= 767) await fitsInFirstViewport(page, label);
+
+    // ── beta.23 MEDIUM-3: 화면 회전 — 획을 보존한 채 백킹 스토어를 다시 잡아야 한다 ──────
+    //   예전 initSignPad는 백킹 스토어를 최초 1회만 잡았다. 회전하면
+    //     (a) 넓어진 CSS 폭의 오른쪽 12%가 아예 기록되지 않고(손님이 그어도 아무것도 안 남는다)
+    //     (b) 이미 그린 획은 새 크기에 눌려 압축돼 보인다.
+    //   둘 다 **아무 안내 없이** 일어난다 — 손님은 자기가 남긴 서명이 왜곡된 줄 모른다.
+    if (vp) {
+      await drawSignature(page, touch);
+      await page.waitForTimeout(80);
+      const rot0 = await page.evaluate(() => {
+        const st = window.__prepaidTestHooks.lockState(); const c = document.querySelector('#signCanvas');
+        c.__bapRot = 'alive';
+        return { empty: st.signPadEmpty, strokes: st.signPadStrokes };
+      });
+      check(rot0.empty === false && rot0.strokes >= 1, `${label} 회전: 회전 전에 서명이 실제로 그려져 있어야 검증이 성립한다 (strokes=${rot0.strokes})`);
+      await page.setViewportSize({ width: vp.height, height: vp.width });
+      await page.waitForTimeout(450);
+      const rot1 = await page.evaluate(() => {
+        const st = window.__prepaidTestHooks.lockState(); const c = document.querySelector('#signCanvas');
+        const r = c.getBoundingClientRect(), ratio = Math.max(window.devicePixelRatio || 1, 1);
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        let ink = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] < 100 && d[i + 1] < 100 && d[i + 2] < 100) ink += 1;
+        return { empty: st.signPadEmpty, strokes: st.signPadStrokes, sameNode: c.__bapRot === 'alive', ink,
+          backW: c.width, backH: c.height, cssW: r.width, cssH: r.height, ratio };
+      });
+      check(rot1.sameNode, `${label} 회전: 캔버스 노드가 교체되면 안 된다(3중 보호 계약 — 노드가 바뀌면 획도 사라진다)`);
+      check(rot1.empty === false && rot1.strokes === rot0.strokes && rot1.ink > 0,
+        `${label} 회전: 그려 둔 서명이 보존돼야 한다 (empty=${rot1.empty} strokes=${rot0.strokes}→${rot1.strokes} ink=${rot1.ink})`);
+      check(Math.abs(rot1.backW - rot1.cssW * rot1.ratio) <= 2,
+        `${label} 회전: 백킹 스토어 가로가 새 CSS 폭×DPR로 다시 잡혀야 한다 (backing ${rot1.backW} vs ${Math.round(rot1.cssW * rot1.ratio)})`);
+      check(Math.abs(rot1.backH - rot1.cssH * rot1.ratio) <= 2,
+        `${label} 회전: 백킹 스토어 세로가 새 CSS 높이×DPR로 다시 잡혀야 한다 (backing ${rot1.backH} vs ${Math.round(rot1.cssH * rot1.ratio)})`);
+      // 넓어진 폭의 **오른쪽 끝까지** 실제로 기록되는가 — 회전 전 백킹 스토어를 그대로 쓰면 여기서 잉크가 끊긴다.
+      await page.locator('[data-a="cust-sign-clear"]').click();
+      await page.waitForTimeout(80);
+      const edge = await page.evaluate(() => {
+        const c = document.querySelector('#signCanvas'), r = c.getBoundingClientRect();
+        const mk = (t, x, y) => new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, buttons: 1 });
+        const y = r.top + r.height / 2;
+        c.dispatchEvent(mk('mousedown', r.left + 20, y));
+        for (let x = 20; x <= r.width - 20; x += 8) c.dispatchEvent(mk('mousemove', r.left + x, y));
+        c.dispatchEvent(mk('mousemove', r.left + r.width - 20, y));// 끝점을 정확히 찍는다(측정 오차 제거)
+        c.dispatchEvent(mk('mouseup', r.left + r.width - 20, y));
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        let last = -1;
+        for (let x = c.width - 1; x >= 0; x -= 1) { let hit = false;
+          for (let yy = 0; yy < c.height; yy += 1) { const o = (yy * c.width + x) * 4; if (d[o] < 100 && d[o + 1] < 100 && d[o + 2] < 100) { hit = true; break; } }
+          if (hit) { last = x; break; } }
+        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        return { last, expect: Math.round((r.width - 20) * ratio), backW: c.width };
+      });
+      check(edge.last > 0 && Math.abs(edge.last - edge.expect) <= 12,
+        `${label} 회전: 회전 뒤 서명판 오른쪽 끝까지 기록돼야 한다 (잉크 끝 ${edge.last} / 기대 ${edge.expect} / 백킹 폭 ${edge.backW})`);
+      await page.setViewportSize(vp);
+      await page.waitForTimeout(450);
+      await page.locator('[data-a="cust-sign-clear"]').click();
+      await page.waitForTimeout(80);
+    }
+
+    // ── beta.23 LOW-7: 서명을 하면 "서명을 해주세요." 오류 문구가 그 자리에서 사라져야 한다 ──
+    //   남아 있으면 손님은 자기가 뭘 잘못한 줄 알고 [지우고 다시]를 눌러 처음부터 다시 쓴다.
+    await page.locator('#custAmountInput').fill('1000');
+    await page.waitForTimeout(80);
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForTimeout(150);
+    const signErrBefore = (await page.locator('#custSignErr').innerText()).trim();
+    check(signErrBefore.includes('서명'), `${label} 무서명 제출: 서명을 요구하는 안내가 나와야 한다 (got "${signErrBefore}")`);
+    await drawSignature(page, touch);
+    await page.waitForTimeout(150);
+    const signErrAfter = (await page.locator('#custSignErr').innerText()).trim();
+    check(signErrAfter === '', `${label} 서명 후: "${signErrBefore}" 문구가 즉시 사라져야 한다 (got "${signErrAfter}")`);
+
     check(pageErrors.length === 0, `${label} 손님 화면 타이핑: 콘솔/페이지 오류가 없어야 한다 (${JSON.stringify(pageErrors.slice(0, 3))})`);
   } finally {
     await page.close();
@@ -968,9 +1216,9 @@ async function main() {
   const chromePath = findChrome();
   const browser = await chromium.launch({ headless: true, ...(chromePath ? { executablePath: chromePath } : {}) });
   try {
-    for (const w of [360, 390, 412, 768]) {
+    for (const { w, h } of VIEWPORTS) {
       const context = await browser.newContext({
-        viewport: { width: w, height: 780 },
+        viewport: { width: w, height: h },
         isMobile: w <= 640,
         hasTouch: w <= 640,
         deviceScaleFactor: 2
@@ -978,7 +1226,7 @@ async function main() {
       // 중계 서버 호출은 전부 차단(로컬 렌더링만 검증한다).
       await context.route('**/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '[]' }));
       try {
-        await runViewport(context, url, w);
+        await runViewport(context, url, w, h);
       } finally {
         await context.close();
       }
@@ -1001,7 +1249,7 @@ async function main() {
     failures.forEach(f => console.error('  · ' + f));
     process.exit(1);
   }
-  console.log(`✅ 반응형 검증 ${checks} 통과 (360 / 390 / 412 / 768px)`);
+  console.log(`✅ 반응형 검증 ${checks} 통과 (${VIEWPORTS.map(v => `${v.w}×${v.h}`).join(' / ')})`);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });

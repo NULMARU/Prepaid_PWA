@@ -300,7 +300,11 @@
 .cust-req-field{margin-top:12px;text-align:left}
 .cust-req-field label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px}
 .cust-req-field input{min-height:60px;font-size:22px;font-weight:800;text-align:center;border-radius:14px;border:2px solid var(--primary);background:#fff;width:100%;padding:0 12px}
+/* 통합 요청 화면(beta.22)의 서명 구획 제목 — 금액 칸과 캔버스 사이의 경계선 역할을 한다. */
+.cust-sign-title{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font-size:14px;font-weight:800;color:var(--muted);word-break:keep-all}
 .cust-sig{margin-top:10px}
+/* 통합 화면은 세로로 길다 — 카드가 뷰포트를 넘으면 화면 자체가 세로로 스크롤된다(가로는 절대 넘지 않는다). */
+.cust-screen{overflow-x:hidden}
 /* "사장님 확인" 화면의 요청 내용 — 금액이 화면에서 가장 크다(사장님이 눈으로 검증하는 대상). */
 .pin-req{margin:-14px 0 20px;padding:10px 14px;border-radius:14px;background:#fff;border:1.5px solid var(--line);max-width:300px;width:100%;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.04)}
 .pin-req-label{font-size:12px;font-weight:800;color:var(--muted)}
@@ -325,6 +329,53 @@
 .cust-chip.void{background:var(--danger-soft);color:var(--danger)}
 .cust-foot{margin-top:22px;text-align:center}
 .cust-foot button{min-height:auto;padding:8px 16px;font-size:12px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px}
+/* ─── beta.23: 손님 통합 요청 화면을 "폰 세로 한 화면"에 담는다 ────────────────────
+   beta.22에서 금액 화면과 서명 화면을 하나로 합치면서 카드가 세로 1070px까지 자랐다.
+   실측(iPhone 13, 가시 높이 664px): 서명판은 180px 중 107px만 보이고 [사장님 확인 받기]는
+   화면 밖 174px 아래, [지우고 다시]·[뒤로]는 그보다 더 아래였다. 어르신 손님은 "아래로 밀어
+   버튼을 찾는" 조작을 하지 않는다 — 그 자리에서 멈춘다(현장에서 곧바로 막히는 결함이다).
+   → 폰(≤767px)에서만 세로를 압축한다. **정보는 하나도 지우지 않는다**:
+     이름·소속, 금액 표시, 현재 잔액, 사용 후 예상 잔액, 서명판, 버튼 3개가 전부 그대로 있고
+     크기·여백만 줄어든다. 태블릿(≥768px)은 반대로 서명판을 더 크게 준다(전용 태블릿 비치가 권장 구성).
+   ⚠️ 여기는 전부 CSS다 — 캔버스 노드를 만들거나 갈아치우지 않는다(3중 보호 계약 불변). */
+.cust-who{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:2px 8px}
+.cust-who .cust-name{margin-top:0}
+/* 서명판 높이는 뷰포트 세로에 비례한다 — 세로가 짧은 기기에서 캔버스가 화면을 독차지하지 않게.
+   최소 120px는 보장한다(그 아래로는 손가락으로 이름을 쓸 수 없다). 회전하면 값이 바뀌므로
+   백킹 스토어 재설정이 반드시 따라와야 한다(initSignPad의 resize — 획을 보존한 채 다시 그린다). */
+/* svh(작은 뷰포트 높이)를 쓰는 이유: dvh는 주소창이 접혔다 펴질 때마다 값이 변한다 → 손님이 서명하는
+   도중에 캔버스 높이가 바뀌어 그림이 다시 그려진다(보존은 되지만 눈앞에서 출렁인다).
+   svh는 "주소창이 다 보이는 최악의 경우" 높이라 스크롤 중에도 변하지 않고, 그 최악의 경우에도 화면에 들어온다.
+   첫 줄 150px는 svh를 모르는 옛 브라우저용 대비값이다(둘째 선언 전체가 무시된다). */
+.cust-sig .signature{height:150px;height:clamp(120px,20svh,170px)}
+@media(min-width:768px){.cust-sig .signature{height:220px}}
+@media(max-width:767px){
+.cust-screen{padding:12px 14px 20px}
+.cust-screen.cust-compose .cust-head{margin-bottom:8px}
+.cust-screen.cust-compose .cust-title{display:none}
+.cust-screen.cust-compose .cust-card{padding:14px}
+.cust-compose .cust-who .cust-name{font-size:22px;letter-spacing:-.5px}
+.cust-compose .cust-req-step{margin-top:6px;font-size:13px}
+.cust-compose .cust-req-amt{font-size:30px;margin:2px 0 0;letter-spacing:-.9px}
+.cust-compose .cust-req-bal{margin-top:2px;font-size:13px;line-height:1.45}
+.cust-compose .cust-req-bal br{display:none}
+.cust-compose .cust-req-bal #custAmtAfter::before{content:' · '}
+.cust-compose .cust-req-err{min-height:0;margin-top:3px;font-size:13px}
+.cust-compose .cust-req-err:empty{margin-top:0}
+.cust-compose .cust-req-quick{margin-top:6px}
+.cust-compose .cust-req-quick button{min-height:48px;font-size:16px}
+.cust-compose .cust-req-field{margin-top:8px}
+/* 라벨은 "시각적으로만" 숨긴다 — 바로 위 "얼마를 쓰시나요?"와 글자가 겹치기 때문이다.
+   DOM에서 지우지는 않는다(for/aria 연결 유지 → 스크린리더에는 그대로 읽힌다). */
+.cust-compose .cust-req-field label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.cust-compose .cust-req-field input{min-height:56px;font-size:24px}
+.cust-compose .cust-sign-title{margin-top:8px;padding-top:8px;font-size:13px}
+.cust-compose .cust-sig{margin-top:6px}
+/* 버튼 3개 — [사장님 확인 받기]는 한 줄 전체(가장 큰 표적), 보조 2개는 나란히. 세로 68px를 돌려받는다. */
+.cust-req-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.cust-req-actions button{min-height:52px;font-size:16px}
+.cust-req-actions button:first-child{grid-column:1/-1}
+}
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
 /* 폰: 빠른 금액은 3개를 한 줄에(세로로 길게 늘어져 스크롤되는 것 방지).
    모달 버튼은 column-reverse — 마지막에 오는 [서명 후 저장]이 맨 위(엄지 근처)로 온다. 순서만 바뀌고 DOM/문구는 불변. */
@@ -361,7 +412,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.21',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.23',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -390,6 +441,9 @@ const COMMON_DEPTS=[...DEFAULT_DEPTS];
 //   저장소·서버·백업 어디에도 나가지 않는다(state.data 바깥이라 backupCore/repo.apply의 사정권 밖이다).
 //   "손님은 요청을 만들고, 사장님은 기록을 만든다" — 이 4개는 요청이지 기록이 아니다.
 const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+// lastInputAt = 마지막 **사용자 조작** 시각. 유휴 만료의 유일한 기준이다(렌더는 이 값을 건드리지 못한다).
+//   init()이 첫 render를 부르기 전에 반드시 초기화돼 있어야 하므로 선언을 여기(최상단 상태 묶음)에 둔다.
+let lastInputAt=Date.now();
 let repo,signPad=null,modalOpenKey=null,modalReturnFocus=null,modalKeydownHandler=null,qrStream=null,qrDetector=null,qrLoopActive=false;
 // 유휴 타이머(자동 잠금·손님 화면 자동 복귀)와 PIN 지연 카운트다운 타이머 — init()이 위에서 먼저 돌기 때문에 선언은 여기 최상단에 둔다.
 let idleTimer=null,pinDelayTimer=null,recoveryTimer=null,handoffTtlTimer=null;
@@ -456,12 +510,21 @@ lockState:()=>({locked:!!state.pinLocked,lockView:state.lockView,pinContext:str(
 // B단계 요청(휘발성)의 관측점. 서명은 **길이만** 내보낸다(그림 자체는 훅으로도 꺼내지 않는다) —
 //   폐기 경로가 대상만 지우고 금액·서명을 남기지 않았는지 확인하는 용도다.
 custAmount:str(state.custAmount),signPadLive:!!signPad,
+// beta.22 통합 화면 관측점 — 캔버스에 획이 남아 있는지(그림 자체는 여전히 꺼내지 않는다).
+//   [지우고 다시]가 서명만 지웠는지, 유휴 복귀가 둘 다 버렸는지를 하니스가 못 박는 데 쓴다.
+// beta.23: 회전·리사이즈에서 획이 보존됐는지 못 박기 위한 관측점 — **개수만** 센다(좌표·그림은 내보내지 않는다).
+signPadEmpty:!signPad||signPad.isEmpty(),signPadStrokes:signPad&&signPad.strokeCount?signPad.strokeCount():0,composeActive:custComposeActive(),
+// 유휴 만료 기준이 되는 "마지막 사용자 조작 이후 경과(ms)" — 렌더가 시계를 연장하지 못하는지 검증용.
+idleSinceInput:now()-lastInputAt,
 pendingAmount:num(state.pendingAmount),pendingSignLen:str(state.pendingSign).length,
 modalPreAmount:num(state.modal&&state.modal.preAmount),modalPreSignLen:str(state.modal&&state.modal.preSign).length,
 // 입력 중인 PIN은 **길이만** 노출한다(값은 절대 내보내지 않는다) — 유휴 복귀가 부분 입력을 실제로 지웠는지 검증용.
 pinLen:str(state.pinInput).length}),
 // 순수 판정 함수 2개(읽기 전용, 저장·전송 경로 없음) — 돈 파서와 "지금 화면을 갈아엎으면 안 되는가" 판정을
 //   하니스가 직접 못 박기 위해 노출한다. 이 둘이 느슨해지면 금액이 조용히 바뀌고 서명이 사라진다.
+// 최후의 방벽(custComposeGuard) 검증용 — 하니스가 "게이트를 빼먹은 새 경로"를 흉내 내 render를 직접 부른다.
+//   프로덕션 코드에는 이 훅을 부르는 곳이 없다(순수 재렌더 — 저장·전송 경로 없음).
+forceRender:()=>render(),custComposeActive,
 parseWon,renderIsDisruptive,signInProgress,buildCloudBackupBlob,decryptBlob,matchAgencyByRegion,monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,relayBackupSilent,maybeMonthlyAutoBackup,refreshInboxCount:(...a)=>refreshInboxCount(...a)};
 
 // ── 유틸리티 ──
@@ -728,6 +791,11 @@ let lastInboxCountAt=0;
 //   ②까지 보는 이유: 획을 몇 개 그은 뒤 잠깐 손을 떼는 순간이 서명 중에 제일 흔하다(그 틈에 지워지면 처음부터 다시다).
 //   반대로 **빈 캔버스는 막지 않는다** — 캔버스가 떠 있다는 사실만으로 렌더를 영구 차단하면 화면이 굳는다.
 function signInProgress(){if(!signPad)return false;try{if(typeof signPad.drawing==='function'&&signPad.drawing())return true;if(typeof signPad.isEmpty==='function'&&!signPad.isEmpty())return true}catch(e){}return false}
+// beta.22(손님 통합 요청 화면 = 금액 + 서명 한 화면)에서 이 판정의 무게가 크게 늘었다:
+//   같은 화면에 입력창과 캔버스가 공존하므로, 여기서 false가 한 번 나면 **금액이든 서명이든 하나는 죽는다**.
+//   두 조건이 그대로 그 화면을 덮는다 — 금액을 치는 중이면 activeElement가 INPUT(아래), 서명이 그려져
+//   있으면 signInProgress(위). 빈 캔버스 + 포커스 없음일 때만 false이고, 그때는 전체 render가 잃을 것이 없다.
+//   그래도 게이트는 호출부가 지켜야 동작하므로, 마지막 방벽으로 render() 입구의 custComposeGuard가 한 겹 더 있다.
 function renderIsDisruptive(){if(state.modal)return true;if(signInProgress())return true;const ae=document.activeElement;if(!ae)return false;const tag=str(ae.tagName).toUpperCase();return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||tag==='CANVAS'}
 async function refreshInboxCount(){try{if(!relayRegistered()||!navigator.onLine)return;lastInboxCountAt=now();const rid=str(state.data.meta.restaurantId);const r=await fetch(relayBase()+'/api/inbox-count?restaurant_id='+encodeURIComponent(rid));if(!r.ok)return;const j=await r.json().catch(()=>null);if(!j||typeof j.count!=='number')return;state.inboxCount=j.count;if(state.loaded&&!renderIsDisruptive())render()}catch(e){/* 구서버·오프라인 호환: 조용히 무시 */}}
 // 앱으로 돌아왔을 때 stale 배지 보완(S10) — 마지막 조회 후 60초가 지난 경우에만 다시 조회한다.
@@ -1096,6 +1164,7 @@ function customerViewAllowed(){return !!state.data.meta.pinHash&&state.pinMode!=
 function custDupBase(name){return str(name).replace(/·\d+$/,'')}
 function custDupKey(e){const label=orgDeptLabel(e)||'부서 없음';const b=custDupBase(e&&e.name);return b?JSON.stringify([label,b]):''}
 // 손님 검색 결과 행 만들기. 질의가 비면 아무도 내보내지 않는다(명단 0명 — 손님에게 전체 명단을 보여주지 않는다).
+// ⚠️ 매칭은 **접두 일치**(nameStartsWith)다 — 사장님 홈 검색(부분 일치)과 규칙이 다르다. 위 매처 주석 참조.
 function custRows(active,q){
 if(!str(q))return[];
 const groups=new Map();
@@ -1103,8 +1172,8 @@ active.forEach(e=>{const k=custDupKey(e);if(!k)return;if(!groups.has(k))groups.s
 const merged=new Map();groups.forEach((list,k)=>{if(list.length>=2)merged.set(k,list)});
 const rows=[],seen=new Set();
 active.forEach(e=>{const label=orgDeptLabel(e)||'부서 없음';const k=custDupKey(e);
-if(k&&merged.has(k)){if(seen.has(k))return;const list=merged.get(k);if(!list.some(v=>nameMatches(v.name,q)))return;seen.add(k);rows.push({dup:true,label,name:JSON.parse(k)[1],count:list.length});return}
-if(!nameMatches(e.name,q))return;
+if(k&&merged.has(k)){if(seen.has(k))return;const list=merged.get(k);if(!list.some(v=>nameStartsWith(v.name,q)))return;seen.add(k);rows.push({dup:true,label,name:JSON.parse(k)[1],count:list.length});return}
+if(!nameStartsWith(e.name,q))return;
 rows.push({dup:false,id:e.id,label,name:e.name})});
 return rows}
 function custRowHtml(r){
@@ -1146,13 +1215,14 @@ const q=str(state.custQuery);
 const shop=state.data.meta.shopName||APP;
 const head=`<div class="cust-head"><div class="cust-shop">${esc(shop)}</div><div class="cust-title">내 선금 잔액 확인</div></div>`;
 const foot=`<div class="cust-foot"><button data-a="lock-to-pin">사장님용 잠금 해제</button></div>`;
-const wrap=body=>`<div class="cust-screen">${head}${body}${foot}</div>`;
+// mod = 화면별 수식 클래스(현재는 통합 요청 화면의 'cust-compose' 하나). CSS로 폰 세로 압축을 걸 자리다.
+const wrap=(body,mod)=>`<div class="cust-screen${mod?' '+mod:''}">${head}${body}${foot}</div>`;
 const sel=state.custSelectedId?d.active.find(e=>e.id===state.custSelectedId):null;
 let stage=sel?(state.custStage||'search'):'search';
 // 잔액을 신뢰할 수 없는 상태(증표와 같은 3중 검증 실패)에서는 요청 작성 화면을 아예 띄우지 않는다 —
 //   "잔액 초과 불가"를 걸 기준 숫자가 없기 때문이다. 이때 손님에게 남는 길은 [사장님 부르기]뿐이다.
 const verifyBad=!!(state.custVerify&&(state.custVerify.integrityOk===false||state.custVerify.crossOk===false));
-if(verifyBad&&(stage==='amount'||stage==='sign'))stage='self';
+if(verifyBad&&stage==='compose')stage='self';
 // ③ 사장님 호출(인계) 안내 단계는 이 화면에 없다 — 인계 버튼은 곧바로 PIN 화면("사장님 확인")으로 넘어간다.
 //    안내 화면을 한 장 두면 사장님이 [사장님용 잠금 해제]를 또 찾아 눌러야 했다(탭 2번 → 1번).
 // ② 본인 화면 — 잔액은 증표(openReceipt)와 똑같은 3중 검증을 통과했을 때만 숫자로 보여준다.
@@ -1170,34 +1240,44 @@ const txs=recent.length?recent.map(t=>custTxHtml(t,d.voided)).join(''):'<div cla
 //   — 막다른 길로 밀어넣지 않고 처음부터 [사장님 부르기]만 남긴다.
 const reqBtn=(bad||num(sel.balance)<=0)?'':'<button class="btn-primary" data-a="cust-request">사용 요청하기</button>';
 return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</div><div class="cust-name">${esc(sel.name)}님</div>${balBlock}<div class="cust-tx-title">최근 5건</div><div class="cust-txs">${txs}</div><div class="cust-actions">${reqBtn}<button class="${bad?'btn-primary':'btn-secondary'}" data-a="cust-call-owner">사장님 부르기</button><button class="btn" data-a="cust-back">처음으로</button></div></div></div>`)}
-// ① 금액 입력 — 큰 숫자 + 빠른 금액(사용 모달과 같은 3종) + 직접 입력.
-//   ⚠️ 입력창(#custAmountInput)은 손님이 타이핑하는 내내 살아 있어야 한다(beta.20에서 배운 것 —
-//     전체 재렌더가 포커스된 입력 노드를 들어내면 폰의 소프트키보드가 닫힌다). 갱신은 custAmountPatch가 맡는다.
-if(stage==='amount'){
-const view=custAmountView(sel.balance);
-const quick=[9000,18000,27000].map(v=>`<button data-a="cust-amt-quick" data-amount="${v}">${esc(money(v))}</button>`).join('');
-return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</div><div class="cust-name">${esc(sel.name)}님</div><div class="cust-req-step">1 / 2 · 얼마를 쓰시나요?</div><div class="cust-req-amt" id="custAmtBig">${esc(view.big)}</div><div class="cust-req-bal"><span id="custAmtBal">${esc(view.bal)}</span><br><span id="custAmtAfter">${esc(view.after)}</span></div><div class="cust-req-err" id="custAmtErr">${esc(view.c.err)}</div><div class="quick cust-req-quick">${quick}</div><div class="cust-req-field"><label for="custAmountInput">직접 넣기 (원)</label><input id="custAmountInput" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="예: 9000" aria-label="사용할 금액을 원 단위로 입력" value="${esc(state.custAmount)}"></div><div class="cust-actions"><button class="btn-primary" data-a="cust-amt-next">다음 (서명)</button><button class="btn" data-a="cust-compose-back">뒤로</button></div></div></div>`)}
-// ② 서명 — 사용 모달과 **같은 캔버스 로직**(initSignPad)을 그대로 재사용한다.
+// ① 요청 작성 — **금액과 서명이 한 화면**이다(beta.22). 예전에는 금액 화면 → 서명 화면 2장이었다.
+//   화면을 나누면 어르신이 [다음]을 한 번 더 찾아 눌러야 하고, 두 화면 사이에서 유휴 시계가 한 번 더 돈다.
+//   합치면 손님은 "얼마 · 이름" 한 번에 끝낸다.
+//   ⚠️⚠️ 합치면서 생긴 새 위험 — 입력창과 캔버스가 **같은 화면에 공존**한다. 이 앱은 전면 재렌더 구조라,
+//     금액 한 글자마다 render()가 돌면 #app.innerHTML이 통째로 갈리고 **그린 서명이 사라진다**.
+//     (beta.20 모바일 IME 사고, beta.21 토스트·네트워크 사고와 같은 계열의 사고다.)
+//     방어는 3중이다 — 셋 다 있어야 한다:
+//       (1) 금액 입력·빠른 금액은 render를 부르지 않는다 → custAmountPatch가 표시 세 조각만 갈아끼운다.
+//       (2) 비동기 render(토스트·online/offline·visibilitychange·refreshInboxCount·QR/WebAuthn 감지)는
+//           renderIsDisruptive() 게이트를 지난다 — 획이 있으면 signInProgress()가 true라 전부 미뤄진다.
+//       (3) 최후의 방벽: render() 자체가 custComposeGuard()로 강등된다(획이 있는 통합 화면에서는
+//           전체 재렌더 대신 부분 갱신). 어떤 경로가 실수로 render를 불러도 서명은 살아남는다.
 //   서명은 캔버스 인스턴스가 아니라 dataURL로만 넘긴다([사장님 확인 받기]를 누르는 순간 toDataUrl → state.pendingSign).
 //   작성 중인 서명은 state에 두지 않는다 — 캔버스가 곧 보관함이고, 화면이 바뀌면 DOM과 함께 사라지는 것이
 //   '요청은 휘발성'이라는 약속을 가장 확실하게 지키는 방법이다(지워야 할 사본이 아예 없다).
-if(stage==='sign'){
-const c=custAmountCheck(sel.balance);
-return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</div><div class="cust-name">${esc(sel.name)}님</div><div class="cust-req-step">2 / 2 · 여기에 서명해 주세요</div><div class="cust-req-amt">${esc(money(c.amount))}</div><div class="sig-box cust-sig"><canvas id="signCanvas" class="signature"></canvas></div><div class="cust-req-err" id="custSignErr"></div><div class="cust-actions"><button class="btn-primary" data-a="cust-sign-submit">사장님 확인 받기</button><button class="btn-secondary" data-a="cust-sign-clear">지우고 다시</button><button class="btn" data-a="cust-compose-back">뒤로</button></div></div></div>`)}
+if(stage==='compose'){
+const view=custAmountView(sel.balance);
+const quick=[9000,18000,27000].map(v=>`<button data-a="cust-amt-quick" data-amount="${v}">${esc(money(v))}</button>`).join('');
+// beta.23: 이름·소속을 한 줄(.cust-who)로 묶고 화면에 'cust-compose'를 달아 폰에서만 세로를 압축한다.
+//   부분 갱신 대상 4조각(#custAmtBig·#custAmtBal·#custAmtAfter·#custAmtErr)의 id는 그대로다 —
+//   여기 id가 하나라도 바뀌면 custAmountPatch가 false를 돌려 render로 빠지고 서명이 사라진다.
+return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-who"><span class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</span><span class="cust-name">${esc(sel.name)}님</span></div><div class="cust-req-step">얼마를 쓰시나요?</div><div class="cust-req-amt" id="custAmtBig">${esc(view.big)}</div><div class="cust-req-bal"><span id="custAmtBal">${esc(view.bal)}</span><br><span id="custAmtAfter">${esc(view.after)}</span></div><div class="cust-req-err" id="custAmtErr">${esc(view.c.err)}</div><div class="quick cust-req-quick">${quick}</div><div class="cust-req-field"><label for="custAmountInput">직접 넣기 (원)</label><input id="custAmountInput" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="예: 9000" aria-label="사용할 금액을 원 단위로 입력" value="${esc(state.custAmount)}"></div><div class="cust-sign-title">여기에 서명해 주세요</div><div class="sig-box cust-sig"><canvas id="signCanvas" class="signature"></canvas></div><div class="cust-req-err" id="custSignErr"></div><div class="cust-actions cust-req-actions"><button class="btn-primary" data-a="cust-sign-submit">사장님 확인 받기</button><button class="btn-secondary" data-a="cust-sign-clear">지우고 다시</button><button class="btn" data-a="cust-compose-back">뒤로</button></div></div></div>`,'cust-compose')}
 // ① 본인 확인 카드 — 남의 잔액을 잘못 보는 일을 막는 마지막 관문.
 const confirmCard=e=>wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-ask">본인이 맞나요?</div><div class="cust-label">${esc(orgDeptLabel(e)||'부서 없음')}</div><div class="cust-name">${esc(e.name)}</div><div class="cust-actions"><button class="btn-primary" data-a="cust-confirm" data-id="${esc(e.id)}">네, 맞아요</button><button class="btn" data-a="cust-cancel">아니요</button></div></div></div>`);
 if(stage==='confirm')return confirmCard(sel);
 // ⓪ 검색 — 질의 전에는 한 명도 보이지 않는다. 소속 필터도 없다(손님은 자기 이름만 찾으면 된다).
 const rows=custRows(d.active,q);
 if(rows.length===1&&!rows[0].dup){const one=d.active.find(e=>e.id===rows[0].id);if(one)return confirmCard(one)}
-const searchBox=`<div class="cust-search"><input id="custSearchInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" placeholder="이름을 입력하세요 — 초성만 쳐도 돼요" aria-label="이름으로 내 선금 찾기" value="${esc(q)}">${q?custClearHtml():''}</div>`;
+const searchBox=`<div class="cust-search"><input id="custSearchInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" placeholder="이름 앞글자부터 입력하세요 (초성도 돼요)" aria-label="이름 앞글자부터 입력해 내 선금 찾기" value="${esc(q)}">${q?custClearHtml():''}</div>`;
 return wrap(`<div class="cust-body">${searchBox}<div id="custResults" aria-live="polite">${custResultsHtml(rows,q)}</div></div>`)}
 // 결과 영역만 따로 만든다 — 타이핑 중에는 이 조각만 갈아끼우고 입력창 노드는 손대지 않는다(custSearchPatch).
 //   0건 안내는 손님이 친 글자를 그대로 되돌려 주고(esc 경유), 초성 팁을 한 줄 덧붙인다.
 //   ⚠️ 질의 전(빈 검색어)에는 0건 문구를 쓰지 않는다 — 아직 찾은 적이 없는 손님에게 "없어요"는 거짓말이다.
 function custResultsHtml(rows,q){
-if(!str(q))return '<div class="cust-hint">이름을 입력하면 내 잔액이 나와요.<br>잔액은 본인 확인 뒤에만 보여요.</div>';
-if(!rows.length)return `<div class="cust-hint">'${esc(q)}'(으)로 등록된 이름이 없어요. 사장님께 말씀해 주세요.<br>초성만 쳐도 돼요.</div>`;
+if(!str(q))return '<div class="cust-hint">이름 앞글자부터 입력하면 내 잔액이 나와요.<br>잔액은 본인 확인 뒤에만 보여요.</div>';
+// ⚠️ 검색은 **앞글자 일치**다(nameStartsWith). 0건 안내가 그 규칙을 말해 주지 않으면 손님은 "등록이 안 됐다"고
+//   오해한다 — 실제로는 '홍길동'을 '길동'으로 친 경우가 대부분이다. 규칙을 예시와 함께 그 자리에서 알려 준다.
+if(!rows.length)return `<div class="cust-hint">'${esc(q)}'(으)로 시작하는 이름이 없어요.<br>이름 뒷부분 말고 <b>앞글자부터</b> 입력해 보세요 (예: 홍길동 → '홍').<br>초성도 돼요. 그래도 안 나오면 사장님께 말씀해 주세요.</div>`;
 if(rows.length>20)return `<div class="cust-list">${rows.slice(0,20).map(custRowHtml).join('')}</div><div class="cust-hint">이름을 더 입력해 주세요.</div>`;
 return `<div class="cust-list">${rows.map(custRowHtml).join('')}</div>`}
 // ✕ 버튼은 입력창의 형제다 — 부분 갱신에서는 이 버튼만 붙였다 뗀다(입력창 노드는 절대 다시 만들지 않는다).
@@ -1226,20 +1306,36 @@ box.innerHTML=custResultsHtml(rows,q);
 syncCustClear(q);
 return true}
 
-// ── 금액 입력 부분 갱신 (beta.21) ────────────────────────────────────────
+// ── 금액 입력 부분 갱신 (beta.21 → beta.22 통합 화면으로 확장) ──────────────
 // 검색창과 똑같은 이유로 여기서도 전체 render를 부르지 않는다: 금액을 치는 동안 #custAmountInput 노드가
 //   교체되면 폰의 숫자 키보드가 닫히고(이미 beta.20에서 한 번 겪은 사고) 손님은 "입력이 안 된다"고 느낀다.
 //   → 큰 숫자·잔액 안내·오류 한 줄, 이 세 조각의 텍스트만 갈아끼운다. 입력 노드는 절대 만지지 않는다.
+// beta.22에서 이 화면에는 **서명 캔버스가 함께 산다**. 그래서 이 함수의 임무가 하나 더 늘었다:
+//   "금액 한 글자마다 캔버스를 살려 두는 것". 여기서 render로 빠지는 순간 그린 서명이 통째로 사라진다.
+//   이 함수는 캔버스(#signCanvas)를 **읽지도 쓰지도 않는다** — 손대지 않는 것이 곧 보존이다.
 // 빠른 금액 버튼도 이 경로를 쓴다(입력창의 value만 직접 대입 — 사용 모달의 fill-use와 같은 패턴).
+function custComposeActive(){return !!(lockScreenActive()&&state.lockView==='customer'&&customerViewAllowed()&&state.custStage==='compose')}
 function custAmountPatch(){
-if(!(lockScreenActive()&&state.lockView==='customer'&&customerViewAllowed()))return false;
-if(state.custStage!=='amount')return false;
+if(!custComposeActive())return false;
 const sel=state.custSelectedId?derive().active.find(e=>e.id===state.custSelectedId):null;
 if(!sel)return false;
 const big=qs('custAmtBig'),after=qs('custAmtAfter'),err=qs('custAmtErr'),balEl=qs('custAmtBal');
 if(!big||!after||!err||!balEl)return false;
 const view=custAmountView(sel.balance);
 big.textContent=view.big;balEl.textContent=view.bal;after.textContent=view.after;err.textContent=view.c.err;
+return true}
+// ── 최후의 방벽: 획이 그려진 통합 화면에서는 전체 render를 부분 갱신으로 강등한다 (beta.22) ──
+// 왜 게이트(renderIsDisruptive)만으로 부족한가: 그 게이트는 **호출부가 스스로 지킬 때만** 동작한다.
+//   비동기 경로 하나가 게이트를 빼먹으면(또는 새 경로가 생기면) 그 한 번의 render로 손님의 서명이 사라진다.
+//   금액과 서명이 한 화면에 있는 지금은 그 사고 확률이 화면 체류시간 내내 열려 있다.
+//   → render()의 입구에서 막는다. 화면이 실제로 바뀌는 경우(제출·[뒤로]·유휴 복귀·잠금 전환)는
+//     이미 custStage/lockView가 바뀐 뒤에 render를 부르므로 custComposeActive()가 false라 여기 걸리지 않는다.
+//   즉 걸리는 것은 오직 "같은 화면에 그대로 있으면서 전면 재렌더를 시도하는" 호출뿐이고, 그건 전부 사고다.
+function custComposeGuard(){
+if(!custComposeActive())return false;
+if(!signInProgress())return false;// 획이 없으면 전체 render가 잃을 것이 없다(빈 캔버스는 다시 만들면 그만)
+custAmountPatch();// 금액 표시 세 조각만 최신으로
+paintToast();// 토스트가 걸려 있으면 조각만 붙였다 뗀다(화면은 그대로)
 return true}
 
 // ── 초기 설정 화면 (스펙 §수정4: 1화면 1메시지, 선택 항목은 전부 [나중에 하기] 가능) ──
@@ -1334,9 +1430,13 @@ rec.start()}catch(e){console.error(e);toast('음성 인식을 시작할 수 없�
 
 // ── 렌더 (포커스 보존) ──
 function overlaysHtml(){return `${state.toast?`<div class="toast">${esc(state.toast)}</div>`:''}${state.busy?`<div class="busy"><div>${esc(state.busy)}</div></div>`:''}`}
-// render()는 그대로 두고 바깥에서 유휴 타이머만 다시 건다 — 모든 화면 전환·상태 변화가 곧 "조작"이므로
-//   재렌더마다 자동 잠금/자동 복귀 시계를 다시 시작하는 것이 가장 새는 곳 없는 지점이다.
-function render(){renderCore();armIdle()}
+// render()는 그대로 두고 바깥에서 유휴 타이머만 **다시 계산**한다(화면이 바뀌면 시계의 길이가 달라진다 —
+//   예: 조회 30초 ↔ 요청 작성 60초 ↔ 자동 잠금 90초). armIdle은 만료 **시각**을 다시 계산할 뿐
+//   시계를 연장하지 않는다(만료 기준은 lastInputAt = 마지막 사용자 조작 시각).
+//   ⚠️ beta.23 이전에는 armIdle이 곧 "리셋"이었다 → 반복 호출되는 렌더 하나가 유휴 복귀를 영원히 밀어냈다.
+// ⚠️ beta.22: 서명 획이 살아 있는 손님 통합 요청 화면에서는 renderCore를 아예 부르지 않는다
+//   (custComposeGuard가 부분 갱신으로 대신 처리한다).
+function render(){if(!custComposeGuard())renderCore();armIdle()}
 // ── 사용 모달 입력값 흡수 (beta.21 수정) ─────────────────────────────────
 // 사용 모달의 금액·비고는 지금까지 **DOM에만** 있었다. state에 없는 값은 재렌더에서 살아남지 못한다 —
 //   사장님이 손님 요청 9,000원을 25,000원으로 고쳐 놓아도, 그 사이에 render가 한 번 돌면(온/오프라인 이벤트,
@@ -1362,7 +1462,11 @@ const useCust=state.lockView==='customer'&&customerViewAllowed();
 qs('app').innerHTML=(useCust?customerScreenHtml():pinScreenHtml())+overlaysHtml();
 // 손님 서명 화면은 사용 모달과 **같은 캔버스 로직**을 쓴다. 다른 화면에서는 반드시 참조를 끊는다 —
 //   죽은 캔버스를 가리키는 signPad가 남으면 다음 저장에서 빈 서명이 통과할 수 있다.
-if(useCust&&state.custStage==='sign')initSignPad();else signPad=null;
+// ⚠️ 반드시 **먼저 끊고** 다시 잡는다. initSignPad는 캔버스가 없으면 조용히 돌아가므로(할당을 하지 않는다),
+//   "compose인데 화면에는 캔버스가 없는" 경우(잔액 검증 실패로 self 화면이 대신 뜨는 등)에 옛 signPad가 살아남는다.
+//   죽은 캔버스를 가리키는 signPad는 두 가지를 동시에 망가뜨린다 — 빈 서명이 저장을 통과할 수 있고,
+//   signInProgress()가 영원히 true가 되어 custComposeGuard가 모든 렌더를 막아 화면이 굳는다.
+signPad=null;if(useCust&&state.custStage==='compose')initSignPad();
 // 손님이 이름을 한 글자 칠 때마다 재렌더되므로 검색창 포커스·커서를 되돌려 준다(사장님 화면과 같은 방식).
 if(fid){const el=qs(fid);if(el){el.focus();try{if(typeof ss==='number'){el.selectionStart=ss;el.selectionEnd=se}}catch(e){}}}
 return}
@@ -1394,13 +1498,26 @@ if(shouldFocus){const pref=modal.querySelector('[data-modal-focus]');if(pref&&ty
 
 // ── 파생 데이터 ──
 // ── 이름 검색 매칭 (초성 + 공백 무시) ──
-// 검색어가 전부 한글 자음(ㄱ-ㅎ)이면 "초성 검색"으로 취급해 이름의 초성열과 부분 일치시킨다("ㄱㅁ" → 김민수).
-// 그 외에는 기존 부분 일치(includes) 그대로. 어느 경우든 공백은 양쪽 모두 지우고 비교한다("이 순신" → 이순신).
+// 검색어가 전부 한글 자음(ㄱ-ㅎ)이면 "초성 검색"으로 취급해 이름의 초성열과 비교한다("ㄱㅁ" → 김민수).
+// 어느 경우든 공백은 양쪽 모두 지우고 비교한다("이 순신" → 이순신).
 // ⚠️ 검색 대상은 이름뿐이다 — 소속·부서는 (현행대로) 검색어 매칭에 넣지 않는다.
+//
+// ⚠️⚠️ 매처가 **둘**이다. 이름이 아니라 **어느 화면이 쓰는가**로 갈린다. 섞지 말 것:
+//   · nameMatches(부분 일치)    = 사장님용 홈 검색(state.search) 전용.
+//       사장님은 기억나는 조각(가운데 글자·성 없이 이름만)으로 찾는다 — 여기서 접두로 좁히면
+//       "이름 일부만 기억날 때 못 찾는" 사장님의 기존 사용 습관과 e2e 계약이 함께 깨진다.
+//   · nameStartsWith(접두 일치) = 손님 셀프 조회 검색(state.custQuery) 전용(custRows).
+//       손님은 **자기 이름**만 찾으면 된다. 부분 일치면 '영' 한 글자에 '영업맨'과 '홍룬영'이 함께 뜨고,
+//       손님은 남의 이름이 섞인 목록에서 자기를 골라야 한다(오탭하면 남의 잔액 화면 앞에 서게 된다).
+//       접두로 좁히면 '영' → 영업맨만, 'ㅇㅇ' → 영업맨만 나온다.
+//   초성 변환 유틸(toChoseong·isChoseongQuery)은 둘이 공유한다 — 초성 규칙이 화면마다 달라지면 안 된다.
 const CHOSEONG=['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
 function toChoseong(s){let out='';for(const ch of str(s)){const c=ch.charCodeAt(0);out+=(c>=0xAC00&&c<=0xD7A3)?CHOSEONG[Math.floor((c-0xAC00)/588)]:ch}return out}
 function isChoseongQuery(q){return /^[ㄱ-ㅎ]+$/.test(q)}
+// 사장님용 홈 검색 — 부분 일치(현행 유지).
 function nameMatches(name,kw){const q=str(kw).replace(/\s+/g,'');if(!q)return true;const n=str(name),nk=n.replace(/\s+/g,'');if(isChoseongQuery(q))return toChoseong(nk).includes(q);return n.includes(str(kw))||nk.includes(q)}
+// 손님 셀프 조회 검색 — 접두(앞글자) 일치. 공백 무시 규칙은 위와 같다.
+function nameStartsWith(name,kw){const q=str(kw).replace(/\s+/g,'');if(!q)return true;const nk=str(name).replace(/\s+/g,'');if(isChoseongQuery(q))return toChoseong(nk).startsWith(q);return nk.startsWith(q)}
 function derive(){const balances=new Map(),voided=new Set();const asc=sortTxAsc(state.data.transactions);asc.forEach(t=>{const p=balances.get(t.employeeId)||0;balances.set(t.employeeId,applyTx(p,t));if(t.type==='void'&&t.targetTransactionId)voided.add(t.targetTransactionId)});const employees=state.data.employees.map(e=>({...e,balance:balances.get(e.id)||0,deptKey:orgDeptLabel(e)||'부서 없음'})).sort((a,b)=>a.deptKey.localeCompare(b.deptKey,'ko')||a.name.localeCompare(b.name,'ko'));const empMap=new Map(employees.map(e=>[e.id,e]));const active=employees.filter(e=>!e.isDeleted);
 // 홈 그룹 — 헤더 문구·순서는 활성 직원 전체(homeGroupIndex)에서, 내용물은 검색·필터가 적용된 filtered에서 온다.
 const groupIndex=homeGroupIndex(active);
@@ -1528,6 +1645,22 @@ state.screen='home';state.modal={type:'usage',id,smsPhone,preAmount:preAmount>0?
 //   10분 무조작이면 방치로 보고 모달째 잠근다 — 사용 모달(이름·잔액 노출)을 띄운 채 자리를 비우는 경우가 실제로 있다.
 function canAutoLockBase(){return !!(state.loaded&&!state.pinLocked&&state.data.meta.setupComplete&&state.data.meta.pinHash&&!state.setupGuide&&!state.busy)}
 function canAutoLock(){return canAutoLockBase()&&!state.modal}
+// ── beta.23(MEDIUM-2): 유휴 만료는 "마지막 **사용자 조작** 시각"으로 판정한다 ──────────────
+// 예전 구조: armIdle이 불릴 때마다 setTimeout을 처음부터 다시 걸었다. armIdle은 render()의 꼬리에서도
+//   불린다 → **렌더가 시계를 연장했다**. 게이트를 빼먹은 미게이트 경로가 반복해서 render를 부르면
+//   (a) custComposeGuard가 renderCore는 막아 화면은 그대로인데
+//   (b) armIdle만 계속 불려 유휴 복귀가 무기한 밀린다 → 손님 이름·잔액이 뜬 채로 화면이 굳는다.
+//   지금 프로덕션에 그런 경로는 없지만, "새 경로 하나가 생기면 개인정보가 영구 노출된다"는 성질 자체를 없앤다.
+// 새 구조: lastInputAt(실제 조작 시각)에 ms를 더한 **절대 시각**에 만료를 건다. armIdle을 몇 번 부르든
+//   만료 시각은 그대로다(그래서 굶어 죽지 않는다). 시계를 미는 것은 markInput뿐이고, markInput은
+//   전역 캡처 리스너(click·input·change·keydown·touchstart)와 캔버스 그리기에서만 불린다.
+function markInput(){lastInputAt=now();armIdle()}
+// ms 뒤가 아니라 "lastInputAt+ms"에 fn을 실행한다. 중간에 조작이 있었으면 남은 시간만큼 더 기다린다.
+function idleAt(ms,fn){
+const fire=()=>{const left=ms-(now()-lastInputAt);
+if(left>0){idleTimer=setTimeout(fire,Math.min(left,ms));return}
+idleTimer=null;fn()};
+idleTimer=setTimeout(fire,Math.max(0,ms-(now()-lastInputAt)))}
 function armIdle(){
 if(idleTimer){clearTimeout(idleTimer);idleTimer=null}
 if(!state.loaded)return;
@@ -1536,7 +1669,7 @@ if(state.pinLocked){
 //   PIN 최초 설정·변경 중에는 돌아갈 손님 화면 자체가 없으므로 시계를 걸지 않는다.
 if(!lockScreenActive()||!state.data.meta.pinHash||state.pinMode==='change')return;
 // 복구 화면은 60초 활성화 게이트가 끝나고도 30초를 더 준다 — 게이트를 기다리는 동안 화면이 사라지면 사장님이 복구를 못 한다.
-if(state.pinRecovery){idleTimer=setTimeout(()=>{if(state.pinLocked&&state.pinRecovery)backToCustomerIdle()},recoveryLeft()*1000+TIMERS.custIdle);return}
+if(state.pinRecovery){idleAt(recoveryLeft()*1000+TIMERS.custIdle,()=>{if(state.pinLocked&&state.pinRecovery)backToCustomerIdle()});return}
 // ⚠️ PIN 화면(lockView==='pin')에는 **언제나** 시계를 건다. 길이만 두 가지다.
 //   · 손님 흔적이 남아 있는 화면 — "사장님 확인"(handoff)이거나 인계 요청이 살아 있으면 30초(custIdle).
 //     방치하면 앞 손님의 요청이 다음 손님에게 남는다(HIGH-3의 본체).
@@ -1550,22 +1683,24 @@ if(state.pinRecovery){idleTimer=setTimeout(()=>{if(state.pinLocked&&state.pinRec
 //   만료 동작은 한 가지다: 손님 초기 화면 복귀 + 입력 중이던 PIN 폐기 + 손님 상태·인계 요청 폐기.
 if(state.lockView==='pin'){
 const pinIdleMs=(state.pinContext==='handoff'||state.pendingCustomerId)?TIMERS.custIdle:TIMERS.ownerPinIdle;
-idleTimer=setTimeout(()=>{if(state.pinLocked&&state.lockView==='pin')backToCustomerIdle()},pinIdleMs);
+idleAt(pinIdleMs,()=>{if(state.pinLocked&&state.lockView==='pin')backToCustomerIdle()});
 return}
 if(!(state.custQuery||state.custStage!=='search'||state.custSelectedId||state.pendingCustomerId))return;
-// 요청 작성 중(금액 입력·서명)에는 60초를 준다 — 조회만 하는 30초는 어르신이 금액을 고르고
+// 요청 작성 중(통합 화면 = 금액 입력 + 서명)에는 60초를 준다 — 조회만 하는 30초는 어르신이 금액을 고르고
 //   손가락으로 이름을 쓰기에 너무 짧다(중간에 화면이 튀면 처음부터 다시 해야 한다).
+//   beta.22에서 화면이 하나로 합쳐졌으므로 조건도 한 줄이다(예전에는 'amount'|'sign' 두 가지였다).
+//   재무장은 두 갈래로 온다: 전역 캡처 리스너(click/input/…)와 캔버스의 그리기 이벤트(initSignPad의 armIfDrawing).
 //   만료 동작은 같다: resetCustomerState가 작성 중이던 금액·서명까지 전부 버리고 손님 초기 화면으로.
-const custIdleMs=(state.custStage==='amount'||state.custStage==='sign')?TIMERS.custComposeIdle:TIMERS.custIdle;
-idleTimer=setTimeout(()=>{resetCustomerState();render()},custIdleMs);
+const custIdleMs=(state.custStage==='compose')?TIMERS.custComposeIdle:TIMERS.custIdle;
+idleAt(custIdleMs,()=>{resetCustomerState();render()});
 return}
 // 자동 잠금 — 모달(서명 캔버스 포함)·저장 중·설정/안내 화면에서는 걸지 않는다(작업 중에 잠기면 안 된다).
-if(canAutoLock()){idleTimer=setTimeout(()=>{if(canAutoLock())lockToCustomer()},TIMERS.autoLock);return}
-if(canAutoLockBase()&&state.modal){idleTimer=setTimeout(()=>{if(canAutoLockBase()&&state.modal)lockToCustomer()},TIMERS.modalIdleCap)}}
+if(canAutoLock()){idleAt(TIMERS.autoLock,()=>{if(canAutoLock())lockToCustomer()});return}
+if(canAutoLockBase()&&state.modal){idleAt(TIMERS.modalIdleCap,()=>{if(canAutoLockBase()&&state.modal)lockToCustomer()})}}
 // PIN 화면 방치 → 손님 초기 화면으로. 잠금은 절대 풀리지 않고, 앞 손님의 흔적(인계 요청 포함)은 전부 사라진다.
 function backToCustomerIdle(){state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
 // 조작이 있으면 시계를 다시 시작한다. 캡처 단계라 어떤 핸들러가 이벤트를 막아도 반드시 실행된다.
-['click','input','change','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,armIdle,true));
+['click','input','change','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,markInput,true));
 
 // ── 이벤트 ──
 // 액션 디스패치 맵(스펙 §4 항목7): data-a 값 → 핸들러 함수. onClick은 조회만 담당.
@@ -1714,35 +1849,36 @@ const i=qs('custSearchInput');if(i&&custSearchPatch()){i.value='';try{i.focus()}
 'cust-call-owner':()=>{const id=str(state.custSelectedId);const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){resetCustomerState();render();return}
 handToOwner(id,0,'')},
 // ── B단계 ──────────────────────────────────────────────────────────────
-// [사용 요청하기] — 금액 화면으로. 여기서부터 유휴 시계가 60초(custComposeIdle)로 늘어난다(armIdle).
+// [사용 요청하기] — 금액·서명 통합 화면으로(beta.22: 중간 금액 화면이 없어졌다).
+//   여기서부터 유휴 시계가 60초(custComposeIdle)로 늘어난다(armIdle).
 'cust-request':()=>{const id=str(state.custSelectedId);const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){resetCustomerState();render();return}
-clearCustCompose();clearPendingRequest();state.custStage='amount';render()},
-// 빠른 금액 — 입력창 value를 직접 채우고 표시 세 조각만 갱신한다(render 금지: 숫자 키보드가 닫힌다).
+clearCustCompose();clearPendingRequest();state.custStage='compose';render()},
+// 빠른 금액 — 입력창 value를 직접 채우고 표시 세 조각만 갱신한다.
+//   ⚠️ render 금지가 두 겹이다: (a) 숫자 키보드가 닫힌다, (b) beta.22부터는 **같은 화면의 서명이 지워진다**.
+//     custAmountPatch가 실패하면 render로 빠지지만, 그때도 custComposeGuard가 획을 지켜 준다.
 'cust-amt-quick':(el)=>{const v=str(el.dataset.amount);state.custAmount=v;const i=qs('custAmountInput');if(i)i.value=v;
 if(!custAmountPatch())render();else armIdle()},
-// [다음 (서명)] — 검증을 통과하지 못하면 넘어가지 않는다. 오류는 화면 안 한 줄로 말한다
-//   (손님 화면에서는 toast가 뜨지 않는다 — toast()는 잠금 화면에서 스스로 조용해진다).
-'cust-amt-next':()=>{const sel=state.custSelectedId?derive().active.find(e=>e.id===state.custSelectedId):null;
-if(!sel){resetCustomerState();render();return}
-const c=custAmountCheck(sel.balance);
-if(!c.ok){const err=qs('custAmtErr');const msg=c.err||'금액을 넣어 주세요.';
-if(err){err.textContent=msg;armIdle()}else render();return}
-state.custStage='sign';render()},
-// [지우고 다시] — 캔버스만 비운다(render 금지: 다시 그리면 캔버스가 새로 만들어져 오히려 지워진다).
+// [지우고 다시] — 캔버스만 비운다. 금액은 그대로 둔다(손님이 지우고 싶은 것은 서명이지 금액이 아니다).
+//   render 금지: 다시 그리면 캔버스가 새로 만들어져 오히려 지워지고, 금액 입력 포커스도 함께 날아간다.
 'cust-sign-clear':()=>{if(signPad)signPad.clear();const err=qs('custSignErr');if(err)err.textContent=''},
 // [사장님 확인 받기] — 요청이 완성되는 유일한 지점. 여기서도 저장은 없다(휘발성 state에만 담는다).
 //   TTL(pendingTtl 120초)의 기준 시각은 **바로 이 순간**이다(작성을 시작한 시각이 아니다).
+// 검증 순서는 화면을 읽는 순서와 같다(위에서 아래로): 금액 → 서명. 둘 중 하나라도 비면 넘어가지 않고,
+//   이유는 그 칸 바로 아래 한 줄로 말한다(손님 화면에서는 toast가 뜨지 않는다 — toast()가 스스로 조용해진다).
+//   ⚠️ 오류를 띄울 때 render를 부르면 안 된다 — 이미 그려 둔 서명이 그 자리에서 사라진다.
+//     (그래도 custComposeGuard가 한 겹 더 막지만, 애초에 부르지 않는 것이 옳다.)
 'cust-sign-submit':()=>{const sel=state.custSelectedId?derive().active.find(e=>e.id===state.custSelectedId):null;
 if(!sel){resetCustomerState();render();return}
 const c=custAmountCheck(sel.balance);
-if(!c.ok){state.custStage='amount';render();return}
+if(!c.ok){const ae=qs('custAmtErr');const msg=c.err||'금액을 넣어 주세요.';
+if(ae){ae.textContent=msg;const se=qs('custSignErr');if(se)se.textContent='';armIdle()}else render();return}
 if(!signPad||signPad.isEmpty()){const err=qs('custSignErr');if(err){err.textContent='서명을 해주세요.';armIdle()}else render();return}
 const sig=signPad.toDataUrl();
 if(!sig){const err=qs('custSignErr');if(err){err.textContent='서명을 다시 해주세요.';armIdle()}else render();return}
 handToOwner(sel.id,c.amount,sig)},
-// [뒤로] — 서명 화면 → 금액 화면(금액 유지) → 잔액 화면(작성 내용 폐기).
-'cust-compose-back':()=>{if(state.custStage==='sign'){state.custStage='amount';render();return}
-clearCustCompose();state.custStage='self';render()}
+// [뒤로] — 통합 화면 → 잔액 화면. 작성 중이던 **금액과 서명을 함께** 버린다
+//   (서명은 state가 아니라 캔버스에 있고, 화면이 바뀌며 DOM과 함께 사라진다 — 지울 사본이 없다).
+'cust-compose-back':()=>{clearCustCompose();state.custStage='self';render()}
 };
 // 손님 → 사장님 인계. A(금액·서명 없음)와 B(금액·서명 포함)가 **같은 한 곳**을 쓴다 —
 //   요청을 세우는 자리가 둘로 갈라지면 한쪽만 앞 손님의 상태를 비우는 사고가 난다.
@@ -1755,9 +1891,10 @@ state.lockView='pin';state.pinContext='handoff';state.pinInput='';state.pinMsg='
 // 잠금 상태에서 실행을 허용하는 액션 화이트리스트(구조적 보장).
 //   여기 없는 data-a는 onClick 진입부에서 통째로 차단된다 — 숨은 파일 input·저장·차감·설정 등 모든 쓰기 경로 포함.
 //   ⚠️ 이 목록에 원장을 쓰는 액션을 추가하지 말 것. 손님은 '요청'만 만들 수 있고 '기록'은 만들 수 없다.
-//   beta.21에 더한 6개(cust-request·cust-amt-quick·cust-amt-next·cust-sign-clear·cust-sign-submit·cust-compose-back)도
+//   beta.21에 더한 요청 작성 액션(cust-request·cust-amt-quick·cust-sign-clear·cust-sign-submit·cust-compose-back)도
 //   전부 휘발성 state만 건드린다 — repo.apply/makeTx에 닿는 줄이 단 하나도 없다.
-const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-amt-quick','cust-amt-next','cust-sign-clear','cust-sign-submit','cust-compose-back']);
+//   beta.22에서 cust-amt-next는 사라졌다(금액·서명이 한 화면이 되어 '다음' 단계 자체가 없다).
+const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-amt-quick','cust-sign-clear','cust-sign-submit','cust-compose-back']);
 async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;
 if(lockScreenActive()&&!LOCK_ALLOWED.has(el.dataset.a))return;// 잠금 게이트 — 손님 화면에서 원장 쓰기 경로는 구조적으로 도달 불가
 const fn=clickActions[el.dataset.a];if(fn)await fn(el)}
@@ -1776,7 +1913,11 @@ if(lockScreenActive()){
 if(e.target.id==='custSearchInput'&&e.type!=='change'){state.custQuery=e.target.value||'';state.custSelectedId='';state.custStage='search';state.custVerify=null;clearCustCompose();clearPendingRequest();armIdle();if(!custSearchPatch())render()}
 else if(e.target.id==='custAmountInput'&&e.type!=='change'){state.custAmount=e.target.value||'';armIdle();if(!custAmountPatch())render()}
 return}
-if(e.target.id==='searchInput'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='regionSelectSetup'||e.target.id==='regionSelectSettings'){const isSettings=e.target.id==='regionSelectSettings';state.regionSelected=e.target.value||'';const region=selectedRegion();state.agencySelected=(region&&region.agencies&&region.agencies[0]&&region.agencies[0].id)||'';if(!state.deptCache[state.regionSelected]){setBusy('부서 목록을 불러오는 중입니다.');await ensureDeptsForRegion(state.regionSelected);clearBusy()}if(isSettings){try{await saveSelectedAgencyName()}catch(err){console.error(err)}}render();return}
+// 'change'는 받지 않는다 — 사장님 홈 검색창에서도 손님 검색창과 똑같은 사고가 났다:
+//   화면이 바뀌며 입력창이 제거될 때 blur와 함께 늦은 change가 날아와 innerHTML 교체 도중 render를
+//   재진입시킨다 → "The node to be removed is no longer a child of this node"로 그 렌더가 통째로 실패한다.
+//   (input 이벤트만으로 검색은 완전히 동작한다. change는 값이 이미 반영된 뒤에 오는 중복 신호일 뿐이다.)
+if(e.target.id==='searchInput'&&e.type!=='change'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='regionSelectSetup'||e.target.id==='regionSelectSettings'){const isSettings=e.target.id==='regionSelectSettings';state.regionSelected=e.target.value||'';const region=selectedRegion();state.agencySelected=(region&&region.agencies&&region.agencies[0]&&region.agencies[0].id)||'';if(!state.deptCache[state.regionSelected]){setBusy('부서 목록을 불러오는 중입니다.');await ensureDeptsForRegion(state.regionSelected);clearBusy()}if(isSettings){try{await saveSelectedAgencyName()}catch(err){console.error(err)}}render();return}
 if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('공공기관명 저장 오류');return}}render()}}
 
 // ── CRUD ──
@@ -2048,19 +2189,58 @@ function upsertEmp(e){const i=state.data.employees.findIndex(v=>v.id===e.id);if(
 function upsertTx(t){const i=state.data.transactions.findIndex(v=>v.id===t.id);if(i>=0)state.data.transactions[i]=t;else state.data.transactions.push(t)}
 
 // ── 서명 패드 (JPEG 0.5) ──
-function initSignPad(){const canvas=qs('signCanvas');if(!canvas||canvas.dataset.ready==='1')return;const ctx=canvas.getContext('2d');const ratio=Math.max(window.devicePixelRatio||1,1),w=canvas.clientWidth||600,h=canvas.clientHeight||180;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);ctx.scale(ratio,ratio);canvas.dataset.ready='1';let drawing=false,empty=true;const paint=()=>{ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#d7dde4';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(16,h-32);ctx.lineTo(w-16,h-32);ctx.stroke()};const point=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top}};const start=e=>{e.preventDefault();drawing=true;const p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y)};const move=e=>{if(!drawing)return;e.preventDefault();empty=false;const p=point(e);ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#1f2933';ctx.lineTo(p.x,p.y);ctx.stroke()};const end=()=>{drawing=false};paint();canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);canvas.addEventListener('mouseup',end);canvas.addEventListener('mouseleave',end);canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',end);
+// beta.23 — 캔버스는 이제 **획 좌표를 기억한다**(strokes). 예전에는 그림이 백킹 스토어에만 있었고
+//   백킹 스토어는 initSignPad에서 딱 한 번 잡혔다. 그래서 화면을 돌리거나 창 크기가 바뀌면
+//   (a) CSS 폭·높이는 늘어나는데 백킹 스토어는 그대로라 오른쪽 12%가 아예 기록되지 않았고
+//   (b) 이미 그린 획은 새 크기에 눌려 압축돼 보였다. 손님은 아무 경고 없이 "찌그러진 서명"을 남긴다.
+//   → 획을 좌표로 들고 있다가 크기가 바뀌면 균일 배율로 옮겨 **다시 그린다**(무음 왜곡·유실 없음).
+function initSignPad(){const canvas=qs('signCanvas');if(!canvas||canvas.dataset.ready==='1')return;const ctx=canvas.getContext('2d');
+// CSS 높이가 clamp(...dvh)라 소수점이 나온다 — 실제 렌더 박스(rect)를 기준으로 잡아야 백킹 스토어가 어긋나지 않는다.
+const dims=()=>{const r=canvas.getBoundingClientRect();return{w:r.width||canvas.clientWidth||600,h:r.height||canvas.clientHeight||180}};
+let d0=dims(),w=d0.w,h=d0.h,ratio=Math.max(window.devicePixelRatio||1,1);
+const applySize=()=>{canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);ctx.setTransform(ratio,0,0,ratio,0,0)};
+applySize();canvas.dataset.ready='1';let drawing=false,empty=true,strokes=[],cur=null;
+const paint=()=>{ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#d7dde4';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(16,h-32);ctx.lineTo(w-16,h-32);ctx.stroke()};
+// 점 하나(누르고 바로 뗌)는 서명이 아니다 — 원래 코드도 그리지 않았고 empty도 풀지 않는다. 재그리기도 같은 규칙.
+const replay=()=>{ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#1f2933';strokes.forEach(s=>{if(s.length<2)return;ctx.beginPath();ctx.moveTo(s[0].x,s[0].y);for(let i=1;i<s.length;i+=1)ctx.lineTo(s[i].x,s[i].y);ctx.stroke()})};
+const redraw=()=>{paint();replay()};
+const point=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top}};
+// 손님이 실제로 서명하는 순간 "서명을 해주세요." 오류 한 줄을 지운다 — 서명을 했는데도 남아 있으면
+//   손님은 자기가 뭘 잘못했다고 믿고 [지우고 다시]를 눌러 처음부터 다시 쓴다(현장에서 실제로 벌어진다).
+const clearSignErr=()=>{const el=qs('custSignErr');if(el&&el.textContent)el.textContent=''};
+const start=e=>{e.preventDefault();drawing=true;const p=point(e);cur=[p];strokes.push(cur);ctx.beginPath();ctx.moveTo(p.x,p.y)};
+const move=e=>{if(!drawing)return;e.preventDefault();if(empty)clearSignErr();empty=false;const p=point(e);if(cur)cur.push(p);ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#1f2933';ctx.lineTo(p.x,p.y);ctx.stroke()};
+const end=()=>{drawing=false;cur=null};
+// 회전·리사이즈 — 백킹 스토어를 새 크기로 다시 잡고, 기억해 둔 획을 균일 배율(min)로 옮겨 다시 그린다.
+//   가로·세로 배율을 따로 쓰면 서명이 찌그러진다(그것이 곧 무음 왜곡이다) → 작은 쪽 배율 하나만 쓴다.
+const resize=()=>{if(canvas.dataset.ready!=='1')return;const d=dims(),nr=Math.max(window.devicePixelRatio||1,1);
+if(!(d.w>0&&d.h>0))return;// 화면에서 떨어져 나간 캔버스(렌더 교체 직후)는 손대지 않는다
+if(Math.abs(d.w-w)<0.5&&Math.abs(d.h-h)<0.5&&nr===ratio)return;
+const s=Math.min(d.w/w,d.h/h);
+if(strokes.length&&Number.isFinite(s)&&s>0)strokes=strokes.map(st=>st.map(p=>({x:p.x*s,y:p.y*s})));
+w=d.w;h=d.h;ratio=nr;applySize();redraw()};
+paint();canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);canvas.addEventListener('mouseup',end);canvas.addEventListener('mouseleave',end);canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',end);
 // 서명은 "조작"이다 — 그런데 전역 캡처 리스너(click/input/change/keydown/touchstart)에는 그리는 동작의
 //   대부분(touchmove·pointermove·mousemove)이 잡히지 않는다. 그대로 두면 손님이 천천히 이름을 쓰는 동안
 //   유휴 시계가 계속 흘러 서명 도중에 화면이 튄다. 그리는 이벤트에서 직접 시계를 다시 무장시킨다.
 // ⚠️ 단, 움직임이면 무엇이든 시계를 다시 감으면 안 된다. 캔버스 위를 마우스가 지나가기만 해도(태블릿에서는
 //   손바닥이 얹혀 있기만 해도) 자동 잠금·손님 화면 자동 복귀가 무한히 미뤄진다 — 이름·잔액이 뜬 화면이
 //   그대로 방치된다는 뜻이다. 그래서 **실제로 그리는 중**(pointerdown 이후 접촉이 유지되는 동안)만 센다.
-const armIfDrawing=e=>{if(!drawing)return;if(e.type==='mousemove'&&typeof e.buttons==='number'&&e.buttons===0)return;armIdle()};
-canvas.addEventListener('pointerdown',armIdle,{passive:true});
+// (beta.23) 여기서 부르는 것은 armIdle이 아니라 markInput이다 — 유휴 시계는 **실제 사용자 조작**만
+//   연장할 수 있어야 한다(렌더가 시계를 늘리지 못하게 만든 MEDIUM-2 수정과 같은 계약).
+const armIfDrawing=e=>{if(!drawing)return;if(e.type==='mousemove'&&typeof e.buttons==='number'&&e.buttons===0)return;markInput()};
+canvas.addEventListener('pointerdown',markInput,{passive:true});
 ['pointermove','touchmove','mousemove'].forEach(ev=>canvas.addEventListener(ev,armIfDrawing,{passive:true}));
 // drawing() = 지금 손가락/펜이 닿아 있는가. renderIsDisruptive가 "서명 중"을 판정하는 데 쓴다
 //   (캔버스는 preventDefault 때문에 절대 포커스를 받지 않아 activeElement로는 알 수 없다).
-signPad={clear(){empty=true;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);paint()},isEmpty(){return empty},drawing(){return drawing},toDataUrl(){return empty?'':canvas.toDataURL('image/jpeg',0.5)}}}
+signPad={clear(){empty=true;strokes=[];cur=null;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);paint()},isEmpty(){return empty},drawing(){return drawing},resize,strokeCount(){return strokes.filter(s=>s.length>1).length},toDataUrl(){return empty?'':canvas.toDataURL('image/jpeg',0.5)}}}
+// 회전·리사이즈는 창 단위 사건이다 — 리스너는 앱에 딱 하나만 둔다(캔버스마다 달면 렌더 교체 때마다
+//   떨어져 나간 캔버스를 붙든 리스너가 쌓인다). 살아 있는 signPad에게만 전달한다.
+let signResizeTimer=null;
+function onSignViewportChange(){if(signResizeTimer)clearTimeout(signResizeTimer);
+signResizeTimer=setTimeout(()=>{signResizeTimer=null;if(signPad&&typeof signPad.resize==='function'){try{signPad.resize()}catch(e){console.error('sign resize',e)}}},100)}
+window.addEventListener('resize',onSignViewportChange);
+window.addEventListener('orientationchange',onSignViewportChange);
 
 // WebAuthn 생체 잠금 — 보수적 축소 구현: PRF 확장을 이용한 deviceSecret 추가 래핑은 검증 없이 도입 시
 // 기존 사용자의 데이터 접근이 막힐 위험이 있어, 이번 반영에서는 지원 여부 감지 + 안내만 제공한다.
