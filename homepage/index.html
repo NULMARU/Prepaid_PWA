@@ -144,6 +144,18 @@ section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width
 .flow-staff b{color:var(--staff)}
 .flow-staff a{font-weight:800;color:var(--staff)}
 
+/* ---------- 손님 셀프 조회·요청 (사장님 손 덜어주기) ---------- */
+.selfserve{background:var(--ok-soft);border:1px solid var(--ok-line);border-radius:var(--r);padding:18px 20px;margin-top:var(--s4);scroll-margin-top:72px}
+.selfserve h3{font-size:19px;margin:0 0 6px;display:flex;align-items:flex-start;gap:8px}
+.selfserve h3 .ic{font-size:22px;line-height:1.2;flex:0 0 auto}
+.selfserve>p{margin:0;font-size:15.5px;color:var(--text);line-height:1.65}
+.ss-list{list-style:none;counter-reset:ss;margin:14px 0 0;padding:0;display:grid;gap:8px}
+.ss-list li{counter-increment:ss;position:relative;background:var(--card);border:1px solid var(--ok-line);border-radius:12px;padding:11px 14px 11px 44px;font-size:15px;line-height:1.6;color:var(--text)}
+.ss-list li::before{content:counter(ss);position:absolute;left:12px;top:11px;width:23px;height:23px;border-radius:50%;background:var(--ok);color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.ss-foot{margin:14px 0 0;font-size:15px;line-height:1.65;color:var(--text)}
+.ss-foot b{color:var(--ok)}
+@media(max-width:480px){.selfserve{padding:16px 14px}.selfserve h3{font-size:17.5px}}
+
 /* ---------- 전용 기기 권장 안내 ---------- */
 .device-note{display:flex;gap:10px;align-items:flex-start;background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:var(--r);padding:14px 16px;margin-top:var(--s4);font-size:15px;color:var(--text);line-height:1.65}
 .device-note .ic{font-size:20px;flex:0 0 auto}
@@ -345,13 +357,14 @@ body.has-sticky{padding-bottom:84px}
           <span class="f-actor">🍚 음식점 사장님</span>
           <h3><span class="f-ic" aria-hidden="true">🧾</span>입금 확인 → 직원 사용 시작</h3>
           <p><b>은행 입금액과 선입금대장 합계를 대조·확인</b>한 뒤부터 사용 시작! 식사 때 직원 이름을 누르면 잔액이 자동으로 차감돼요.</p>
+          <p style="margin-top:6px">바쁠 때는 <b>손님이 직접</b> 태블릿에서 이름을 찾아 금액·서명까지 해 두고, <b>사장님은 확인만</b> 하면 돼요. (아래 <a href="#selfserve">손님 셀프 조회</a>)</p>
         </div>
       </li>
     </ol>
 
     <div class="flow-note"><span class="ic" aria-hidden="true">💡</span><span><b>돈은 앱 밖에서 움직여요.</b> 밥장부에는 결제·이체 기능이 없어요. <b>선금(돈)은 앱이 아니라 가게 은행 계좌로 따로 입금돼요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b></span></div>
 
-    <div class="flow-staff"><span class="ic" aria-hidden="true">🙋</span><span><b>직원은 어디에 있나요?</b> 직원은 ⑤에서 음식점 앱에 이름을 눌러 식사만 하면 돼요. 따로 설치할 것은 없지만, 내 잔액을 내 폰에서 확인하고 싶으면 <a href="#staff">직원용(베타)</a>을 쓸 수 있어요.</span></div>
+    <div class="flow-staff"><span class="ic" aria-hidden="true">🙋</span><span><b>직원은 어디에 있나요?</b> 직원은 ⑤에서 음식점 앱에 이름을 눌러 식사만 하면 돼요. 따로 설치할 것은 없고, 가게 태블릿에서 <a href="#selfserve">내 잔액을 직접 확인하고 사용 요청</a>도 할 수 있어요. 내 폰에서 따로 적어 두고 싶으면 <a href="#staff">직원용(베타)</a>을 쓸 수 있어요.</span></div>
   </div>
 </section>
 
@@ -395,6 +408,17 @@ body.has-sticky{padding-bottom:84px}
           <p>가게 정보 → <b>우리 가게 등록</b>(가게 이름 검색) → 부서 목록 → 연락처·약관 동의 순서로 안내해 줘요. 끝나면 바로 장부를 쓸 수 있어요.</p>
         </div>
       </div>
+    </div>
+    <div class="selfserve" id="selfserve">
+      <h3><span class="ic" aria-hidden="true">🙋</span>바쁠 땐 손님이 직접 — 사장님은 확인만 하면 돼요</h3>
+      <p>태블릿을 <b>90초</b> 동안 만지지 않거나 홈에서 <b>[손님 셀프 조회]</b>를 누르면, 잠금 화면이 <b>손님(직원)이 직접 쓰는 화면</b>으로 바뀌어요. 손님이 이름 찾고 금액·서명까지 해 두면, 사장님은 확인만 하면 돼요.</p>
+      <ol class="ss-list">
+        <li><b>손님이 이름 찾기</b> — 자기 이름을 검색해요(초성도 돼요). 목록에는 <b>기관·부서와 이름만</b> 보이고 잔액은 안 보여요. 없는 이름이면 "등록된 이름이 없어요"라고 알려 줘요.</li>
+        <li><b>내 잔액 보기</b> — 본인 확인을 거치면 <b>내 잔액과 최근 5건</b>을 볼 수 있어요.</li>
+        <li><b>사용 요청하기</b> — 금액을 넣고(<b>잔액을 넘길 수 없어요</b>) 서명한 뒤 <b>[사장님 확인 받기]</b>를 눌러요. 금액을 정하기 어려우면 <b>[사장님 부르기]</b>만 눌러도 돼요.</li>
+        <li><b>사장님은 확인만</b> — 화면에 손님이 넣은 <b>금액과 서명이 크게</b> 떠요. 사장님이 PIN을 넣으면 그 내용이 채워진 사용 등록 창이 열리고, <b>금액을 확인·수정해 저장</b>해야 그때 장부에 기록돼요.</li>
+      </ol>
+      <p class="ss-foot"><b>손님은 요청만, 기록은 사장님이.</b> 2분 안에 사장님이 확인하지 않은 요청은 자동으로 사라지고 장부에는 아무것도 남지 않아요. 손님은 조회·요청만 할 수 있고, 장부 기록·수정·설정은 <b>사장님 PIN</b> 없이는 못 해요.</p>
     </div>
     <div class="device-note"><span class="ic" aria-hidden="true">📟</span><span><b>가게에 항상 두는 전용 태블릿(또는 전용 폰)에 설치하세요.</b> 장부는 설치한 그 기기에 저장돼요. 사장님 개인 폰보다는 가게에 비치해 둔 전용 기기에 설치해야, 사장님이 자리를 비워도 직원 식사 기록이 끊기지 않고 장부도 안전해요.</span></div>
     <a class="more" href="https://app.bapjangbu.com/docs/manual-restaurant.html" target="_blank" rel="noopener">음식점 사용법 자세히 보기 →</a>
@@ -446,6 +470,7 @@ body.has-sticky{padding-bottom:84px}
     <span class="role-badge">🙋 직원용 <span style="font-weight:800">(베타)</span></span>
     <h2>내 선금 잔액, 내 폰에서 확인해요</h2>
     <p class="intro">직원은 음식점에서 <b>이름만 눌러</b> 식사하면 되고, 따로 설치할 것은 없어요. 다만 <b>내 잔액을 내 폰에서 확인</b>하고 싶다면 <b>밥장부 직원용(베타)</b>을 쓸 수 있어요. 회원가입·로그인이 없고, 기록은 내 폰에만 저장돼요.</p>
+    <div class="flow-staff" style="margin-top:0;margin-bottom:var(--s6)"><span class="ic" aria-hidden="true">📟</span><span><b>음식점 태블릿에서도 내 잔액을 직접 확인할 수 있어요.</b> 태블릿이 잠겨 있을 때 <b>내 이름을 검색하면(초성 가능) 내 잔액과 최근 5건</b>이 보이고, 이어서 <b>[사용 요청하기]</b>로 금액과 서명까지 직접 할 수 있어요. 사장님이 금액을 확인해 저장하면 장부에 기록돼요. (자세히: <a href="#selfserve">손님 셀프 조회</a>)</span></div>
     <div class="steps">
       <div class="step">
         <div class="n">1</div>
@@ -528,7 +553,7 @@ body.has-sticky{padding-bottom:84px}
     <h2>궁금한 점을 모았어요</h2>
     <details>
       <summary>저는 음식점 사장님·공공기관 담당자(서무)·직원 중 어디에 해당하나요?</summary>
-      <p><b>음식점 사장님</b>은 가게에서 장부를 쓰는 분(<a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a>), <b>공공기관 담당자(서무)</b>는 구청 같은 공공기관에서 직원 식대 명단을 음식점에 보내고 선금을 계좌로 이체하는 분(<a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">담당자 웹</a>), <b>직원</b>은 그 식당에서 밥을 먹는 분이에요. 직원은 따로 설치할 것이 없고, 내 잔액을 직접 확인하고 싶을 때만 <a href="#staff">직원용(베타)</a>을 쓰면 돼요.</p>
+      <p><b>음식점 사장님</b>은 가게에서 장부를 쓰는 분(<a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a>), <b>공공기관 담당자(서무)</b>는 구청 같은 공공기관에서 직원 식대 명단을 음식점에 보내고 선금을 계좌로 이체하는 분(<a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">담당자 웹</a>), <b>직원</b>은 그 식당에서 밥을 먹는 분이에요. 직원은 따로 설치할 것이 없고, 가게 태블릿에서 <a href="#selfserve">내 잔액 확인·사용 요청</a>을 직접 할 수 있어요. 내 폰에서 따로 적어 두고 싶을 때만 <a href="#staff">직원용(베타)</a>을 쓰면 돼요.</p>
     </details>
     <details>
       <summary>정말 무료인가요?</summary>
@@ -541,6 +566,14 @@ body.has-sticky{padding-bottom:84px}
     <details>
       <summary>어떤 기기에 설치하는 게 좋나요?</summary>
       <p>장부는 <b>설치한 그 기기에</b> 저장돼요. 그래서 사장님 개인 폰보다는 <b>가게에 항상 두는 전용 태블릿(또는 전용 폰)</b>에 설치하는 걸 권장해요. 사장님이 자리를 비워도 직원 식사 기록이 계속되고, 개인 폰 교체·분실의 영향도 받지 않아요.</p>
+    </details>
+    <details>
+      <summary>손님이 태블릿을 만져도 되나요?</summary>
+      <p>네, 괜찮아요. 태블릿이 잠겨 있을 때(무조작 90초 또는 홈의 <b>[손님 셀프 조회]</b>) 손님에게 열리는 화면에서는 <b>본인 이름 검색 → 내 잔액·최근 5건 확인 → 사용 요청</b>만 할 수 있어요. <b>장부 기록·수정과 설정은 사장님 PIN이 있어야</b> 열려서, 손님이 장부를 바꾸거나 다른 사람 잔액을 볼 수 없어요. 검색 목록에도 기관·부서와 이름만 나오고 잔액은 본인 확인을 거친 뒤에만 보여요. 손님 화면은 30초 동안 아무 조작이 없으면 처음으로 돌아가요.</p>
+    </details>
+    <details>
+      <summary>손님이 금액을 직접 넣으면 위험하지 않나요?</summary>
+      <p>손님이 넣는 것은 <b>요청일 뿐이고 장부에는 남지 않아요.</b> 손님은 잔액을 넘는 금액을 넣을 수 없고, 금액과 서명을 넣고 <b>[사장님 확인 받기]</b>를 누르면 화면에 그 내용이 크게 표시돼요. 사장님이 PIN을 넣어 <b>금액을 확인·수정한 뒤 저장해야</b> 비로소 장부에 기록돼요(자동 저장은 없어요). 2분 안에 사장님이 확인하지 않은 요청은 자동으로 사라지고 장부·서버에 아무것도 남지 않아요. 금액을 손님이 정하기 어려우면 <b>[사장님 부르기]</b>만 눌러 사장님에게 넘길 수도 있어요.</p>
     </details>
     <details>
       <summary>폰을 바꾸면 장부가 사라지나요?</summary>
@@ -560,7 +593,7 @@ body.has-sticky{padding-bottom:84px}
     </details>
     <details>
       <summary>직원인데 제 잔액을 직접 보고 싶어요.</summary>
-      <p><a href="#staff">직원용(베타)</a>에 이용 지역만 고르고 자주 가는 음식점을 등록하면, 충전·사용을 눌러 내 잔액을 확인할 수 있어요. 회원가입·로그인이 없고 기록은 내 폰에만 저장돼요. 다만 <b>공식 잔액은 음식점 장부가 기준</b>이라, 금액이 다르면 음식점에서 확인해 주세요.</p>
+      <p>가장 빠른 방법은 <b>음식점 태블릿</b>이에요 — 잠겨 있는 화면에서 내 이름을 검색하면(초성 가능) <b>내 잔액과 최근 5건</b>을 바로 볼 수 있고, <b>[사용 요청하기]</b>로 금액·서명까지 할 수 있어요(<a href="#selfserve">자세히</a>). 내 폰에서 따로 적어 두고 싶다면 <a href="#staff">직원용(베타)</a>에 이용 지역만 고르고 자주 가는 음식점을 등록해 충전·사용을 눌러 두면 돼요. 회원가입·로그인이 없고 기록은 내 폰에만 저장돼요. 다만 <b>공식 잔액은 음식점 장부가 기준</b>이라, 금액이 다르면 음식점에서 확인해 주세요.</p>
     </details>
     <details>
       <summary>직원 개인정보(이름·전화번호)는 어떻게 다루나요?</summary>

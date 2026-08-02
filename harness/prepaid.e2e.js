@@ -74,7 +74,7 @@ async function assert(condition, message) {
 
 // beta.18: 잠금 화면의 기본값은 "손님 화면"이다 — PIN 패드는 [사장님용 잠금 해제]를 눌러야 나온다.
 //   (PIN 최초 설정·변경 단계에서는 손님 화면이 없으므로 그때는 곧바로 패드가 떠 있다.)
-// beta.19: 손님이 [사장님께 보여주기]를 누른 뒤에는 이미 PIN 패드("사장님 확인")가 떠 있다 —
+// beta.19/21: 손님이 요청을 넘긴 뒤에는 이미 PIN 패드("사장님 확인")가 떠 있다 —
 //   그때는 [사장님용 잠금 해제]가 없으므로 이 헬퍼가 곧바로 4자리를 누른다(인계 경로와 그대로 정합).
 async function unlockPin(page) {
   await page.waitForSelector('.cust-screen, [data-a="pin-key"]', { timeout: 8000 });
@@ -1188,6 +1188,7 @@ async function main() {
     // 프로덕션 상수 값 자체를 못 박는다 — 검증 편의로 짧게 줄여놓고 커밋하는 사고를 막는다.
     const prodTimers = await page.evaluate(() => Object.assign({}, window.__prepaidTestHooks.TIMERS));
     await assert(prodTimers.custIdle === 30000, `TIMERS.custIdle must stay 30000 in production (got ${prodTimers.custIdle})`);
+    await assert(prodTimers.custComposeIdle === 60000, `TIMERS.custComposeIdle must stay 60000 in production (got ${prodTimers.custComposeIdle})`);
     await assert(prodTimers.autoLock === 90000, `TIMERS.autoLock must stay 90000 in production (got ${prodTimers.autoLock})`);
     await assert(prodTimers.pendingTtl === 120000, `TIMERS.pendingTtl must stay 120000 in production (got ${prodTimers.pendingTtl})`);
     await assert(prodTimers.pinDelay === 60000, `TIMERS.pinDelay must stay 60000 in production (got ${prodTimers.pinDelay})`);
@@ -1766,7 +1767,9 @@ async function main() {
 
     // (8-e) 게이트 스윕 — 허용 목록 밖의 모든 액션은 잠금 상태에서 통째로 차단된다(원장 불변).
     const lockAllowed = (await page.evaluate(() => window.__prepaidTestHooks.lockAllowed())).slice().sort();
-    const expectedAllowed = ['pin-key', 'pin-reset', 'pin-forgot', 'pin-forgot-cancel', 'pin-forgot-restore', 'lock-to-pin', 'pin-to-cust', 'cust-pick', 'cust-confirm', 'cust-cancel', 'cust-clear', 'cust-back', 'cust-call-owner'].sort();
+    // beta.21에서 손님 액션 6개(요청 작성)가 더해졌다 — 전부 휘발성 state만 만지는 '요청' 경로다.
+    //   이 목록이 늘어나는 것 자체가 위험 신호이므로 값을 통째로 못 박아 둔다(원장 쓰기 액션이 섞이면 즉시 실패).
+    const expectedAllowed = ['pin-key', 'pin-reset', 'pin-forgot', 'pin-forgot-cancel', 'pin-forgot-restore', 'lock-to-pin', 'pin-to-cust', 'cust-pick', 'cust-confirm', 'cust-cancel', 'cust-clear', 'cust-back', 'cust-call-owner', 'cust-request', 'cust-amt-quick', 'cust-amt-next', 'cust-sign-clear', 'cust-sign-submit', 'cust-compose-back'].sort();
     await assert(JSON.stringify(lockAllowed) === JSON.stringify(expectedAllowed), `the lock allowlist must stay exactly the PIN/customer actions (got ${JSON.stringify(lockAllowed)})`);
     const gateBefore = await readDb(page);
     const swept = await page.evaluate(() => {
@@ -1883,11 +1886,11 @@ async function main() {
     await page.locator('[data-a="cust-confirm"]').click();
     await page.waitForSelector('.cust-bal');
 
-    // (8-f) [사장님께 보여주기] → beta.19: 안내 화면 없이 **곧바로 PIN 화면("사장님 확인")**.
+    // (8-f) [사장님 부르기](A단계) → beta.19: 안내 화면 없이 **곧바로 PIN 화면("사장님 확인")**.
     //       요청은 휘발성이고, PIN이 맞으면 사용 모달이 자동으로 열린다(금액 빈 칸) → 저장까지.
     await page.locator('[data-a="cust-call-owner"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
-    await assert(await count(page, '#custSearchInput') === 0, '[사장님께 보여주기] must go straight to the PIN screen (no extra "call the owner" step)');
+    await assert(await count(page, '#custSearchInput') === 0, '[사장님 부르기] must go straight to the PIN screen (no extra "call the owner" step)');
     const hoTitle = (await page.locator('.pin-title').innerText()).trim();
     await assert(hoTitle === '사장님 확인', `the handover PIN screen must be titled 사장님 확인 (got ${JSON.stringify(hoTitle)})`);
     const hoSub = (await page.locator('.pin-sub').innerText()).replace(/\n/g, ' ');
@@ -2002,7 +2005,766 @@ async function main() {
     await assert(await count(page, '.cust-screen') === 1 && await count(page, '.modal-back') === 0, 'the capped auto-lock must close the modal and show the customer screen');
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
-    await setTimers({ custIdle: 30000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000 });
+    await setTimers({ custIdle: 30000, custComposeIdle: 60000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000 });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (8-B) B단계 — 손님이 금액·서명까지 미리 작성하는 '요청' (beta.21)
+    //
+    //   지도 원칙은 A단계와 한 글자도 다르지 않다:
+    //     "손님은 '요청'을 만들고, 사장님은 '기록'을 만든다."
+    //   손님이 금액을 치고 서명까지 해도 그것은 끝까지 요청이다 — 원장에 줄이 생기는 순간은
+    //   오직 사장님이 PIN을 풀고 사용 모달의 confirm을 누른 때다. 이 절의 모든 단언은
+    //   그 경계가 어디에서도 새지 않는지를 본다(요청이 저장되면 이 앱은 즉시 '무인 결제기'가 된다).
+    // ═══════════════════════════════════════════════════════════════════════
+    await seedHome([
+      { id: 'br-1', org: '광진구청', orgKind: 'public', dept: '세무과', name: '김요청', amount: 30000 },
+      { id: 'br-2', org: '광진구청', orgKind: 'public', dept: '세무과', name: '박두번', amount: 50000 },
+      { id: 'br-3', org: '한빛물산', orgKind: '', dept: '영업1팀', name: '최소액', amount: 1000 }
+    ], { orgName: '광진구청' });
+
+    // 어디에 서 있든 "빈 손님 검색 화면"으로 되돌린다 — 잠금이 풀려 있으면 [손님 셀프 조회]로 잠그고,
+    //   이미 잠겨 있으면(요청 작성 중·PIN 화면) 되돌아가기 버튼을 눌러 처음으로 나온다.
+    const toCustomer = async () => {
+      if (await count(page, '[data-a="quick-find-emp"]')) {
+        if (await count(page, '.modal-back')) {
+          await page.locator('.modal-actions [data-a="close-modal"]').first().click();
+          await page.waitForTimeout(150);
+        }
+        await page.locator('[data-a="hand-to-customer"]').click();
+      }
+      await page.waitForSelector('.cust-screen, .pin-screen', { timeout: 8000 });
+      for (let guard = 0; guard < 6 && await count(page, '#custSearchInput') === 0; guard += 1) {
+        const backBtn = page.locator('[data-a="pin-to-cust"], [data-a="cust-back"], [data-a="cust-cancel"], [data-a="cust-compose-back"]');
+        if (await backBtn.count() === 0) break;
+        await backBtn.first().click();
+        await page.waitForTimeout(150);
+      }
+      await page.waitForSelector('#custSearchInput', { timeout: 8000 });
+    };
+    // 이름으로 찾아 본인 확인까지 — 결과가 1건이면 앱이 스스로 확인 카드로 넘어간다(기존 계약).
+    const custLookup = async (name) => {
+      await page.locator('#custSearchInput').fill(name);
+      await page.waitForSelector('.cust-ask');
+      await page.locator('[data-a="cust-confirm"]').click();
+      await page.waitForSelector('.cust-bal');
+    };
+    const drawOn = async (selector) => {
+      // 모달이 다시 그려지면 스크롤이 맨 위로 돌아간다 — 캔버스가 화면 밖에 있으면 마우스 좌표가 엉뚱한 곳에 떨어진다.
+      await page.locator(selector).scrollIntoViewIfNeeded();
+      await page.waitForTimeout(60);
+      const box = await page.locator(selector).boundingBox();
+      await page.mouse.move(box.x + 30, box.y + box.height * 0.6);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.3, { steps: 6 });
+      await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.7, { steps: 6 });
+      await page.mouse.up();
+    };
+    const lockSt2 = () => page.evaluate(() => window.__prepaidTestHooks.lockState());
+    const txCount = async () => (await readDb(page)).transactions.length;
+    // 요청 작성 화면까지 한 번에 — 금액을 넣고 서명하고 [사장님 확인 받기]를 누르기 직전까지.
+    const composeTo = async (name, amountText) => {
+      await toCustomer();
+      await custLookup(name);
+      await page.locator('[data-a="cust-request"]').click();
+      await page.waitForSelector('#custAmountInput');
+      if (amountText !== null) await page.locator('#custAmountInput').fill(amountText);
+      await page.waitForTimeout(80);
+    };
+
+    // ── (B-a) 해피패스 — 손님 9,000원 + 서명 → 사장님 확인 → PIN → 프리필 → 저장 → 원장 ──
+    await toCustomer();
+    await custLookup('김요청');
+    // 잔액 화면의 세 갈래: [사용 요청하기](B) · [사장님 부르기](A) · [처음으로].
+    //   A를 남겨 두는 이유는 명확하다 — 손님이 금액을 정할 수 없는 자리(단체 식사·잔액 초과·사장님이
+    //   금액을 정하는 경우)에서 B만 있으면 손님에게 남는 길이 [처음으로]뿐이 된다.
+    const selfBtns = (await page.locator('.cust-actions button').allInnerTexts()).map(t => t.trim());
+    await assert(selfBtns.length === 3, `the balance screen must offer exactly three ways out (got ${JSON.stringify(selfBtns)})`);
+    await assert(selfBtns[0] === '사용 요청하기', `the request path must be the primary action (got ${JSON.stringify(selfBtns)})`);
+    await assert(selfBtns[1] === '사장님 부르기', `the A path (hand over the target only) must survive alongside B (got ${JSON.stringify(selfBtns)})`);
+    await assert(selfBtns[2] === '처음으로', `the lookup-only exit must stay (got ${JSON.stringify(selfBtns)})`);
+
+    await page.locator('[data-a="cust-request"]').click();
+    await page.waitForSelector('#custAmountInput');
+    await assert((await page.locator('#custAmtBig').innerText()).trim() === '0원', 'the amount screen must open at 0원');
+    await assert((await page.locator('#custAmtBal').innerText()).includes('30,000원'), 'the amount screen must show the current balance');
+    const quickTexts = (await page.locator('.cust-req-quick button').allInnerTexts()).map(t => t.trim());
+    await assert(JSON.stringify(quickTexts) === JSON.stringify(['9,000원', '18,000원', '27,000원']), `the customer quick amounts must match the usage modal (got ${JSON.stringify(quickTexts)})`);
+    // 입력 노드 유실 금지(beta.20에서 배운 것) — 빠른 금액도, 타이핑도 입력창을 갈아치우면 안 된다.
+    await page.evaluate(() => { document.querySelector('#custAmountInput').__bapProbe = 'alive'; });
+    await page.locator('[data-a="cust-amt-quick"][data-amount="9000"]').click();
+    await page.waitForTimeout(120);
+    const quickState = await page.evaluate(() => {
+      const el = document.querySelector('#custAmountInput');
+      return { same: !!el && el.__bapProbe === 'alive', value: el ? el.value : null };
+    });
+    await assert(quickState.same, 'tapping a quick amount must not replace the amount input node (the phone keypad would close)');
+    await assert(quickState.value === '9000', `the quick amount must land in the input (got ${JSON.stringify(quickState.value)})`);
+    await assert((await page.locator('#custAmtBig').innerText()).trim() === '9,000원', 'the big number must follow the quick amount');
+    await assert((await page.locator('#custAmtAfter').innerText()).includes('21,000원'), 'the amount screen must show the balance left after the deduction');
+    await assert((await page.locator('#custAmtErr').innerText()).trim() === '', 'a valid amount must raise no error');
+    // 요청은 아직 아무것도 아니다 — 이 시점에 저장소가 건드려졌다면 설계가 무너진 것이다.
+    const composeDb = await readDb(page);
+    await assert(!JSON.stringify(composeDb).includes('custAmount') && !JSON.stringify(composeDb).includes('pendingAmount'), 'a half-written request must never reach IndexedDB');
+
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await assert((await page.locator('.cust-req-amt').innerText()).includes('9,000원'), 'the signature screen must keep showing the amount the customer typed');
+    await drawOn('.cust-sig #signCanvas');
+    const submitLabel = (await page.locator('[data-a="cust-sign-submit"]').innerText()).trim();
+    await assert(submitLabel === '사장님 확인 받기', `the request must be handed over with the [사장님 확인 받기] label (got ${JSON.stringify(submitLabel)})`);
+    const txBeforeReq = await txCount();
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+
+    // "사장님 확인" 화면 — 사장님이 PIN을 누르기 **전에** 대상·금액·서명을 눈으로 검증할 수 있어야 한다.
+    await assert((await page.locator('.pin-title').innerText()).trim() === '사장님 확인', 'a B-stage request must land on the 사장님 확인 screen');
+    await assert((await page.locator('.pin-sub').innerText()).includes('김요청'), 'the 사장님 확인 screen must still name the customer');
+    await assert((await page.locator('.pin-req-label').innerText()).includes('손님이 입력한 금액'), 'the amount must be labelled as the CUSTOMER\'s number — an unlabelled figure reads as "the app decided this" and turns the owner\'s check into a formality');
+    await assert((await page.locator('.pin-req-amt').innerText()).trim() === '9,000원', 'the requested amount must be shown on the 사장님 확인 screen');
+    // 금액이 화면에서 가장 커야 한다(사장님이 읽어야 하는 것은 이름이 아니라 금액이다).
+    const reqFonts = await page.evaluate(() => ({
+      amt: parseFloat(getComputedStyle(document.querySelector('.pin-req-amt')).fontSize),
+      title: parseFloat(getComputedStyle(document.querySelector('.pin-title')).fontSize),
+      sub: parseFloat(getComputedStyle(document.querySelector('.pin-sub')).fontSize)
+    }));
+    await assert(reqFonts.amt > reqFonts.title && reqFonts.amt > reqFonts.sub, `the requested amount must be the biggest thing on the 사장님 확인 screen (amt ${reqFonts.amt} vs title ${reqFonts.title})`);
+    const custSignSrc = await page.locator('.pin-req-sign img').getAttribute('src');
+    await assert(String(custSignSrc || '').startsWith('data:image/'), 'the 사장님 확인 screen must show the signature the customer just drew');
+    const reqState = await lockSt2();
+    await assert(reqState.pendingAmount === 9000, `the request must carry the amount (got ${reqState.pendingAmount})`);
+    await assert(reqState.pendingSignLen > 200, `the request must carry the signature (got ${reqState.pendingSignLen} chars)`);
+    await assert(reqState.custAmount === '', 'handing the request over must clear the compose buffer (nothing may linger on the customer side)');
+    await assert(reqState.signPadLive === false, 'handing the request over must detach the signature canvas — a live signPad on the customer side is a signature nobody is watching');
+    await assert(await txCount() === txBeforeReq, 'building a request must not write a single ledger row');
+
+    // (i) 요청은 IndexedDB 어디에도 없다 — 대상·금액·서명 전부.
+    const reqDbRaw = JSON.stringify(await readDb(page));
+    await assert(!reqDbRaw.includes('pendingCustomer') && !reqDbRaw.includes('pendingAmount') && !reqDbRaw.includes('pendingSign'), 'a live request must never be written to IndexedDB');
+    await assert(!reqDbRaw.includes(String(custSignSrc).slice(0, 64)), 'the requested signature must not exist anywhere in IndexedDB before the owner saves');
+
+    // PIN → 사용 모달이 금액·서명과 함께 열린다.
+    await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    await assert((await page.locator('#useAmount').inputValue()) === '9000', 'the usage modal must prefill the amount the customer requested');
+    await assert(await page.locator('#useAmount').isEditable(), 'the prefilled amount must stay editable — the owner is still the one who decides');
+    await assert((await page.locator('.modal .receipt').innerText()).includes('손님이 입력한 금액'), 'the usage modal must name the source of the prefilled figure');
+    const modalSignSrc = await page.locator('#usePreSign').getAttribute('src');
+    await assert(modalSignSrc === custSignSrc, 'the signature must arrive at the owner byte-for-byte identical to what the customer drew');
+    await assert(await count(page, '#signCanvas') === 0, 'a prefilled signature must replace the blank canvas (re-signing is a deliberate act, not the default)');
+    await assert(await count(page, '[data-a="use-resign"]') === 1, 'the owner must always be able to take a fresh signature');
+
+    const dialogsBeforeSave = dialogs.length;
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForSelector('.receipt-modal', { timeout: 6000 });
+    // 저장 직전 confirm은 이 앱에서 돈이 움직이기 직전의 마지막 관문이다 — 금액이 반드시 들어가야 한다.
+    const saveConfirm = dialogs.slice(dialogsBeforeSave).find(d => d.type === 'confirm');
+    await assert(Boolean(saveConfirm) && saveConfirm.message.includes('9,000원'), `the save confirm must spell out the amount (got ${JSON.stringify(saveConfirm && saveConfirm.message)})`);
+    await assert(saveConfirm.message.includes('30,000원') && saveConfirm.message.includes('21,000원'), 'the save confirm must keep showing the before/after balance');
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(150);
+
+    const happyDb = await readDb(page);
+    await assert(happyDb.transactions.length === txBeforeReq + 1, `the B flow must record exactly one transaction (got ${happyDb.transactions.length - txBeforeReq})`);
+    await assert(balanceOfId(happyDb, 'br-1') === 21000, `the ledger balance must be exact (30,000 - 9,000, got ${balanceOfId(happyDb, 'br-1')})`);
+    const savedTx = happyDb.transactions.find(t => t.employeeId === 'br-1' && t.type === 'use');
+    await assert(savedTx.amount === 9000 && savedTx.beforeBalance === 30000 && savedTx.afterBalance === 21000, 'the recorded row must carry the exact amount and both balances');
+    await assert(savedTx.signatureData === custSignSrc, 'the stored signature must be the very image the customer drew (customer → owner → ledger, unchanged)');
+    // 요청 금액과 저장 금액이 **같을 때도** 요청 금액을 이력에 남긴다 — "달랐을 때만" 남기면
+    //   흔적이 있는 행과 없는 행을 구분할 수 없어 대조 자체가 성립하지 않는다.
+    await assert(String(savedTx.note || '').includes('손님 요청 금액 9,000원'), `a request-driven row must record the requested amount even when it matches (got note=${JSON.stringify(savedTx.note)})`);
+    const wantHash = crypto.createHash('sha256').update(savedTx.signatureData).digest('hex');
+    await assert(savedTx.signatureHash === wantHash, 'the signature hash must be the SHA-256 of the stored signature');
+    // 요청은 저장과 동시에 완전히 사라진다.
+    const afterSaveState = await lockSt2();
+    await assert(afterSaveState.pendingAmount === 0 && afterSaveState.pendingSignLen === 0 && afterSaveState.pendingCustomerId === '', 'saving must leave no trace of the request behind');
+
+    // (n) 서명은 이력의 썸네일과 [서명 확인] 창에서도 그대로 보여야 한다.
+    await page.locator('[data-a="screen"][data-screen="history"]').click();
+    await page.waitForSelector('.txn');
+    const thumbSrc = await page.locator('.txn img.thumb').first().getAttribute('src');
+    await assert(thumbSrc === custSignSrc, 'the history thumbnail must render the same signature');
+    await page.locator('.txn img.thumb').first().click();
+    await page.waitForSelector('.modal img');
+    await assert((await page.locator('.modal img').getAttribute('src')) === custSignSrc, 'the [서명 확인] window must render the same signature');
+    await assert((await page.locator('.modal .help').innerText()).includes('9,000원'), 'the signature window must show the amount it belongs to');
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(120);
+    // 증표(잔액 명함)도 저장 뒤 정상적으로 열려야 한다.
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await expandHomeGroups(page);
+    await page.locator('[data-a="receipt"][data-id="br-1"]').click();
+    await page.waitForSelector('.receipt-modal');
+    await assert((await page.locator('.receipt-modal').innerText()).includes('21,000원'), 'the balance receipt must show the post-request balance');
+    await assert(await count(page, '.receipt-warn') === 0, 'a request-driven deduction must leave the ledger verifiable (no integrity warning on the receipt)');
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(120);
+
+    // ── (B-b) 사장님이 금액을 고치면 손님 서명은 그 자리에서 무효가 된다 ──
+    //   손님은 "자기가 적은 금액"에 서명했다. 사장님이 그 금액을 고치는 순간, 남아 있는 서명은
+    //   **다른 금액의 증거**가 된다 — 나중에 다투면 그 서명은 사장님이 아니라 손님 편에 선다
+    //   ("나는 9,000원에 서명했다"). 그래서 금액이 요청과 달라지면 저장을 멈추고 서명을 다시 받는다.
+    //   ⚠️ 이 절은 옛 계약("금액을 고쳐도 서명은 잃지 않는다")을 **대체**한다. 되돌리지 말 것.
+    await composeTo('김요청', '9000');
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    const beforeEditCount = await txCount();
+    const beforeEditDb = await readDb(page);
+    const reqSignSrc = await page.locator('#usePreSign').getAttribute('src');
+    await page.locator('#useAmount').fill('12345');
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForTimeout(400);
+    // ① 저장은 일어나지 않는다 — 원장은 바이트 단위로 그대로다.
+    const blockedDb = await readDb(page);
+    await assert(JSON.stringify(blockedDb.transactions) === JSON.stringify(beforeEditDb.transactions), 'changing the requested amount must not save anything until a fresh signature is taken');
+    await assert(await count(page, '.receipt-modal') === 0, 'the mismatched save must not reach the receipt');
+    // ② 손님 서명은 사라지고 빈 캔버스가 그 자리에 온다 + 이유가 화면에 적힌다.
+    await assert(await count(page, '#usePreSign') === 0, "the customer's signature must be voided the moment the amount stops matching it");
+    await assert(await count(page, '#signCanvas') === 1, 'voiding the signature must put a blank canvas in its place (re-signing must be possible right there)');
+    const resignNotice = await page.locator('.modal').innerText();
+    await assert(resignNotice.includes('금액이 손님 요청과 달라') && resignNotice.includes('서명을 다시'), `the modal must say in plain words why the signature is gone (got ${JSON.stringify(resignNotice.slice(0, 300))})`);
+    // ③ 사장님이 고친 금액은 그대로 살아 있다 — 재렌더가 요청 금액으로 되돌리면 안 된다.
+    await assert((await page.locator('#useAmount').inputValue()) === '12345', "voiding the signature must not roll the owner's amount back to the requested one");
+    // ④ 서명 없이 다시 눌러도 저장되지 않는다.
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForTimeout(300);
+    await assert(JSON.stringify((await readDb(page)).transactions) === JSON.stringify(beforeEditDb.transactions), 'an empty canvas must still count as no signature');
+    // ⑤ 새 서명을 받으면 그때 저장된다.
+    await drawOn('#signCanvas');
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForSelector('.receipt-modal', { timeout: 6000 });
+    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.waitForTimeout(150);
+    const editedDb = await readDb(page);
+    await assert(editedDb.transactions.length === beforeEditCount + 1, 'editing the prefilled amount must still record exactly one row');
+    await assert(balanceOfId(editedDb, 'br-1') === 21000 - 12345, `the owner's edited amount must be what lands in the ledger (got ${balanceOfId(editedDb, 'br-1')})`);
+    const editedTx = editedDb.transactions.filter(t => t.employeeId === 'br-1' && t.type === 'use').sort((a, b) => b.createdAt - a.createdAt)[0];
+    await assert(editedTx.amount === 12345, `the edited amount must override the requested one (got ${editedTx.amount})`);
+    await assert(String(editedTx.signatureData || '').startsWith('data:image/'), 'the stored row must carry the fresh signature');
+    await assert(editedTx.signatureData !== reqSignSrc, "the stored signature must be the NEW one — the customer's signature for 9,000원 must never sit under a 12,345원 row");
+    // ⑥ 요청 금액은 이력에 흔적으로 남는다 — 나중에 대조할 기준이 없으면 무효화 규칙도 증명할 수 없다.
+    await assert(String(editedTx.note || '').includes('손님 요청 금액 9,000원'), `the row must record what the customer had asked for (got note=${JSON.stringify(editedTx.note)})`);
+
+    // ── (B-c) 사장님이 모달을 닫으면 요청은 폐기된다(원장 불변·재생 불가) ──
+    const beforeCancel = await readDb(page);
+    await composeTo('김요청', '5000');
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    const afterCancelDb = await readDb(page);
+    await assert(JSON.stringify(afterCancelDb.transactions) === JSON.stringify(beforeCancel.transactions), 'closing the usage modal must leave the ledger byte-identical');
+    const cancelState = await lockSt2();
+    await assert(cancelState.pendingAmount === 0 && cancelState.pendingSignLen === 0, 'closing the modal must discard the request (no second chance to save it)');
+    // 요청이 되살아나지 않는지 — 다시 잠그고 풀어도 모달이 열리면 안 된다.
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await assert(await count(page, '#useAmount') === 0, 'a discarded request must never re-open the usage modal on the next unlock');
+
+    // ── (B-d) 잔액 초과 요청 차단 ──
+    await composeTo('최소액', '2000');   // 잔액 1,000원
+    await assert((await page.locator('#custAmtErr').innerText()).includes('잔액보다 많아요'), 'an over-balance amount must say so in the customer\'s own words');
+    await assert((await page.locator('#custAmtErr').innerText()).includes('사장님께 말씀해 주세요'), 'the over-balance notice must point the customer at the owner');
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForTimeout(200);
+    await assert(await count(page, '#signCanvas') === 0, 'an over-balance amount must not reach the signature screen');
+    await assert(await count(page, '#custAmountInput') === 1, 'the blocked customer must stay on the amount screen');
+    // 경계: 잔액과 정확히 같은 금액은 통과해야 한다(1원 차이로 막으면 "다 쓰기"가 불가능해진다).
+    await page.locator('#custAmountInput').fill('1000');
+    await page.waitForTimeout(120);
+    await assert((await page.locator('#custAmtErr').innerText()).trim() === '', 'spending exactly the whole balance must be allowed');
+    await assert((await page.locator('#custAmtAfter').innerText()).includes('0원'), 'spending the whole balance must show 0원 left');
+    await page.locator('#custAmountInput').fill('1001');
+    await page.waitForTimeout(120);
+    await assert((await page.locator('#custAmtErr').innerText()).includes('잔액보다 많아요'), 'one won over the balance must already be blocked');
+
+    // ── (B-e) 0 · 음수 · 소수 · 문자 입력 차단 ──
+    // 0x·1e·0b·0o는 Number()가 조용히 숫자로 바꿔주는 표기다 — 화면에 적힌 글자와 전혀 다른 금액이 된다
+    //   ('0x2710' → 10000원). 전각 숫자도 마찬가지로 "숫자처럼 보이는 것"이다. 돈 파서는 전부 거절해야 한다.
+    for (const [bad, why] of [['0', 'zero'], ['-100', 'a negative amount'], ['9000.5', 'a fractional amount'], ['abc', 'letters'], ['9-0', 'a mangled number'],
+    ['0x2710', 'a hex literal'], ['1e4', 'an exponent literal'], ['0b11', 'a binary literal'], ['0o17', 'an octal literal'], ['１２３', 'full-width digits'], ['Infinity', 'Infinity']]) {
+      await page.locator('#custAmountInput').fill(bad);
+      await page.waitForTimeout(100);
+      const err = (await page.locator('#custAmtErr').innerText()).trim();
+      await assert(err.length > 0, `${why} ("${bad}") must raise a visible error`);
+      await page.locator('[data-a="cust-amt-next"]').click();
+      await page.waitForTimeout(120);
+      await assert(await count(page, '#signCanvas') === 0, `${why} ("${bad}") must not reach the signature screen`);
+      await assert((await page.locator('#custAmtBig').innerText()).trim() === '0원', `${why} ("${bad}") must never be echoed as a real amount`);
+    }
+    // 빈 칸으로 [다음]을 눌러도 넘어가지 않는다.
+    await page.locator('#custAmountInput').fill('');
+    await page.waitForTimeout(100);
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForTimeout(120);
+    await assert(await count(page, '#signCanvas') === 0, 'an empty amount must not reach the signature screen');
+    await assert((await page.locator('#custAmtErr').innerText()).trim().length > 0, 'an empty amount must say what is missing');
+
+    // ── (B-f) 서명 없이 진행 불가 ──
+    await page.locator('#custAmountInput').fill('500');
+    await page.waitForTimeout(100);
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.cust-sig #signCanvas') === 1, 'submitting without a signature must keep the customer on the signature screen');
+    await assert((await page.locator('#custSignErr').innerText()).includes('서명'), 'submitting without a signature must say a signature is needed');
+    await assert((await lockSt2()).pendingCustomerId === '', 'submitting without a signature must not create a request');
+    // [지우고 다시] 뒤에도 마찬가지다 — 지운 서명은 서명이 아니다.
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-clear"]').click();
+    await page.waitForTimeout(120);
+    await assert(await count(page, '.cust-sig #signCanvas') === 1, '[지우고 다시] must not tear the canvas down (a re-render would wipe it anyway)');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForTimeout(200);
+    await assert((await lockSt2()).pendingCustomerId === '', 'a cleared signature must count as no signature');
+    // [뒤로]는 금액을 남긴 채 금액 화면으로 되돌아간다(다시 처음부터 치게 하면 안 된다).
+    await page.locator('[data-a="cust-compose-back"]').click();
+    await page.waitForSelector('#custAmountInput');
+    await assert((await page.locator('#custAmountInput').inputValue()) === '500', 'stepping back from the signature must keep the amount already typed');
+    await page.locator('[data-a="cust-compose-back"]').click();
+    await page.waitForSelector('.cust-bal');
+    await assert((await lockSt2()).custAmount === '', 'stepping back to the balance screen must discard the draft amount');
+
+    // ── (g) 요청 작성 중 유휴 60초(custComposeIdle) — 조회 화면의 30초보다 길다 ──
+    //   프로덕션 값은 index.html의 TIMERS에 그대로 남는다(아래에서 소스로 못 박는다). 여기서는 축척한다.
+    //   ⚠️ 화면까지 가는 길은 넉넉한 시계로 걷고, 도착한 뒤에 눈금을 줄인다. 줄이는 것만으로는 이미 걸린
+    //     타이머가 바뀌지 않으므로(armIdle은 조작에서만 다시 걸린다) 탭을 한 번 줘서 새 눈금으로 재무장시킨다.
+    const rearm = async (selector) => { await page.locator(selector).click(); await page.waitForTimeout(60); };
+    await composeTo('김요청', '1000');
+    await setTimers({ custIdle: 400, custComposeIdle: 1600 });
+    await rearm('#custAmountInput');
+    await page.waitForTimeout(900);   // custIdle(400)의 2배 — 여기서 튀면 작성 중 화면이 사라진 것이다
+    await assert(await count(page, '#custAmountInput') === 1, 'the amount screen must NOT bounce back at the lookup-idle (30s) mark — the customer is still choosing');
+    await assert((await page.locator('#custAmountInput').inputValue()) === '1000', 'the typed amount must survive the 30s mark');
+    await page.waitForTimeout(1400);  // 누계 2300ms > custComposeIdle 1600
+    await assert(await count(page, '#custSearchInput') === 1, 'an abandoned amount screen must fall back to the empty customer search at the 60s mark');
+    const afterComposeIdle = await lockSt2();
+    await assert(afterComposeIdle.custAmount === '' && afterComposeIdle.custStage === 'search', 'the compose idle fallback must discard everything the customer had written');
+    await assert((await bt()).locked === true, 'the compose idle fallback must never unlock the app');
+    // 서명 화면도 같은 시계를 쓴다.
+    await setTimers({ custIdle: 30000, custComposeIdle: 60000 });
+    await composeTo('김요청', '1000');
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await setTimers({ custIdle: 400, custComposeIdle: 1600 });
+    await rearm('.cust-req-step');
+    await page.waitForTimeout(900);
+    await assert(await count(page, '.cust-sig #signCanvas') === 1, 'the signature screen must also hold past the 30s mark');
+    // 서명을 그리는 동작(pointermove/touchmove)만으로도 시계가 다시 무장돼야 한다 —
+    //   전역 캡처 리스너에는 그리는 이벤트가 잡히지 않아서, 이게 없으면 서명 도중에 화면이 튄다.
+    for (let i = 0; i < 4; i += 1) {
+      await drawOn('.cust-sig #signCanvas');
+      await page.waitForTimeout(700);
+    }
+    await assert(await count(page, '.cust-sig #signCanvas') === 1, 'drawing must re-arm the idle clock — a slow signature must never be interrupted by the screen resetting');
+    await page.waitForTimeout(2200);
+    await assert(await count(page, '#custSearchInput') === 1, 'an abandoned signature screen must still fall back once the drawing stops');
+    const afterSignIdle = await lockSt2();
+    await assert(afterSignIdle.signPadLive === false, 'the idle fallback must detach the signature canvas — the drawing must be unreachable, not merely off-screen');
+    await assert(afterSignIdle.pendingSignLen === 0 && afterSignIdle.custAmount === '', 'the idle fallback must discard the drawn signature and the amount together');
+    await assert(await count(page, '#signCanvas') === 0, 'the idle fallback must tear the signature canvas out of the DOM');
+    await setTimers({ custIdle: 30000, custComposeIdle: 60000 });
+
+    // ── (h) TTL 경계 119 / 121 ──
+    //   프로덕션 상수는 소스에 그대로 못 박고(120초), 경계 동작은 같은 비교식을 축척(10초)으로 확인한다.
+    //   119/120 지점에서 살아 있고 121/120 지점에서 죽어야 한다 — 두 판정(handoffEmp·takePendingCustomer)이
+    //   같은 식을 써야만 화면과 잠금 해제가 어긋나지 않는다.
+    const srcForTtl = await fsp.readFile(path.join(root, 'index.html'), 'utf8');
+    await assert(/pendingTtl:120000/.test(srcForTtl), 'the production handover TTL must stay 120 seconds');
+    await assert(/custComposeIdle:60000/.test(srcForTtl), 'the production compose idle must stay 60 seconds');
+    await assert(/custIdle:30000/.test(srcForTtl), 'the production lookup idle must stay 30 seconds');
+    await assert((srcForTtl.match(/now\(\)-at>TIMERS\.pendingTtl/g) || []).length === 2, 'the screen and the unlock path must judge expiry with the very same expression');
+    const TTL = 10000;
+    await setTimers({ pendingTtl: TTL });
+    // 요청을 넘긴 시각을 기준으로 나이를 잰다. 4자리 중 3자리를 미리 눌러 두고 마지막 한 자리만 경계에서 누른다
+    //   (잠금 해제 클릭 4번의 지연이 경계 판정에 섞이지 않게 하기 위함).
+    const ttlProbe = async (ageMs) => {
+      await composeTo('박두번', '3000');
+      await page.locator('[data-a="cust-amt-next"]').click();
+      await page.waitForSelector('.cust-sig #signCanvas');
+      await drawOn('.cust-sig #signCanvas');
+      const t0 = Date.now();
+      await page.locator('[data-a="cust-sign-submit"]').click();
+      await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+      for (const k of ['1', '2', '3']) await page.locator(`[data-a="pin-key"][data-key="${k}"]`).click();
+      const wait = ageMs - (Date.now() - t0) - 40;
+      if (wait > 0) await page.waitForTimeout(wait);
+      await page.locator('[data-a="pin-key"][data-key="4"]').click();
+      await page.waitForTimeout(400);
+      return await count(page, '#useAmount') === 1;
+    };
+    await assert(await ttlProbe(Math.round(TTL * 119 / 120)) === true, 'a request at 119/120 of the TTL must still open the usage modal (an early expiry silently kills real handovers)');
+    await assert((await page.locator('#useAmount').inputValue()) === '3000', 'the request that survived the boundary must still carry its amount');
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await assert(await ttlProbe(Math.round(TTL * 121 / 120)) === false, 'a request past 121/120 of the TTL must be dropped');
+    await assert((await page.locator('.toast').innerText().catch(() => '')).includes('만료'), 'an expired B request must tell the owner why nothing opened');
+    await setTimers({ pendingTtl: 120000 });
+
+    // ── (j) 잠금 상태 전 액션 스윕 — 금액 화면·서명 화면에서도 원장 바이트는 그대로다 ──
+    //   허용 목록 밖은 게이트가 통째로 막고, 허용 목록 안(손님 액션)은 애초에 원장에 닿지 않는다.
+    for (const [stage, enter] of [
+      ['금액', async () => { await composeTo('김요청', '7000'); }],
+      ['서명', async () => { await composeTo('김요청', '7000'); await page.locator('[data-a="cust-amt-next"]').click(); await page.waitForSelector('.cust-sig #signCanvas'); await drawOn('.cust-sig #signCanvas'); }]
+    ]) {
+      await enter();
+      const sweepBefore = await readDb(page);
+      const sweepDialogs = dialogs.length;
+      const fired = await page.evaluate(() => {
+        const keys = window.__prepaidTestHooks.clickActionKeys();
+        keys.forEach(k => {
+          const b = document.createElement('button');
+          Object.assign(b.dataset, { a: k, id: 'br-1', sid: 'sid', key: '1', screen: 'settings', dept: 'X', ctx: 'settings', tab: 'employee', amount: '9000', g: 'g', idx: '0' });
+          document.body.appendChild(b);
+          b.click();
+          b.remove();
+        });
+        return keys.length;
+      });
+      await page.waitForTimeout(900);
+      await assert(fired >= 45, `${stage} 화면 sweep must fire every action in the map (fired ${fired})`);
+      const sweepAfter = await readDb(page);
+      await assert(JSON.stringify(sweepAfter.transactions) === JSON.stringify(sweepBefore.transactions), `no action fired on the ${stage} screen may touch the ledger`);
+      await assert(JSON.stringify(sweepAfter.employees) === JSON.stringify(sweepBefore.employees), `no action fired on the ${stage} screen may touch the employee store`);
+      await assert(dialogs.length === sweepDialogs, `no destructive confirm may open from the ${stage} screen`);
+      await assert((await bt()).locked === true, `the ${stage} screen sweep must leave the app locked`);
+      await assert(await count(page, '.nav') === 0 && await count(page, '.modal-back') === 0, `the ${stage} screen sweep must not open any owner screen or modal`);
+      // 스윕이 화면을 어디로 옮겨 놨든(요청이 세워졌을 수도 있다) 다음 절을 위해 깨끗한 홈으로 되돌린다.
+      await unlock();
+      await page.waitForSelector('[data-a="quick-find-emp"]');
+      if (await count(page, '.modal-back')) {
+        await page.locator('.modal-actions [data-a="close-modal"]').first().click();
+        await page.waitForTimeout(150);
+      }
+    }
+
+    // ── (k) 새 손님이 오면 앞 손님의 요청은 즉시 폐기된다(대상·금액·서명 전부) ──
+    await composeTo('김요청', '1000');
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await assert((await lockSt2()).pendingAmount === 1000, 'the first customer\'s request must be alive before the second arrives');
+    // 앞 손님이 그냥 가 버리고 뒷 손님이 [처음으로]를 눌러 자기 이름을 친다.
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('#custSearchInput');
+    const afterHandBack = await lockSt2();
+    await assert(afterHandBack.pendingAmount === 0 && afterHandBack.pendingSignLen === 0, '[처음으로] must discard the amount and the signature too, not just the target');
+    await custLookup('박두번');
+    await page.locator('[data-a="cust-request"]').click();
+    await page.waitForSelector('#custAmountInput');
+    await assert((await page.locator('#custAmountInput').inputValue()) === '', 'the new customer must start from an empty amount');
+    await page.locator('#custAmountInput').fill('4000');
+    await page.waitForTimeout(100);
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await assert((await page.locator('.pin-sub').innerText()).includes('박두번'), 'the 사장님 확인 screen must name the customer who is standing there now');
+    await assert((await page.locator('.pin-req-amt').innerText()).trim() === '4,000원', 'the request shown must be the new customer\'s, never the previous one\'s');
+    await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    await assert((await page.locator('.modal .receipt').innerText()).includes('박두번'), 'the usage modal must open for the new customer');
+    await assert((await page.locator('#useAmount').inputValue()) === '4000', 'the usage modal must carry the new customer\'s amount, not the previous one\'s');
+    // 검색창에 글자를 치는 것만으로도 앞 요청이 사라지는지(뿌리에서의 폐기).
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await composeTo('김요청', '1000');
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await page.locator('[data-a="pin-to-cust"]').click();
+    await page.waitForSelector('#custSearchInput');
+    await page.locator('#custSearchInput').fill('최');
+    await page.waitForTimeout(200);
+    await assert((await lockSt2()).pendingAmount === 0, 'typing a new query must never resurrect a previous request');
+    await assert((await lockSt2()).pendingSignLen === 0, 'typing a new query must drop the previous signature too');
+
+    // ── (l) 같은 손님이 연달아 두 번 요청해도 중복 저장은 없다 ──
+    await toCustomer();
+    const beforeTwice = await txCount();
+    const balBeforeTwice = balanceOfId(await readDb(page), 'br-2');
+    for (const amt of ['1000', '2000']) {
+      await custLookup('박두번');
+      await page.locator('[data-a="cust-request"]').click();
+      await page.waitForSelector('#custAmountInput');
+      await page.locator('#custAmountInput').fill(amt);
+      await page.waitForTimeout(100);
+      await page.locator('[data-a="cust-amt-next"]').click();
+      await page.waitForSelector('.cust-sig #signCanvas');
+      await drawOn('.cust-sig #signCanvas');
+      await page.locator('[data-a="cust-sign-submit"]').click();
+      await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+      await unlock();
+      await page.waitForSelector('#useAmount', { timeout: 6000 });
+      await assert((await page.locator('#useAmount').inputValue()) === amt, `request #${amt} must prefill its own amount`);
+      await page.locator('[data-a="save-use"]').click();
+      await page.waitForSelector('.receipt-modal', { timeout: 6000 });
+      await page.locator('.receipt-modal [data-a="close-modal"]').click();
+      await page.waitForTimeout(150);
+      await page.locator('[data-a="hand-to-customer"]').click();
+      await page.waitForSelector('.cust-screen');
+    }
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    const twiceDb = await readDb(page);
+    await assert(twiceDb.transactions.length === beforeTwice + 2, `two requests must produce exactly two rows (got ${twiceDb.transactions.length - beforeTwice})`);
+    await assert(balanceOfId(twiceDb, 'br-2') === balBeforeTwice - 3000, `back-to-back requests must deduct 1,000 + 2,000 exactly once each (got ${balanceOfId(twiceDb, 'br-2')})`);
+
+    // ── (m) 자동 잠금(90초)과 요청 작성 / 프리필 모달의 관계 ──
+    //   작성 중에는 앱이 **이미 잠겨 있다** — 자동 잠금은 애초에 돌지 않고(canAutoLockBase가 !pinLocked를 본다)
+    //   화면을 관리하는 시계는 오직 custComposeIdle이다. 그 사실을 명시적으로 못 박는다.
+    //   모달 방치 상한은 **모달이 열리기 전에** 줄여 둔다 — armIdle은 조작에서만 다시 걸리므로
+    //   모달을 연 뒤에 상수만 바꾸면 이미 걸린 10분짜리 타이머가 그대로 돈다.
+    await setTimers({ autoLock: 400, custComposeIdle: 3000, custIdle: 3000, modalIdleCap: 3000 });
+    await composeTo('김요청', '1000');
+    await page.waitForTimeout(1200);   // autoLock(400)의 3배
+    await assert(await count(page, '#custAmountInput') === 1, 'the auto-lock clock must not touch the compose screen — the app is already locked, and only custComposeIdle governs here');
+    await assert((await bt()).locked === true, 'the compose screen must stay locked throughout');
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await drawOn('.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+    await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    // 프리필 모달도 기존 사용 모달과 똑같이 다뤄진다: 90초로는 안 잠기고(작업 중), 방치 상한에서는 잠긴다.
+    const beforeAutoLock = await readDb(page);
+    await page.waitForTimeout(1400);
+    await assert(await count(page, '#useAmount') === 1 && (await bt()).locked === false, 'an open prefilled modal must block the 90s auto-lock exactly like a hand-filled one');
+    await page.waitForTimeout(2200);   // 누계 3600ms > modalIdleCap 3000
+    await assert((await bt()).locked === true, 'a prefilled modal left untouched past the cap must eventually auto-lock');
+    await assert(await count(page, '.cust-screen') === 1 && await count(page, '.modal-back') === 0, 'the capped auto-lock must close the prefilled modal too');
+    const afterAutoLock = await readDb(page);
+    await assert(JSON.stringify(afterAutoLock.transactions) === JSON.stringify(beforeAutoLock.transactions), 'auto-locking over a prefilled modal must never save anything');
+    await assert((await lockSt2()).pendingAmount === 0, 'auto-locking must leave no request behind');
+    await setTimers({ custIdle: 30000, custComposeIdle: 60000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000 });
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+
+    // ── (n) 모달 안에서 render가 돌아도 사장님이 고친 금액·비고는 절대 되돌아가지 않는다 ──
+    //   뿌리는 하나였다: 사용 모달의 금액·비고가 **DOM에만** 있고 state에 없었다. state에 없는 값은
+    //   재렌더에서 살아남지 못한다 → 사장님이 25,000원으로 고쳐 놓아도 render가 한 번 돌면 칸이 조용히
+    //   손님 요청 금액으로 되돌아간다. 화면은 정합해 보이고(요청 금액이니까) 사장님은 그대로 저장한다.
+    //   여기서 재는 것은 "돌아가지 않는다"이지 "보기 좋다"가 아니다 — 저장된 금액까지 따라간다.
+    const openPrefilled = async (name, amountText) => {
+      await composeTo(name, amountText);
+      await page.locator('[data-a="cust-amt-next"]').click();
+      await page.waitForSelector('.cust-sig #signCanvas');
+      await drawOn('.cust-sig #signCanvas');
+      await page.locator('[data-a="cust-sign-submit"]').click();
+      await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+      await unlock();
+      await page.waitForSelector('#useAmount', { timeout: 6000 });
+    };
+    const closePrefilled = async () => {
+      if (await count(page, '.receipt-modal')) {
+        await page.locator('.receipt-modal [data-a="close-modal"]').click();
+        await page.waitForTimeout(150);
+      }
+      if (await count(page, '.modal-back')) {
+        await page.locator('.modal-actions [data-a="close-modal"]').first().click();
+        await page.waitForTimeout(150);
+      }
+      await page.waitForSelector('[data-a="quick-find-emp"]');
+    };
+
+    // (n-1) [서명 다시 받기] — 모달 안에서 render를 부르는 대표 액션.
+    await openPrefilled('박두번', '1000');
+    await page.locator('#useAmount').fill('2000');
+    await page.locator('#useNote').fill('저녁 특식 4인');
+    await page.locator('[data-a="use-resign"]').click();
+    await page.waitForSelector('#signCanvas');
+    await assert((await page.locator('#useAmount').inputValue()) === '2000', "[서명 다시 받기] must not roll the owner's amount back to the customer's request");
+    await assert((await page.locator('#useNote').inputValue()) === '저녁 특식 4인', '[서명 다시 받기] must not wipe the note the owner typed');
+    await assert(await count(page, '#usePreSign') === 0, '[서명 다시 받기] must actually clear the pre-drawn signature');
+    // 저장된 금액까지 따라가야 한다 — 화면만 맞고 원장이 다르면 아무것도 고친 게 아니다.
+    const beforeResignSave = balanceOfId(await readDb(page), 'br-2');
+    await drawOn('#signCanvas');
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForSelector('.receipt-modal', { timeout: 6000 });
+    await closePrefilled();
+    const resignDb = await readDb(page);
+    const resignTx = resignDb.transactions.filter(t => t.employeeId === 'br-2' && t.type === 'use').sort((a, b) => b.createdAt - a.createdAt)[0];
+    await assert(resignTx.amount === 2000, `the amount that survives on screen must be the amount that lands in the ledger (got ${resignTx.amount})`);
+    await assert(balanceOfId(resignDb, 'br-2') === beforeResignSave - 2000, 'the ledger must move by the edited amount, not by the requested one');
+    await assert(String(resignTx.note || '').includes('저녁 특식 4인'), `the owner's note must survive the re-render too (got ${JSON.stringify(resignTx.note)})`);
+    await assert(String(resignTx.note || '').includes('손님 요청 금액 1,000원'), 'the row must still record what the customer had asked for');
+
+    // (n-2) 네트워크가 끊겼다 붙는 것만으로 금액이 되돌아가면 안 된다.
+    //   지하 주차장·와이파이 경계에서 online/offline은 몇 초에 한 번씩도 튄다. 사장님은 아무것도 누르지 않았다.
+    await openPrefilled('박두번', '1000');
+    await page.locator('#useAmount').fill('3000');
+    await page.locator('#useNote').fill('점심 3인');
+    for (const ev of ['offline', 'online', 'offline', 'online']) {
+      await page.evaluate(name => { window.dispatchEvent(new Event(name)); }, ev);
+      await page.waitForTimeout(120);
+    }
+    await assert(await count(page, '#useAmount') === 1, 'a network flap must not tear the open usage modal down');
+    await assert((await page.locator('#useAmount').inputValue()) === '3000', "a network flap must not roll the owner's amount back to the customer's request");
+    await assert((await page.locator('#useNote').inputValue()) === '점심 3인', 'a network flap must not wipe the note');
+    await assert(await count(page, '#usePreSign') === 1, "a network flap must not disturb the customer's signature either");
+    const beforeFlapSave = balanceOfId(await readDb(page), 'br-2');
+    // 금액이 요청과 달라졌으니 (B-b)의 계약대로 서명을 다시 받아야 저장된다.
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForTimeout(400);
+    await assert(await count(page, '#signCanvas') === 1, 'the mismatch rule must still fire after a network flap');
+    await assert((await page.locator('#useAmount').inputValue()) === '3000', 'the amount must still be the edited one after the signature is voided');
+    await drawOn('#signCanvas');
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForSelector('.receipt-modal', { timeout: 6000 });
+    await closePrefilled();
+    const flapDb = await readDb(page);
+    await assert(balanceOfId(flapDb, 'br-2') === beforeFlapSave - 3000, `the saved amount must be the owner's 3,000원, not the requested 1,000원 (got ${balanceOfId(flapDb, 'br-2')})`);
+
+    // (n-3) 손님이 금액을 치는 도중의 네트워크 튐 — 입력 노드도 포커스도 살아 있어야 한다.
+    await toCustomer();
+    await custLookup('박두번');
+    await page.locator('[data-a="cust-request"]').click();
+    await page.waitForSelector('#custAmountInput');
+    await page.locator('#custAmountInput').click();
+    await page.keyboard.type('4500');
+    await page.waitForTimeout(120);
+    await page.evaluate(() => { window.dispatchEvent(new Event('offline')); });
+    await page.waitForTimeout(300);
+    const flapCust = await page.evaluate(() => {
+      const el = document.querySelector('#custAmountInput');
+      return { value: el ? el.value : null, focused: !!el && document.activeElement === el };
+    });
+    await assert(flapCust.value === '4500', `a network flap must not wipe the amount the customer is typing (got ${JSON.stringify(flapCust.value)})`);
+    await assert(flapCust.focused, 'a network flap must not steal focus from the amount input — the phone keypad would close mid-word');
+
+    // ── (o) 서명은 비동기 render로 사라지지 않는다 ──
+    //   서명 캔버스는 preventDefault 때문에 **절대 포커스를 받지 않는다** — activeElement만 보는 판정으로는
+    //   "지금 서명 중"을 영원히 못 잡는다. 손님이 이름을 반쯤 쓴 순간 백그라운드 render 하나가 돌면
+    //   획이 통째로 사라지고, 손님은 자기가 잘못 쓴 줄 안다.
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await assert(await page.evaluate(() => window.__prepaidTestHooks.renderIsDisruptive()) === false, 'a blank signature canvas must NOT block rendering — mere existence would freeze the screen forever');
+    await drawOn('.cust-sig #signCanvas');
+    await assert(await page.evaluate(() => window.__prepaidTestHooks.signInProgress()) === true, 'a canvas with strokes on it must count as "signing in progress"');
+    await assert(await page.evaluate(() => window.__prepaidTestHooks.renderIsDisruptive()) === true, 'rendering over a signature in progress must be judged disruptive');
+    await page.evaluate(() => { document.querySelector('#signCanvas').__bapStroke = 'alive'; });
+    // 실제 비동기 경로들을 쏜다: 네트워크 플랩 + 수신함 폴링.
+    await page.evaluate(() => { window.dispatchEvent(new Event('offline')); window.dispatchEvent(new Event('online')); });
+    await page.evaluate(() => window.__prepaidTestHooks.refreshInboxCount());
+    await page.waitForTimeout(500);
+    const sigAlive = await page.evaluate(() => {
+      const c = document.querySelector('#signCanvas');
+      return { same: !!c && c.__bapStroke === 'alive', has: !!c };
+    });
+    await assert(sigAlive.has && sigAlive.same, 'an async render must never replace the canvas the customer is signing on');
+    // 획이 살아 있다는 증거는 "제출이 통과한다"이다 — 노드만 같고 그림이 비면 아무 소용이 없다.
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]', { timeout: 6000 });
+    await assert((await lockSt2()).pendingSignLen > 200, 'the strokes themselves must survive the async render, not just the canvas node');
+    await unlock();
+    await page.waitForSelector('#useAmount', { timeout: 6000 });
+    await closePrefilled();
+
+    // ── (p) 프리필 모달의 첫 포커스는 [9,000원] 버튼이 아니다 ──
+    //   첫 포커스가 빠른 금액 버튼이면, 모달이 열리자마자 Enter를 한 번 누르는 것만으로
+    //   손님이 요청한 금액이 9,000원으로 덮여 쓴다(되돌릴 표시도, 흔적도 없다).
+    await openPrefilled('박두번', '1000');
+    const modalFocus = await page.evaluate(() => {
+      const ae = document.activeElement;
+      return { id: ae ? ae.id : '', tag: ae ? ae.tagName : '', a: ae && ae.dataset ? (ae.dataset.a || '') : '' };
+    });
+    await assert(modalFocus.a !== 'fill-use', `the modal must never open with a quick-amount button focused (got ${JSON.stringify(modalFocus)})`);
+    await assert(modalFocus.id === 'useAmount', `the modal must open with the amount field focused (got ${JSON.stringify(modalFocus)})`);
+    for (const key of ['Enter', 'Space']) {
+      await page.keyboard.press(key);
+      await page.waitForTimeout(150);
+      await assert((await page.locator('#useAmount').inputValue()) === '1000', `pressing ${key} right after the modal opens must not touch the requested amount`);
+    }
+    // 포커스 트랩은 그대로다 — Tab이 모달 밖으로 새지 않는다.
+    for (let i = 0; i < 12; i += 1) await page.keyboard.press('Tab');
+    const trapped = await page.evaluate(() => !!(document.activeElement && document.activeElement.closest('.modal')));
+    await assert(trapped, 'the focus trap must still hold the keyboard inside the modal');
+    const beforeEscDb = await readDb(page);
+    await closePrefilled();
+    await assert(JSON.stringify((await readDb(page)).transactions) === JSON.stringify(beforeEscDb.transactions), 'closing the modal after the focus probes must leave the ledger untouched');
+
+    // ── (q) 캔버스 위를 지나가기만 해서는 유휴 시계가 연장되지 않는다 ──
+    //   태블릿을 계산대에 두면 캔버스 위에 손바닥·커서가 그냥 얹혀 있는 시간이 길다. 그 움직임까지
+    //   "조작"으로 세면 이름·잔액이 뜬 화면이 무한히 방치된다(자동 복귀가 영원히 오지 않는다).
+    await composeTo('박두번', '1000');
+    await page.locator('[data-a="cust-amt-next"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await setTimers({ custIdle: 800, custComposeIdle: 1200 });
+    await rearm('.cust-req-step');
+    const hoverBox = await page.locator('.cust-sig #signCanvas').boundingBox();
+    for (let i = 0; i < 7; i += 1) {
+      await page.mouse.move(hoverBox.x + 20 + i * 6, hoverBox.y + hoverBox.height * 0.5);
+      await page.waitForTimeout(280);   // 누계 ~1960ms > custComposeIdle 1200
+    }
+    await assert(await count(page, '#custSearchInput') === 1, 'hovering over the signature canvas must NOT keep the idle clock alive forever — only actual drawing counts');
+    await assert((await lockSt2()).custAmount === '', 'the idle fallback must still discard the draft after a hover-only period');
+    await setTimers({ custIdle: 30000, custComposeIdle: 60000 });
+
+    // ── (r) 돈 파서는 십진 정수만 받는다 ──
+    //   Number()는 '0x2710'을 10000으로, '1e4'를 10000으로 읽는다. 화면에 적힌 글자와 다른 금액이
+    //   조용히 원장에 들어가는 유일한 길이다. 손님 금액·사용 모달·CSV·충전·조정이 전부 이 한 함수를 지난다.
+    const wonProbe = (v) => page.evaluate(x => {
+      const n = window.__prepaidTestHooks.parseWon(x);
+      return (typeof n === 'number' && Number.isNaN(n)) ? 'NaN' : n;
+    }, v);
+    for (const bad of ['0x2710', '0X10', '1e4', '1E4', '0b11', '0o17', '１２３', 'Infinity', '-Infinity', '9_000', '.5', '9.', '1e-3']) {
+      await assert(await wonProbe(bad) === 'NaN', `parseWon("${bad}") must be rejected — a number the owner never typed must never become money`);
+    }
+    for (const [good, want] of [['9000', 9000], ['9,000', 9000], ['9000원', 9000], [' 9 000 ', 9000], ['+9000', 9000], ['-100', -100], ['0', 0]]) {
+      await assert(await wonProbe(good) === want, `parseWon("${good}") must still parse to ${want} (the tightening may not break plain input)`);
+    }
+    // 사장님 화면의 금액 칸은 type=number라 브라우저가 'x' 같은 글자를 애초에 받지 않는다 — 거기서는 파서를
+    //   시험할 수 없다. 진짜 입구는 **파일**이다. CSV의 금액 칸은 브라우저가 아무것도 걸러주지 않는다.
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]', { timeout: 8000 });
+    const beforeHexDb = await readDb(page);
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('#csvFile', { state: 'attached' });
+    const hexCsv = '소속,부서,이름,금액\r\n한빛물산,영업1팀,헥사,0x2710\r\n';
+    await page.locator('#csvFile').setInputFiles({ name: 'hex.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + hexCsv, 'utf8') });
+    await page.waitForSelector('.csv-table', { timeout: 5000 });
+    const hexPreview = await page.locator('.modal').innerText();
+    await assert(!hexPreview.includes('10,000'), `a hex amount in a CSV must never be read as 10,000원 (got ${JSON.stringify(hexPreview.slice(0, 300))})`);
+    await assert(await count(page, '[data-a="exec-csv"]') === 0, 'a CSV carrying a hex amount must not even offer the import button');
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(200);
+    await assert(JSON.stringify((await readDb(page)).transactions) === JSON.stringify(beforeHexDb.transactions), 'the rejected CSV must leave the ledger byte-identical');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(200);
+
+    // ── (i) 요청은 백업 JSON에도 없다 ──
+    const reqBackups = [];
+    const onReqBackup = d2 => reqBackups.push(d2);
+    page.on('download', onReqBackup);
+    await page.locator('.top .tool [data-a="monthly-backup-now"]').click();
+    for (let i = 0; i < 25 && !reqBackups.length; i += 1) await page.waitForTimeout(100);
+    page.off('download', onReqBackup);
+    await assert(reqBackups.length >= 1, 'the backup button must still produce a file');
+    const reqBackupText = await fsp.readFile(await reqBackups[0].path(), 'utf8');
+    await assert(!/pendingAmount|pendingSign|custAmount|custQuery|pendingCustomer/.test(reqBackupText), 'no request state may leak into the backup file');
+    // 구조적 보장 — 요청 4필드는 state.data 바깥에 산다. 저장·전송의 유일한 입구(repo.apply)에 닿는 줄이
+    //   단 하나라도 생기면 여기서 잡힌다(클라우드 백업·서버 전송도 전부 backupCore→state.data를 지난다).
+    const persistLines = srcForTtl.split('\n').filter(l => /repo\.apply\(/.test(l) && /pendingAmount|pendingSign|custAmount|pendingCustomer/.test(l));
+    await assert(persistLines.length === 0, `no request field may ever reach the persistence entry point (found ${persistLines.length} line(s))`);
+    await assert(!/payload:\{[^}]*pending/.test(srcForTtl), 'the backup payload builder must not learn about requests');
 
     // ───────────────────────────────────────────────────────────────
     // (9) 소속 목록에 등록된 공공기관 추가 — 제안 목록 + orgKind 자동 분류
@@ -2113,7 +2875,7 @@ async function main() {
     await page.waitForSelector('.cust-ask');
     await page.locator('[data-a="cust-confirm"]').click();
     await page.waitForSelector('[data-a="cust-call-owner"]');
-    // 손님이 [사장님께 보여주기]로 폰을 넘긴 뒤 사장님이 오지 않은 채 시간이 흐른다.
+    // 손님이 [사장님 부르기]로 폰을 넘긴 뒤 사장님이 오지 않은 채 시간이 흐른다.
     await page.locator('[data-a="cust-call-owner"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
     const pinIdleState = await page.evaluate(() => window.__prepaidTestHooks.lockState());
