@@ -22,9 +22,9 @@ const mime = {
   '.svg': 'image/svg+xml'
 };
 
-let chromium;
+let chromium, devices;
 try {
-  ({ chromium } = await import('playwright'));
+  ({ chromium, devices } = await import('playwright'));
 } catch (err) {
   console.error('Playwright is required. Install it or run with NODE_PATH pointing to a Playwright installation.');
   console.error(err.message);
@@ -77,7 +77,7 @@ const SEED_EMPLOYEES = [
   { id: 'r-emp-3', org: '한빛물산', orgKind: '', dept: '총무부', name: '이서연', amount: 1000000 }
 ];
 
-async function seed(page) {
+async function seed(page, employees = SEED_EMPLOYEES) {
   const pinHash = crypto.createHash('sha256').update('1234').digest('hex');
   await page.evaluate(({ emps, pinHash, t, longDept }) => new Promise((resolve, reject) => {
     const req = indexedDB.open('prepaid-ledger-db');
@@ -101,7 +101,7 @@ async function seed(page) {
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error);
     };
-  }), { emps: SEED_EMPLOYEES, pinHash, t: Date.now(), longDept: LONG_DEPT });
+  }), { emps: employees, pinHash, t: Date.now(), longDept: LONG_DEPT });
 }
 
 // beta.18: 잠금 화면의 기본값은 손님 화면 — PIN 패드는 [사장님용 잠금 해제]를 눌러야 나온다.
@@ -595,6 +595,209 @@ async function runViewport(context, url, w) {
   await page.close();
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// 손님 검색 타이핑 회귀 (beta.20) — "폰에서 입력이 안 된다"의 재발 방지
+//
+// 원인이었던 것: 한 글자마다 render()가 #app.innerHTML을 통째로 갈아치웠다. 데스크톱에서는 티가 안 났지만
+//   폰에서는 (a) 포커스된 입력 노드가 DOM에서 사라지며 소프트키보드 연결이 끊기고,
+//   (b) 한글 IME가 음절을 확정할 때 compositionend → compositionstart → input 이 **한 키에서** 흐르는데
+//       앱이 compositionend 안에서 노드를 교체하면 그 키의 나머지 이벤트가 떨어져 나간 옛 노드로 들어가
+//       화면의 입력창에는 그 글자가 영영 안 찍혔다.
+// 그래서 여기서는 "글자마다 결과가 갱신되는가"만 보지 않는다. **입력 노드가 살아남는가**를 못 박는다.
+//   · 노드 동일성: 자바스크립트 expando(HTML에서 복원되지 않는 표식)로 확인한다.
+//   · 포커스 유실: document 캡처 focusout 카운터로 확인한다(폰에서 곧 키보드가 닫히는 신호).
+const TYPING_EMPLOYEES = [
+  { id: 't-emp-1', org: '광진구청', orgKind: 'public', dept: '세무과', name: '김민수', amount: 30500 },
+  { id: 't-emp-2', org: '광진구청', orgKind: 'public', dept: '세무과', name: '김민수아', amount: 12000 },
+  { id: 't-emp-3', org: '광진구청', orgKind: 'public', dept: '세무과', name: '김민정', amount: 8000 },
+  { id: 't-emp-4', org: '한빛물산', orgKind: '', dept: '총무부', name: '이서연', amount: 5000 }
+];
+
+// 입력창 노드에 표식을 심고 focusout을 세기 시작한다. 이후 어떤 검사에서도 이 표식이 사라지면 = 노드가 교체된 것.
+async function markTypingProbe(page) {
+  await page.evaluate(() => {
+    window.__typingBlurs = 0;
+    document.addEventListener('focusout', e => { if (e.target && e.target.id === 'custSearchInput') window.__typingBlurs += 1; }, true);
+    const el = document.querySelector('#custSearchInput');
+    el.__bapProbe = 'alive';
+  });
+}
+
+async function typingState(page) {
+  return await page.evaluate(() => {
+    const el = document.querySelector('#custSearchInput');
+    const results = document.querySelector('#custResults');
+    return {
+      exists: !!el,
+      sameNode: !!el && el.__bapProbe === 'alive',
+      value: el ? el.value : null,
+      focused: !!el && document.activeElement === el,
+      blurs: window.__typingBlurs,
+      rows: document.querySelectorAll('.cust-row').length,
+      hint: results ? results.innerText.replace(/\n/g, ' ').trim() : '',
+      stage: document.querySelector('.cust-ask') ? 'confirm' : (document.querySelector('.cust-bal') ? 'self' : 'search')
+    };
+  });
+}
+
+// 안드로이드 한글 IME 키 시퀀스를 그대로 흉내낸다.
+//   브라우저는 "키가 눌린 시점의 포커스 요소"를 편집 컨텍스트로 고정하고, 음절이 확정되는 키에서는
+//   compositionend → compositionstart → compositionupdate → input 을 한 흐름으로 내보낸다.
+//   앱이 그 사이에 노드를 갈아치우면 나머지 이벤트는 화면에 없는 노드로 들어간다(= 글자 유실).
+async function imeTypeHangul(page, steps) {
+  return await page.evaluate((steps) => {
+    const trace = [];
+    for (const s of steps) {
+      const target = document.activeElement;
+      if (s.end) target.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: s.end }));
+      if (s.start) target.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+      target.value = s.value;
+      target.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: s.data }));
+      target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: s.data }));
+      const live = document.querySelector('#custSearchInput');
+      trace.push({
+        key: s.data,
+        expected: s.value,
+        targetStillLive: target === live,
+        onScreen: live ? live.value : null,
+        sameNode: !!live && live.__bapProbe === 'alive',
+        focused: !!live && document.activeElement === live,
+        rows: document.querySelectorAll('.cust-row').length,
+        stage: document.querySelector('.cust-ask') ? 'confirm' : 'search'
+      });
+    }
+    return trace;
+  }, steps);
+}
+
+// 실제 디바이스 프로파일(터치·모바일 UA·모바일 뷰포트)로 손님 화면 타이핑을 통째로 검증한다.
+async function runTypingProfile(browser, url, label, contextOpts) {
+  const context = await browser.newContext(contextOpts);
+  await context.route('**/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '[]' }));
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', e => pageErrors.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') pageErrors.push(m.text()); });
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await seed(page, TYPING_EMPLOYEES);
+    await page.reload({ waitUntil: 'load' });
+    // 잠금 화면의 기본값이 손님 화면이다 — PIN을 풀지 않고 그대로 검증한다(손님이 실제로 만나는 화면).
+    await page.waitForSelector('#custSearchInput', { timeout: 8000 });
+
+    const touch = Boolean(contextOpts.hasTouch);
+    const tapInput = async () => {
+      if (touch) await page.locator('#custSearchInput').tap();
+      else await page.locator('#custSearchInput').click();
+    };
+
+    // ── 질의 전: 0건 문구가 아니라 안내 문구여야 한다 ──
+    const before = await page.evaluate(() => {
+      const r = document.querySelector('#custResults');
+      return { has: !!r, html: r ? r.innerHTML : '', text: r ? r.innerText.replace(/\n/g, ' ').trim() : '', clear: document.querySelectorAll('.cust-clear').length };
+    });
+    // 결과 영역(#custResults)은 부분 갱신의 착지점이다 — 없으면 타이핑마다 전체 render로 되돌아간 것이다.
+    check(before.has, `${label} 손님 화면: 결과 영역 #custResults가 있어야 한다(부분 갱신의 착지점 — 없으면 글자마다 전체 재렌더로 되돌아간 것)`);
+    check(before.text.includes('이름을 입력하면'), `${label} 손님 화면: 질의 전에는 안내 문구가 보여야 한다 (got "${before.text}")`);
+    check(!before.text.includes('없어요'), `${label} 손님 화면: 질의 전에는 0건 문구를 절대 띄우면 안 된다 (got "${before.text}")`);
+    check(before.clear === 0, `${label} 손님 화면: 질의 전에는 ✕ 지우기 버튼이 없어야 한다`);
+
+    // ── (1) 탭 → 포커스 ──
+    await tapInput();
+    await markTypingProbe(page);
+    let st = await typingState(page);
+    check(st.focused, `${label} 손님 화면: 검색창을 탭하면 포커스가 잡혀야 한다 (activeElement=${st.value === null ? 'none' : 'other'})`);
+
+    // ── (2) 조합 없는 한 글자씩 타이핑(초성 'ㄱㅁ' 포함) — 글자마다 입력값·포커스·노드가 유지돼야 한다 ──
+    for (const [i, ch] of [...'ㄱㅁ'].entries()) {
+      await page.keyboard.type(ch, { delay: 40 });
+      await page.waitForTimeout(60);
+      st = await typingState(page);
+      const want = 'ㄱㅁ'.slice(0, i + 1);
+      check(st.value === want, `${label} 초성 입력: ${i + 1}번째 글자 뒤 입력값이 "${want}"여야 한다 (got ${JSON.stringify(st.value)})`);
+      check(st.sameNode, `${label} 초성 입력: 타이핑 중 입력창 노드가 교체됐다(폰에서 소프트키보드가 닫히는 원인) — ${i + 1}번째 글자`);
+      check(st.focused, `${label} 초성 입력: ${i + 1}번째 글자 뒤 포커스가 검색창에서 벗어났다`);
+      check(st.blurs === 0, `${label} 초성 입력: 타이핑 중 검색창이 ${st.blurs}번 포커스를 잃었다(0이어야 한다)`);
+    }
+    check(st.rows === 3, `${label} 초성 입력: 'ㄱㅁ'는 3명(김민수·김민수아·김민정)을 내놓아야 한다 (${st.rows}행)`);
+    check(await page.locator('.cust-clear').count() === 1, `${label} 초성 입력: 글자가 있으면 ✕ 지우기 버튼이 나와야 한다`);
+
+    // ── (3) ✕ 지우기도 입력창 노드를 죽이면 안 된다(폰에서 키보드가 닫힌다) ──
+    if (touch) await page.locator('.cust-clear').tap(); else await page.locator('.cust-clear').click();
+    await page.waitForTimeout(80);
+    st = await typingState(page);
+    check(st.value === '', `${label} ✕ 지우기: 검색어가 비워져야 한다 (got ${JSON.stringify(st.value)})`);
+    check(st.sameNode, `${label} ✕ 지우기: 입력창 노드가 교체됐다(폰 키보드가 닫힌다)`);
+    check(st.focused, `${label} ✕ 지우기: 지운 뒤에도 포커스는 검색창에 남아야 한다`);
+    check(st.rows === 0 && st.hint.includes('이름을 입력하면'), `${label} ✕ 지우기: 질의 전 안내로 되돌아가야 한다 (got "${st.hint}")`);
+    check(await page.locator('.cust-clear').count() === 0, `${label} ✕ 지우기: 검색어가 비면 ✕ 버튼도 사라져야 한다`);
+
+    // ── (4) 한글 조합(IME) '김민수' — 음절 확정 키에서 글자가 유실되면 안 된다 ──
+    //   ✕ 버튼을 탭하면 그 순간 focusout이 한 번 나는 게 정상이다(포커스는 곧바로 되돌아온다) — 여기서 0으로 되돌린다.
+    await page.evaluate(() => { window.__typingBlurs = 0; });
+    const trace = await imeTypeHangul(page, [
+      { end: null, start: true, data: 'ㄱ', value: 'ㄱ' },
+      { end: null, start: false, data: '기', value: '기' },
+      { end: null, start: false, data: '김', value: '김' },
+      { end: '김', start: true, data: 'ㅁ', value: '김ㅁ' },   // ← 확정 + 다음 음절 시작이 한 키에서
+      { end: null, start: false, data: '미', value: '김미' },
+      { end: null, start: false, data: '민', value: '김민' },
+      { end: '민', start: true, data: 'ㅅ', value: '김민ㅅ' },
+      { end: null, start: false, data: '수', value: '김민수' }
+    ]);
+    trace.forEach(t => {
+      check(t.targetStillLive, `${label} 한글 조합: '${t.key}' 키를 처리하는 도중 입력창 노드가 교체됐다 — 이 키의 나머지 이벤트가 화면 밖 노드로 들어간다`);
+      check(t.sameNode, `${label} 한글 조합: '${t.key}' 입력 뒤 입력창 노드가 교체됐다(조합·키보드가 끊긴다)`);
+      check(t.onScreen === t.expected, `${label} 한글 조합: '${t.key}' 입력 뒤 화면의 검색창이 "${t.expected}"여야 한다 (got ${JSON.stringify(t.onScreen)})`);
+      check(t.focused, `${label} 한글 조합: '${t.key}' 입력 뒤 포커스가 검색창에서 벗어났다`);
+      check(t.stage === 'search', `${label} 한글 조합: 조합 중에는 확인 카드로 넘어가면 안 된다 ('${t.key}')`);
+    });
+    st = await typingState(page);
+    check(st.blurs === 0, `${label} 한글 조합: 타이핑 내내 포커스 유실이 0이어야 한다 (got ${st.blurs})`);
+    check(st.rows === 2, `${label} 한글 조합: '김민수'는 2명(김민수·김민수아)을 내놓아야 한다 (${st.rows}행)`);
+
+    // ── (5) 조합이 끝나면(compositionend) 기존 계약대로 1명 → 확인 카드 ──
+    await page.evaluate(() => {
+      const el = document.querySelector('#custSearchInput');
+      el.value = '김민정';
+      el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '정' }));
+    });
+    await page.waitForSelector('.cust-ask', { timeout: 4000 });
+    check(await page.locator('.cust-ask').count() === 1, `${label} 조합 종료: 결과가 1명이면 확인 카드로 넘어가야 한다(기존 계약)`);
+    check((await page.locator('.cust-name').innerText()).includes('김민정'), `${label} 조합 종료: 확인 카드에 찾은 사람이 나와야 한다`);
+    await page.locator('[data-a="cust-cancel"]').click();
+    await page.waitForSelector('#custSearchInput');
+    await markTypingProbe(page);
+
+    // ── (6) 결과 없음 안내 — 손님이 친 글자를 되돌려 주고 초성 팁을 함께 준다 ──
+    await tapInput();
+    for (const ch of [...'홍길동']) { await page.keyboard.type(ch, { delay: 30 }); await page.waitForTimeout(40); }
+    const none = await typingState(page);
+    check(none.rows === 0, `${label} 결과 없음: '홍길동'은 0건이어야 한다 (${none.rows}행)`);
+    check(none.hint.includes("'홍길동'(으)로 등록된 이름이 없어요."), `${label} 결과 없음: 손님이 친 이름을 그대로 되돌려 줘야 한다 (got "${none.hint}")`);
+    check(none.hint.includes('사장님께 말씀해 주세요'), `${label} 결과 없음: 사장님께 말씀해 달라는 안내가 있어야 한다 (got "${none.hint}")`);
+    check(none.hint.includes('초성만 쳐도 돼요'), `${label} 결과 없음: 초성 검색 팁을 한 줄 병기해야 한다 (got "${none.hint}")`);
+    check(none.sameNode && none.focused && none.blurs === 0, `${label} 결과 없음: 0건이어도 입력창 노드·포커스는 그대로여야 한다`);
+
+    // ── (7) 결과 없음 문구의 이스케이프 — 손님이 친 글자는 절대 HTML로 해석되지 않는다 ──
+    await page.locator('#custSearchInput').fill('<img src=x onerror=alert(1)>&');
+    await page.waitForTimeout(80);
+    const escaped = await page.evaluate(() => {
+      const r = document.querySelector('#custResults') || document.querySelector('.cust-body');
+      if (!r) return { text: '', injected: -1, html: '' };
+      return { text: r.innerText.replace(/\n/g, ' ').trim(), injected: r.querySelectorAll('img, script').length, html: r.innerHTML };
+    });
+    check(escaped.injected === 0, `${label} 결과 없음: 입력값이 HTML로 주입되면 안 된다`);
+    check(escaped.text.includes('<img src=x onerror=alert(1)>&'), `${label} 결과 없음: 입력값이 글자 그대로 보여야 한다 (got "${escaped.text}")`);
+    check(escaped.html.includes('&amp;') && escaped.html.includes('&lt;img'), `${label} 결과 없음: 입력값은 esc()를 거쳐야 한다`);
+
+    check(pageErrors.length === 0, `${label} 손님 화면 타이핑: 콘솔/페이지 오류가 없어야 한다 (${JSON.stringify(pageErrors.slice(0, 3))})`);
+  } finally {
+    await page.close();
+    await context.close();
+  }
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -615,6 +818,14 @@ async function main() {
       } finally {
         await context.close();
       }
+    }
+    // 손님 검색 타이핑 회귀(beta.20) — 실제 디바이스 프로파일(터치·모바일 UA)과 데스크톱을 함께 돌린다.
+    for (const [label, opts] of [
+      ['Pixel 7', devices['Pixel 7']],
+      ['iPhone 13', { ...devices['iPhone 13'], isMobile: true, hasTouch: true }],
+      ['데스크톱', { viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false }]
+    ]) {
+      await runTypingProfile(browser, url, label, opts);
     }
   } finally {
     await browser.close();

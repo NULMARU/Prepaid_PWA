@@ -1693,6 +1693,52 @@ async function main() {
     await page.locator('[data-a="cust-cancel"]').click();
     await page.waitForSelector('#custSearchInput');
 
+    // (8-b2) 부분 갱신 계약(beta.20) — 손님이 한 글자씩 칠 때 **입력창 노드가 살아 있어야** 한다.
+    //   전체 재렌더는 포커스된 입력 노드를 DOM에서 들어내 폰의 소프트키보드·한글 IME 조합을 끊는다
+    //   ("데스크톱은 되는데 스마트폰에서는 입력이 안 된다"의 정체). 결과 영역(#custResults)만 갈아끼운다.
+    //   상세 회귀(실제 디바이스 프로파일·IME 조합)는 harness/responsive.e2e.mjs가 맡는다.
+    await assert(await count(page, '#custResults') === 1, 'the customer search screen must carry a #custResults region (partial-update landing spot)');
+    await page.locator('#custSearchInput').click();
+    await page.evaluate(() => { document.querySelector('#custSearchInput').__bapProbe = 'alive'; });
+    // '홍'·'홍길'·'홍길동' 은 어느 단계에서도 동명이인 병합 행 1줄이라 확인 카드로 넘어가지 않는다 — 검색 단계가 유지된다.
+    for (const ch of ['홍', '길', '동']) {
+      await page.keyboard.type(ch);
+      await page.waitForTimeout(120);
+      const s = await page.evaluate(() => {
+        const el = document.querySelector('#custSearchInput');
+        return { same: !!el && el.__bapProbe === 'alive', focused: !!el && document.activeElement === el, value: el ? el.value : null };
+      });
+      await assert(s.same, `typing "${ch}" must not replace the customer search input node (mobile keyboard/IME would be torn down)`);
+      await assert(s.focused, `typing "${ch}" must not steal focus from the customer search input`);
+    }
+    await assert((await page.locator('#custSearchInput').inputValue()) === '홍길동', 'every typed character must land in the customer search input');
+
+    // (8-b3) 검색 결과 0건 안내(beta.20) — 손님이 친 이름을 그대로 되돌려 주고 초성 팁을 병기한다.
+    //   질의 전(빈 검색어)에는 0건 문구를 절대 띄우지 않는다.
+    await page.locator('#custSearchInput').fill('없는사람');
+    await page.waitForTimeout(200);
+    const noneText = (await page.locator('#custResults').innerText()).replace(/\n/g, ' ');
+    await assert(await count(page, '.cust-row') === 0, 'an unmatched query must produce no result rows');
+    await assert(noneText.includes("'없는사람'(으)로 등록된 이름이 없어요."), `the empty-result notice must echo the typed name (got ${JSON.stringify(noneText)})`);
+    await assert(noneText.includes('사장님께 말씀해 주세요'), `the empty-result notice must tell the customer to ask the owner (got ${JSON.stringify(noneText)})`);
+    await assert(noneText.includes('초성만 쳐도 돼요'), `the empty-result notice must carry the 초성 tip (got ${JSON.stringify(noneText)})`);
+    // 이스케이프 — 손님이 친 글자는 절대 HTML로 해석되지 않는다.
+    await page.locator('#custSearchInput').fill('<img src=x onerror=alert(1)>');
+    await page.waitForTimeout(200);
+    const escText = await page.evaluate(() => {
+      const r = document.querySelector('#custResults');
+      return { text: r.innerText.replace(/\n/g, ' '), injected: r.querySelectorAll('img, script').length };
+    });
+    await assert(escText.injected === 0, 'the empty-result notice must never inject the query as HTML');
+    await assert(escText.text.includes('<img src=x onerror=alert(1)>'), `the empty-result notice must show the query as literal text (got ${JSON.stringify(escText.text)})`);
+    // 질의를 비우면 0건 문구가 사라지고 안내 문구로 되돌아간다(✕ 버튼도 함께 사라진다).
+    await page.locator('[data-a="cust-clear"]').click();
+    await page.waitForTimeout(200);
+    const emptyText = (await page.locator('#custResults').innerText()).replace(/\n/g, ' ');
+    await assert(emptyText.includes('이름을 입력하면'), `the pre-query customer screen must show the guidance line (got ${JSON.stringify(emptyText)})`);
+    await assert(!emptyText.includes('없어요'), 'the pre-query customer screen must NEVER show the empty-result notice');
+    await assert(await count(page, '.cust-clear') === 0, 'the ✕ clear button must disappear once the query is empty');
+
     // (8-c) 동명이인(구분 마커 ·2)은 한 줄로 병합되고 선택할 수 없다. 표시 이름은 마커를 뗀 기본 이름이다.
     await page.locator('#custSearchInput').fill('홍길동');
     await page.waitForTimeout(200);

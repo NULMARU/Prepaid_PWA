@@ -267,7 +267,7 @@
 .pin-key[disabled]{opacity:.4}
 /* ─── 잠금 화면 = 손님 화면 ─── */
 /* 손님이 직접 만지는 유일한 화면이다. 여기서는 어떤 원장 쓰기도 일어나지 않는다(요청만 만들 수 있다). */
-.cust-screen{display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:22px 16px 28px;background:linear-gradient(160deg,#f0f2f5 0%,#e6eaf0 100%)}
+.cust-screen{display:flex;flex-direction:column;align-items:center;min-height:100vh;min-height:100dvh;padding:22px 16px 28px;background:linear-gradient(160deg,#f0f2f5 0%,#e6eaf0 100%)}
 .cust-head{text-align:center;margin-bottom:16px;width:100%;max-width:420px}
 .cust-shop{font-size:15px;font-weight:800;color:var(--primary);letter-spacing:-.3px;word-break:keep-all}
 .cust-title{font-size:24px;font-weight:900;letter-spacing:-.6px;margin-top:4px;color:var(--text);word-break:keep-all}
@@ -340,7 +340,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.19',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.20',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -1061,14 +1061,41 @@ if(stage==='confirm')return confirmCard(sel);
 // ⓪ 검색 — 질의 전에는 한 명도 보이지 않는다. 소속 필터도 없다(손님은 자기 이름만 찾으면 된다).
 const rows=custRows(d.active,q);
 if(rows.length===1&&!rows[0].dup){const one=d.active.find(e=>e.id===rows[0].id);if(one)return confirmCard(one)}
-const clearBtn=q?'<button class="cust-clear" data-a="cust-clear" aria-label="입력 지우기">✕</button>':'';
-const searchBox=`<div class="cust-search"><input id="custSearchInput" type="text" autocomplete="off" placeholder="이름을 입력하세요 — 초성만 쳐도 돼요" aria-label="이름으로 내 선금 찾기" value="${esc(q)}">${clearBtn}</div>`;
-let listHtml;
-if(!q)listHtml='<div class="cust-hint">이름을 입력하면 내 잔액이 나와요.<br>잔액은 본인 확인 뒤에만 보여요.</div>';
-else if(!rows.length)listHtml='<div class="cust-hint">찾는 이름이 없어요. 사장님께 말씀해 주세요.</div>';
-else if(rows.length>20)listHtml=`<div class="cust-list">${rows.slice(0,20).map(custRowHtml).join('')}</div><div class="cust-hint">이름을 더 입력해 주세요.</div>`;
-else listHtml=`<div class="cust-list">${rows.map(custRowHtml).join('')}</div>`;
-return wrap(`<div class="cust-body">${searchBox}${listHtml}</div>`)}
+const searchBox=`<div class="cust-search"><input id="custSearchInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search" placeholder="이름을 입력하세요 — 초성만 쳐도 돼요" aria-label="이름으로 내 선금 찾기" value="${esc(q)}">${q?custClearHtml():''}</div>`;
+return wrap(`<div class="cust-body">${searchBox}<div id="custResults" aria-live="polite">${custResultsHtml(rows,q)}</div></div>`)}
+// 결과 영역만 따로 만든다 — 타이핑 중에는 이 조각만 갈아끼우고 입력창 노드는 손대지 않는다(custSearchPatch).
+//   0건 안내는 손님이 친 글자를 그대로 되돌려 주고(esc 경유), 초성 팁을 한 줄 덧붙인다.
+//   ⚠️ 질의 전(빈 검색어)에는 0건 문구를 쓰지 않는다 — 아직 찾은 적이 없는 손님에게 "없어요"는 거짓말이다.
+function custResultsHtml(rows,q){
+if(!str(q))return '<div class="cust-hint">이름을 입력하면 내 잔액이 나와요.<br>잔액은 본인 확인 뒤에만 보여요.</div>';
+if(!rows.length)return `<div class="cust-hint">'${esc(q)}'(으)로 등록된 이름이 없어요. 사장님께 말씀해 주세요.<br>초성만 쳐도 돼요.</div>`;
+if(rows.length>20)return `<div class="cust-list">${rows.slice(0,20).map(custRowHtml).join('')}</div><div class="cust-hint">이름을 더 입력해 주세요.</div>`;
+return `<div class="cust-list">${rows.map(custRowHtml).join('')}</div>`}
+// ✕ 버튼은 입력창의 형제다 — 부분 갱신에서는 이 버튼만 붙였다 뗀다(입력창 노드는 절대 다시 만들지 않는다).
+function custClearHtml(){return '<button class="cust-clear" data-a="cust-clear" aria-label="입력 지우기">✕</button>'}
+function syncCustClear(q){const box=document.querySelector('.cust-search');if(!box)return;const btn=box.querySelector('.cust-clear');
+if(str(q)&&!btn)box.insertAdjacentHTML('beforeend',custClearHtml());else if(!str(q)&&btn)btn.remove()}
+// ── 손님 검색 부분 갱신 (beta.20) ────────────────────────────────────────
+// 왜 필요한가: 예전에는 한 글자마다 render()가 #app.innerHTML을 통째로 갈아치웠다. 데스크톱에서는 티가
+//   안 나지만(포커스·커서를 즉시 되돌리므로) **폰에서는 치명적이었다**:
+//     (a) 포커스된 입력 노드가 DOM에서 제거되는 순간 소프트키보드의 입력 연결이 끊긴다 → 키보드가 닫힌다.
+//     (b) 한글 IME는 음절이 확정될 때 compositionend → compositionstart → input 이 **한 키에서** 흐른다.
+//         앱이 compositionend 안에서 노드를 갈아치우면 그 키의 나머지 이벤트는 이미 떨어져 나간 옛 노드로
+//         들어간다 → 화면의 입력창에는 그 글자가 영영 안 찍힌다("스마트폰에서 입력이 안 된다"의 정체).
+// 해결: 검색 단계에서는 결과 영역(#custResults)만 교체한다. 입력창 노드는 손님이 타이핑하는 내내 살아 있다.
+//   화면 자체가 바뀌는 순간(결과 1명 → 확인 카드)에만 false를 돌려 호출자가 전체 render를 하게 한다.
+//   ⚠️ 조합 중(composing)에는 절대 전체 render로 넘기지 않는다 — 조합 중 노드 교체가 곧 입력 유실이다.
+//   다른 화면의 렌더 계약은 건드리지 않는다(이 함수는 잠금·손님·검색 단계에서만 동작한다).
+function custSearchPatch(){
+if(!(lockScreenActive()&&state.lockView==='customer'&&customerViewAllowed()))return false;
+if(state.custSelectedId||state.custStage!=='search')return false;
+const box=qs('custResults'),input=qs('custSearchInput');
+if(!box||!input)return false;
+const q=str(state.custQuery),rows=custRows(derive().active,q);
+if(!composing&&rows.length===1&&!rows[0].dup)return false;
+box.innerHTML=custResultsHtml(rows,q);
+syncCustClear(q);
+return true}
 
 // ── 초기 설정 화면 (스펙 §수정4: 1화면 1메시지, 선택 항목은 전부 [나중에 하기] 가능) ──
 // 1/4 가게 정보 → 2/4 우리 가게 등록(중계 서버 검색) → 3/4 부서 목록 → 4/4 연락처+약관
@@ -1480,7 +1507,9 @@ state.custSelectedId=id;state.custVerify=await verifyBalanceFor(id);state.custSt
 // [아니요] — 검색어까지 지우고 처음 화면으로. 검색어를 남기면 결과가 1건일 때 같은 확인 카드가 다시 떠
 //   손님이 빠져나갈 길이 없어진다(결과 1건이면 곧바로 확인 카드로 가는 규칙 때문).
 'cust-cancel':()=>{resetCustomerState();render()},
-'cust-clear':()=>{state.custQuery='';state.custSelectedId='';state.custStage='search';state.custVerify=null;state.pendingCustomerId='';state.pendingCustomerAt=0;render()},
+// ✕도 부분 갱신으로 처리한다 — 전체 render는 입력창 노드를 갈아치워 폰 키보드를 닫아 버린다.
+'cust-clear':()=>{state.custQuery='';state.custSelectedId='';state.custStage='search';state.custVerify=null;state.pendingCustomerId='';state.pendingCustomerAt=0;
+const i=qs('custSearchInput');if(i&&custSearchPatch()){i.value='';try{i.focus()}catch(e){}armIdle();return}render()},
 'cust-back':()=>{resetCustomerState();render()},
 // 사장님 인계 요청 — 기록이 아니라 "요청"이다(휘발성, 저장소에 남기지 않는다). 잠금은 유지된다.
 //   손님이 폰을 건네는 그 동작이 곧 "사장님 차례"이므로 곧바로 PIN 화면("사장님 확인")을 띄운다.
@@ -1504,7 +1533,10 @@ async function onInput(e){
 //   innerHTML 교체 도중 render를 재진입시킨다(그 렌더가 통째로 실패한다).
 // 검색창에 글자를 치는 순간 = 새 손님이 시작한다는 뜻이다 → 앞 손님의 인계 요청은 여기서 버린다.
 //   결과가 1건이면 [cust-pick] 없이 곧바로 확인 카드로 넘어가므로, 뿌리(입력)에서 지워야 엉뚱한 인계가 없다.
-if(lockScreenActive()){if(e.target.id==='custSearchInput'&&e.type!=='change'){state.custQuery=e.target.value||'';state.custSelectedId='';state.custStage='search';state.custVerify=null;state.pendingCustomerId='';state.pendingCustomerAt=0;if(!composing)render()}return}
+// beta.20: 여기서 render()를 부르면 입력창 노드가 통째로 교체돼 폰의 소프트키보드·한글 IME가 끊긴다.
+//   → 결과 영역만 갈아끼우고(custSearchPatch), 그것이 불가능한 경우(확인 카드로 넘어가는 순간)에만 전체 render.
+//   render()가 대신 해 주던 유휴 시계 재무장은 여기서 직접 한다(캡처 리스너는 첫 글자 때 아직 빈 질의를 본다).
+if(lockScreenActive()){if(e.target.id==='custSearchInput'&&e.type!=='change'){state.custQuery=e.target.value||'';state.custSelectedId='';state.custStage='search';state.custVerify=null;state.pendingCustomerId='';state.pendingCustomerAt=0;armIdle();if(!custSearchPatch())render()}return}
 if(e.target.id==='searchInput'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='regionSelectSetup'||e.target.id==='regionSelectSettings'){const isSettings=e.target.id==='regionSelectSettings';state.regionSelected=e.target.value||'';const region=selectedRegion();state.agencySelected=(region&&region.agencies&&region.agencies[0]&&region.agencies[0].id)||'';if(!state.deptCache[state.regionSelected]){setBusy('부서 목록을 불러오는 중입니다.');await ensureDeptsForRegion(state.regionSelected);clearBusy()}if(isSettings){try{await saveSelectedAgencyName()}catch(err){console.error(err)}}render();return}
 if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('공공기관명 저장 오류');return}}render()}}
 
