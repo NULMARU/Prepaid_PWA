@@ -55,6 +55,15 @@
 .section-title{font-size:20px;font-weight:800;line-height:1.25;color:var(--text);position:relative;padding-left:12px;word-break:keep-all}
 .section-title::before{content:"";position:absolute;left:0;top:.18em;bottom:.18em;width:4px;border-radius:999px;background:var(--accent-bar)}
 .section-kicker{font-size:12px;color:var(--muted);font-weight:700;line-height:1.5}
+/* ─── 설정 아코디언(beta.27) ───
+   설정 화면이 폰에서 7화면을 넘겼다. 자주 쓰는 카드(직원 선금대장 등록·직원 목록 관리)만 펼친 채 두고
+   나머지는 접는다. 접힌 카드도 **제목과 한 줄 요약은 항상 보인다** — 무엇이 들어 있는지 모르는 접힘은
+   기능을 숨긴 것과 같다(사장님이 [장부 안전 저장]을 영영 못 찾는 길). */
+/* display를 두 클래스로 못 박는 이유: 아래 @media(max-width:520px)가 .section-head를 grid로 바꾼다.
+   접힘 머리글은 오른쪽 끝의 화살표가 제목과 같은 줄에 있어야 "누르면 열린다"로 읽히므로 flex를 유지한다. */
+.section-head.fold-head{display:flex;cursor:pointer;border-radius:10px;padding:4px 2px;margin:-4px -2px;align-items:center;min-height:48px;transition:background .15s}
+.fold-head:active{background:var(--primary-soft)}
+.fold-arrow{flex:0 0 auto;font-size:13px;color:var(--muted);line-height:1}
 .section-actions{display:grid;gap:8px}
 .action-btn{display:flex;gap:10px;align-items:flex-start;text-align:left;justify-content:flex-start;padding:13px 14px;min-height:58px}
 .action-btn .action-icon{width:24px;flex:0 0 24px;text-align:center;font-size:17px;line-height:1.25}
@@ -115,6 +124,11 @@
 .card.employee.solo .dept{font-size:14px!important}
 .card.employee.solo .bal{font-size:34px!important}
 .card.employee.solo [data-a="use"]{min-height:60px!important;padding:0 26px!important;font-size:18px;font-weight:800}
+/* 🧾 버튼은 아이콘만으로는 무엇인지 알 수 없다(현장에서 "이게 뭐냐"는 질문이 가장 잦았다)
+   → 아이콘 아래에 작은 글자 라벨을 세로로 붙인다. 가로로 붙이면 폰 2행 레이아웃에서 [사용] 버튼을 밀어낸다. */
+.card.employee [data-a="receipt"]{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.05}
+.rcpt-label{display:block;font-size:10px;font-weight:800;letter-spacing:-.4px;color:var(--muted)}
+.card.employee.solo [data-a="receipt"]{min-height:52px!important}
 /* 직원 아바타 배지(장식) */
 .emp-avatar{flex:0 0 42px;width:42px;height:42px;border-radius:10px;background:var(--primary-soft);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;line-height:1;letter-spacing:-.3px}
 /* 홈 상태 pill(표시 전용) */
@@ -189,7 +203,16 @@
 .receipt{display:grid;gap:6px;padding:14px;border:1.5px solid var(--line);border-radius:12px;background:#fafbfd;margin-bottom:12px}
 .receipt-row{display:flex;justify-content:space-between;gap:12px;font-size:15px}
 .signature{width:100%;height:180px;display:block;background:#fff;touch-action:none}
-.sig-box{border:1.5px solid var(--line);border-radius:12px;overflow:hidden}
+/* 서명판. position:relative는 장식이 아니라 계약이다 — 빈 캔버스 안내(.sig-hint)를 **캔버스 위에 겹치는 오버레이**로
+   띄우기 위한 기준 상자다. 안내를 캔버스에 그리면(fillText) 그 픽셀이 그대로 toDataURL에 들어가 서명 이미지에
+   "여기에 손가락으로 서명해 주세요"가 박힌다 — 원장에 남는 그림이 오염된다. 그래서 안내는 DOM 형제 노드다. */
+.sig-box{position:relative;border:1.5px solid var(--line);border-radius:12px;overflow:hidden}
+/* 빈 캔버스 안내 — 캔버스 백킹 스토어에는 한 픽셀도 닿지 않는다(오버레이).
+   pointer-events:none이 두 번째 계약이다: 안내 위를 눌러도 이벤트는 그대로 캔버스로 통과해야 한다
+   (여기서 이벤트가 막히면 손님이 안내 글자 위에서 서명을 시작할 때 첫 획이 통째로 사라진다). */
+.sig-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;color:#b3bec9;font-size:15px;font-weight:700;letter-spacing:-.3px;text-align:center;padding:0 14px;word-break:keep-all;line-height:1.5}
+/* 획이 하나라도 그려지면 사라진다 — 클래스는 initSignPad가 붙였다 뗀다(재렌더 없이). */
+.sig-box.signed .sig-hint{display:none}
 .namecard{aspect-ratio:1.58/1;min-height:200px;border-radius:18px;background:var(--balance-grad);color:#fff;padding:20px 22px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:var(--shadow-lg);overflow:hidden}
 .namecard-shop{font-size:16px;font-weight:800;letter-spacing:-.3px;opacity:.96}
 .namecard-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:6px 0}
@@ -201,6 +224,9 @@
 .namecard-foot{display:flex;flex-direction:column;gap:3px}
 .namecard-date{font-size:12px;font-weight:700;opacity:.92}
 .namecard-note{font-size:11px;font-weight:600;opacity:.85;letter-spacing:-.2px;word-break:keep-all}
+/* 증표 안내 한 줄 — 명함(카드) **바깥**이다. 카드 안에 넣으면 손님에게 보여주는 그 그림이 지저분해지고,
+   사진으로 남긴 증표에도 앱 사용법이 함께 찍힌다. 닫기 버튼 근처에 작은 글씨로만 둔다. */
+.receipt-tip{margin-top:12px;font-size:12.5px;line-height:1.6;color:var(--muted);text-align:center;word-break:keep-all}
 .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 .modal-actions button{flex:1;font-size:16px;font-weight:700}
 
@@ -360,7 +386,10 @@
 /* 목록만 줄어든다(min-height는 "적어도 한 줄은 보인다"의 보장선). 나머지 조각은 절대 찌그러지지 않는다. */
 .cust-detail .cust-txs{flex:1 1 auto;min-height:52px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .cust-detail .cust-tx{flex-shrink:0}
-.cust-detail .cust-label,.cust-detail .cust-name,.cust-detail .cust-bal,.cust-detail .cust-warn,.cust-detail .cust-tx-title,.cust-detail .cust-draft-note,.cust-detail .cust-actions{flex-shrink:0}
+.cust-detail .cust-label,.cust-detail .cust-name,.cust-detail .cust-bal,.cust-detail .cust-warn,.cust-detail .cust-photo-tip,.cust-detail .cust-tx-title,.cust-detail .cust-draft-note,.cust-detail .cust-actions{flex-shrink:0}
+/* 사진 안내 한 줄 — 잔액 바로 아래. 이 화면은 세로 예산이 빠듯하므로(버튼 3개가 초기 뷰포트 안에 있어야 한다)
+   높이를 먹는 쪽은 오직 .cust-txs(스크롤 영역)여야 한다. 그래서 이 줄은 flex-shrink:0 + **한 줄** 고정이다. */
+.cust-photo-tip{font-size:12px;line-height:1.5;color:var(--muted);margin:2px 0 0;word-break:keep-all}
 /* 폰에서 '얼마를 쓰시나요?'와 큰 숫자를 한 줄로 붙이는 자리(세로 압축) — 태블릿·데스크톱은 원래대로 두 줄. */
 .cust-amt-line{display:block}
 /* ─── beta.23: 손님 통합 요청 화면을 "폰 세로 한 화면"에 담는다 ────────────────────
@@ -469,6 +498,14 @@
 .setup-head p{color:var(--muted);font-size:13px;margin:0;line-height:1.6}
 .setup-step{display:inline-block;padding:4px 14px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px;font-weight:700;margin-bottom:12px}
 .setup-selected{border:2px solid var(--primary);background:var(--primary-soft);border-radius:12px;padding:14px}
+/* ─── 첫 실행 환영 화면(0단계, beta.27) ───
+   단계 번호(1/3·2/3·3/3)에는 **포함하지 않는다** — 번호를 4단계로 늘리면 "할 일이 더 늘었다"로 읽힌다.
+   이 화면은 세는 단계가 아니라 인사다. */
+.setup-welcome{max-width:460px;margin:0 auto;text-align:center}
+.setup-welcome-logo{font-size:46px;line-height:1;margin-bottom:10px}
+.setup-welcome-lines{display:grid;gap:8px;font-size:15px;line-height:1.65;color:var(--text);word-break:keep-all;text-align:left}
+.setup-welcome-safe{margin-top:14px;border:1.5px solid #e8c9a0;background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:12px 14px;font-size:13.5px;font-weight:700;line-height:1.65;word-break:keep-all;text-align:left}
+.setup-welcome-free{margin-top:12px;font-size:13px;font-weight:800;color:var(--success)}
 </style>
 </head>
 <body>
@@ -479,7 +516,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.26',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.27',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -507,7 +544,7 @@ const COMMON_DEPTS=[...DEFAULT_DEPTS];
 //   custAmount = 작성 중인 금액, pendingAmount·pendingSign = 사장님께 넘긴 요청의 내용.
 //   저장소·서버·백업 어디에도 나가지 않는다(state.data 바깥이라 backupCore/repo.apply의 사정권 밖이다).
 //   "손님은 요청을 만들고, 사장님은 기록을 만든다" — 이 4개는 요청이지 기록이 아니다.
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 // lastInputAt = 마지막 **사용자 조작** 시각. 유휴 만료의 유일한 기준이다(렌더는 이 값을 건드리지 못한다).
 //   init()이 첫 render를 부르기 전에 반드시 초기화돼 있어야 하므로 선언을 여기(최상단 상태 묶음)에 둔다.
 let lastInputAt=Date.now();
@@ -1364,6 +1401,8 @@ if(stage==='compose'&&(verifyBad||num(sel.balance)<=0)){stage='self';state.custS
 if(stage==='self'){
 const bad=verifyBad;
 const balBlock=bad?`<div class="cust-warn">잔액을 표시할 수 없어요.<br>사장님께 문의해 주세요.</div>`:`<div class="cust-bal">${money(sel.balance)}</div>`;
+// 사진 안내 — 잔액을 실제로 보여줄 때만. 잔액을 못 보여주는 화면에서 "사진으로 찍어 두세요"는 아무 뜻이 없다.
+const photoTip=bad?'':'<div class="cust-photo-tip">이 화면을 사진으로 찍어 두시면 나중에 잔액을 확인하실 수 있어요.</div>';
 const recent=sortTxDesc(state.data.transactions.filter(t=>t.employeeId===sel.id)).slice(0,5);
 const txs=recent.length?recent.map(t=>custTxHtml(t,d.voided)).join(''):'<div class="cust-hint">아직 기록이 없어요.</div>';
 // 손님이 여기서 고를 수 있는 길은 셋이다.
@@ -1380,7 +1419,7 @@ const reqBtn=canRequest?'<button class="btn-primary" data-a="cust-request">사�
 // 안내는 **한 줄**이다(beta.25). 두 줄짜리 문구가 이 화면에 세로 72px를 더해 버튼 줄을 통째로
 //   접힘 아래로 밀어낸 것이 beta.24의 결함이었다 — 말은 남기되 줄 수는 늘리지 않는다.
 const draftNote=canRequest?`<div class="cust-hint cust-draft-note">${str(state.custAmount)?'<b>금액은 그대로</b> · ':''}<b>서명만 다시</b> 해 주세요.</div>`:'';
-return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</div><div class="cust-name">${esc(sel.name)}님</div>${balBlock}<div class="cust-tx-title">최근 5건</div><div class="cust-txs">${txs}</div>${draftNote}<div class="cust-actions">${reqBtn}<button class="${bad?'btn-primary':'btn-secondary'}" data-a="cust-call-owner">사장님 부르기</button><button class="btn" data-a="cust-back">처음으로</button></div></div></div>`,'cust-detail')}
+return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</div><div class="cust-name">${esc(sel.name)}님</div>${balBlock}${photoTip}<div class="cust-tx-title">최근 5건</div><div class="cust-txs">${txs}</div>${draftNote}<div class="cust-actions">${reqBtn}<button class="${bad?'btn-primary':'btn-secondary'}" data-a="cust-call-owner">사장님 부르기</button><button class="btn" data-a="cust-back">처음으로</button></div></div></div>`,'cust-detail')}
 // ① 요청 작성 — **금액과 서명이 한 화면**이다(beta.22). 예전에는 금액 화면 → 서명 화면 2장이었다.
 //   화면을 나누면 어르신이 [다음]을 한 번 더 찾아 눌러야 하고, 두 화면 사이에서 유휴 시계가 한 번 더 돈다.
 //   합치면 손님은 "얼마 · 이름" 한 번에 끝낸다.
@@ -1410,7 +1449,7 @@ const quick=[9000,18000,27000].map(v=>`<button data-a="cust-amt-quick" data-amou
 //   ⚠️ 링크가 늘어난 만큼 폰 세로는 CSS에서 되돌려 받았다(아래 @media 블록) — "스크롤 없이 한 화면" 계약은
 //     금액칸·서명판 전체·버튼·링크 **전부**에 그대로 걸려 있다(harness/responsive.e2e.mjs).
 // 폰에서는 '얼마를 쓰시나요?'와 큰 숫자가 한 줄로 붙는다(.cust-amt-line) — 링크 한 줄 값의 세로를 여기서 벌었다.
-return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-who"><span class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</span><span class="cust-name">${esc(sel.name)}님</span></div><div class="cust-amt-line"><div class="cust-req-step">얼마를 쓰시나요?</div><div class="cust-req-amt" id="custAmtBig">${esc(view.big)}</div></div><div class="cust-req-bal"><span id="custAmtBal">${esc(view.bal)}</span><br><span id="custAmtAfter">${esc(view.after)}</span></div><div class="cust-req-err" id="custAmtErr">${esc(view.c.err)}</div><div class="quick cust-req-quick">${quick}</div><div class="cust-req-field"><label for="custAmountInput">직접 넣기 (원)</label><input id="custAmountInput" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="예: 9000" aria-label="사용할 금액을 원 단위로 입력" value="${esc(state.custAmount)}"></div><div class="cust-sign-title">여기에 서명해 주세요</div><div class="sig-box cust-sig"><canvas id="signCanvas" class="signature"></canvas></div><div class="cust-req-err" id="custSignErr"></div><div class="cust-actions cust-req-actions"><button class="btn-primary" data-a="cust-sign-submit">사장님 확인 받기</button><button class="btn-secondary" data-a="cust-sign-clear">지우고 다시</button><button class="btn" data-a="cust-back">처음으로</button></div><div class="cust-links"><button data-a="cust-history">최근 사용<br>내역 보기</button><button data-a="cust-call-owner">금액을 모르겠어요<br>사장님 부르기</button></div></div></div>`,'cust-compose')}
+return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-who"><span class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</span><span class="cust-name">${esc(sel.name)}님</span></div><div class="cust-amt-line"><div class="cust-req-step">얼마를 쓰시나요?</div><div class="cust-req-amt" id="custAmtBig">${esc(view.big)}</div></div><div class="cust-req-bal"><span id="custAmtBal">${esc(view.bal)}</span><br><span id="custAmtAfter">${esc(view.after)}</span></div><div class="cust-req-err" id="custAmtErr">${esc(view.c.err)}</div><div class="quick cust-req-quick">${quick}</div><div class="cust-req-field"><label for="custAmountInput">직접 넣기 (원)</label><input id="custAmountInput" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="예: 9000" aria-label="사용할 금액을 원 단위로 입력" value="${esc(state.custAmount)}"></div><div class="cust-sign-title">여기에 서명해 주세요</div><div class="sig-box cust-sig"><canvas id="signCanvas" class="signature"></canvas><div class="sig-hint">여기에 손가락으로 서명해 주세요</div></div><div class="cust-req-err" id="custSignErr"></div><div class="cust-actions cust-req-actions"><button class="btn-primary" data-a="cust-sign-submit">사장님 확인 받기</button><button class="btn-secondary" data-a="cust-sign-clear">지우고 다시</button><button class="btn" data-a="cust-back">처음으로</button></div><div class="cust-links"><button data-a="cust-history">최근 사용<br>내역 보기</button><button data-a="cust-call-owner">금액을 모르겠어요<br>사장님 부르기</button></div></div></div>`,'cust-compose')}
 // ① 본인 확인 카드 — 남의 잔액을 잘못 보는 일을 막는 마지막 관문.
 const confirmCard=e=>wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-ask">본인이 맞나요?</div><div class="cust-label">${esc(orgDeptLabel(e)||'부서 없음')}</div><div class="cust-name">${esc(e.name)}</div><div class="cust-actions"><button class="btn-primary" data-a="cust-confirm" data-id="${esc(e.id)}">네, 맞아요</button><button class="btn" data-a="cust-cancel">아니요</button></div></div></div>`);
 if(stage==='confirm')return confirmCard(sel);
@@ -1494,7 +1533,32 @@ return true}
 // ── 초기 설정 화면 (스펙 §수정4: 1화면 1메시지, 선택 항목은 전부 [나중에 하기] 가능) ──
 // beta.26: 가게 정보를 두 번(직접 입력 + 검색) 넣던 중복을 없앴다 — 1/3에서 **검색으로 한 번** 고르면 끝이다.
 // 1/3 우리 가게 찾기(검색 선택 = 가게명·주소·전화 자동 채움) → 2/3 부서 목록 → 3/3 연락처+약관
-function setupScreenHtml(){if(state.setupStep===2)return setupStep2Html();if(state.setupStep===3)return setupStep3Html();return setupStep1Html()}
+// beta.27: 1/3 앞에 **환영 화면(0단계)** 한 장. 단계 번호는 건드리지 않는다 — 1/3·2/3·3/3 그대로다.
+//   번호를 1/4로 늘리면 사장님 눈에는 "할 일이 하나 더 늘었다"로 보인다. 이 화면은 세는 단계가 아니라 인사다.
+//   한 번 지나가면 다시 뜨지 않는다(meta.welcomeSeen). 앱을 껐다 켜도 같다 — 인사는 두 번 하지 않는다.
+function setupScreenHtml(){if(!state.data.meta.welcomeSeen)return setupWelcomeHtml();
+if(state.setupStep===2)return setupStep2Html();if(state.setupStep===3)return setupStep3Html();return setupStep1Html()}
+
+// 환영(0단계) — 사장님이 이 앱을 처음 열었을 때 반드시 알아야 할 세 가지만 말한다.
+//   ① 무엇을 해주는가(공공기관·회사가 보낸 직원 식대 선금을 종이 장부 없이)
+//   ② **돈을 받거나 보내지 않는다**(절대 불변식 1을 사장님 언어로) — 앱이 돈을 쥔다고 오해하면
+//      "이거 잘못되면 내 돈은?"에서 설치가 멈춘다. 현장에서 가장 먼저 나오는 질문이다.
+//   ③ 완전 무료(뒤에 청구서가 없다)
+//   버튼은 하나다. 여기서 고를 것은 없다 — 고를 것이 생기는 순간 인사가 아니라 관문이 된다.
+function setupWelcomeHtml(){
+return '<div class="setup"><div class="setup-welcome">'
++'<div class="setup-welcome-logo" aria-hidden="true">🍚</div>'
++'<div class="setup-head" style="margin-bottom:16px"><h1>밥장부에 오신 것을 환영합니다</h1><p>선입금 식대 장부를 대신 적어 드려요.</p></div>'
++'<div class="card"><div class="setup-welcome-lines">'
++'<div>① 공공기관·회사가 <b>직원 식대 선금</b>을 우리 가게에 맡겨요.</div>'
++'<div>② 담당자(서무)가 <b>직원 명단</b>을 보내면 앱이 장부에 올려 드려요.</div>'
++'<div>③ 손님이 밥을 먹으면 <b>서명 한 번</b>으로 잔액이 줄어요 — 종이 장부는 필요 없어요.</div>'
++'</div>'
++'<div class="setup-welcome-safe">이 앱은 돈을 받거나 보내지 않아요 — 선금은 가게 은행 계좌로 직접 입금돼요.</div>'
++'<div class="setup-welcome-free">완전 무료예요 · 광고도 없어요</div>'
++'</div>'
++'<button class="btn-primary" data-a="setup-welcome-start" style="width:100%;min-height:60px;font-size:18px;font-weight:800;margin-top:18px">시작하기</button>'
++'</div></div>'}
 
 // 1/3 우리 가게 찾기 — 공공데이터(중계 서버 프록시)에서 검색해 고르면 가게명·주소·전화가 한 번에 채워진다.
 //   · 여기서는 **고르기만** 하고 서버로 아무것도 보내지 않는다(실제 등록은 약관 동의 후 finishSetup에서 실행).
@@ -1746,8 +1810,8 @@ const summary=`<div class="card summary"><div>오늘 사용 ${money(todayUse)}</
 if(state.search.trim()&&d.filtered.length===1)return `${pills}${quickActionsHtml()}${soloEmpCard(d.filtered[0])}`;
 return `${pills}${summary}${quickActionsHtml()}${groupsHtml}`}
 // 확대 카드 — empCard와 같은 조작(사용·증표·이력)을 그대로 두고 크기만 키운다(크기는 .card.employee.solo CSS).
-function soloEmpCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';const initial=esc(Array.from(str(e.name))[0]||'?');return `<div class="card employee solo" style="display:flex;align-items:center;gap:12px"><div class="emp-avatar" aria-hidden="true">${initial}</div><div class="employee-main" data-a="history-for" data-id="${esc(e.id)}"><div class="name">${esc(e.name)}</div><div class="dept">${esc(orgDeptLabel(e)||'부서 없음')}${e.note?' · '+esc(e.note):''}</div></div><div class="bal ${c}" style="margin:0;white-space:nowrap">${money(e.balance)}</div><button class="small" data-a="receipt" data-id="${esc(e.id)}" aria-label="${esc(e.name)} 잔액증표 보기" title="잔액증표(명함)" style="flex:0 0 auto;min-width:48px;font-size:20px">🧾</button><button class="btn-primary" data-a="use" data-id="${esc(e.id)}" style="flex:0 0 auto">사용</button></div>`}
-function empCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';const initial=esc(Array.from(str(e.name))[0]||'?');return `<div class="card employee" style="display:flex;align-items:center;gap:12px"><div class="emp-avatar" aria-hidden="true">${initial}</div><div class="employee-main" data-a="history-for" data-id="${esc(e.id)}"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.name)}</div><div class="dept" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(orgDeptLabel(e)||'부서 없음')}${e.note?' · '+esc(e.note):''}</div></div><div class="bal ${c}" style="margin:0;white-space:nowrap;font-size:20px">${money(e.balance)}</div><button class="small" data-a="receipt" data-id="${esc(e.id)}" aria-label="${esc(e.name)} 잔액증표 보기" title="잔액증표(명함)" style="flex:0 0 auto;min-width:44px;font-size:18px">🧾</button><button class="btn-primary" data-a="use" data-id="${esc(e.id)}" style="min-width:auto;padding:10px 16px;flex:0 0 auto">사용</button></div>`}
+function soloEmpCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';const initial=esc(Array.from(str(e.name))[0]||'?');return `<div class="card employee solo" style="display:flex;align-items:center;gap:12px"><div class="emp-avatar" aria-hidden="true">${initial}</div><div class="employee-main" data-a="history-for" data-id="${esc(e.id)}"><div class="name">${esc(e.name)}</div><div class="dept">${esc(orgDeptLabel(e)||'부서 없음')}${e.note?' · '+esc(e.note):''}</div></div><div class="bal ${c}" style="margin:0;white-space:nowrap">${money(e.balance)}</div><button class="small" data-a="receipt" data-id="${esc(e.id)}" aria-label="${esc(e.name)} 잔액증표 보기" title="잔액증표(명함)" style="flex:0 0 auto;min-width:48px;font-size:20px">🧾<span class="rcpt-label">증표</span></button><button class="btn-primary" data-a="use" data-id="${esc(e.id)}" style="flex:0 0 auto">사용</button></div>`}
+function empCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';const initial=esc(Array.from(str(e.name))[0]||'?');return `<div class="card employee" style="display:flex;align-items:center;gap:12px"><div class="emp-avatar" aria-hidden="true">${initial}</div><div class="employee-main" data-a="history-for" data-id="${esc(e.id)}"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.name)}</div><div class="dept" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(orgDeptLabel(e)||'부서 없음')}${e.note?' · '+esc(e.note):''}</div></div><div class="bal ${c}" style="margin:0;white-space:nowrap;font-size:20px">${money(e.balance)}</div><button class="small" data-a="receipt" data-id="${esc(e.id)}" aria-label="${esc(e.name)} 잔액증표 보기" title="잔액증표(명함)" style="flex:0 0 auto;min-width:44px;font-size:18px">🧾<span class="rcpt-label">증표</span></button><button class="btn-primary" data-a="use" data-id="${esc(e.id)}" style="min-width:auto;padding:10px 16px;flex:0 0 auto">사용</button></div>`}
 function historyHtml(d){if(state.historyTab==='employee')return historyByEmployee(d);return historyByDate(d)}
 function historyByDate(d){if(!d.dateGroups.length)return '<div class="card empty">거래 이력이 없습니다.<br>홈 화면에서 직원을 골라 [사용]을 눌러 등록해 보세요.<br><button class="btn-primary" data-a="go-home" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">홈으로 가기</button></div>';return d.dateGroups.map(g=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1.5px solid #eef1f4"><div class="name" style="font-size:16px">${esc(g.date)}</div><div style="font-size:12px;color:var(--muted)">${g.count}건${g.useTotal?` · 사용 ${money(g.useTotal)}`:''}</div></div><div class="list">${g.items.map(t=>txCardDate(t,d)).join('')}</div></div>`).join('')}
 function txCardDate(t,d){const e=d.empMap.get(t.employeeId);const eName=e?e.name:'알 수 없음';const eDept=e?e.deptKey:'';const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const sig=t.signatureData?`<img class="thumb" src="${t.signatureData}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:'';const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">이 사용 기록 취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';const time=new Date(t.createdAt);const hm=String(time.getHours()).padStart(2,'0')+':'+String(time.getMinutes()).padStart(2,'0');return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div><div class="txn-title">${esc(eName)} <span style="font-weight:400;color:var(--muted);font-size:11px">${esc(eDept)} · ${esc(lbl)}</span></div></div><div class="amt ${cls}">${sign}${money(isAdj?t.amount:Math.abs(t.amount))}</div></div><div class="chips"><span>${hm}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
@@ -1779,7 +1843,7 @@ const reqNote=preAmount>0?`<div class="receipt-row req"><span>손님이 입력�
 const resignWarn=state.modal.resignNeeded?`<div class="notice-money" style="margin:0 0 10px;font-size:13.5px">금액이 손님 요청과 달라 서명을 다시 받아야 해요.<br>손님께 아래 칸에 다시 서명을 받아 주세요.</div>`:'';
 const sigField=preSign
 ?`<div class="field"><label>서명 (손님이 미리 했어요)</label><div class="sig-box sig-pre"><img id="usePreSign" src="${esc(preSign)}" alt="손님 서명"></div><button class="btn" data-a="use-resign" style="margin-top:8px">서명 다시 받기</button></div>`
-:`<div class="field"><label>서명</label><div class="sig-box"><canvas id="signCanvas" class="signature"></canvas></div></div>`;
+:`<div class="field"><label>서명</label><div class="sig-box"><canvas id="signCanvas" class="signature"></canvas><div class="sig-hint">여기에 손가락으로 서명해 주세요</div></div></div>`;
 const sigBtn=preSign?'':'<button class="btn" data-a="clear-sign">서명 지우기</button>';
 return `<div class="modal-back"><div class="modal"><h2>사용 등록</h2><p class="help">${preAmount>0?'손님이 보낸 요청이에요. 금액과 서명을 확인한 뒤 저장하세요 (금액을 고치면 서명을 다시 받습니다).':'금액을 입력한 뒤 서명을 받고 저장하세요.'}</p>${resignWarn}<div class="receipt"><div class="receipt-row"><span>직원</span><strong>${esc(e.name)}</strong></div><div class="receipt-row"><span>소속·부서</span><strong>${esc(orgDeptLabel(e)||'부서 없음')}</strong></div><div class="receipt-row"><span>현재 잔액</span><strong style="font-size:24px;color:var(--primary)">${money(e.balance)}</strong></div>${reqNote}</div><div class="form"><div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-use" data-amount="9000">9,000원</button><button data-a="fill-use" data-amount="18000">18,000원</button><button data-a="fill-use" data-amount="27000">27,000원</button></div></div>${field('useAmount','사용 금액',amtVal,'금액을 입력하세요','number','data-modal-focus')}${field('useNote','비고 (점심/저녁/특식 등)',noteVal,'선택 입력')}${smsBox}${sigField}</div><div class="modal-actions">${sigBtn}<button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-use">서명 후 저장</button></div></div></div>`}
 if(state.modal.type==='signature'){const t=state.data.transactions.find(v=>v.id===state.modal.id);if(!t||!t.signatureData)return '';const e=state.data.employees.find(v=>v.id===t.employeeId);return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>서명 확인</h2><p class="help">${esc(e?e.name:'알 수 없음')} · ${dt(t.createdAt)} · ${money(t.amount)}</p><img src="${t.signatureData}" style="max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff" alt="서명"><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
@@ -1791,7 +1855,7 @@ if(state.modal.type==='receipt'){return receiptCardHtml(d)}
 return ''}
 
 // 잔액증표(명함형) — 표시 전용. 잔액은 derive() 결과만 사용(별도 계산 금지).
-function receiptCardHtml(d){const e=d.empMap.get(state.modal.id);if(!e)return '';const shop=state.data.meta.shopName||APP;const od=orgDeptLabel(e);const who=od?`${esc(od)} ${esc(e.name)}님`:`${esc(e.name)}님`;const x=new Date(now());const dateStr=`${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`;const integrityBad=state.modal.integrityOk===false||state.modal.crossOk===false;let balBlock;if(integrityBad){balBlock=`<div class="receipt-warn">장부에 이상이 있어 잔액을 표시할 수 없습니다.<br>설정 → 장부 검사를 확인하세요.</div>`}else{const neg=e.balance<0;balBlock=`<div class="receipt-bal${neg?' neg':''}">${money(e.balance)}${neg?'<div class="receipt-negnote">확인 필요</div>':''}</div>`}return `<div class="modal-back"><div class="modal receipt-modal"><div class="namecard"><div class="namecard-shop">${esc(shop)}</div><div class="namecard-body"><div class="namecard-who">${who}</div>${balBlock}</div><div class="namecard-foot"><div class="namecard-date">${dateStr}</div><div class="namecard-note">${esc(shop)} 전용 · 잔액 확인용 · 양도 불가</div></div></div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
+function receiptCardHtml(d){const e=d.empMap.get(state.modal.id);if(!e)return '';const shop=state.data.meta.shopName||APP;const od=orgDeptLabel(e);const who=od?`${esc(od)} ${esc(e.name)}님`:`${esc(e.name)}님`;const x=new Date(now());const dateStr=`${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`;const integrityBad=state.modal.integrityOk===false||state.modal.crossOk===false;let balBlock;if(integrityBad){balBlock=`<div class="receipt-warn">장부에 이상이 있어 잔액을 표시할 수 없습니다.<br>설정 → 장부 검사를 확인하세요.</div>`}else{const neg=e.balance<0;balBlock=`<div class="receipt-bal${neg?' neg':''}">${money(e.balance)}${neg?'<div class="receipt-negnote">확인 필요</div>':''}</div>`}return `<div class="modal-back"><div class="modal receipt-modal"><div class="namecard"><div class="namecard-shop">${esc(shop)}</div><div class="namecard-body"><div class="namecard-who">${who}</div>${balBlock}</div><div class="namecard-foot"><div class="namecard-date">${dateStr}</div><div class="namecard-note">${esc(shop)} 전용 · 잔액 확인용 · 양도 불가</div></div></div><div class="receipt-tip">이 화면을 사진으로 찍어 두시면 나중에 잔액을 확인하실 수 있어요.</div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 
 // 증표 열기 — 3중 안전장치: ①derive balance만 사용 ②해시체인 재검증 ③시간순 applyTx 누적 교차검증
 // 잔액 표시 전 안전장치 ②③ — 해시체인 재검증 + 시간순 applyTx 누적 교차검증.
@@ -1955,6 +2019,11 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 // 자동 펼침(그룹 1개·검색·필터)으로 강제 펼쳐진 그룹은 탭해도 아무 상태를 기록하지 않는다(data-forced).
 //   기록하면 "지금은 접히지 않는" 탭이 몰래 상태를 뒤집어, 검색을 지운 뒤 엉뚱하게 펼쳐지거나 접혀 보인다.
 'toggle-home-group':(el)=>{if(el.dataset.forced==='1')return;const k=el.dataset.g;state.homeExpanded[k]=!state.homeExpanded[k];render()},
+// 설정 카드 아코디언 — 세션 내 유지(state.settingsOpen). 영속화하지 않는다: 다음 실행에는 다시 접힌 상태로
+//   돌아가는 것이 이 기능의 목적이다(설정 화면을 열 때마다 7화면짜리 벽이 서지 않게).
+'toggle-settings-card':(el)=>{const k=str(el.dataset.card);if(!k)return;state.settingsOpen[k]=!state.settingsOpen[k];render()},
+// 환영 화면(0단계) → 1/3. 본 것을 기록해 다시 띄우지 않는다(앱을 껐다 켜도 유지).
+'setup-welcome-start':async()=>{state.data.meta.welcomeSeen=true;try{await repo.apply({meta:{welcomeSeen:true}})}catch(e){console.error('welcome flag',e)}state.setupStep=1;render()},
 'pin-key':async(el)=>{await handlePinKey(el.dataset.key)},
 'pin-reset':async()=>{await pinReset()},// pinReset() 안에서 복구 화면 60초 게이트를 다시 확인한다
 // 복구 화면 진입 — 진입 시각을 찍어 60초 활성화 게이트를 시작한다(이미 들어와 있으면 다시 찍지 않는다).
@@ -2372,9 +2441,11 @@ for(const r of topupRows){if(!r.existId||!r.amount)continue;const before=balance
 await repo.apply({employees:emps,transactions:txs});emps.forEach(upsertEmp);txs.forEach(upsertTx);state.modal=null;clearBusy();render();toast(`${msg.join(' + ')} 완료`)}catch(err){console.error(err);clearBusy();toast('임포트 오류')}}
 
 // ── 전체 초기화 ──
-function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[],setupComplete:false}}}
+// ⚠️ welcomeSeen:true — 전체 초기화/잠금화면 복구는 **이미 앱을 아는 사장님**이 하는 동작이다.
+//   여기서 환영 화면을 다시 띄우면 급히 되돌리려는 사람 앞에 인사 화면이 한 장 더 서는 셈이다(온보딩 1/3로 바로 간다).
+function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[],setupComplete:false,welcomeSeen:true}}}
 async function clearAppCachesAndWorker(){if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}}
-function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.homeExpanded={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
+function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.homeExpanded={};state.settingsOpen={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
 // 초기화 후 온보딩/수신 상태 누수 방지(S4) — 이전 사용자의 가게 선택·검색 결과·동의·신청 건수가 남으면 안 된다.
 state.setupPickedStore=null;state.setupManualMode=false;state.setupManualDraft={name:'',addr:'',tel:''};state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreResults=[];state.setupStoreSearching=false;state.setupStoreSearched=false;state.setupStoreFilteredOut=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false}
 async function wipeLocalData(){const empty=emptyAppData();await repo.replaceAll(empty);await clearAppCachesAndWorker();resetUiAfterWipe(empty);return empty}
@@ -2429,8 +2500,13 @@ const point=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:
 // 손님이 실제로 서명하는 순간 "서명을 해주세요." 오류 한 줄을 지운다 — 서명을 했는데도 남아 있으면
 //   손님은 자기가 뭘 잘못했다고 믿고 [지우고 다시]를 눌러 처음부터 다시 쓴다(현장에서 실제로 벌어진다).
 const clearSignErr=()=>{const el=qs('custSignErr');if(el&&el.textContent)el.textContent=''};
+// 빈 캔버스 안내(.sig-hint)의 표시/숨김. ⚠️ 캔버스에는 손대지 않는다 — 부모 상자(.sig-box)의 클래스만 바꾼다.
+//   그래서 안내가 켜져 있든 꺼져 있든 백킹 스토어의 픽셀은 한 점도 달라지지 않고, toDataUrl() 결과도 동일하다.
+//   재렌더로 지우면 그리던 획이 함께 날아가므로(캔버스 3중 보호), 여기서 DOM 클래스만 토글한다.
+const hintBox=canvas.parentElement;
+const setHint=on=>{if(hintBox&&hintBox.classList&&hintBox.classList.contains('sig-box'))hintBox.classList.toggle('signed',!on)};
 const start=e=>{e.preventDefault();drawing=true;const p=point(e);cur=[p];strokes.push(cur);ctx.beginPath();ctx.moveTo(p.x,p.y)};
-const move=e=>{if(!drawing)return;e.preventDefault();if(empty)clearSignErr();empty=false;const p=point(e);if(cur)cur.push(p);ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#1f2933';ctx.lineTo(p.x,p.y);ctx.stroke()};
+const move=e=>{if(!drawing)return;e.preventDefault();if(empty){clearSignErr();setHint(false)}empty=false;const p=point(e);if(cur)cur.push(p);ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#1f2933';ctx.lineTo(p.x,p.y);ctx.stroke()};
 const end=()=>{drawing=false;cur=null};
 // 회전·리사이즈 — 백킹 스토어를 새 크기로 다시 잡고, 기억해 둔 획을 균일 배율(min)로 옮겨 다시 그린다.
 //   가로·세로 배율을 따로 쓰면 서명이 찌그러진다(그것이 곧 무음 왜곡이다) → 작은 쪽 배율 하나만 쓴다.
@@ -2440,7 +2516,7 @@ if(Math.abs(d.w-w)<0.5&&Math.abs(d.h-h)<0.5&&nr===ratio)return;
 const s=Math.min(d.w/w,d.h/h);
 if(strokes.length&&Number.isFinite(s)&&s>0)strokes=strokes.map(st=>st.map(p=>({x:p.x*s,y:p.y*s})));
 w=d.w;h=d.h;ratio=nr;applySize();redraw()};
-paint();canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);canvas.addEventListener('mouseup',end);canvas.addEventListener('mouseleave',end);canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',end);
+paint();setHint(true);canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);canvas.addEventListener('mouseup',end);canvas.addEventListener('mouseleave',end);canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',end);
 // 서명은 "조작"이다 — 그런데 전역 캡처 리스너(click/input/change/keydown/touchstart)에는 그리는 동작의
 //   대부분(touchmove·pointermove·mousemove)이 잡히지 않는다. 그대로 두면 손님이 천천히 이름을 쓰는 동안
 //   유휴 시계가 계속 흘러 서명 도중에 화면이 튄다. 그리는 이벤트에서 직접 시계를 다시 무장시킨다.
@@ -2454,7 +2530,7 @@ canvas.addEventListener('pointerdown',markInput,{passive:true});
 ['pointermove','touchmove','mousemove'].forEach(ev=>canvas.addEventListener(ev,armIfDrawing,{passive:true}));
 // drawing() = 지금 손가락/펜이 닿아 있는가. renderIsDisruptive가 "서명 중"을 판정하는 데 쓴다
 //   (캔버스는 preventDefault 때문에 절대 포커스를 받지 않아 activeElement로는 알 수 없다).
-signPad={clear(){empty=true;strokes=[];cur=null;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);paint()},isEmpty(){return empty},drawing(){return drawing},resize,strokeCount(){return strokes.filter(s=>s.length>1).length},toDataUrl(){return empty?'':canvas.toDataURL('image/jpeg',0.5)}}}
+signPad={clear(){empty=true;strokes=[];cur=null;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);paint();setHint(true)},isEmpty(){return empty},drawing(){return drawing},resize,strokeCount(){return strokes.filter(s=>s.length>1).length},toDataUrl(){return empty?'':canvas.toDataURL('image/jpeg',0.5)}}}
 // 회전·리사이즈는 창 단위 사건이다 — 리스너는 앱에 딱 하나만 둔다(캔버스마다 달면 렌더 교체 때마다
 //   떨어져 나간 캔버스를 붙든 리스너가 쌓인다). 살아 있는 signPad에게만 전달한다.
 let signResizeTimer=null;
@@ -2471,6 +2547,19 @@ function webauthnCardHtml(){if(!state.webauthnAvailable)return '';return `<div c
 
 // 무결성 검증 결과 — 쉬운 말 요약 + 기술 상세는 접기(스펙 §4 항목4)
 function verifyResultHtml(){const v=state.verifyResult;if(!v)return '';const okAll=v.chain.ok&&v.reconcile;const simple=okAll?'✅ 장부에 이상이 없습니다':'⚠️ 장부 기록에 이상이 발견됐습니다';const detail=`<div class="meta">해시 체인: ${v.chain.ok?'✅ 정상':'❌ '+v.chain.broken.length+'건 이상'} (검증 ${v.chain.checked}건${v.chain.legacy?', 레거시 '+v.chain.legacy+'건 제외':''})</div><div class="meta">입금합계(선금/충전): ${money(v.deposits)}</div><div class="meta">조정합계: ${money(v.adjustments)} · 취소환급: ${money(v.voids)}</div><div class="meta">사용합계: ${money(v.uses)} · 잔액합계: ${money(v.balanceSum)}</div><div class="meta" style="font-weight:700;color:${v.reconcile?'var(--success)':'var(--danger)'}">대조: ${v.reconcile?'✅ 일치':'❌ 불일치'}</div>`;return `<div class="stack" style="margin-top:10px"><div class="meta" style="font-weight:700;font-size:14px;color:${okAll?'var(--success)':'var(--danger)'}">${simple}</div><details><summary style="cursor:pointer;font-size:12px;color:var(--muted)">기술 상세 (해시체인·합계 검증)</summary><div class="stack" style="margin-top:6px">${detail}</div></details></div>`}
+
+// ── 설정 카드 접기(beta.27) ──────────────────────────────────────────────
+// 설정 화면은 폰에서 7화면 스크롤이었다. 매일 쓰는 카드만 펼쳐 두고 나머지는 접는다.
+//   · 펼침 유지: 직원 선금대장 등록(자동·수동), 직원 목록 관리 — 사장님이 설정에 들어오는 이유의 대부분이다.
+//   · 접힘: 장부 지키기, 폰 분실 대비, 가게 연락처, 기본 설정, 부서 목록, 비밀번호, 앱 정보.
+// 접힌 카드도 **제목 + 한 줄 요약**은 항상 보인다. 요약 없이 접으면 기능을 숨긴 것과 다르지 않다
+//   (사장님이 [내 열쇠 백업]을 영영 못 찾는 길 — 그 열쇠가 없으면 기기 분실 시 명단도 등록 해제도 못 한다).
+// 상태는 state.settingsOpen(세션 내)만이다. 영속화하지 않는 것이 목적이다 — 다음에 설정을 열면 다시 짧은 화면이다.
+// ⚠️ 접힌 카드의 본문은 **DOM에 아예 없다**(숨김이 아니다). 그래야 접힌 상태에서 탭 순서·읽기 순서가 함께 짧아진다.
+//   대신 e2e는 "펼치고 나서 누른다"를 명시적으로 걸어야 한다(하니스 openSettingsCard 헬퍼).
+function foldCard(key,title,summary,body,titleStyle){
+const open=!!state.settingsOpen[key];
+return `<div class="card settings-card"><div class="section-head fold-head" data-a="toggle-settings-card" data-card="${esc(key)}" role="button" tabindex="0" aria-expanded="${open?'true':'false'}"><div><div class="section-title"${titleStyle?` style="${titleStyle}"`:''}>${title}</div><div class="section-kicker">${summary}</div></div><span class="fold-arrow" aria-hidden="true">${open?'▼':'▶'}</span></div>${open?body:''}</div>`}
 
 // ── 설정 화면 (기관 부서 선택 포함) ──
 function settingsHtml(d){
@@ -2540,8 +2629,7 @@ const employeeCard=`<div class="card settings-card">
 ${empSection}
 </div>`;
 // 가게 연락처 — 담당자 화면의 [카톡·이메일로 보내기] 버튼을 켜는 선택 항목(우리 가게 등록 후에만 저장 가능)
-const contactCard=relayRegistered()?`<div class="card settings-card">
-<div class="section-head"><div><div class="section-title">가게 연락처 등록 (선택)</div><div class="section-kicker">공공기관 담당자(서무)가 명단 파일을 보낼 곳이에요</div></div></div>
+const contactCard=relayRegistered()?foldCard('contact','가게 연락처 등록 (선택)','공공기관 담당자(서무)가 명단 파일을 보낼 곳 — 카톡 오픈채팅·접수 이메일',`
 <div class="meta" style="line-height:1.6">카카오톡 오픈채팅 링크와 접수 이메일을 등록해 두면, 담당자 화면에 [카톡으로 보내기]·[이메일로 보내기] 버튼이 생겨요.</div>
 <div class="form">
 <div class="field"><label for="contactKakao">카카오톡 오픈채팅 링크</label><input id="contactKakao" type="url" value="${esc(state.data.meta.contactKakaoLink||'')}" placeholder="https://open.kakao.com/o/..."></div>
@@ -2551,25 +2639,22 @@ const contactCard=relayRegistered()?`<div class="card settings-card">
 <div class="section-actions">
 <button class="btn-primary action-btn" data-a="contact-save"><span class="action-icon">✓</span><div><strong>저장</strong><span>공공기관 담당자(서무)에게 연락처를 공개해요</span></div></button>
 <button class="btn-danger action-btn" data-a="contact-clear"><span class="action-icon">✕</span><div><strong>등록 해제</strong><span>등록된 연락처를 지워요</span></div></button>
-</div>
-</div>`:'';
+</div>`):'';
 // ── 그룹 2: 장부 지키기 — 백업/열쇠 백업/복원/검사를 한곳에 모음 ──
 // 등록은 했는데 열쇠 백업을 아직 안 한 상태는 위험 — 버튼에 경고 배지를 붙인다(B3).
 const keyBackupNeeded=keyBackupUrgent();
-const ledgerGroup=`<div class="card settings-card">
-<div class="section-head"><div><div class="section-title">장부 지키기</div><div class="section-kicker">직원·거래 기록을 안전하게 보관하고 점검해요</div></div></div>
+// 요약 문구는 접힌 채로도 "여기 안에 열쇠 백업이 있다"를 말해야 한다 — 열쇠 백업이 안 된 상태면 그 사실까지 요약에 실린다.
+const ledgerGroup=foldCard('ledger','장부 지키기',`장부 안전 저장 · 내 열쇠 백업${keyBackupNeeded?' <span class="badge-count">⚠️ 아직 안 함</span>':''} · 복원 · 장부 검사`,`
 <div class="section-actions">
 <button class="btn-secondary action-btn" data-a="export-safe"><span class="action-icon">↓</span><div><strong>장부 안전 저장</strong><span>현재 시점의 엑셀용 CSV와 복원용 데이터 파일을 함께 저장해요</span></div></button>
 <button class="btn action-btn" data-a="export-key"><span class="action-icon">🔑</span><div><strong>내 열쇠 백업 (중요)${keyBackupNeeded?' <span class="badge-count">⚠️ 아직 안 함</span>':''}</strong><span>${keyBackupNeeded?'폰을 잃어버리면 열쇠 없이는 명단을 받을 수도, 등록을 해제할 수도 없어요. 지금 백업하세요.':'기기를 바꾸거나 잃어버려도 공공기관 신청을 받으려면 꼭 백업하세요'}</span></div></button>
 <button class="btn action-btn" data-a="import"><span class="action-icon">↑</span><div><strong>저장한 데이터 불러오기(복원)</strong><span>안전 저장해둔 데이터 파일(JSON)로 되돌려요</span></div></button>
 <button class="btn-secondary action-btn" data-a="verify-integrity"><span class="action-icon">✓</span><div><strong>장부 검사</strong><span>거래 기록에 이상이 없는지 쉬운 말로 확인해요</span></div></button>
 </div>
-${verifyResultHtml()}
-</div>`;
+${verifyResultHtml()}`);
 // ── 장부 지키기 구역의 맨 아래: 폰 분실 대비 원격 백업 카드. 기관 등록 전에도 카드는 보이되, 실제 저장·불러오기는 등록 후에만 동작한다 ──
 const autoCloudOn=state.data.meta.autoCloudBackup!==false;
-const cloudVaultCard=`<div class="card settings-card">
-<div class="section-head"><div><div class="section-title">📱 폰을 잃어버려도 장부 되찾기</div><div class="section-kicker">잠긴 채 보관돼서 서버도 열어볼 수 없어요</div></div></div>
+const cloudVaultCard=foldCard('cloud','📱 폰을 잃어버려도 장부 되찾기',`잠긴 채 보관돼서 서버도 열어볼 수 없어요 · 월말 자동 백업 ${autoCloudOn?'켜짐':'꺼짐'}`,`
 <div class="meta" style="line-height:1.6">백업되는 것: 직원 명단(이름·부서·잔액), 거래 기록, 가게 정보. <b>전화번호와 열쇠는 백업되지 않아요.</b> 내용은 잠근 채 보관되어 서버도 열어볼 수 없어요.</div>
 <label style="display:flex;align-items:center;gap:10px;margin-top:4px;cursor:pointer"><input type="checkbox" data-a="toggle-auto-cloud"${autoCloudOn?' checked':''} style="width:auto;min-height:auto;flex-shrink:0"><span style="font-size:13px;line-height:1.5"><b>월말 자동 백업(클라우드)</b><br>매달 말 잠긴 백업을 서버에 자동 보관해요</span></label>
 ${relayRegistered()?'':`<div class="meta" style="color:var(--muted)">${autoCloudOn?'우리 가게를 등록(자동 등록)하면 켜져요.':'자동 백업이 꺼져 있어요.'}</div>`}
@@ -2577,27 +2662,24 @@ ${relayRegistered()?`<div class="meta" style="margin-top:8px">마지막 저장: 
 <div class="section-actions" style="margin-top:8px">
 <button class="btn-primary action-btn" data-a="cloud-backup-now"><span class="action-icon">🔒</span><div><strong>지금 저장하기</strong><span>내용을 잠근 채로 서버에 보관해요</span></div></button>
 <button class="btn action-btn" data-a="cloud-backup-restore"><span class="action-icon">↺</span><div><strong>새 폰에서 불러오기</strong><span>보관된 내용을 이 기기로 가져와요</span></div></button>
-</div>`:`<div class="meta" style="margin-top:8px;color:var(--muted)">우리 가게를 등록(자동 등록)하면 쓸 수 있어요.</div>`}
-</div>`;
+</div>`:`<div class="meta" style="margin-top:8px;color:var(--muted)">우리 가게를 등록(자동 등록)하면 쓸 수 있어요.</div>`}`);
 // ── 그룹 3: 기본 설정 — 가게/부서/직원 정보, 비밀번호, 화면 관련 설정. 위험 동작은 접어서 아래로 ──
-const basicGroup=`<div class="card settings-card">
-<div class="section-head"><div><div class="section-title">기본 설정</div><div class="section-kicker">가게 정보</div></div></div>
+// [위험 작업 — 전체 초기화]는 예전부터 <details>로 접혀 있다. 카드 아코디언과 겹쳐 두 번 접지 않는다
+//   — 초기화는 "찾기 어려워야 하는" 기능이지 "요약을 읽고 여는" 기능이 아니다(요약이 곧 유도가 된다).
+const basicGroup=foldCard('basic','기본 설정',`가게 이름·주소·전화 — ${esc(state.data.meta.shopName||'가게 이름 없음')}`,`
 <div class="inline-form"><input id="shopNameInput" type="text" value="${esc(state.data.meta.shopName||'')}" placeholder="음식점 이름을 입력하세요"><button class="btn-primary" data-a="save-shop">가게 저장</button></div>
-${shopExtra}
-</div>
-<div class="card settings-card">
-<div class="section-head"><div><div class="section-title">공공기관 부서 목록 관리</div><div class="section-kicker">직원을 등록할 때 부서를 고르는 추천 목록이에요. 공공기관을 선택하면 그 기관의 과 목록을 한 번에 채울 수 있어요.</div></div></div>
+${shopExtra}`)
++foldCard('depts','공공기관 부서 목록 관리',`부서를 고를 때 뜨는 추천 목록 ${depts.length}개 · 현재 공공기관 ${esc(org)}`,`
+<div class="meta" style="line-height:1.6">공공기관을 선택하면 그 기관의 과 목록을 한 번에 채울 수 있어요.</div>
 <div class="agency-current"><div><div class="meta">현재 공공기관</div><div class="agency-current-name">${esc(org)}</div></div><button class="small" data-a="edit-org">공공기관명 변경</button></div>
 ${agencyPickerHtml('settings')}
 <div class="section-kicker">현재 사용 부서 ${depts.length}개</div>
 <div class="dept-tags">${deptTags}</div>
-<div class="inline-form"><input id="newDeptInput" type="text" placeholder="새 부서명 입력"><button class="btn-secondary" data-a="add-dept">추가</button></div>
-</div>
-<div class="card settings-card">
-<div class="section-head"><div><div class="section-title">비밀번호(PIN)</div><div class="section-kicker">앱을 열 때 사용하는 4자리 비밀번호</div></div><button class="small" data-a="change-pin">변경</button></div>
-${webauthnCardHtml()}
-</div>
-<div class="card settings-card">
+<div class="inline-form"><input id="newDeptInput" type="text" placeholder="새 부서명 입력"><button class="btn-secondary" data-a="add-dept">추가</button></div>`)
++foldCard('pin','비밀번호(PIN)','앱을 열 때 사용하는 4자리 비밀번호',`
+<div class="section-actions"><button class="btn-secondary action-btn" data-a="change-pin"><span class="action-icon">🔒</span><div><strong>비밀번호 변경</strong><span>새 4자리 비밀번호로 바꿔요</span></div></button></div>
+${webauthnCardHtml()}`)
++`<div class="card settings-card">
 <details><summary style="cursor:pointer;font-weight:800;font-size:15px;color:var(--danger)">위험 작업 — 전체 초기화</summary>
 <div class="section-actions" style="margin-top:10px">
 <button class="btn-danger action-btn" data-a="full-reset"><span class="action-icon">!</span><div><strong>전체 초기화</strong></div></button>
@@ -2606,13 +2688,12 @@ ${webauthnCardHtml()}
 </details>
 </div>`;
 // ── 그룹 4(맨 아래): 앱 정보·법적 안내 ──
-const infoGroup=`<div class="card stack"><div class="meta">저장 위치: 이 기기</div><div class="meta">마지막 백업: ${esc(state.data.meta.lastBackupAt?dt(state.data.meta.lastBackupAt):'없음')}</div><div class="meta">직원 수: ${d.active.length}명 (숨김 포함 ${d.employees.length}명)</div><div class="meta">거래 수: ${state.data.transactions.length}건</div><div class="meta">앱 버전: v${APP_VERSION}</div>
-<div class="section-head" style="margin-top:6px"><div><div class="section-title" style="font-size:15px">앱 정보</div></div></div>
+const infoGroup=foldCard('info','앱 정보',`v${APP_VERSION} · 저장 위치: 이 기기 · 약관·개인정보처리방침`,`<div class="stack"><div class="meta">저장 위치: 이 기기</div><div class="meta">마지막 백업: ${esc(state.data.meta.lastBackupAt?dt(state.data.meta.lastBackupAt):'없음')}</div><div class="meta">직원 수: ${d.active.length}명 (숨김 포함 ${d.employees.length}명)</div><div class="meta">거래 수: ${state.data.transactions.length}건</div><div class="meta">앱 버전: v${APP_VERSION}</div>
 <div class="meta" style="line-height:1.6">이 앱은 결제·이체·정산 기능이 없으며 자금을 보관하지 않습니다. 선금은 공공기관·회사 등과 음식점 간 직접 거래이며, 이 앱은 장부 기록 도구입니다. 선금 기록은 등록된 해당 음식점 1곳에서만 사용됩니다. 장부 데이터는 이 기기에 저장되며, 클라우드 백업은 암호화되어 서버도 내용을 볼 수 없습니다. 선입금의 발행·차감·잔액 관리의 주체와 책임은 각 음식점에 있습니다.</div>
 <div class="meta">데이터 출처: 음식점 검색 — 행정안전부 LOCALDATA 공공데이터</div>
 <div class="meta" style="margin-top:8px">본 서비스는 무상으로 제공되며, 백업하지 않은 데이터의 복구와 서비스 중단·오류로 인한 손해를 보장하지 않습니다. 자세한 내용은 이용약관 제6조를 확인해 주세요.</div>
 <div class="meta" style="font-size:11px">관련 문서: <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> · <a href="https://app.bapjangbu.com/docs/terms.html" target="_blank" rel="noopener">이용약관</a></div>
-<div class="meta" style="margin-top:8px;font-size:11px;color:#98a2b3;text-align:center">© 2026 밥장부(선입금대장) · 널마루. All rights reserved.</div></div>`;
+<div class="meta" style="margin-top:8px;font-size:11px;color:#98a2b3;text-align:center">© 2026 밥장부(선입금대장) · 널마루. All rights reserved.</div></div>`,'font-size:15px');
 return `${backupBanner()}${enrollGroup}${employeeCard}${contactCard}${ledgerGroup}${cloudVaultCard}${basicGroup}${infoGroup}`}
 
 // ── Service Worker 등록 ──

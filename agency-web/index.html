@@ -79,9 +79,9 @@ tr.err{background:#fdecea}
 
 <div class="card" id="authCard">
 <h2>1단계 · 본인 확인</h2>
-<div class="step-help">아래에 공공기관 이메일을 입력해 인증번호를 받으세요. 명단 작성 전 한 번만 확인하면 됩니다.</div>
+<div class="step-help">아래에 공공기관·공공성 기관 이메일을 입력해 인증번호를 받으세요. 명단 작성 전 한 번만 확인하면 됩니다.</div>
 <div id="authStep1">
-<label for="email" class="sr-only">공공기관 이메일</label>
+<label for="email" class="sr-only">공공기관·공공성 기관 이메일</label>
 <div class="row"><input id="email" type="email" autocomplete="email" placeholder="이름@기관.go.kr"><button class="btn-primary" id="authBtn" style="flex:0 0 140px">인증번호 받기</button></div>
 </div>
 <div id="authStep2" class="hide" style="margin-top:8px">
@@ -89,7 +89,7 @@ tr.err{background:#fdecea}
 <div class="row"><input id="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="인증번호 6자리"><button class="btn-primary" id="otpBtn" style="flex:0 0 100px">확인</button></div>
 <button type="button" id="resendBtn" style="min-height:auto;border:none;background:none;color:var(--primary);padding:4px 0 0;font-weight:600;text-decoration:underline">인증번호 재요청</button>
 </div>
-<div class="meta" id="authMsg">공공기관 이메일(.go.kr 또는 .korea.kr)만 사용할 수 있습니다.</div>
+<div class="meta" id="authMsg">공공기관 이메일(<b>go.kr · korea.kr</b>)이 주 대상이며, 복지관·공단 등 공공성 기관(<b>or.kr</b>)과 학교(<b>ac.kr</b>) 이메일도 사용할 수 있습니다.</div>
 <div class="meta" style="margin-top:6px">※ 무료로 운영되는 서비스라 <b>이용이 몰리는 날에는 인증번호 이메일 발송이 하루 한도에 걸릴 수 있습니다.</b> 그때는 잠시 후 다시 시도하시고, 계속 안 되면 다음 날 다시 시도해 주십시오.</div>
 </div>
 
@@ -228,17 +228,20 @@ async function encryptBlob(items,pubKey){
 }
 
 // ── 1. 이메일 인증(OTP, 구서버는 도메인 확인 폴백) ──
-// 서버(worker.js isAgencyEmail)와 정합: 도메인이 go.kr / korea.kr 그 자체이거나 그 하위
-// 도메인이면 허용한다(user@go.kr 도 서버가 허용하므로 여기서도 허용). 서버는 도메인만 보지만
-// 클라이언트는 "보내기 전에" 오타를 잡아야 하므로 로컬파트(공백·@ 없이 1자 이상)까지 확인한다.
-const AGENCY_EMAIL_RE=/^[^\s@]+@([a-z0-9-]+\.)*(go|korea)\.kr$/;
+// 서버(worker.js isAgencyEmail / AGENCY_EMAIL_DOMAIN_RE)와 정합: 도메인이 go.kr / korea.kr /
+// or.kr / ac.kr 그 자체이거나 그 하위 도메인이면 허용한다(user@go.kr 도 서버가 허용하므로
+// 여기서도 허용). 주 대상은 공공기관(go.kr·korea.kr)이고, 복지관·공단 등 공공성 기관(or.kr)과
+// 학교(ac.kr)를 2026-08에 추가했다. 라벨 경계를 정확히 잡으므로 evilgo.kr·go.kr.attacker.com은
+// 통과하지 못한다. 서버는 도메인만 보지만 클라이언트는 "보내기 전에" 오타를 잡아야 하므로
+// 로컬파트(공백·@ 없이 1자 이상)까지 확인한다.
+const AGENCY_EMAIL_RE=/^[^\s@]+@([a-z0-9-]+\.)*(go|korea|or|ac)\.kr$/;
 function validAgencyEmail(e){return AGENCY_EMAIL_RE.test(String(e==null?'':e).trim().toLowerCase())}
 // 서버 오류 코드 → 담당자가 이해할 수 있는 한글 안내. 원시 코드는 화면에 노출하지 않는다.
 const AUTH_ERR_MSG={
   rate_limited:'1분 뒤 다시 시도해 주세요.',
   email_send_failed:'지금은 인증 메일을 보낼 수 없어요. 잠시 후에도 안 되면 내일 다시 시도하거나 contact@bapjangbu.com으로 알려 주세요.',
   email_not_configured:'지금은 인증 메일을 보낼 수 없어요. 잠시 후에도 안 되면 내일 다시 시도하거나 contact@bapjangbu.com으로 알려 주세요.',
-  invalid_domain:'공공기관 이메일(@…go.kr, @korea.kr)만 쓸 수 있어요.',
+  invalid_domain:'공공기관·공공성 기관 이메일(go.kr · korea.kr · or.kr · ac.kr)만 쓸 수 있어요.',
   too_many_attempts:'입력 횟수를 초과했어요. 인증번호를 새로 받아 주세요.',
   invalid_otp:'인증번호가 올바르지 않거나 시간이 지났어요. 다시 확인해 주세요.',
   agency_auth_required:'인증이 만료됐어요. 인증번호를 다시 받아 주세요.'

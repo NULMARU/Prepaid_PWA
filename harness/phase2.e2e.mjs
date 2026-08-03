@@ -443,6 +443,24 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
     ok(r.status === 400 && rjBad.error === 'invalid_email', 'agency-otp: 형식 오류 이메일 400(invalid_email) — ' + JSON.stringify(bad));
   }
 
+  // 14f) 허용 도메인 매트릭스(2026-08 확장): go.kr·korea.kr(공공기관) + or.kr(복지관·공단) +
+  // ac.kr(학교). 라벨 경계를 정확히 잡으므로 부분 문자열 오매칭(evilgo.kr)·다른 TLD로 이어지는
+  // 위장 도메인(go.kr.attacker.com)은 통과하지 못한다.
+  for (const good of ['a@seoul.go.kr', 'a@korea.kr', 'a@sub.go.kr', 'a@welfare.or.kr', 'a@univ.ac.kr']) {
+    r = await call(store, env, 'POST', '/api/agency/request-otp', { email: good });
+    const rjGood = await r.json();
+    ok(r.status === 200 && rjGood.ok === true && /^\d{6}$/.test(rjGood.dev_otp || ''),
+      'agency-otp 도메인 허용: ' + good);
+  }
+  for (const bad of ['a@gmail.com', 'a@naver.com', 'a@evilgo.kr', 'a@go.kr.attacker.com', 'a@ac.kr.evil.com']) {
+    r = await call(store, env, 'POST', '/api/agency/request-otp', { email: bad });
+    const rjBad = await r.json();
+    ok(r.status === 400 && rjBad.error === 'invalid_domain', 'agency-otp 도메인 거부(invalid_domain): ' + bad);
+  }
+  // 로컬파트가 빈 값은 도메인이 허용 목록이어도 형식 검증(invalid_email)에서 먼저 걸린다.
+  r = await call(store, env, 'POST', '/api/agency/request-otp', { email: '@or.kr' });
+  ok(r.status === 400 && (await r.json()).error === 'invalid_email', 'agency-otp 도메인 거부: 빈 로컬파트 "@or.kr" 400(invalid_email)');
+
   // 15) REQUIRE_AGENCY_AUTH=1일 때 /api/submit 게이트 + consent_log 이메일 해시 기록
   const envRequireAgency = { ...env, REQUIRE_AGENCY_AUTH: '1' };
   r = await call(store, envRequireAgency, 'POST', '/api/submit', {

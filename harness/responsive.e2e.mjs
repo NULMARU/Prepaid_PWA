@@ -154,6 +154,22 @@ const STORE_MOCK = [
   { restaurant_id: 'rid-b', name: '하네스김밥 2호점', address: '서울특별시 광진구 능동로 120 (화양동)', tel: '02-333-4444' }
 ];
 async function checkOnboardingStep1(page, label) {
+  // beta.27: 1/3 앞에 환영 화면(0단계)이 한 장 붙었다 — 그 화면도 [시작하기]까지 스크롤 없이 들어와야 한다
+  //   (여기서 막히면 1/3에는 닿지도 못한다). 지나면 곧바로 1/3이고, 다시 뜨지 않는다.
+  await page.waitForSelector('[data-a="setup-welcome-start"], #setupStoreName', { timeout: 8000 });
+  if (await page.locator('[data-a="setup-welcome-start"]').count()) {
+    await noHorizontalOverflow(page, '온보딩 0(환영)', label);
+    const wm = await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      const b = document.querySelector('[data-a="setup-welcome-start"]').getBoundingClientRect();
+      return { vh: window.innerHeight, scrollY: window.scrollY, top: b.top, bottom: b.bottom, height: b.height, steps: document.querySelectorAll('.setup-step').length };
+    });
+    check(wm.scrollY === 0, `${label} 환영 화면: 검사는 초기 뷰포트(스크롤 0)에서 이뤄져야 한다`);
+    check(wm.steps === 0, `${label} 환영 화면: 단계 번호(1/3·2/3·3/3)를 달지 않는다 — 이 화면은 세는 단계가 아니다`);
+    check(wm.bottom <= wm.vh + 1, `${label} 환영 화면: [시작하기]가 스크롤 없이 보이지 않는다 (아래로 ${Math.max(0, Math.round(wm.bottom - wm.vh))}px 벗어남 / vh ${wm.vh})`);
+    check(wm.height >= 44, `${label} 환영 화면: [시작하기] 터치 타겟이 44px 미만 (${Math.round(wm.height)}px)`);
+    await page.locator('[data-a="setup-welcome-start"]').click();
+  }
   await page.waitForSelector('#setupStoreName', { timeout: 8000 });
   await noHorizontalOverflow(page, '온보딩 1/3(검색)', label);
   const measure = () => page.evaluate(() => {
@@ -425,6 +441,34 @@ async function runViewport(context, url, w, h) {
     if (w <= 640) check(rows.useTop >= rows.avBottom - 1, `${w}px: 폰에서는 [사용] 버튼이 두 번째 줄로 내려가야 한다 (useTop ${rows.useTop} < avatarBottom ${rows.avBottom})`);
     else check(rows.useTop < rows.avBottom, `${w}px: 태블릿에서는 카드가 1행을 유지해야 한다 (2행 규칙이 적용되면 안 됨)`);
     check(rows.useRight <= rows.cardRight + 1, `${w}px: [사용] 버튼이 카드 밖으로 나갔다`);
+  }
+
+  // ── beta.27: 🧾 버튼에 "증표" 글자 라벨 ────────────────────────────────────────
+  //   아이콘 하나만으로는 무엇인지 알 수 없다는 것이 현장 피드백이었다. 라벨을 붙이되
+  //   ① 카드 밖으로 나가지 않고 ② 손가락 표적(44px)을 유지하고 ③ [사용] 버튼과 같은 줄에 남아야 한다
+  //   (라벨 때문에 카드가 3행이 되면 폰 2행 계약이 깨진다).
+  const rcpt = await page.evaluate(({ name }) => {
+    const card = [...document.querySelectorAll('.card.employee')].find(c => c.innerText.includes(name));
+    if (!card) return null;
+    const btn = card.querySelector('[data-a="receipt"]');
+    if (!btn) return null;
+    const lbl = btn.querySelector('.rcpt-label');
+    const r = btn.getBoundingClientRect(), u = card.querySelector('[data-a="use"]').getBoundingClientRect();
+    return {
+      label: lbl ? lbl.textContent.trim() : null,
+      w: r.width, h: r.height, right: r.right, top: r.top, bottom: r.bottom,
+      cardRight: card.getBoundingClientRect().right,
+      sameRowAsUse: Math.abs(r.top - u.top) <= 12,
+      clipped: btn.scrollWidth > btn.clientWidth + 1 || btn.scrollHeight > btn.clientHeight + 1
+    };
+  }, { name: LONG_NAME });
+  check(Boolean(rcpt), `${w}px 홈: 직원 카드의 🧾 버튼을 찾지 못했다`);
+  if (rcpt) {
+    check(rcpt.label === '증표', `${w}px 홈: 🧾 버튼에 "증표" 글자 라벨이 있어야 한다 (got ${JSON.stringify(rcpt.label)})`);
+    check(!rcpt.clipped, `${w}px 홈: 🧾 버튼 안에서 라벨이 잘렸다 (${Math.round(rcpt.w)}×${Math.round(rcpt.h)})`);
+    check(rcpt.h >= 44, `${w}px 홈: 🧾 버튼 터치 타겟이 44px 미만 (${Math.round(rcpt.h)}px)`);
+    check(rcpt.right <= rcpt.cardRight + 1, `${w}px 홈: 🧾 버튼이 카드 밖으로 나갔다`);
+    check(rcpt.sameRowAsUse, `${w}px 홈: 🧾 버튼과 [사용] 버튼은 같은 줄에 있어야 한다(라벨이 카드를 3행으로 만들면 안 된다)`);
   }
 
   await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-${w}.png`) }).catch(() => {});

@@ -1,5 +1,13 @@
 # 선입금대장 (Prepaid Ledger PWA)
 
+> ## 📘 이 리포를 처음 받았다면 → **[docs/handover/](docs/handover/README.md)**
+>
+> 1. **[docs/handover/README.md](docs/handover/README.md)** 를 연다 — 30분 온보딩 경로가 있다(무엇부터 읽고 무엇부터 실행하는지).
+> 2. **`bash harness/verify-all.sh`** 를 돌린다 — **10/10**이 나와야 현재 상태가 정상이다(실패 로그: `/tmp/v1.log`~`/tmp/v4.log`).
+> 3. 코드를 고치기 전에 **[05-invariants.md](docs/handover/05-invariants.md)**(절대 불변식 6개)와 **[04-contracts.md](docs/handover/04-contracts.md)**(깨면 안 되는 계약)를 읽는다. `index.html`을 고칠 거라면 **[08-frontend-conventions.md](docs/handover/08-frontend-conventions.md)** 도 필수다.
+>
+> 이 저장소는 음식점 앱 하나가 아니라 **5개 서피스**(음식점 PWA · 공공기관 담당자 웹 · 중계 서버+D1 · 문서/홈페이지 · 별도 리포의 직원용 앱)로 이루어져 있고, **`git push` 하나로 전부 배포되지 않는다** → [07-deploy-runbook.md](docs/handover/07-deploy-runbook.md).
+
 소규모 음식점에서 단체·직원 식대 선입금을 관리하는 오프라인 지원 PWA 앱입니다.
 
 **손님은 요청을 만들고, 사장님은 기록을 만든다** — 손님(직원)은 태블릿 잠금 화면에서 자기 잔액 조회와 사용 요청까지만 할 수 있고, 장부 기록·수정·설정은 사장님 PIN 없이는 불가능합니다.

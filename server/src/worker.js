@@ -160,12 +160,18 @@ export async function sendOtpEmail(env, email, otp) {
   if (!res.ok) return { ok: false, reason: 'resend_http_' + res.status };
   return { ok: true };
 }
+// 담당자 인증 허용 도메인. 공공기관(go.kr·korea.kr)이 주 대상이고, 복지관·공단 등
+// 비영리·공공성 기관(or.kr)과 학교(ac.kr)까지 허용한다(2026-08 확장).
+// 경계 규칙: 도메인이 허용값 **그 자체**이거나 그 **하위 도메인**(`.` + 허용값으로 끝남)일 때만 통과.
+// 부분 문자열 매칭이 아니므로 `evilgo.kr`(라벨 경계 없음)·`go.kr.attacker.com`(끝이 다름)은 거부된다.
+// 담당자 웹(agency-web/index.html AGENCY_EMAIL_RE)과 **동일한 규칙**을 유지할 것.
+const AGENCY_EMAIL_DOMAIN_RE = /^([a-z0-9-]+\.)*(go|korea|or|ac)\.kr$/;
 function isAgencyEmail(email) {
   const e = String(email || '').trim().toLowerCase();
   const at = e.lastIndexOf('@');
   if (at < 0) return false;
   const domain = e.slice(at + 1);
-  return domain === 'go.kr' || domain.endsWith('.go.kr') || domain === 'korea.kr' || domain.endsWith('.korea.kr');
+  return AGENCY_EMAIL_DOMAIN_RE.test(domain);
 }
 
 // ── 레이트 리밋(베스트 에포트) ──

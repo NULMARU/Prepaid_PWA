@@ -128,9 +128,17 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 ### 4.4 기관 OTP 인증
 
 - `POST /api/agency/request-otp {email}`: 이메일 **형식 검증**(`^[^\s@]+@[^\s@]+\.[^\s@]+$`,
-  200자 이하 — 실패 시 `400 {error:'invalid_email'}`) 후 `.go.kr`/`.korea.kr` 도메인만 허용
+  200자 이하 — 실패 시 `400 {error:'invalid_email'}`) 후 **허용 도메인**만 통과
   (실패 시 `400 {error:'invalid_domain'}`). 6자리 OTP를 생성해 해시만 저장(10분 TTL, 5회 시도
   제한, 이메일당 60초 재요청 제한).
+  - **허용 도메인(2026-08 확장)**: `go.kr`, `korea.kr`, `or.kr`, `ac.kr`. 주 대상은 공공기관
+    (`go.kr`·`korea.kr`)이며, 복지관·공단 등 공공성 기관(`or.kr`)과 학교(`ac.kr`)를 추가했다.
+    판정은 도메인부(마지막 `@` 뒤)에 대한 정규식 `^([a-z0-9-]+\.)*(go|korea|or|ac)\.kr$`
+    (worker.js `AGENCY_EMAIL_DOMAIN_RE`) — 허용값 **그 자체**이거나 그 **하위 도메인**만
+    통과한다. 라벨 경계를 강제하므로 `evilgo.kr`(경계 없는 부분 일치)·`go.kr.attacker.com`
+    (다른 TLD로 이어짐)·`ac.kr.evil.com`은 모두 거부된다. 담당자 웹의 `AGENCY_EMAIL_RE`
+    (`agency-web/index.html`)는 여기에 로컬파트 검사만 덧댄 **동일 규칙**이므로, 한쪽을
+    바꾸면 반드시 다른 쪽도 함께 바꿀 것.
   - **저장 키는 이메일의 SHA-256 해시**다. `agency_otp.email`·`agency_token.email` 컬럼(TEXT)에
     해시 문자열을 넣어 재사용하므로 스키마 변경이 없다. 60초 재요청 스로틀·시도 횟수 증가·
     삭제 모두 해시 키 기준으로 동작하며, 서버 어디에도 평문 이메일이 남지 않는다(§0).

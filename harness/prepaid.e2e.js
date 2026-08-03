@@ -99,6 +99,34 @@ async function expandHomeGroups(page) {
   throw new Error('failed to expand every home group header');
 }
 
+// beta.27: 온보딩 1/3 앞에 환영 화면(0단계)이 한 장 붙었다. 단계 번호(1/3)는 그대로이고,
+//   [시작하기]를 한 번 누르면 다시 뜨지 않는다(meta.welcomeSeen). 설치 직후 화면을 여는 모든 흐름은
+//   이 한 장을 먼저 지나야 하므로 헬퍼로 뽑는다 — 여기서 "안 뜨는 경우"도 그대로 통과시킨다(재실행 경로).
+async function passWelcome(page) {
+  await page.waitForSelector('[data-a="setup-welcome-start"], #setupStoreName, .cust-screen, [data-a="pin-key"]', { timeout: 8000 });
+  if (await page.locator('[data-a="setup-welcome-start"]').count()) {
+    await page.locator('[data-a="setup-welcome-start"]').click();
+    await page.waitForSelector('#setupStoreName', { timeout: 8000 });
+    return true;
+  }
+  return false;
+}
+
+// beta.27: 설정 화면의 카드 아코디언. 자주 쓰는 카드(등록·직원 목록)만 펼쳐져 있고 나머지는 접혀 있으며,
+//   접힌 카드의 본문은 **DOM에 없다**. 그래서 기존 시나리오가 접힌 카드 안의 버튼을 누르려면
+//   먼저 그 카드를 펼쳐야 한다 — 단언을 무르게 고치지 않고 조작 단계를 하나 더 밟는다.
+//   이미 펼쳐져 있으면(같은 세션에서 앞 시나리오가 열어 둔 경우) 아무것도 하지 않는다.
+async function openSettingsCard(page, key) {
+  const head = page.locator(`.fold-head[data-card="${key}"]`);
+  await head.waitFor({ timeout: 8000 });
+  if ((await head.getAttribute('aria-expanded')) === 'false') {
+    await head.click();
+    await page.waitForTimeout(80);
+  }
+  await assert((await page.locator(`.fold-head[data-card="${key}"]`).getAttribute('aria-expanded')) === 'true',
+    `settings card "${key}" should be expanded after tapping its header`);
+}
+
 async function readDb(page) {
   return page.evaluate(() => new Promise((resolve, reject) => {
     const req = indexedDB.open('prepaid-ledger-db');
@@ -152,7 +180,25 @@ async function runSearchOnboarding(browser, url, cors) {
 
   try {
     await page.goto(url, { waitUntil: 'load' });
+    // ── beta.27 (0) 첫 실행 환영 화면 ────────────────────────────────────────────
+    //   ① 1/3보다 **먼저** 뜬다(설치 직후 첫 화면). ② 단계 번호는 붙지 않는다(1/3·2/3·3/3 표기는 불변).
+    //   ③ "돈을 받거나 보내지 않는다"는 안심 문구와 무료 표기가 그 자리에 있다(절대 불변식 1의 사장님 언어).
+    //   ④ 버튼은 하나 — 여기서 고를 것이 생기면 인사가 아니라 관문이 된다.
+    await page.waitForSelector('[data-a="setup-welcome-start"]');
+    await assert(await count(page, '#setupStoreName') === 0, 'the welcome screen must come BEFORE step 1/3 (the store search form must not be on it)');
+    await assert(await count(page, '.setup-step') === 0, 'the welcome screen must not carry a step number (1/3·2/3·3/3 numbering stays a 3-step count)');
+    const welcomeText = await page.locator('.setup-welcome').innerText();
+    await assert(welcomeText.includes('돈을 받거나 보내지 않아요') && welcomeText.includes('가게 은행 계좌로 직접 입금'),
+      `the welcome screen must carry the "the app never handles money" reassurance (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
+    await assert(/무료/.test(welcomeText), 'the welcome screen must say the service is free');
+    await assert(await count(page, '.setup-welcome button') === 1, 'the welcome screen must offer exactly one button ([시작하기])');
+    await page.locator('[data-a="setup-welcome-start"]').click();
     await page.waitForSelector('#setupStoreName');
+    await assert(await count(page, '[data-a="setup-welcome-start"]') === 0, '[시작하기] must lead straight into 1/3');
+    // 재실행(새로고침)에서는 다시 뜨지 않는다 — 인사는 두 번 하지 않는다(meta.welcomeSeen).
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('#setupStoreName');
+    await assert(await count(page, '[data-a="setup-welcome-start"]') === 0, 'the welcome screen must not come back on a relaunch (meta.welcomeSeen)');
     await assert((await page.locator('.setup-step').innerText()).includes('1 / 3'), 'store search must be step 1 of a 3-step onboarding');
     await assert(await count(page, '#setupManualName') === 0, 'the manual entry form must stay behind the escape hatch (search first)');
     await assert(await count(page, '[data-a="setup-manual-toggle"]') === 1, 'the "직접 입력할게요" escape hatch must be available before searching');
@@ -382,7 +428,8 @@ async function main() {
     // ── 1/3 우리 가게 찾기 — 여기서는 **직접 입력(탈출구)** 경로를 걷는다.
     //    검색으로 고르는 주 경로는 runSearchOnboarding(독립 컨텍스트)이 통째로 검증한다.
     //    이 흐름이 탈출구를 걷는 이유: 아래 이어지는 시나리오들이 "아직 등록되지 않은 가게" 상태를 전제로 한다.
-    await page.waitForSelector('#setupStoreName');
+    // beta.27: 환영 화면(0단계)을 먼저 지난다. 이 흐름의 관심사는 1/3부터이므로 헬퍼로 한 번에 넘긴다.
+    await assert(await passWelcome(page) === true, 'a fresh install must open on the welcome screen');
     await assert((await page.locator('.setup-step').innerText()).includes('1 / 3'), 'store search must be step 1 of a 3-step onboarding');
     await assert(await count(page, '#setupManualName') === 0, 'the manual entry form must stay behind the escape hatch (search first)');
     // 서버 등록은 약관 동의(3/3) 이후에만 — 그 전에 register-key가 호출되면 안 된다.
@@ -471,8 +518,52 @@ async function main() {
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await assert(await count(page, '[data-a="new-month"]') === 0, 'new-month action must be removed');
     await assert(await count(page, '[data-a="full-reset"]') === 1, 'full-reset action must appear once');
-    await assert(await count(page, '[data-a="export-safe"]') === 1, 'combined safe export action must be visible');
     await assert(await count(page, '[data-a="export-csv"]') === 0, 'standalone CSV export action must be removed from settings');
+
+    // ── beta.27: 설정 카드 아코디언 ─────────────────────────────────────────────
+    //   폰에서 7화면이던 설정을 접었다. 계약은 셋이다.
+    //     ① 매일 쓰는 것(직원 선금대장 등록 = 자동/수동, 직원 목록 관리)은 **접히지 않는다** — 접힘 머리글이 아예 없다.
+    //     ② 나머지 카드는 기본 접힘이되 **제목과 한 줄 요약은 항상 보인다**(무엇이 들어 있는지 모르는 접힘 금지).
+    //     ③ 머리글을 누르면 열리고 그 안의 버튼에 실제로 닿는다(기능이 사라진 게 아니라 접힌 것뿐이다).
+    const foldedKeys = (await page.locator('.fold-head').evaluateAll(els => els.map(e => e.dataset.card)));
+    await assert(JSON.stringify(foldedKeys) === JSON.stringify(['ledger', 'cloud', 'basic', 'depts', 'pin', 'info']),
+      `the collapsible settings cards must be exactly [장부 지키기·폰 분실 대비·기본 설정·부서 목록·PIN·앱 정보] in order (got ${JSON.stringify(foldedKeys)})`);
+    const foldedOpen = await page.locator('.fold-head').evaluateAll(els => els.map(e => e.getAttribute('aria-expanded')));
+    await assert(foldedOpen.every(v => v === 'false'), `every collapsible settings card must start collapsed (got ${JSON.stringify(foldedOpen)})`);
+    // 자주 쓰는 카드에는 접힘 머리글이 붙지 않는다 — 펼치는 탭 한 번을 더 받는 카드가 되면 안 된다.
+    for (const alwaysOpen of ['자동 등록 — 공공기관에서 보낸 명단 받기', '수동 등록 — 직접 입력하기', '직원 목록 관리']) {
+      await assert(await page.locator('.fold-head', { hasText: alwaysOpen }).count() === 0, `"${alwaysOpen}" must never be collapsible (it is the reason owners open settings)`);
+    }
+    await assert(await count(page, '[data-a="quick-add-employee"]') === 1, 'the always-open 수동 등록 card must keep its quick-add form visible without any tap');
+    // 접힌 카드도 제목 + 한 줄 요약을 읽을 수 있어야 한다.
+    const foldSummaries = await page.locator('.fold-head').evaluateAll(els => els.map(e => ({
+      title: e.querySelector('.section-title').innerText.trim(),
+      kicker: e.querySelector('.section-kicker').innerText.trim()
+    })));
+    for (const f of foldSummaries) {
+      await assert(f.title.length > 0 && f.kicker.length > 0, `a collapsed settings card must show both a title and a one-line summary (got ${JSON.stringify(f)})`);
+    }
+    await assert(foldSummaries.find(f => f.title.includes('장부 지키기')).kicker.includes('내 열쇠 백업'),
+      'the collapsed 장부 지키기 summary must name the key backup — the one action an owner can never afford to miss');
+    // 접힌 상태에서는 본문이 DOM에 없다(숨김이 아니라 미렌더) → 펼치면 그 자리에 그대로 나타난다.
+    await assert(await count(page, '[data-a="export-safe"]') === 0, 'a collapsed card must not leave its actions in the DOM');
+    await openSettingsCard(page, 'ledger');
+    await assert(await count(page, '[data-a="export-safe"]') === 1, 'combined safe export action must be reachable once 장부 지키기 is expanded');
+    await assert(await count(page, '[data-a="export-key"]') === 1 && await count(page, '[data-a="verify-integrity"]') === 1, 'expanding 장부 지키기 must reveal every action it holds');
+    // 토글은 양방향이다(다시 누르면 접힌다).
+    await page.locator('.fold-head[data-card="ledger"]').click();
+    await page.waitForTimeout(80);
+    await assert(await count(page, '[data-a="export-safe"]') === 0, 'tapping the header again must collapse the card back');
+    await openSettingsCard(page, 'ledger');
+    // 접힘 상태는 세션 내에서만 산다 — 새로고침하면 다시 전부 접힌 짧은 설정 화면으로 돌아온다(영속화 금지).
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('.fold-head[data-card="ledger"]');
+    await assert((await page.locator('.fold-head[data-card="ledger"]').getAttribute('aria-expanded')) === 'false',
+      'the expanded state must NOT be persisted — a relaunch must give the owner the short settings screen again');
+
+    await openSettingsCard(page, 'depts');
     await assert((await page.locator('.agency-current-name').textContent()).includes('광진구청'), 'setup agency should be reflected as current agency');
     await page.locator('#agencySelectSettings').selectOption('gangnam');
     await page.waitForFunction(() => document.querySelector('.agency-current-name')?.textContent.includes('강남구청'));
@@ -620,6 +711,51 @@ async function main() {
     await page.locator('#searchInput').fill('User A');
     await page.locator(`[data-a="use"][data-id="${empA.id}"]`).click();
     await page.locator('#useAmount').fill('9000');
+    // ── beta.27: 빈 서명판 안내(사장님 사용 모달) ────────────────────────────────
+    //   ⚠️ 캔버스 3중 보호 계약: 안내는 **캔버스에 그리지 않는다**. 그렸다면 그 픽셀이 그대로
+    //     toDataURL에 들어가 원장에 남는 서명 그림에 "여기에 손가락으로 서명해 주세요"가 박힌다.
+    //   그래서 안내는 (1) 캔버스의 형제 DOM 노드이고 (2) pointer-events가 통과하며
+    //   (3) 안내가 떠 있는 그 순간에도 캔버스 백킹 스토어는 순백이어야 한다 — 아래에서 픽셀로 못 박는다.
+    const sigHintOwner = await page.evaluate(() => {
+      const canvas = document.getElementById('signCanvas');
+      const hint = canvas.parentElement.querySelector('.sig-hint');
+      if (!hint) return { missing: true };
+      const cs = getComputedStyle(hint);
+      // 안내가 표시된 그 상태에서 캔버스 픽셀을 읽는다. 안내가 차지하는 세로 중앙 띠(20%~70%)에
+      // 흰색이 아닌 픽셀이 하나라도 있으면 = 글자가 캔버스에 그려졌다는 뜻이다(= dataURL 오염).
+      const ctx = canvas.getContext('2d');
+      const y0 = Math.round(canvas.height * 0.2), y1 = Math.round(canvas.height * 0.7);
+      const d = ctx.getImageData(0, y0, canvas.width, y1 - y0).data;
+      let nonWhite = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] !== 255 || d[i + 1] !== 255 || d[i + 2] !== 255) nonWhite += 1;
+      // 두 번째(결정적) 증거: 안내를 보이게 두고 찍은 dataURL과, 잠시 숨기고 찍은 dataURL이 **바이트까지 같아야** 한다.
+      //   toDataUrl()은 백킹 스토어만 읽으므로, 같다는 것은 곧 "안내는 저장되는 그림에 없다"는 뜻이다.
+      const shown = canvas.toDataURL('image/jpeg', 0.5);
+      const prev = hint.style.display;
+      hint.style.display = 'none';
+      void hint.offsetHeight;
+      const hidden = canvas.toDataURL('image/jpeg', 0.5);
+      hint.style.display = prev;
+      return {
+        dataUrlUnchanged: shown === hidden,
+        isJpeg: shown.startsWith('data:image/jpeg'),
+        text: hint.textContent.trim(),
+        insideCanvas: canvas.contains(hint),
+        siblingOfCanvas: hint.parentElement === canvas.parentElement,
+        pointerEvents: cs.pointerEvents,
+        visible: hint.offsetParent !== null,
+        nonWhite
+      };
+    });
+    await assert(!sigHintOwner.missing, 'the usage modal must render a hint inside the empty signature box');
+    await assert(sigHintOwner.text.includes('서명') && sigHintOwner.text.includes('손가락'), `the signature hint must tell the customer to sign with a finger (got ${JSON.stringify(sigHintOwner.text)})`);
+    await assert(sigHintOwner.siblingOfCanvas && !sigHintOwner.insideCanvas, 'the hint must be a CSS overlay next to the canvas — never a child of (or drawn onto) the canvas');
+    await assert(sigHintOwner.pointerEvents === 'none', 'the hint must let pointer events through (a stroke started on the hint must reach the canvas)');
+    await assert(sigHintOwner.visible === true, 'the hint must be visible while the canvas is empty');
+    await assert(sigHintOwner.nonWhite === 0,
+      `the hint must not touch the canvas backing store — the band it covers must stay pure white, otherwise the wording lands in the saved signature dataURL (got ${sigHintOwner.nonWhite} non-white pixels)`);
+    await assert(sigHintOwner.isJpeg && sigHintOwner.dataUrlUnchanged,
+      'the signature dataURL must be byte-identical whether the hint is shown or hidden — the wording must never reach the saved image');
     const box = await page.locator('#signCanvas').boundingBox();
     await page.mouse.move(box.x + 30, box.y + 80);
     await page.mouse.down();
@@ -627,6 +763,20 @@ async function main() {
     await page.mouse.move(box.x + 210, box.y + 100, { steps: 5 });
     await page.mouse.move(box.x + 310, box.y + 65, { steps: 5 });
     await page.mouse.up();
+    // 첫 획이 들어오면 안내는 사라진다 — 그리고 그 사라짐은 **재렌더가 아니라 클래스 토글**이어야 한다
+    //   (재렌더가 일어나면 방금 그린 획이 캔버스와 함께 통째로 날아간다 = 캔버스 3중 보호 위반).
+    const afterStroke = await page.evaluate(() => {
+      const canvas = document.getElementById('signCanvas');
+      const hint = canvas.parentElement.querySelector('.sig-hint');
+      return {
+        stillInDom: Boolean(hint),
+        hidden: hint ? hint.offsetParent === null : null,
+        boxSigned: canvas.parentElement.classList.contains('signed'),
+        strokes: window.__prepaidTestHooks.lockState().signPadStrokes
+      };
+    });
+    await assert(afterStroke.stillInDom && afterStroke.hidden === true && afterStroke.boxSigned,
+      `the hint must disappear on the first stroke by a CSS class toggle, not by re-rendering (got ${JSON.stringify(afterStroke)})`);
     await page.locator('[data-a="save-use"]').click();
     // 사용(차감) 저장 직후 성공 안내 흐름에서 "잔액증표 보기"가 방금 차감된 직원 id로 자동 오픈된다
     await page.waitForSelector('.receipt-modal', { timeout: 3000 });
@@ -666,6 +816,13 @@ async function main() {
 
     // 잔액증표(명함형) — empCard 보조 버튼 [🧾 증표]으로 표시 전용 카드 열기
     await assert(await count(page, '[data-a="receipt"]') >= 2, 'each employee card should expose a receipt (증표) button next to 사용');
+    // beta.27: 아이콘만으로는 무엇인지 알 수 없다 → 🧾 옆(아래)에 "증표" 글자 라벨. 모든 카드에 빠짐없이.
+    const rcptLabels = await page.locator('.card.employee [data-a="receipt"]').evaluateAll(els => els.map(e => {
+      const l = e.querySelector('.rcpt-label');
+      return { label: l ? l.textContent.trim() : null, icon: e.textContent.includes('🧾') };
+    }));
+    await assert(rcptLabels.length >= 2 && rcptLabels.every(r => r.label === '증표' && r.icon),
+      `every 🧾 button must carry the "증표" text label next to the icon (got ${JSON.stringify(rcptLabels)})`);
     // 홈 상단 배너 때문에 목록이 접힐 수 있으므로, 대상 직원만 남기고(검색) 증표를 연다.
     await page.locator('#searchInput').fill('User Q');
     await page.locator(`[data-a="receipt"][data-id="${empQ.id}"]`).click();
@@ -676,6 +833,18 @@ async function main() {
     await assert(receiptText.includes('양도 불가') && receiptText.includes('잔액 확인용'), 'receipt card should carry the fixed non-transfer/verify-only notice');
     await assert(receiptText.includes('Harness Shop'), 'receipt card should show the shop name');
     await assert(await count(page, '.receipt-warn') === 0, 'a healthy ledger receipt should show a balance, not an integrity warning');
+    // ── beta.27: "사진으로 남겨두기" 안내 ────────────────────────────────────────
+    //   증표는 손님이 들고 가는 것이 아니라 **보고 가는 것**이다. 사진을 찍어 두라고 말해 주지 않으면
+    //   손님은 다음에 또 사장님을 부른다. 단, 안내는 명함(.namecard) **바깥**이어야 한다 —
+    //   카드 안에 넣으면 손님이 찍은 사진에 앱 사용법이 함께 박힌다.
+    const receiptTipText = await page.locator('.receipt-modal .receipt-tip').innerText();
+    await assert(receiptTipText.includes('사진으로 찍어') && receiptTipText.includes('잔액을 확인'),
+      `the owner receipt must tell the customer to photograph the screen (got ${JSON.stringify(receiptTipText)})`);
+    await assert(await count(page, '.namecard .receipt-tip') === 0, 'the photo tip must live OUTSIDE the name card (a photographed receipt must stay clean)');
+    await assert(await page.locator('.receipt-modal .receipt-tip').evaluate(el => {
+      const btn = el.parentElement.querySelector('[data-a="close-modal"]');
+      return Boolean(btn) && el.compareDocumentPosition(btn) === Node.DOCUMENT_POSITION_FOLLOWING;
+    }), 'the photo tip should sit right above the close button (where the customer is already looking)');
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'receipt-card.png') }).catch(() => {});
     await page.locator('.receipt-modal [data-a="close-modal"]').click();
     await page.waitForTimeout(50);
@@ -694,6 +863,7 @@ async function main() {
     await assert(!cloudCheck.dump.includes('0109999') && !cloudCheck.dump.includes('01099998888'), 'cloud backup payload must not leak raw phone digits');
 
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'ledger');// beta.27 아코디언 — [장부 안전 저장]은 접힌 카드 안에 있다
     const capturedDownloads = [];
     const onDownload = download => capturedDownloads.push(download);
     page.on('download', onDownload);
@@ -787,6 +957,7 @@ async function main() {
 
     // (4) 자동 백업 토글: 기본 켜짐 → 끄면 저장·복원되고 [장부 저장] 버튼 설명에 "꺼져 있어요" 경고가 붙는다
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'cloud');// beta.27 아코디언 — 자동 백업 토글은 접힌 [폰 분실 대비] 카드 안에 있다
     await page.waitForSelector('[data-a="toggle-auto-cloud"]');
     await assert(await page.locator('[data-a="toggle-auto-cloud"]').isChecked(), 'auto cloud backup toggle should default to ON');
     await page.locator('[data-a="toggle-auto-cloud"]').scrollIntoViewIfNeeded().catch(() => {});
@@ -804,6 +975,7 @@ async function main() {
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'cloud');
     await page.waitForSelector('[data-a="toggle-auto-cloud"]');
     await assert(!(await page.locator('[data-a="toggle-auto-cloud"]').isChecked()), 'auto backup toggle state should be restored (still off) after reload');
     await page.locator('[data-a="toggle-auto-cloud"]').check();
@@ -2039,6 +2211,20 @@ async function main() {
     const custTxText = await page.locator('.cust-txs').innerText();
     await assert(custTxText.includes('서명 있음'), 'a signed transaction must be marked with text only');
     await assert(await count(page, '.cust-tx.voided') === 1 && (await page.locator('.cust-tx.voided').innerText()).includes('취소됨'), 'a voided transaction must render grayed out with a 취소됨 mark');
+    // beta.27: 손님이 스스로 잔액을 본 이 화면에서도 "사진으로 남겨두기"를 알려 준다 —
+    //   여기서 말해 주지 않으면 손님은 잔액이 궁금할 때마다 사장님을 부른다. 잔액 바로 아래 한 줄이다.
+    const custPhotoTip = await page.evaluate(() => {
+      const t = document.querySelector('.cust-photo-tip');
+      if (!t) return null;
+      const bal = document.querySelector('.cust-bal');
+      return { text: t.innerText.trim(), lines: Math.round(t.getBoundingClientRect().height), belowBalance: bal ? t.getBoundingClientRect().top >= bal.getBoundingClientRect().top : false };
+    });
+    await assert(Boolean(custPhotoTip), 'the customer balance screen must also tell them they can photograph it');
+    await assert(custPhotoTip.text.includes('사진으로 찍어') && custPhotoTip.text.includes('잔액을 확인'),
+      `the customer-side photo tip must read naturally (got ${JSON.stringify(custPhotoTip.text)})`);
+    await assert(custPhotoTip.belowBalance, 'the photo tip belongs directly under the balance — that is the thing worth photographing');
+    // 이 화면의 세로 예산은 버튼 3개가 초기 뷰포트 안에 들어오는 것으로 이미 꽉 차 있다 → 안내는 한 줄이어야 한다.
+    await assert(custPhotoTip.lines <= 34, `the customer photo tip must stay one line (height ${custPhotoTip.lines}px) — a second line pushes the action buttons below the fold`);
 
     // (8-e) 게이트 스윕 — 허용 목록 밖의 모든 액션은 잠금 상태에서 통째로 차단된다(원장 불변).
     const lockAllowed = (await page.evaluate(() => window.__prepaidTestHooks.lockAllowed())).slice().sort();
@@ -2405,8 +2591,43 @@ async function main() {
     await assert(composeOrder.name < composeOrder.big && composeOrder.big < composeOrder.input
       && composeOrder.input < composeOrder.canvas && composeOrder.canvas < composeOrder.submit,
       `the unified screen must read top-to-bottom: 대상 → 금액 → 서명 → 버튼 (got ${JSON.stringify(composeOrder)})`);
+    // ── beta.27: 빈 서명판 안내(손님 요청 화면) ────────────────────────────────
+    //   이 화면은 손님이 직접 만지는 유일한 화면이다. 흰 상자만 놓여 있으면 어르신은 무엇을 하는 칸인지 모른다.
+    //   사장님 모달과 **같은 오버레이 구현**이어야 한다 — 캔버스에 그리는 순간 그 문구가 원장의 서명 그림에 박힌다.
+    const custHint = await page.evaluate(() => {
+      const canvas = document.querySelector('.cust-sig #signCanvas');
+      const hint = canvas.parentElement.querySelector('.sig-hint');
+      if (!hint) return { missing: true };
+      const ctx = canvas.getContext('2d');
+      const y0 = Math.round(canvas.height * 0.2), y1 = Math.round(canvas.height * 0.7);
+      const d = ctx.getImageData(0, y0, canvas.width, y1 - y0).data;
+      let nonWhite = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] !== 255 || d[i + 1] !== 255 || d[i + 2] !== 255) nonWhite += 1;
+      const shown = canvas.toDataURL('image/jpeg', 0.5);
+      hint.style.display = 'none';
+      void hint.offsetHeight;
+      const hidden = canvas.toDataURL('image/jpeg', 0.5);
+      hint.style.display = '';
+      return {
+        text: hint.textContent.trim(), visible: hint.offsetParent !== null,
+        pointerEvents: getComputedStyle(hint).pointerEvents,
+        insideCanvas: canvas.contains(hint), nonWhite, dataUrlUnchanged: shown === hidden
+      };
+    });
+    await assert(!custHint.missing, 'the customer request screen must render a hint inside the empty signature box');
+    await assert(custHint.text.includes('서명') && custHint.text.includes('손가락'), `the customer signature hint must read naturally (got ${JSON.stringify(custHint.text)})`);
+    await assert(custHint.visible === true && !custHint.insideCanvas && custHint.pointerEvents === 'none',
+      'the customer hint must be a pass-through CSS overlay, never a child of the canvas');
+    await assert(custHint.nonWhite === 0 && custHint.dataUrlUnchanged,
+      `the customer hint must leave the canvas backing store untouched (nonWhite ${custHint.nonWhite}, dataURL identical ${custHint.dataUrlUnchanged})`);
+
     // ① 먼저 서명을 그리고, 그 위에서 금액을 한 글자씩 친다(현실의 순서 — 손님은 이름부터 쓰기도 한다).
     await drawOn('.cust-sig #signCanvas');
+    await assert(await page.evaluate(() => {
+      const c = document.querySelector('.cust-sig #signCanvas');
+      const h = c.parentElement.querySelector('.sig-hint');
+      return Boolean(h) && h.offsetParent === null && c.parentElement.classList.contains('signed');
+    }), 'the customer hint must vanish as soon as the first stroke lands');
     await markCanvas();
     await page.evaluate(() => {
       window.__amtBlurs = 0;
@@ -2439,6 +2660,12 @@ async function main() {
     await assert(s2.sameNode, '[지우고 다시] must not tear the canvas node down (a re-render would wipe the amount too)');
     await assert(s2.empty === true, '[지우고 다시] must actually clear the strokes');
     await assert(s2.value === '18000' && s2.amount === '18000', '[지우고 다시] must clear ONLY the signature — the amount the customer typed must stay');
+    // 판이 다시 비었으면 안내도 다시 나온다 — 지우자마자 "여기 뭘 하는 칸이었지"가 되면 안 된다.
+    await assert(await page.evaluate(() => {
+      const c = document.querySelector('.cust-sig #signCanvas');
+      const h = c.parentElement.querySelector('.sig-hint');
+      return Boolean(h) && h.offsetParent !== null && !c.parentElement.classList.contains('signed');
+    }), '[지우고 다시] must bring the empty-canvas hint back');
     await drawOn('.cust-sig #signCanvas');
     await markCanvas();
     await page.locator('#custAmountInput').fill('7000');
