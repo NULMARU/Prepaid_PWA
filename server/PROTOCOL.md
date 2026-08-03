@@ -40,6 +40,10 @@ blob(서버로 전송·저장되는 ciphertext, base64 필드):
 canonical = items 정렬(name,dept,amount 오름차순)을 "name|dept|amount" 줄로 join("\n")
 batch_hash = SHA-256(hex)
 ```
+canonical에 들어가는 필드는 **`name`·`dept`·`amount` 셋뿐이며 고정이다.** items에 그 밖의 선택 필드
+(예: 소속 표기 `org`)가 실려도 batch_hash 계산·대조에 **영향을 주지 않는다** — 선택 필드는 blob 안에서
+음식점 앱까지 그대로 전달될 뿐이다(서버는 암호문을 열지 않으므로 존재조차 알지 못한다). 새 필드를
+canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 때 정상 전송이 '변조'로 오탐된다.
 
 ## 4. REST 계약 (서버)
 모든 응답 JSON. 오류는 `{error}` + 상태코드.
@@ -52,7 +56,7 @@ batch_hash = SHA-256(hex)
 | `POST /api/contact` | `{restaurant_id, auth_token, kakao_link, email}` | `{ok:true}` / 400/401/404 | 업무용 연락처 등록·수정·삭제(§4.5). 인증 필요 |
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. `contact`는 미등록 시 각 필드 `null`. IP당 분당 20회로 별도 레이트리밋(§6.3) |
 | `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` | 담당자 웹: '명단 받기 가능' 표시용 |
-| `GET /api/registered-list?sido=&sigungu=` | — | `{restaurants:[{restaurant_id,restaurant_name,district}]}` / 400 | 시도(+선택 시군구)의 등록 음식점 목록(§4.6). `sido` 필수(없으면 `400 {error:'sido_required'}`). 공개 정보만(연락처 미포함), 레거시(district 없음) 제외, 이름 가나다 정렬. IP당 분당 20회 별도 레이트리밋(§6.3) |
+| `GET /api/registered-list?sido=&sigungu=` | — | `{restaurants:[{restaurant_id,restaurant_name,district}]}` / 400 | 시도(+선택 시군구)의 등록 음식점 목록(§4.6). `sido` 필수(없으면 `400 {error:'sido_required'}`). **매칭은 정규화 후 정확 일치**(`district == "{sido} {sigungu}"` — 부분 일치 금지, §4.6). 공개 정보만(연락처 미포함), 레거시(district 없음) 제외, 이름 가나다 정렬. IP당 분당 20회 별도 레이트리밋(§6.3) |
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | 신규 `{summary_id}` / 재제출 `{summary_id, deduped:true, status}` / 401 | 부서·음식점 단위 1건(§4.3). 동일 `(restaurant_id,batch_hash)` 재제출은 멱등(§4.7) |
 | `GET /api/inbox?restaurant_id=` | — | `[{summary_id, summary, ciphertext, status}]` | 음식점 앱 폴링(PENDING만, `encrypted_blob` JOIN — 암호문 없는 건은 제외) |
@@ -201,7 +205,19 @@ batch_hash = SHA-256(hex)
 '등록된(명단 받기 가능)' 음식점을 조회한다.
 - 응답 `200 {"restaurants":[{"restaurant_id","restaurant_name","district"}]}`, 이름 가나다 정렬.
 - `sido` 필수(없으면 `400 {error:'sido_required'}`), `sigungu`는 선택(없으면 시도 전체).
-- 매칭: `district`가 `sido`로 시작하고, `sigungu`가 주어지면 `district`에 `sigungu`를 포함하는 행.
+- **매칭은 정규화 후 '정확 일치'다**(부분 일치 금지):
+  - `sigungu`가 있으면 `정규화(district) == "{sido} {sigungu}"`.
+  - `sigungu`가 없으면 `정규화(district) == sido` 이거나 `"{sido} "`로 시작(시도 경계를 공백으로 고정).
+  - 정규화 = 유니코드 NFC + 연속 공백 1칸 축약 + 앞뒤 공백 제거. `POST /api/register-key`는 **저장 시점에도
+    같은 정규화**를 적용하므로 저장값은 항상 `"{시도} {시군구}"` 정규형이다(레거시·외부 유입 행의 공백
+    변형은 조회 시 관용 — D1은 `TRIM`+`REPLACE`로 동등 처리).
+  - `district` 생성 규칙(3개 컴포넌트 공통): 음식점 앱 `relayDistrict()` = `시도명 + ' ' + 기관명에서 '청' 제거`,
+    담당자 웹 `jurisQuery()` = `sido=시도명`, `sigungu=기관명에서 '청' 제거`. 양쪽이 같은 규칙이라 정확 일치가 성립한다.
+  - ⚠️ 과거 구현은 `district LIKE '{sido}%' AND district LIKE '%{sigungu}%'`(부분 일치)여서, 시군구명이
+    다른 시군구명의 부분문자열인 실제 3쌍 — **부산 서구⊂강서구, 대구 서구⊂달서구, 경기 양주시⊂남양주시** —
+    에서 남의 관할 음식점을 함께 반환했다(담당자가 다른 구의 음식점에 명단을 보낼 수 있는 경로). 정확
+    일치로 고정된 이유이며, 되돌리면 안 된다(`harness/phase2.e2e.mjs` §20-h 회귀 단언).
+  - `sido`·`sigungu`는 LIKE 와일드카드로 해석되지 않는다(`%`·`_`·`\` 이스케이프 + `ESCAPE '\'`).
 - `district` 없는(레거시) 등록분은 결과에서 **제외**. 반환은 **공개 정보만**(id·이름·district —
   연락처는 미포함).
 - 대량 수집(크롤링) 완화를 위해 `GET /api/public-key`와 동일한 강화 레이트리밋(IP당 분당 20회,

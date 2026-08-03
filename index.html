@@ -479,7 +479,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.25',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.26',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -507,7 +507,7 @@ const COMMON_DEPTS=[...DEFAULT_DEPTS];
 //   custAmount = 작성 중인 금액, pendingAmount·pendingSign = 사장님께 넘긴 요청의 내용.
 //   저장소·서버·백업 어디에도 나가지 않는다(state.data 바깥이라 backupCore/repo.apply의 사정권 밖이다).
 //   "손님은 요청을 만들고, 사장님은 기록을 만든다" — 이 4개는 요청이지 기록이 아니다.
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 // lastInputAt = 마지막 **사용자 조작** 시각. 유휴 만료의 유일한 기준이다(렌더는 이 값을 건드리지 못한다).
 //   init()이 첫 render를 부르기 전에 반드시 초기화돼 있어야 하므로 선언을 여기(최상단 상태 묶음)에 둔다.
 let lastInputAt=Date.now();
@@ -522,7 +522,7 @@ let composing=false;document.addEventListener('compositionstart',()=>{composing=
 //   조용히 되돌아가고, 손님이 그리던 서명 획이 사라진다(화면은 정합해 보여 아무도 눈치채지 못한다).
 //   → refreshInboxCount와 똑같이 renderIsDisruptive() 게이트를 통과할 때만 그린다. pill 한 칸은 다음 조작 때 맞춰진다.
 window.addEventListener('online',()=>{if(state.loaded){if(!renderIsDisruptive())render();refreshInboxCount()}});window.addEventListener('offline',()=>{if(state.loaded&&!renderIsDisruptive())render()});
-document.addEventListener('keydown',function(e){if(e.key==='Enter'){if(e.target.id==='setupNewDept'){e.preventDefault();var b2=document.querySelector('[data-a="setup-add-dept"]');if(b2)b2.click()}if(e.target.id==='newDeptInput'){e.preventDefault();var b3=document.querySelector('[data-a="add-dept"]');if(b3)b3.click()}if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){e.preventDefault();var b4=document.querySelector('[data-a="setup-manual-save"]');if(b4)b4.click()}if(e.target.id==='setupStoreName'||e.target.id==='setupStoreRegion'){e.preventDefault();var b5=document.querySelector('[data-a="setup-store-search"]');if(b5)b5.click()}}});
+document.addEventListener('keydown',function(e){if(e.key==='Enter'){if(e.target.id==='setupNewDept'){e.preventDefault();var b2=document.querySelector('[data-a="setup-add-dept"]');if(b2)b2.click()}if(e.target.id==='newDeptInput'){e.preventDefault();var b3=document.querySelector('[data-a="add-dept"]');if(b3)b3.click()}if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){e.preventDefault();var b4=document.querySelector('[data-a="setup-manual-save"]');if(b4)b4.click()}if(e.target.id==='setupStoreName'||e.target.id==='setupStoreRegion'){e.preventDefault();var b5=document.querySelector('[data-a="setup-store-search"]');if(b5)b5.click()}if(e.target.id==='setupStoreTel'){e.preventDefault();var b6=document.querySelector('[data-a="setup-next"]');if(b6)b6.click()}}});
 // role="button"으로 만든 요소(홈 그룹 헤더 등)는 실제 <button>이 아니라서 브라우저가 Enter/Space를 눌러주지 않는다.
 //   → 전역 keydown 위임으로 click과 똑같이 동작시킨다(Space는 기본 스크롤을 막는다). 실제 버튼·입력칸은 건드리지 않는다.
 document.addEventListener('keydown',function(e){
@@ -592,7 +592,7 @@ pinLen:str(state.pinInput).length}),
 // 최후의 방벽(custComposeGuard) 검증용 — 하니스가 "게이트를 빼먹은 새 경로"를 흉내 내 render를 직접 부른다.
 //   프로덕션 코드에는 이 훅을 부르는 곳이 없다(순수 재렌더 — 저장·전송 경로 없음).
 forceRender:()=>render(),custComposeActive,
-parseWon,renderIsDisruptive,signInProgress,buildCloudBackupBlob,decryptBlob,matchAgencyByRegion,monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,relayBackupSilent,maybeMonthlyAutoBackup,refreshInboxCount:(...a)=>refreshInboxCount(...a)};
+parseWon,renderIsDisruptive,signInProgress,buildCloudBackupBlob,decryptBlob,matchAgencyByRegion,relayDistrict:(...a)=>relayDistrict(...a),monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,relayBackupSilent,maybeMonthlyAutoBackup,refreshInboxCount:(...a)=>refreshInboxCount(...a)};
 
 // ── 유틸리티 ──
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
@@ -834,20 +834,55 @@ function keyBackupUrgent(){return relayRegistered()&&!state.data.meta.myKeyBacke
 // 등록 페이로드용 관할 지역(공개 사업장 정보) 문자열 "시도전체명 시군구명"(예 "서울특별시 광진구").
 // 가게 주소에서 기존 v2 매칭 로직(detectRegionFromText/matchAgencyByRegion)으로 유도하며,
 // 매칭 실패 시 ''(→ register-key 페이로드에서 district 필드 자체를 생략, 빈 문자열 미전송).
-function relayDistrict(){const addr=str(state.data.meta.shopAddr)||(state.setupSelected&&str(state.setupSelected.addr))||'';if(!addr)return '';const m=matchAgencyByRegion(addr);if(!m||!m.region||!m.agency)return '';const sido=str(m.region.name),sigungu=districtKey(str(m.agency.name));if(!sido||!sigungu)return '';return sido+' '+sigungu}
-async function relayRegister(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 선택하세요.');return}if(!state.data.meta.pubKey){await ensureKeyPair()}setBusy('우리 가게를 등록하는 중입니다.');try{const payload={restaurant_id:rid,restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey};const district=relayDistrict();if(district)payload.district=district;const r=await fetch(base+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const j=await r.json();clearBusy();if(!r.ok)throw new Error(j.error||'등록 실패');state.data.meta.relayRegisteredAt=now();state.data.meta.storeRegisterPending=false;await repo.apply({meta:{relayRegisteredAt:state.data.meta.relayRegisteredAt,storeRegisterPending:false}});render();refreshInboxCount();
+// 주소에서 '○○시/군/구' 토큰을 뽑는다(시도명 자체는 제외) — 기관 목록에 대응 구청이 없는 주소의 2차 수단.
+function guessSigungu(addr,sido){addr=str(addr);sido=str(sido);const toks=addr.split(/\s+/).filter(Boolean);for(const t of toks){if(t===sido)continue;if(sido&&sido.indexOf(t)===0)continue;if(t.length>=2&&/[시군구]$/.test(t))return t}return ''}
+// addrHint > meta.storeAddr(검색으로 고른 가게의 공식 주소) > meta.shopAddr(사장님이 적은 주소) > 온보딩 선택값.
+// ⚠️ beta.26 이전에는 공식 주소를 어디에도 저장하지 않아 district가 통째로 비었다(라이브 D1 전건 NULL).
+function relayDistrict(addrHint){const addr=str(addrHint)||str(state.data.meta.storeAddr)||str(state.data.meta.shopAddr)||(state.setupSelected&&str(state.setupSelected.addr))||'';if(!addr)return '';
+const m=matchAgencyByRegion(addr);
+if(m&&m.region&&m.agency){const sido=str(m.region.name),sigungu=districtKey(str(m.agency.name));if(sido&&sigungu)return sigungu===sido?sido:(sido+' '+sigungu)}
+// 기관 목록에 짝이 되는 구청이 없는 주소(세종처럼 구가 없는 시도 등)는 시도(+주소에서 뽑은 시군구)만이라도 채운다.
+// district가 비면 담당자 화면의 '관할 음식점' 목록에 **아예 뜨지 않는다** — 자동 등록의 의미가 통째로 사라진다.
+const region=detectRegionFromText(addr);if(!region)return '';
+const sido=str(region.name),guess=guessSigungu(addr,sido);if(!sido)return '';
+return guess?(sido+' '+guess):sido}
+async function relayRegister(addrHint){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 선택하세요.');return}if(!state.data.meta.pubKey){await ensureKeyPair()}setBusy('우리 가게를 등록하는 중입니다.');try{const payload={restaurant_id:rid,restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey};
+// 기관 목록이 아직 안 실려 있으면 district가 통째로 비어 버린다(첫 실행에서 실제로 일어난다) — 한 번 더 시도한다.
+if(!state.agencyData){try{await loadAgencyData(false)}catch(e0){console.error('relay agency data for district',e0)}}
+const district=relayDistrict(addrHint);if(district)payload.district=district;const r=await fetch(base+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const j=await r.json();clearBusy();if(!r.ok)throw new Error(j.error||'등록 실패');state.data.meta.relayRegisteredAt=now();state.data.meta.storeRegisterPending=false;
+// 지역을 실어 보냈으면 자동 치유(relayDistrictSyncSilent)는 더 돌 필요가 없다.
+const metaPatch={relayRegisteredAt:state.data.meta.relayRegisteredAt,storeRegisterPending:false};
+if(district){state.data.meta.districtSyncedAt=now();metaPatch.districtSyncedAt=state.data.meta.districtSyncedAt}
+await repo.apply({meta:metaPatch});render();refreshInboxCount();
 // 온보딩에서 미리 입력해둔 연락처(카톡/이메일)가 있으면 기관 등록 성공 직후 자동으로 서버에 등록(스펙 §수정3-2)
 const savedKakao=str(state.data.meta.contactKakaoLink),savedEmail=str(state.data.meta.contactEmail);
 if(savedKakao||savedEmail){try{await relayContactSave({kakao:savedKakao,email:savedEmail,successToast:'우리 가게를 등록했습니다. 연락처도 함께 등록했어요.'})}catch(e2){console.error('auto contact save',e2);toast('우리 가게를 등록했습니다. 이제 공공기관 신청을 받을 수 있어요.')}}
 else{toast('우리 가게를 등록했습니다. 이제 공공기관 신청을 받을 수 있어요.')}
 // 서버 원문(영문 코드 등)은 콘솔에만 남기고 사용자에게는 사람 말로 안내한다(A5).
 }catch(e){console.error('register-key:',e);clearBusy();toast('가게 등록에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.')}}
+// ── 기존 등록분 자동 치유(beta.26) ─────────────────────────────────────────────
+// beta.25까지는 공식 주소를 저장하지 않아 register-key 페이로드에서 district가 통째로 빠졌다
+// (라이브 D1에 district가 채워진 행이 0건이었다 → 담당자 웹의 '관할 음식점' 목록이 항상 비어 있었다).
+// 지금 지역을 산출할 수 있는 기기는 부팅 때 **딱 한 번** 조용히 재등록해 district만 채운다.
+//   · 같은 공개키 재등록은 서버가 인증 없이 200으로 받고 district만 UPDATE한다.
+//   · 사용자에게는 아무것도 보이지 않는다(busy·toast·모달 없음). 실패해도 무음이고 다음 부팅에 다시 시도한다.
+async function relayDistrictSyncSilent(){
+try{
+if(!relayRegistered()||!navigator.onLine)return false;
+if(state.data.meta.districtSyncedAt)return false;// 1회만
+if(!state.data.meta.pubKey)return false;
+if(!state.agencyData){try{await loadAgencyData(false)}catch(e0){console.error('relay agency data for district',e0)}}
+const district=relayDistrict();if(!district)return false;
+const r=await fetch(relayBase()+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:str(state.data.meta.restaurantId),restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey,district})});
+if(!r.ok)return false;
+const at=now();state.data.meta.districtSyncedAt=at;await repo.apply({meta:{districtSyncedAt:at}});
+return true}catch(e){console.error('relay district sync',e);return false}}
 // 가게 검색: 이름은 서버(LOCALDATA) 프록시로 조회하고, "구명+동명" 지역어는 결과 주소를 클라이언트에서
 // 토큰 매칭으로 좁힌다(서울 구·동 코드 매핑이 이 파일에 없으므로 코드는 만들지 않고 이름 검색+주소 필터만 사용).
 // 검색 본체(모달·온보딩 공용) — 서버 응답을 지역 토큰으로 좁혀 {ok,error,results,regionFilteredOut}을 돌려준다.
 async function searchStoresRaw(q,regionText){const r=await fetch(relayBase()+'/api/restaurants?q='+encodeURIComponent(q));const list=await r.json();const ok=Array.isArray(list);const all=ok?list:[];const tokens=str(regionText).split(/\s+/).map(str).filter(Boolean);const filtered=tokens.length?all.filter(x=>tokens.every(t=>str(x.address).includes(t))):all;return{ok,error:ok?'':((list&&list.error)||'검색 오류'),results:filtered,regionFilteredOut:tokens.length>0&&all.length>0&&filtered.length===0}}
 async function relaySearchStores(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const q=str(qs('storeName')&&qs('storeName').value),regionText=str(qs('storeRegion')&&qs('storeRegion').value);if(!q){toast('가게 이름을 입력하세요.');return}state.modal.q=q;state.modal.region=regionText;state.modal.searching=true;render();try{const res=await searchStoresRaw(q,regionText);state.modal.searching=false;state.modal.searched=true;state.modal.results=res.results;state.modal.regionFilteredOut=res.regionFilteredOut;render();if(!res.ok)toast(res.error)}catch(e){console.error(e);state.modal.searching=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
-// 온보딩 2/4 전용 검색(모달이 없는 화면이라 state에 직접 보관). 서버로 보내는 것은 검색어뿐이며 아무것도 저장되지 않는다.
+// 온보딩 1/3 전용 검색(모달이 없는 화면이라 state에 직접 보관). 서버로 보내는 것은 검색어뿐이며 아무것도 저장되지 않는다.
 async function setupSearchStores(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');state.setupStoreSearched=true;state.setupStoreResults=[];render();return}const q=str(qs('setupStoreName')&&qs('setupStoreName').value),regionText=str(qs('setupStoreRegion')&&qs('setupStoreRegion').value);state.setupStoreQ=q;state.setupStoreRegion=regionText;if(!q){toast('가게 이름을 입력하세요.');return}state.setupStoreSearching=true;render();try{const res=await searchStoresRaw(q,regionText);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=res.results;state.setupStoreFilteredOut=res.regionFilteredOut;render();if(!res.ok)toast(res.error)}catch(e){console.error(e);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
 // 새 명단 신청 개수 — 등록·온라인일 때만 조회. 실패·404(구서버)는 조용히 무시하고 폴링 타이머는 만들지 않는다.
 let lastInboxCountAt=0;
@@ -868,19 +903,20 @@ async function refreshInboxCount(){try{if(!relayRegistered()||!navigator.onLine)
 // 앱으로 돌아왔을 때 stale 배지 보완(S10) — 마지막 조회 후 60초가 지난 경우에만 다시 조회한다.
 document.addEventListener('visibilitychange',function(){if(document.visibilityState!=='visible')return;if(!state.loaded)return;if(now()-lastInboxCountAt<60000)return;refreshInboxCount()});
 // 가게 선택 → 서버 등록. 실패하면 '받는 중'으로 잘못 보이지 않도록 로컬 상태를 되돌린다(finishStoreRegistration과 동일한 성공 판정: relayRegisteredAt 증가).
-async function relayPickStore(id,name){
-const prevId=str(state.data.meta.restaurantId),prevName=str(state.data.meta.relayStoreName);
+// addr = 검색 결과의 공식 주소(LOCALDATA 도로명 전체주소). 이것을 meta.storeAddr에 남겨야 관할 지역(district)이 산출된다.
+async function relayPickStore(id,name,addr){
+const prevId=str(state.data.meta.restaurantId),prevName=str(state.data.meta.relayStoreName),prevAddr=str(state.data.meta.storeAddr);
 const before=num(state.data.meta.relayRegisteredAt);
-state.data.meta.restaurantId=str(id);state.data.meta.relayStoreName=str(name);
-await repo.apply({meta:{restaurantId:str(id),relayStoreName:str(name)}});
+state.data.meta.restaurantId=str(id);state.data.meta.relayStoreName=str(name);if(str(addr))state.data.meta.storeAddr=str(addr);
+await repo.apply({meta:{restaurantId:str(id),relayStoreName:str(name),storeAddr:state.data.meta.storeAddr||''}});
 state.modal=null;render();
-try{await relayRegister()}catch(e){console.error('pick store register',e)}
+try{await relayRegister(str(addr))}catch(e){console.error('relay pick store register',e)}
 if(num(state.data.meta.relayRegisteredAt)>before)return;// 성공(relayRegister가 pending 플래그도 해제)
-state.data.meta.restaurantId=prevId;state.data.meta.relayStoreName=prevName;
-try{await repo.apply({meta:{restaurantId:prevId,relayStoreName:prevName}})}catch(e){console.error('store meta rollback',e)}
+state.data.meta.restaurantId=prevId;state.data.meta.relayStoreName=prevName;state.data.meta.storeAddr=prevAddr;
+try{await repo.apply({meta:{restaurantId:prevId,relayStoreName:prevName,storeAddr:prevAddr}})}catch(e){console.error('relay store meta rollback',e)}
 if(!prevId)await markStoreRegisterPending();
 render();toast('가게 등록에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.')}
-async function relayStop(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('자동 등록을 중단할까요? (가게 등록 해제)\n\n· 더는 공공기관에서 새 명단 신청을 받지 않습니다(등록 해제).\n· 이미 등록된 직원 명단·잔액은 그대로 유지됩니다.'))return;setBusy('등록을 해제하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/deregister',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'해제 실패')}state.data.meta.restaurantId='';state.data.meta.relayStoreName='';state.data.meta.relayRegisteredAt=null;state.data.meta.storeRegisterPending=false;state.inboxCount=null;await repo.apply({meta:{restaurantId:'',relayStoreName:'',relayRegisteredAt:null,storeRegisterPending:false}});clearBusy();render();toast('자동 등록을 중단했습니다. (가게 등록 해제)')}catch(e){console.error(e);clearBusy();toast('중단 처리 오류: '+(e.message||''))}}
+async function relayStop(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('자동 등록을 중단할까요? (가게 등록 해제)\n\n· 더는 공공기관에서 새 명단 신청을 받지 않습니다(등록 해제).\n· 이미 등록된 직원 명단·잔액은 그대로 유지됩니다.'))return;setBusy('등록을 해제하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/deregister',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'해제 실패')}state.data.meta.restaurantId='';state.data.meta.relayStoreName='';state.data.meta.relayRegisteredAt=null;state.data.meta.storeRegisterPending=false;state.data.meta.storeAddr='';state.data.meta.districtSyncedAt=null;state.inboxCount=null;await repo.apply({meta:{restaurantId:'',relayStoreName:'',relayRegisteredAt:null,storeRegisterPending:false,storeAddr:'',districtSyncedAt:null}});clearBusy();render();toast('자동 등록을 중단했습니다. (가게 등록 해제)')}catch(e){console.error(e);clearBusy();toast('중단 처리 오류: '+(e.message||''))}}
 // 가게 연락처(카톡 오픈채팅/이메일) — 기관 담당자 화면에서 [카톡으로 보내기]·[이메일로 보내기] 버튼을 켜는 선택 항목
 function isKakaoOpenLink(v){return /^https:\/\/open\.kakao\.com\//.test(str(v))}
 async function relayContactSave(opts){opts=opts&&typeof opts==='object'?opts:{};if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 등록하세요.');return}const kakao=typeof opts.kakao==='string'?opts.kakao:str(qs('contactKakao')&&qs('contactKakao').value),email=typeof opts.email==='string'?opts.email:str(qs('contactEmail')&&qs('contactEmail').value);if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}setBusy('연락처를 저장하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:kakao,email})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'저장 실패');state.data.meta.contactKakaoLink=kakao;state.data.meta.contactEmail=email;await repo.apply({meta:{contactKakaoLink:kakao,contactEmail:email}});render();toast(opts.successToast||'가게 연락처를 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처 저장 오류: '+(e.message||''))}}
@@ -888,7 +924,7 @@ async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결
 async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}setBusy('신청을 불러오는 중입니다.');try{const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid));const items=await r.json();clearBusy();if(!Array.isArray(items))throw new Error(items.error||'수신 오류');state.inboxCount=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
 // 처리 도중 뒤로가기(popstate)로 모달이 닫혀도 TypeError 없이 끝나도록 진입 시 모달을 지역 변수로 캡처한다(A6).
 async function relayReject(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)} 신청을 거절할까요? (열어보지 않고 폐기)`))return;setBusy('처리 중입니다.');try{const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'REJECTED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();toast('거절했습니다.')}catch(e){console.error(e);clearBusy();toast('처리 오류: '+(e.message||''))}}
-async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)}\n${item.summary.restaurant_name||''}\n총액 ${money(item.summary.total_amount)} · ${item.summary.member_count}명\n\n통장 입금을 확인하셨으면 승인하세요.`))return;setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const reHash=await batchHashOf(plain.items);if(reHash!==item.summary.batch_hash){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);const t=now(),ym=str(item.summary.year_month),groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();for(const it of plain.items){const rec={org:str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const amt=num(it.amount);const exist=activeByKey.get(empMatchKey(rec));publicOrgPatchesForLabel(rec,patchedIds).forEach(pt=>patches.push(pt));if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'공공기관 신청 승인 추가 충전',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}const eid=uid();emps.push({id:eid,org:rec.org,orgKind:'public',dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'공공기관 신청 승인',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}await repo.apply({employees:emps.concat(patches),transactions:txs});emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'APPROVED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}}
+async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)}\n${item.summary.restaurant_name||''}\n총액 ${money(item.summary.total_amount)} · ${item.summary.member_count}명\n\n통장 입금을 확인하셨으면 승인하세요.`))return;setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const reHash=await batchHashOf(plain.items);if(reHash!==item.summary.batch_hash){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);const t=now(),ym=str(item.summary.year_month),groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();for(const it of plain.items){/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const amt=num(it.amount);const exist=activeByKey.get(empMatchKey(rec));publicOrgPatchesForLabel(rec,patchedIds).forEach(pt=>patches.push(pt));if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'공공기관 신청 승인 추가 충전',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}const eid=uid();emps.push({id:eid,org:rec.org,orgKind:'public',dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'공공기관 신청 승인',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}await repo.apply({employees:emps.concat(patches),transactions:txs});emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'APPROVED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}}
 // ── 직접 전달(파일·QR) 수신 — 서버를 거치지 않고 기관이 건넨 암호문을 그 자리에서 열어 장부에 등록 ──
 // 계약(고정): {v:1, type:'direct-transfer', restaurant_id, restaurant_name, institution, department, year_month, summary:{total_amount, member_count, batch_hash}, ciphertext:{alg,encKey,iv,ct}}
 function directTransferBatchHashes(){return Array.isArray(state.data.meta.receivedBatchHashes)?state.data.meta.receivedBatchHashes:[]}
@@ -913,7 +949,8 @@ const noteLabel=str(parsed.institution)+' '+str(parsed.department);
 // 승인(relayApprove)과 같은 규칙: 이미 있는 활성 직원은 새 카드 대신 충전한다(다음 달 재전달 시 동명 카드 누적 방지).
 const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();
 for(const it of plain.items){
-const rec={org:str(parsed.institution),dept:str(it.dept),name:str(it.name)};
+/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
+const rec={org:str(it.org)||str(parsed.institution),dept:str(it.dept),name:str(it.name)};
 const amt=num(it.amount);
 const exist=activeByKey.get(empMatchKey(rec));
 // 승인과 동일: 같은 결합 라벨을 쓰는 활성 직원 전체를 함께 백필한다(명단에 빠진 동료가 다른 그룹으로 갈라지지 않게).
@@ -1455,39 +1492,53 @@ paintToast();// 토스트가 걸려 있으면 조각만 붙였다 뗀다(화면�
 return true}
 
 // ── 초기 설정 화면 (스펙 §수정4: 1화면 1메시지, 선택 항목은 전부 [나중에 하기] 가능) ──
-// 1/4 가게 정보 → 2/4 우리 가게 등록(중계 서버 검색) → 3/4 부서 목록 → 4/4 연락처+약관
-function setupScreenHtml(){if(state.setupStep===2)return setupStoreHtml();if(state.setupStep===3)return setupStep2Html();if(state.setupStep===4)return setupStep3Html();return setupStep1Html()}
+// beta.26: 가게 정보를 두 번(직접 입력 + 검색) 넣던 중복을 없앴다 — 1/3에서 **검색으로 한 번** 고르면 끝이다.
+// 1/3 우리 가게 찾기(검색 선택 = 가게명·주소·전화 자동 채움) → 2/3 부서 목록 → 3/3 연락처+약관
+function setupScreenHtml(){if(state.setupStep===2)return setupStep2Html();if(state.setupStep===3)return setupStep3Html();return setupStep1Html()}
 
+// 1/3 우리 가게 찾기 — 공공데이터(중계 서버 프록시)에서 검색해 고르면 가게명·주소·전화가 한 번에 채워진다.
+//   · 여기서는 **고르기만** 하고 서버로 아무것도 보내지 않는다(실제 등록은 약관 동의 후 finishSetup에서 실행).
+//   · 검색에 없거나 오프라인이면 [직접 입력할게요]로 손으로 넣는다(막다른 길 금지). 그 경우 서버 등록은
+//     보류되고 홈 배너로 마무리를 안내한다 — 예전 [나중에 등록할게요]의 취지를 이 길이 그대로 잇는다.
+//   · 주소는 어느 길로 들어와도 반드시 확보한다(담당자 웹의 '관할 음식점' 목록이 주소에서 뽑은 district에만 의존).
 function setupStep1Html(){
+const head='<div class="setup-head"><div class="setup-step">1 / 3</div><h1>우리 가게 찾기</h1><p>가게 이름으로 찾아 고르면 이름·주소·전화가 한 번에 채워져요.<br>고른 가게는 약관 동의 뒤 자동으로 등록돼요.</p></div>';
 const sel=state.setupSelected;
-const selHtml=sel?'<div class="card setup-selected"><div style="font-size:17px;font-weight:800;margin-bottom:4px">'+esc(sel.name)+'</div><div style="font-size:13px;color:var(--muted);line-height:1.5">'+esc(sel.addr)+'</div>'+(sel.tel?'<div style="font-size:13px;color:var(--primary);margin-top:2px">'+esc(sel.tel)+'</div>':'')+'</div>':'';
-var manualSection='<div class="card"><div class="form"><div class="field"><label>음식점 이름</label><input id="setupManualName" placeholder="예: 맛있는식당"></div><div class="field"><label>주소(지역)</label><input id="setupManualAddr" placeholder="예: 광진구 구의동"></div><div class="field"><label>전화번호</label><input id="setupManualTel" placeholder="예: 02-123-4567"></div><button class="btn-primary" data-a="setup-manual-save">입력 완료</button></div></div>';
-return '<div class="setup"><div class="setup-head"><div class="setup-step">1 / 4</div><h1>가게 정보</h1><p>가게 정보를 직접 입력해요<br>주소의 구 이름으로 담당 공공기관을 자동으로 찾아드려요</p></div>'+manualSection+selHtml+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-skip" style="flex:1">건너뛰기</button>'+(sel?'<button class="btn-primary" data-a="setup-next" style="flex:1">다음</button>':'')+'</div></div>'}
-
-// 2/4 우리 가게 등록 — 온보딩 화면에는 모달이 렌더되지 않으므로 검색 UI를 단계 화면에 인라인으로 둔다.
-// 여기서는 고르기만 하고 서버로 아무것도 보내지 않는다(실제 등록은 약관 동의 후 finishSetup에서 실행).
-function setupStoreHtml(){
-const picked=state.setupPickedStore;
+// (C) 이미 고른 상태 — 검색 폼은 접고 확인만 보여준다(폰 한 화면 안에 [다음]까지 들어오도록).
+if(sel){
+const picked=!!(state.setupPickedStore&&str(state.setupPickedStore.id));
+const note=picked
+?'<div class="meta" style="margin-top:12px;line-height:1.6">마지막 <b>약관 동의</b>를 마치면 이 가게가 자동으로 등록돼요. 그래야 공공기관 담당자(서무)가 우리 가게를 찾아 명단을 보낼 수 있어요.</div>'
+:'<div class="card banner warn" style="margin-top:12px"><div class="meta" style="line-height:1.6">직접 입력한 가게는 <b>공공기관 담당자(서무)가 찾을 수 있게 등록되지 않아요.</b> 설정에서 [우리 가게 등록]으로 마무리하세요 — 홈 화면 안내로 다시 알려드릴게요.</div></div>';
+return '<div class="setup">'+head
++'<div class="card setup-selected"><div class="meta">선택한 우리 가게</div><div style="font-size:19px;font-weight:800;margin:2px 0 4px">'+esc(sel.name)+'</div><div style="font-size:13px;color:var(--muted);line-height:1.5">'+esc(sel.addr||'(주소 없음)')+'</div></div>'
++'<div class="card"><div class="form"><div class="field"><label for="setupStoreTel">가게 전화번호 (선택)</label><input id="setupStoreTel" type="tel" placeholder="예: 02-123-4567" value="'+esc(sel.tel||'')+'"></div></div><div class="meta" style="font-size:11px">공공데이터에 전화번호가 없으면 비어 있어요 — 직접 적어 두면 설정 화면에서 볼 수 있어요.</div></div>'
++note
++'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-store-again" style="flex:1">다시 고르기</button><button class="btn-primary" data-a="setup-next" style="flex:1">다음</button></div></div>'}
+// (B) 탈출구 — 검색에 없거나 오프라인일 때 손으로 넣는 길. 주소는 필수다.
+if(state.setupManualMode){
+const d=state.setupManualDraft||{name:'',addr:'',tel:''};
+return '<div class="setup">'+head
++'<div class="card banner warn"><div class="meta" style="line-height:1.6">검색에 우리 가게가 없거나 인터넷이 안 될 때 쓰는 길이에요. <b>주소는 시·도부터</b> 적어 주세요 — 담당 공공기관을 그 주소로 찾아드려요.</div></div>'
++'<div class="card"><div class="form"><div class="field"><label for="setupManualName">가게 이름</label><input id="setupManualName" placeholder="예: 맛있는식당" value="'+esc(d.name||'')+'"></div><div class="field"><label for="setupManualAddr">주소 (시·도부터 · 필수)</label><input id="setupManualAddr" placeholder="예: 서울특별시 광진구 구의동 123-45" value="'+esc(d.addr||'')+'"></div><div class="field"><label for="setupManualTel">전화번호 (선택)</label><input id="setupManualTel" type="tel" placeholder="예: 02-123-4567" value="'+esc(d.tel||'')+'"></div><button class="btn-primary" data-a="setup-manual-save">입력 완료</button></div></div>'
++'<div style="text-align:center;margin-top:16px"><button class="btn" data-a="setup-manual-toggle" style="min-height:44px;padding:0 16px;font-size:13px">검색으로 찾을래요</button></div></div>'}
+// (A) 기본 — 검색으로 고르기.
 const results=state.setupStoreResults||[];
-const list=results.length?results.map(function(x){return '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">'+esc(x.name)+'</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(x.address||'')+'</div></div><button class="btn-primary small" data-a="setup-store-pick" data-id="'+esc(x.restaurant_id)+'" data-name="'+esc(x.name)+'" data-addr="'+esc(x.address||'')+'" style="flex-shrink:0">이 가게</button></div>'}).join(''):(state.setupStoreSearched?'<div class="empty">'+esc(state.setupStoreFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':'검색 결과가 없습니다. 가게 이름을 바꿔보세요.')+'</div>':'');
-const pickedHtml=picked?'<div class="card setup-selected"><div class="meta">선택한 우리 가게</div><div style="font-size:17px;font-weight:800">'+esc(picked.name)+'</div></div>':'';
-// 막다른 길 방지(S1): 넘어가기는 항상 노출한다. 검색 결과가 있는데 내 가게가 아닌 경우에도 빠져나갈 길이 있어야 한다.
-const skipHtml='<div class="card banner warn" style="margin-top:12px"><div class="meta" style="line-height:1.6">지금 등록하지 않으면 <b>공공기관 담당자(서무)가 우리 가게를 찾을 수 없어요.</b> 홈 화면 안내로 다시 알려드릴게요 — 나중에 설정에서 꼭 등록하세요.</div><div style="text-align:center;margin-top:8px"><button class="btn" data-a="setup-store-skip" style="min-height:40px;padding:0 16px;font-size:13px">나중에 등록할게요</button></div></div>';
+const list=results.length?results.map(function(x){return '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">'+esc(x.name)+'</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(x.address||'')+'</div></div><button class="btn-primary small" data-a="setup-store-pick" data-id="'+esc(x.restaurant_id)+'" data-name="'+esc(x.name)+'" data-addr="'+esc(x.address||'')+'" data-tel="'+esc(x.tel||x.phone||'')+'" style="flex-shrink:0">이 가게</button></div>'}).join(''):(state.setupStoreSearched?'<div class="empty">'+esc(state.setupStoreFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':'검색 결과가 없습니다. 가게 이름을 바꿔보세요.')+'</div>':'');
 // 간판 이름 ≠ 사업자등록 상호인 경우가 흔하다 — 검색을 한 번이라도 했으면 대안 검색어를 안내한다.
 const searchHelp=state.setupStoreSearched?'<div class="meta" style="margin-top:10px;line-height:1.6">목록에 우리 가게가 없나요? 간판 이름과 사업자등록 상호가 다를 수 있어요. <b>사업자등록증의 상호</b>로 검색해 보세요.</div>':'';
-return '<div class="setup"><div class="setup-head"><div class="setup-step">2 / 4</div><h1>우리 가게 등록</h1><p>공공기관 담당자(서무)가 우리 가게를 찾을 수 있게 한 번만 등록해요.<br>선금(돈)은 앱이 아니라 가게 은행 계좌로 따로 입금돼요.</p></div>'
-+'<div class="card"><div class="form"><div class="field"><label for="setupStoreName">가게 이름</label><input id="setupStoreName" placeholder="예: 정식김밥" value="'+esc(state.setupStoreQ||'')+'"></div><div class="field"><label for="setupStoreRegion">지역(선택) — 예: 광진구 구의동</label><input id="setupStoreRegion" placeholder="예: 광진구 구의동" value="'+esc(state.setupStoreRegion||'')+'"></div><button class="btn-primary" data-a="setup-store-search">'+(state.setupStoreSearching?'검색 중…':'가게 찾기')+'</button></div>'+(list?'<div style="margin-top:12px">'+list+'</div>':'')+searchHelp+'</div>'
-+pickedHtml+skipHtml
-+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-store-back" style="flex:1">이전</button>'+(picked?'<button class="btn-primary" data-a="setup-store-next" style="flex:1">다음</button>':'')+'</div></div>'}
-
+// 막다른 길 방지(S1): 직접 입력 길은 검색 전에도, 결과가 있어도(내 가게가 없을 수 있다) 항상 노출한다.
+const manualHtml='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)"><span class="meta" style="line-height:1.5">우리 가게가 안 나오나요? 인터넷이 안 되나요?</span><button class="btn" data-a="setup-manual-toggle" style="min-height:44px;padding:0 14px;font-size:13px;flex-shrink:0">직접 입력할게요</button></div>';
+return '<div class="setup">'+head
++'<div class="card"><div class="form"><div class="field"><label for="setupStoreName">가게 이름</label><input id="setupStoreName" placeholder="예: 정식김밥" value="'+esc(state.setupStoreQ||'')+'"></div><div class="field"><label for="setupStoreRegion">지역(선택) — 예: 광진구 구의동</label><input id="setupStoreRegion" placeholder="예: 광진구 구의동" value="'+esc(state.setupStoreRegion||'')+'"></div><button class="btn-primary" data-a="setup-store-search">'+(state.setupStoreSearching?'검색 중…':'가게 찾기')+'</button></div>'+manualHtml+(list?'<div style="margin-top:12px">'+list+'</div>':'')+searchHelp+'</div></div>'}
 function setupStep2Html(){
 const tags=state.setupDepts.map(function(d,i){return '<span class="dept-tag">'+esc(d)+'<button data-a="setup-remove-dept" data-idx="'+i+'">×</button></span>'}).join('');
-return '<div class="setup"><div class="setup-head"><div class="setup-step">3 / 4</div><h1>공공기관 부서 목록 설정</h1><p>공공기관을 선택해 필요한 과를 복수 선택하세요<br>나중에 설정에서 변경할 수 있어요</p></div><div class="card">'+agencyPickerHtml('setup')+'</div><div class="card"><div style="line-height:2.2;margin-bottom:12px">'+(tags||'<span style="color:var(--muted)">부서가 없습니다</span>')+'</div><div style="display:flex;gap:8px"><input id="setupNewDept" placeholder="부서명 입력" style="min-height:44px"><button class="btn-secondary" data-a="setup-add-dept" style="min-height:44px;min-width:60px;flex-shrink:0">추가</button></div></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back" style="flex:1">이전</button><button class="btn-primary" data-a="setup-to-contact" style="flex:1">다음</button></div></div>'}
+return '<div class="setup"><div class="setup-head"><div class="setup-step">2 / 3</div><h1>공공기관 부서 목록 설정</h1><p>공공기관을 선택해 필요한 과를 복수 선택하세요<br>나중에 설정에서 변경할 수 있어요</p></div><div class="card">'+agencyPickerHtml('setup')+'</div><div class="card"><div style="line-height:2.2;margin-bottom:12px">'+(tags||'<span style="color:var(--muted)">부서가 없습니다</span>')+'</div><div style="display:flex;gap:8px"><input id="setupNewDept" placeholder="부서명 입력" style="min-height:44px"><button class="btn-secondary" data-a="setup-add-dept" style="min-height:44px;min-width:60px;flex-shrink:0">추가</button></div></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back" style="flex:1">이전</button><button class="btn-primary" data-a="setup-to-contact" style="flex:1">다음</button></div></div>'}
 
 // 연락처(선택·권장) — 공공기관 담당자(서무)가 명단 파일을 보낼 곳. 반드시 건너뛰기 허용(스펙 §수정3-2)
 function setupStep3Html(){
 const agreed=!!state.setupTermsAgreed;const dis=agreed?'':' disabled';
-return '<div class="setup"><div class="setup-head"><div class="setup-step">4 / 4</div><h1>연락처 (선택·권장)</h1><p>공공기관 담당자(서무)가 명단 파일을 보낼 곳이에요.<br>지금 몰라도 돼요 — 나중에 설정에서 등록할 수 있어요.</p></div><div class="card"><div class="form"><div class="field"><label for="setupContactKakao">카카오톡 오픈채팅 링크</label><input id="setupContactKakao" type="url" placeholder="https://open.kakao.com/o/..." value="'+esc(state.data.meta.contactKakaoLink||'')+'"></div><div class="meta" style="font-size:11px;margin-top:-6px">카카오톡 &gt; 오픈채팅 만들기에서 링크를 복사해 붙여넣으세요. 전화번호가 드러나지 않아요.</div><div class="field"><label for="setupContactEmail">접수 이메일</label><input id="setupContactEmail" type="email" placeholder="예: office@restaurant.com" value="'+esc(state.data.meta.contactEmail||'')+'"></div></div></div>'+termsAgreeBlockHtml('setup-terms-toggle','setupTermsChk',agreed)+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back2" style="flex:1">이전</button><button class="btn" id="setupSkipBtn" data-a="setup-contact-skip" style="flex:1"'+dis+'>나중에 하기</button><button class="btn-primary" id="setupCompleteBtn" data-a="setup-complete" style="flex:1"'+dis+'>완료</button></div></div>'}
+return '<div class="setup"><div class="setup-head"><div class="setup-step">3 / 3</div><h1>연락처 (선택·권장)</h1><p>공공기관 담당자(서무)가 명단 파일을 보낼 곳이에요.<br>지금 몰라도 돼요 — 나중에 설정에서 등록할 수 있어요.</p></div><div class="card"><div class="form"><div class="field"><label for="setupContactKakao">카카오톡 오픈채팅 링크</label><input id="setupContactKakao" type="url" placeholder="https://open.kakao.com/o/..." value="'+esc(state.data.meta.contactKakaoLink||'')+'"></div><div class="meta" style="font-size:11px;margin-top:-6px">카카오톡 &gt; 오픈채팅 만들기에서 링크를 복사해 붙여넣으세요. 전화번호가 드러나지 않아요.</div><div class="field"><label for="setupContactEmail">접수 이메일</label><input id="setupContactEmail" type="email" placeholder="예: office@restaurant.com" value="'+esc(state.data.meta.contactEmail||'')+'"></div></div></div>'+termsAgreeBlockHtml('setup-terms-toggle','setupTermsChk',agreed)+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back2" style="flex:1">이전</button><button class="btn" id="setupSkipBtn" data-a="setup-contact-skip" style="flex:1"'+dis+'>나중에 하기</button><button class="btn-primary" id="setupCompleteBtn" data-a="setup-complete" style="flex:1"'+dis+'>완료</button></div></div>'}
 
 // 이용약관·개인정보처리방침 동의 안내 블록 (온보딩·일회성 모달 공용). 링크는 새 탭(rel=noopener), 체크는 기본 미체크.
 function termsAgreeBlockHtml(action,chkId,checked){
@@ -1514,23 +1565,24 @@ state.data.meta.contactEmail=email;
 state.data.meta.setupComplete=true;
 const termsAgreedAt=now();state.data.meta.termsAgreedAt=termsAgreedAt;
 await repo.apply({meta:{shopName:state.data.meta.shopName||'',shopAddr:state.data.meta.shopAddr||'',shopTel:state.data.meta.shopTel||'',orgName:state.data.meta.orgName,departments:state.data.meta.departments,contactKakaoLink:kakao,contactEmail:email,setupComplete:true,termsAgreedAt}});
-// 우리 가게 등록(서버 전송)은 반드시 약관 동의 이후에만 — 2/4에서 고른 가게가 있을 때 여기서 처음 서버를 호출한다.
+// 우리 가게 등록(서버 전송)은 반드시 약관 동의 이후에만 — 1/3에서 고른 가게가 있을 때 여기서 처음 서버를 호출한다.
 const registered=await finishStoreRegistration();
 state.setupStep=1;state.setupGuide=true;
 // 등록이 안 끝난 채로 '초기 설정 완료'만 띄우면 실패가 가려진다(A4) — 남은 할 일을 그대로 말해준다.
 render();toast(registered?'초기 설정 완료':'설정은 끝났어요. 가게 등록은 아직 안 됐어요 — 홈의 안내를 눌러 마무리하세요.')}
 
-// 온보딩 2/4에서 고른 가게를 서버에 등록. 실패(오프라인 등)하면 로컬 등록 상태를 되돌리고 홈 배너로 마무리를 유도한다.
+// 온보딩 1/3에서 검색으로 고른 가게를 서버에 등록. 실패(오프라인 등)하면 로컬 등록 상태를 되돌리고 홈 배너로 마무리를 유도한다.
 async function finishStoreRegistration(){
 const picked=state.setupPickedStore;
 if(!picked||!str(picked.id)){await markStoreRegisterPending();return false}
 const before=num(state.data.meta.relayRegisteredAt);
-state.data.meta.restaurantId=str(picked.id);state.data.meta.relayStoreName=str(picked.name);
-try{await repo.apply({meta:{restaurantId:state.data.meta.restaurantId,relayStoreName:state.data.meta.relayStoreName}})}catch(e){console.error('store meta save',e)}
-try{await relayRegister()}catch(e){console.error('setup register',e)}
+// 공식 주소(storeAddr)는 관할 지역(district) 산출의 1순위 근거다 — 반드시 함께 저장한다.
+state.data.meta.restaurantId=str(picked.id);state.data.meta.relayStoreName=str(picked.name);state.data.meta.storeAddr=str(picked.addr);
+try{await repo.apply({meta:{restaurantId:state.data.meta.restaurantId,relayStoreName:state.data.meta.relayStoreName,storeAddr:state.data.meta.storeAddr}})}catch(e){console.error('relay store meta save',e)}
+try{await relayRegister(str(picked.addr))}catch(e){console.error('relay setup register',e)}
 if(num(state.data.meta.relayRegisteredAt)>before)return true;// 성공(relayRegister가 pending 플래그도 해제)
-state.data.meta.restaurantId='';state.data.meta.relayStoreName='';
-try{await repo.apply({meta:{restaurantId:'',relayStoreName:''}})}catch(e){console.error('store meta rollback',e)}
+state.data.meta.restaurantId='';state.data.meta.relayStoreName='';state.data.meta.storeAddr='';
+try{await repo.apply({meta:{restaurantId:'',relayStoreName:'',storeAddr:''}})}catch(e){console.error('relay store meta rollback',e)}
 await markStoreRegisterPending();return false}
 async function markStoreRegisterPending(){state.data.meta.storeRegisterPending=true;try{await repo.apply({meta:{storeRegisterPending:true}})}catch(e){console.error('pending flag',e)}}
 
@@ -1731,7 +1783,7 @@ const sigField=preSign
 const sigBtn=preSign?'':'<button class="btn" data-a="clear-sign">서명 지우기</button>';
 return `<div class="modal-back"><div class="modal"><h2>사용 등록</h2><p class="help">${preAmount>0?'손님이 보낸 요청이에요. 금액과 서명을 확인한 뒤 저장하세요 (금액을 고치면 서명을 다시 받습니다).':'금액을 입력한 뒤 서명을 받고 저장하세요.'}</p>${resignWarn}<div class="receipt"><div class="receipt-row"><span>직원</span><strong>${esc(e.name)}</strong></div><div class="receipt-row"><span>소속·부서</span><strong>${esc(orgDeptLabel(e)||'부서 없음')}</strong></div><div class="receipt-row"><span>현재 잔액</span><strong style="font-size:24px;color:var(--primary)">${money(e.balance)}</strong></div>${reqNote}</div><div class="form"><div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-use" data-amount="9000">9,000원</button><button data-a="fill-use" data-amount="18000">18,000원</button><button data-a="fill-use" data-amount="27000">27,000원</button></div></div>${field('useAmount','사용 금액',amtVal,'금액을 입력하세요','number','data-modal-focus')}${field('useNote','비고 (점심/저녁/특식 등)',noteVal,'선택 입력')}${smsBox}${sigField}</div><div class="modal-actions">${sigBtn}<button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-use">서명 후 저장</button></div></div></div>`}
 if(state.modal.type==='signature'){const t=state.data.transactions.find(v=>v.id===state.modal.id);if(!t||!t.signatureData)return '';const e=state.data.employees.find(v=>v.id===t.employeeId);return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>서명 확인</h2><p class="help">${esc(e?e.name:'알 수 없음')} · ${dt(t.createdAt)} · ${money(t.amount)}</p><img src="${t.signatureData}" style="max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff" alt="서명"><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
-if(state.modal.type==='store-search'){const results=state.modal.results||[];const emptyMsg=state.modal.regionFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':'검색 결과가 없습니다. 가게 이름을 바꿔보세요.';const list=results.length?results.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">${esc(x.name)}</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.address||'')}</div></div><button class="btn-primary small" data-a="relay-pick-store" data-id="${esc(x.restaurant_id)}" data-name="${esc(x.name)}" style="flex-shrink:0">이 가게</button></div>`).join(''):(state.modal.searched?`<div class="empty">${esc(emptyMsg)}</div>`:'');return `<div class="modal-back"><div class="modal"><h2>우리 가게 찾기</h2><p class="help">가게 이름으로 검색해 우리 가게를 선택하세요. 한 번만 등록하면 됩니다.</p><div class="form"><div class="field"><label>가게 이름</label><input id="storeName" placeholder="예: 정식김밥" value="${esc(state.modal.q||'')}"></div><div class="field"><label>지역(선택) — 예: 광진구 구의동</label><input id="storeRegion" placeholder="예: 광진구 구의동" value="${esc(state.modal.region||'')}"></div></div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button><button class="btn-primary" data-a="relay-search-stores">${state.modal.searching?'검색 중…':'검색'}</button></div>${list?`<div style="margin-top:12px">${list}</div>`:''}</div></div>`}
+if(state.modal.type==='store-search'){const results=state.modal.results||[];const emptyMsg=state.modal.regionFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':'검색 결과가 없습니다. 가게 이름을 바꿔보세요.';const list=results.length?results.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">${esc(x.name)}</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.address||'')}</div></div><button class="btn-primary small" data-a="relay-pick-store" data-id="${esc(x.restaurant_id)}" data-name="${esc(x.name)}" data-addr="${esc(x.address||'')}" style="flex-shrink:0">이 가게</button></div>`).join(''):(state.modal.searched?`<div class="empty">${esc(emptyMsg)}</div>`:'');return `<div class="modal-back"><div class="modal"><h2>우리 가게 찾기</h2><p class="help">가게 이름으로 검색해 우리 가게를 선택하세요. 한 번만 등록하면 됩니다.</p><div class="form"><div class="field"><label>가게 이름</label><input id="storeName" placeholder="예: 정식김밥" value="${esc(state.modal.q||'')}"></div><div class="field"><label>지역(선택) — 예: 광진구 구의동</label><input id="storeRegion" placeholder="예: 광진구 구의동" value="${esc(state.modal.region||'')}"></div></div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button><button class="btn-primary" data-a="relay-search-stores">${state.modal.searching?'검색 중…':'검색'}</button></div>${list?`<div style="margin-top:12px">${list}</div>`:''}</div></div>`}
 if(state.modal.type==='inbox'){const items=state.modal.items||[];const body=items.length?items.map(it=>`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px"><div style="font-weight:700">${esc(combinedDeptLabel(it.summary.institution,it.summary.department))}</div><div class="meta">${esc(it.summary.restaurant_name||'')} · ${esc(it.summary.year_month||'')}</div><div style="margin:6px 0">총액 <b>${money(it.summary.total_amount)}</b> · ${num(it.summary.member_count)}명 <span class="meta">(승인 전에는 이름이 보이지 않습니다)</span></div><div style="display:flex;gap:8px"><button class="btn-primary" data-a="relay-approve" data-sid="${esc(it.summary_id)}">통장 확인 후 승인</button><button class="btn-danger" data-a="relay-reject" data-sid="${esc(it.summary_id)}">거절</button></div></div>`).join(''):'<div class="empty">대기 중인 신청이 없습니다.<br>공공기관에서 신청을 보내면 여기에 나타나요.</div>';return `<div class="modal-back"><div class="modal"><h2>공공기관 명단 신청 수신함</h2><p class="help">통장에서 입금자명·금액을 대조한 뒤 승인하세요. 승인 시에만 명단이 열립니다.</p>${body}<div class="modal-actions"><button class="btn" data-a="relay-inbox">새로고침</button><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 if(state.modal.type==='qr-scan'){return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>QR(사각 코드)로 받기</h2><p class="help">담당자가 보여주는 QR(사각 코드)를 카메라로 비춰주세요. 서버를 거치지 않고 바로 등록돼요.</p><video id="qrVideo" autoplay playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover"></video><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button></div></div></div>`}
 if(state.modal.type==='csv'){const rows=state.modal.rows||[];const dupWarn=state.modal.dupWarn||0;const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''} — 등록 가능</div>`;const hasOrg=rows.some(r=>str(r.org));const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th>${hasOrg?'<th>소속</th>':''}<th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td>${hasOrg?`<td>${esc(r.org||'')}</td>`:''}<td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error||(r.mode==='topup'?'🔄 추가 충전':'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>엑셀 명단(CSV) 불러오기</h2><p class="help">엑셀에서 저장한 CSV 파일을 불러와요. 첫 줄(제목 줄)에 부서, 이름, 금액 칸이 있어야 해요. <b>소속</b> 칸이 있으면 함께 읽어요(선택).<br>이미 등록된 직원은 금액이 추가로 충전돼요.</p>${sm}${dupWarn?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">⚠️ 동명이인 ${dupWarn}건 감지 — 구분 마커(·2, ·3 …)를 자동 부여했습니다. 표에서 확인하세요.</div>`:''}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">등록하기</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
@@ -1882,8 +1934,10 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 'contact-save':async()=>{await relayContactSave()},
 'contact-clear':async()=>{await relayContactClear()},
 'relay-find-store':()=>{state.modal={type:'store-search'};render()},
+// 주소를 이미 아는 기기의 수동 재전송(자동 치유가 못 돌았거나 사장님이 직접 확인하고 싶을 때).
+'relay-send-district':async()=>{if(!relayDistrict()){toast('가게 주소를 몰라 지역을 보낼 수 없어요. [변경]을 눌러 우리 가게를 다시 골라 주세요.');return}await relayRegister()},
 'relay-search-stores':async()=>{await relaySearchStores()},
-'relay-pick-store':async(el)=>{await relayPickStore(el.dataset.id,el.dataset.name)},
+'relay-pick-store':async(el)=>{await relayPickStore(el.dataset.id,el.dataset.name,el.dataset.addr)},
 'relay-inbox':async()=>{await relayOpenInbox()},
 'relay-approve':async(el)=>{await relayApprove(el.dataset.sid)},
 'relay-reject':async(el)=>{await relayReject(el.dataset.sid)},
@@ -1914,19 +1968,31 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 'cloud-backup-restore':async()=>{await relayRestoreFromCloud()},
 'change-pin':()=>{state.pinMode='change';state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMsg='';clearPinGuard();render()},
 'voice-search':()=>{voiceSearch()},
-'setup-next':async()=>{if(!state.setupSelected)return;state.data.meta.shopName=state.setupSelected.name;state.data.meta.shopAddr=state.setupSelected.addr;state.data.meta.shopTel=state.setupSelected.tel;state.setupDepts=[].concat(COMMON_DEPTS);if(!state.setupStoreQ)state.setupStoreQ=str(state.setupSelected.name);const matched=matchAgencyByRegion(state.setupSelected.addr);if(matched){state.regionSelected=matched.region.code;state.agencySelected=matched.agency.id;await ensureDeptsForRegion(matched.region.code)}state.setupStep=2;render()},
-'setup-manual-save':()=>{var mn=str(qs('setupManualName')&&qs('setupManualName').value);var ma=str(qs('setupManualAddr')&&qs('setupManualAddr').value);var mt=str(qs('setupManualTel')&&qs('setupManualTel').value);if(!mn){toast('음식점 이름을 입력하세요.');return}state.setupSelected={idx:-1,name:mn,addr:ma,tel:mt,type:'직접입력'};render()},
-'setup-skip':()=>{state.setupDepts=[].concat(COMMON_DEPTS);state.setupStep=2;render()},
-'setup-back':()=>{state.setupStep=2;render()},
-'setup-to-contact':()=>{state.setupStep=4;render()},
-'setup-back2':()=>{state.setupStep=3;render()},
-// 2/4 우리 가게 등록 — 고르기만 하고 서버 전송은 없음(약관 동의 후 finishSetup에서 등록)
+// 1/3 → 2/3. 고른 가게(검색·직접입력 공통)를 meta에 확정하고 주소로 담당 공공기관을 앞당겨 골라 둔다.
+'setup-next':async()=>{if(!state.setupSelected){toast('우리 가게를 먼저 고르세요.');return}
+const telEl=qs('setupStoreTel');if(telEl){const t=str(telEl.value);state.setupSelected.tel=t;if(state.setupPickedStore)state.setupPickedStore.tel=t}
+state.data.meta.shopName=state.setupSelected.name;state.data.meta.shopAddr=state.setupSelected.addr;state.data.meta.shopTel=state.setupSelected.tel;state.setupDepts=[].concat(COMMON_DEPTS);if(!state.setupStoreQ)state.setupStoreQ=str(state.setupSelected.name);
+const matched=matchAgencyByRegion(state.setupSelected.addr);
+if(matched){state.regionSelected=matched.region.code;state.agencySelected=matched.agency.id;await ensureDeptsForRegion(matched.region.code)}
+// 구청까지는 못 찾아도 시·도만이라도 맞춰 두면 2/3의 기관 고르기가 헛돌지 않는다(세종처럼 구가 없는 시도 등).
+else{const r=detectRegionFromText(str(state.setupSelected.addr));if(r){state.regionSelected=r.code;state.agencySelected=(r.agencies&&r.agencies[0]&&r.agencies[0].id)||'';await ensureDeptsForRegion(r.code)}}
+state.setupStep=2;render()},
+// 탈출구(검색 0건·오프라인) — 주소는 **필수**다. 담당자 웹의 '관할 음식점' 목록은 이 주소에서 뽑은 district로만 찾아진다.
+'setup-manual-save':()=>{var mn=str(qs('setupManualName')&&qs('setupManualName').value);var ma=str(qs('setupManualAddr')&&qs('setupManualAddr').value);var mt=str(qs('setupManualTel')&&qs('setupManualTel').value);
+state.setupManualDraft={name:mn,addr:ma,tel:mt};
+if(!mn){toast('가게 이름을 입력하세요.');return}
+if(!ma){toast('주소를 입력하세요. (예: 서울특별시 광진구 구의동)');return}
+if(state.agencyData&&!matchAgencyByRegion(ma)&&!detectRegionFromText(ma)){toast('주소에서 지역을 찾지 못했어요. 시·도와 시·군·구를 넣어 주세요. (예: 서울특별시 광진구)');return}
+state.setupPickedStore=null;state.setupSelected={idx:-1,name:mn,addr:ma,tel:mt,type:'직접입력'};render()},
+'setup-manual-toggle':()=>{state.setupManualMode=!state.setupManualMode;render()},
+'setup-store-again':()=>{state.setupSelected=null;state.setupPickedStore=null;state.setupManualMode=false;render()},
+'setup-back':()=>{state.setupStep=1;render()},
+'setup-to-contact':()=>{state.setupStep=3;render()},
+'setup-back2':()=>{state.setupStep=2;render()},
+// 1/3 우리 가게 찾기 — 고르기만 하고 서버 전송은 없음(약관 동의 후 finishSetup에서 등록)
 'setup-store-search':async()=>{await setupSearchStores()},
 // 남의 가게 오선택 방지 — 이름만으로는 구분이 안 되므로 주소를 함께 보여주고 확인받는다.
-'setup-store-pick':(el)=>{const id=str(el.dataset.id),name=str(el.dataset.name),addr=str(el.dataset.addr);if(!window.confirm('우리 가게가 맞나요?\n\n'+name+'\n'+(addr||'(주소 정보 없음)')+'\n\n주소가 우리 가게 주소와 같은지 꼭 확인하세요.'))return;state.setupPickedStore={id,name,addr};render()},
-'setup-store-next':()=>{if(!state.setupPickedStore){toast('우리 가게를 골라 주세요.');return}state.setupStep=3;render()},
-'setup-store-skip':()=>{state.setupPickedStore=null;state.setupStep=3;render();toast('나중에 설정에서 우리 가게를 꼭 등록하세요.')},
-'setup-store-back':()=>{state.setupStep=1;render()},
+'setup-store-pick':(el)=>{const id=str(el.dataset.id),name=str(el.dataset.name),addr=str(el.dataset.addr),tel=str(el.dataset.tel);if(!window.confirm('우리 가게가 맞나요?\n\n'+name+'\n'+(addr||'(주소 정보 없음)')+'\n\n주소가 우리 가게 주소와 같은지 꼭 확인하세요.'))return;state.setupPickedStore={id,name,addr,tel};state.setupSelected={idx:-1,name,addr,tel,type:'검색'};state.setupManualMode=false;render()},
 'setup-add-dept':()=>{var inp=qs('setupNewDept');var v=str(inp&&inp.value);if(!v){toast('부서명을 입력하세요.');return}if(state.setupDepts.indexOf(v)>=0){toast('이미 추가된 부서입니다.');return}state.setupDepts.push(v);render()},
 'setup-remove-dept':(el)=>{var ri=Number(el.dataset.idx);if(ri>=0&&ri<state.setupDepts.length){state.setupDepts.splice(ri,1);render()}},
 'setup-complete':async()=>{const kakao=str(qs('setupContactKakao')&&qs('setupContactKakao').value);const email=str(qs('setupContactEmail')&&qs('setupContactEmail').value);await finishSetup(kakao,email)},
@@ -2070,6 +2136,8 @@ return}
 //   화면이 바뀌며 입력창이 제거될 때 blur와 함께 늦은 change가 날아와 innerHTML 교체 도중 render를
 //   재진입시킨다 → "The node to be removed is no longer a child of this node"로 그 렌더가 통째로 실패한다.
 //   (input 이벤트만으로 검색은 완전히 동작한다. change는 값이 이미 반영된 뒤에 오는 중복 신호일 뿐이다.)
+// 온보딩 직접 입력 폼: 다른 이유로 화면이 다시 그려져도(토스트 등) 적던 값이 날아가지 않게 초안으로 붙든다(재렌더는 하지 않는다).
+if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){const k=e.target.id==='setupManualName'?'name':(e.target.id==='setupManualAddr'?'addr':'tel');state.setupManualDraft=Object.assign({name:'',addr:'',tel:''},state.setupManualDraft,{[k]:e.target.value||''});return}
 if(e.target.id==='searchInput'&&e.type!=='change'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='regionSelectSetup'||e.target.id==='regionSelectSettings'){const isSettings=e.target.id==='regionSelectSettings';state.regionSelected=e.target.value||'';const region=selectedRegion();state.agencySelected=(region&&region.agencies&&region.agencies[0]&&region.agencies[0].id)||'';if(!state.deptCache[state.regionSelected]){setBusy('부서 목록을 불러오는 중입니다.');await ensureDeptsForRegion(state.regionSelected);clearBusy()}if(isSettings){try{await saveSelectedAgencyName()}catch(err){console.error(err)}}render();return}
 if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('공공기관명 저장 오류');return}}render()}}
 
@@ -2308,7 +2376,7 @@ function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:n
 async function clearAppCachesAndWorker(){if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}}
 function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.homeExpanded={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
 // 초기화 후 온보딩/수신 상태 누수 방지(S4) — 이전 사용자의 가게 선택·검색 결과·동의·신청 건수가 남으면 안 된다.
-state.setupPickedStore=null;state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreResults=[];state.setupStoreSearching=false;state.setupStoreSearched=false;state.setupStoreFilteredOut=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false}
+state.setupPickedStore=null;state.setupManualMode=false;state.setupManualDraft={name:'',addr:'',tel:''};state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreResults=[];state.setupStoreSearching=false;state.setupStoreSearched=false;state.setupStoreFilteredOut=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false}
 async function wipeLocalData(){const empty=emptyAppData();await repo.replaceAll(empty);await clearAppCachesAndWorker();resetUiAfterWipe(empty);return empty}
 // 전체 초기화 확인 절차(스펙 §수정6): 개발자용 문자 입력 대신 안내창 2회 확인으로 단순화.
 // 1차 confirm → 자동 최종 백업 다운로드(실패해도 진행 여부는 2차 confirm에서 사용자가 선택) → 2차 confirm → 실행.
@@ -2422,9 +2490,14 @@ const shopExtra=[state.data.meta.shopAddr?`주소: ${esc(state.data.meta.shopAdd
 const moneyNotice=`<div class="notice-money">선금(돈)은 앱이 아니라 <b>가게 은행 계좌로 따로 입금</b>돼요. 앱이 받는 것은 암호화된 <b>직원 명단</b>뿐이에요.</div>`;
 const inboxN=num(state.inboxCount);
 const inboxBadge=(relayRegistered()&&inboxN>0)?`<span class="badge-count">${inboxN}</span>`:'';
+// 관할 지역(district) — 담당자 웹의 '관할 음식점' 목록은 이 값에만 의존한다. 비면 목록에 아예 뜨지 않는다.
+// 주소를 모르는 기존 사용자를 위해 상태를 그대로 보여주고, 수동으로 다시 보낼 길을 남긴다.
+const curDistrict=relayDistrict();
+const districtRow=`<div class="meta" style="line-height:1.6;margin-top:8px">관할 지역: <b>${curDistrict?esc(curDistrict):'아직 없음'}</b>${curDistrict?' — 담당자 화면의 <b>관할 음식점 목록</b>에 우리 가게가 보여요.':' — 담당자 화면의 <b>관할 음식점 목록</b>에 우리 가게가 뜨지 않아요. 위 [변경]으로 우리 가게를 다시 고르면 지역이 함께 전송돼요.'}</div><div style="margin-top:6px"><button class="btn" data-a="relay-send-district" style="min-height:40px;padding:0 14px;font-size:13px">관할 정보 보내기</button></div>`;
 const autoCard=relayRegistered()?`<div class="card settings-card">
 <div class="section-head"><div><div class="section-title">자동 등록 — 공공기관에서 보낸 명단 받기</div><div class="section-kicker">공공기관 담당자(서무)가 보낸 직원 명단을 받아 선금대장에 올려요</div></div></div>
 <div class="agency-current"><div><div class="meta">등록된 우리 가게</div><div class="agency-current-name">${esc(state.data.meta.relayStoreName||state.data.meta.restaurantId)} <span class="chip" style="background:var(--success-soft);color:var(--success)">공공기관 명단 받는 중</span></div></div><button class="small" data-a="relay-find-store">변경</button></div>
+${districtRow}
 ${moneyNotice}
 <div class="meta" style="line-height:1.6">받는 방법 2가지<br>① <b>앱으로 바로 받기</b>: 공공기관이 서버로 보낸 명단 신청을 앱에서 확인·승인해요. 받는 즉시 서버에서 삭제되고, 최대 3일 보관돼요.<br>② <b>담당자 전달파일·QR(사각 코드)로 받기</b>: 담당자가 건넨 파일을 열거나 QR(사각 코드)을 스캔해 서버를 거치지 않고 바로 등록해요.</div>
 <div class="section-actions" style="margin-top:10px">
@@ -2552,7 +2625,7 @@ state.pinFails=num(state.data.meta.pinFails);state.pinDelayUntil=num(state.data.
 try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectWebauthn();detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}
 // 1회성 마이그레이션(D1): 이 기능이 생기기 전에 설정을 마친 기존 사용자는 pending 플래그가 없어 등록 안내를 못 받는다.
 if(state.data.meta.setupComplete&&!relayRegistered()&&state.data.meta.storeRegisterPending===undefined){state.data.meta.storeRegisterPending=true;try{await repo.apply({meta:{storeRegisterPending:true}})}catch(e){console.error('pending migration',e)}}
-state.loaded=true;clearBusy();render();maybeMonthlyAutoBackup();refreshInboxCount()}
+state.loaded=true;clearBusy();render();maybeMonthlyAutoBackup();refreshInboxCount();relayDistrictSyncSilent()}
 })();
 </script>
 </body>

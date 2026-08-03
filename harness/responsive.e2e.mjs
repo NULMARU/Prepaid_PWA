@@ -145,6 +145,67 @@ async function noHorizontalOverflow(page, label, w) {
   check(m.bodyScroll <= m.docClient + 1, `${w}px ${label}: body 가로 스크롤 발생 (${m.bodyScroll} > ${m.docClient})`);
 }
 
+// ── 온보딩 1/3 "우리 가게 찾기" (beta.26) ─────────────────────────────────────────
+//   신규 설치가 **가장 먼저** 만나는 화면이다. 여기서 막히면 그 뒤 모든 화면은 존재하지 않는 것과 같다.
+//   계약: 검색창 두 칸 · [가게 찾기] · [직접 입력할게요](탈출구)가 **초기 뷰포트**(스크롤 0) 안에 있고,
+//         검색 결과 첫 줄과 고른 뒤의 [다음]도 마찬가지다. 손가락 표적은 전부 44px 이상.
+const STORE_MOCK = [
+  { restaurant_id: 'rid-a', name: '하네스김밥 본점', address: '서울특별시 광진구 아차산로 399, 1층 (구의동)', tel: '02-111-2222' },
+  { restaurant_id: 'rid-b', name: '하네스김밥 2호점', address: '서울특별시 광진구 능동로 120 (화양동)', tel: '02-333-4444' }
+];
+async function checkOnboardingStep1(page, label) {
+  await page.waitForSelector('#setupStoreName', { timeout: 8000 });
+  await noHorizontalOverflow(page, '온보딩 1/3(검색)', label);
+  const measure = () => page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const box = el => { if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, width: r.width }; };
+    const q = s => document.querySelector(s);
+    return {
+      vh: window.innerHeight, scrollY: window.scrollY, clientW: document.documentElement.clientWidth,
+      step: (q('.setup-step') || {}).textContent || '',
+      name: box(q('#setupStoreName')), region: box(q('#setupStoreRegion')),
+      search: box(q('[data-a="setup-store-search"]')), manual: box(q('[data-a="setup-manual-toggle"]')),
+      firstResult: box(q('[data-a="setup-store-pick"]')),
+      tel: box(q('#setupStoreTel')), next: box(q('[data-a="setup-next"]'))
+    };
+  });
+  const pre = await measure();
+  const vis = (m, r) => Boolean(r) && r.top >= -1 && r.bottom <= m.vh + 1;
+  const inside = (m, r) => Boolean(r) && r.left >= -1 && r.right <= m.clientW + 1;
+  check(pre.scrollY === 0, `${label} 온보딩 1/3: 검사는 초기 뷰포트(스크롤 0)에서 이뤄져야 한다`);
+  check(pre.step.includes('1 / 3'), `${label} 온보딩 1/3: 단계 표시가 "1 / 3"이어야 한다 (got "${pre.step.trim()}")`);
+  [['가게 이름 칸', pre.name], ['지역 칸', pre.region], ['[가게 찾기]', pre.search], ['[직접 입력할게요]', pre.manual]].forEach(([nm, r]) => {
+    check(Boolean(r), `${label} 온보딩 1/3: ${nm}이(가) 렌더되지 않았다`);
+    check(vis(pre, r), `${label} 온보딩 1/3: ${nm}이(가) 스크롤 없이 보이지 않는다 (아래로 ${r ? Math.max(0, Math.round(r.bottom - pre.vh)) : '?'}px 벗어남 / vh ${pre.vh})`);
+    check(inside(pre, r), `${label} 온보딩 1/3: ${nm}이(가) 화면 밖으로 나갔다`);
+    check(Boolean(r) && r.height >= 44, `${label} 온보딩 1/3: ${nm} 터치 타겟이 44px 미만 (${r ? Math.round(r.height) : '?'}px)`);
+  });
+
+  // 검색 결과 — 첫 줄의 [이 가게] 버튼이 접힘 아래로 밀리면 고를 수가 없다.
+  await page.locator('#setupStoreName').fill('하네스김밥');
+  await page.locator('[data-a="setup-store-search"]').click();
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 8000 });
+  await noHorizontalOverflow(page, '온보딩 1/3(결과)', label);
+  const found = await measure();
+  check(vis(found, found.firstResult), `${label} 온보딩 1/3: 검색 결과 첫 줄의 [이 가게]가 스크롤 없이 보이지 않는다 (아래로 ${found.firstResult ? Math.max(0, Math.round(found.firstResult.bottom - found.vh)) : '?'}px 벗어남 / vh ${found.vh})`);
+  check(inside(found, found.firstResult), `${label} 온보딩 1/3: 검색 결과 첫 줄이 화면 밖으로 나갔다`);
+  check(Boolean(found.firstResult) && found.firstResult.height >= 44, `${label} 온보딩 1/3: [이 가게] 터치 타겟이 44px 미만 (${found.firstResult ? Math.round(found.firstResult.height) : '?'}px)`);
+  check(vis(found, found.manual), `${label} 온보딩 1/3: 결과가 있어도 탈출구([직접 입력할게요])는 남아야 한다`);
+
+  // 고른 뒤 확인 화면 — 전화가 자동으로 채워지고 [다음]까지 한 화면에 들어와야 한다.
+  if (page.listenerCount('dialog') === 0) page.once('dialog', d => d.accept());
+  await page.locator('[data-a="setup-store-pick"]').first().click();
+  await page.waitForSelector('[data-a="setup-next"]', { timeout: 8000 });
+  await noHorizontalOverflow(page, '온보딩 1/3(선택 확인)', label);
+  const picked = await measure();
+  check((await page.locator('#setupStoreTel').inputValue()) === '02-111-2222', `${label} 온보딩 1/3: 고른 가게의 전화번호가 자동으로 채워져야 한다`);
+  [['전화번호 칸', picked.tel], ['[다음]', picked.next]].forEach(([nm, r]) => {
+    check(vis(picked, r), `${label} 온보딩 1/3: ${nm}이(가) 스크롤 없이 보이지 않는다 (아래로 ${r ? Math.max(0, Math.round(r.bottom - picked.vh)) : '?'}px 벗어남 / vh ${picked.vh})`);
+    check(inside(picked, r), `${label} 온보딩 1/3: ${nm}이(가) 화면 밖으로 나갔다`);
+    check(Boolean(r) && r.height >= 44, `${label} 온보딩 1/3: ${nm} 터치 타겟이 44px 미만 (${r ? Math.round(r.height) : '?'}px)`);
+  });
+}
+
 // ── 통합 요청 화면이 "폰 세로 한 화면"에 들어오는가 (beta.23 HIGH-1의 못) ──────────────
 // 관대함 봉인: scrollIntoView 뒤에 재지 않는다. **초기 뷰포트**(scrollY=0)에서 잰다.
 //   대상은 셋이다 — 금액 입력칸 / 서명판 **전체**(윗변·아랫변 모두) / 버튼 3개 전부.
@@ -238,7 +299,11 @@ async function runViewport(context, url, w, h) {
   const page = await context.newPage();
   await page.setViewportSize({ width: w, height: h });
   page.on('dialog', d => d.accept());
+  // 가게 검색만 목 데이터를 내려준다(catch-all `**/api/**`보다 나중에 등록해 우선순위를 얻는다).
+  await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(STORE_MOCK) }));
   await page.goto(url, { waitUntil: 'load' });
+  // 신규 설치가 처음 만나는 화면(온보딩 1/3)을 시드 전에 먼저 검증한다.
+  await checkOnboardingStep1(page, `${w}px`);
   await seed(page);
   await page.reload({ waitUntil: 'load' });
   await unlock(page);
@@ -1080,12 +1145,15 @@ async function drawSignature(page, touch) {
 async function runTypingProfile(browser, url, label, contextOpts) {
   const context = await browser.newContext(contextOpts);
   await context.route('**/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '[]' }));
+  await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(STORE_MOCK) }));
   const page = await context.newPage();
   const pageErrors = [];
   page.on('pageerror', e => pageErrors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') pageErrors.push(m.text()); });
   try {
     await page.goto(url, { waitUntil: 'load' });
+    // 실기기 프로파일에서도 온보딩 1/3이 한 화면에 들어와야 한다(데스크톱 포함 — 여기서 막히면 시작조차 못 한다).
+    await checkOnboardingStep1(page, label);
     await seed(page, TYPING_EMPLOYEES);
     await page.reload({ waitUntil: 'load' });
     // 잠금 화면의 기본값이 손님 화면이다 — PIN을 풀지 않고 그대로 검증한다(손님이 실제로 만나는 화면).

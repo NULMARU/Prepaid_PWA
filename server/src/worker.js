@@ -48,6 +48,20 @@ function chunkIds(ids, size) {
   return out;
 }
 function tooLong(v, max) { return typeof v === 'string' && v.length > max; }
+
+// 관할 지역(district) 정규화 — 저장·조회 양쪽에 같은 규칙을 적용해 "정확 일치" 비교를 가능하게 한다.
+// district는 항상 "{시도} {시군구}" 규칙으로 만들어진다(앱 relayDistrict() = 시도명 + ' ' + 기관명에서
+// '청' 제거, 담당자 웹 jurisQuery()도 동일 규칙). 유니코드 정규화(NFC — macOS/iOS 입력의 NFD 조합형
+// 방지) + 연속 공백 1칸 + 앞뒤 공백 제거만 수행하고 그 외 문자는 건드리지 않는다.
+function normalizeDistrict(v) {
+  if (typeof v !== 'string') return '';
+  return v.normalize('NFC').replace(/\s+/g, ' ').trim();
+}
+// LIKE 패턴 이스케이프(사용자 입력 sido에 %·_가 섞여 와일드카드로 동작하지 않게). ESCAPE '\' 와 함께 사용.
+function likeEscape(v) { return String(v).replace(/[\\%_]/g, m => '\\' + m); }
+// D1 컬럼값을 normalizeDistrict와 동등하게 정규화하는 SQL 식(공백 변형만 — 저장 시 이미 정규화하므로
+// 레거시/외부 유입 행의 앞뒤·연속 공백만 관용하면 충분). REPLACE 3중첩으로 최대 8칸 연속 공백까지 축약.
+const SQL_NORM_DISTRICT = "REPLACE(REPLACE(REPLACE(TRIM(district),'  ',' '),'  ',' '),'  ',' ')";
 // 업무용 연락처(선택): 오픈채팅 링크는 전화번호·개인 프로필 비노출 형식(open.kakao.com)만 허용.
 const KAKAO_LINK_RE = /^https:\/\/open\.kakao\.com\//;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -263,7 +277,9 @@ async function defaultSearch(env, region, q) {
       address: pick(r, ['ROAD_NM_ADDR', 'LOTNO_ADDR', 'rdnWhlAddr', 'siteWhlAddr', '소재지전체주소']),
       status: pick(r, ['SALS_STTS_NM', 'DTL_SALS_STTS_NM', 'trdStateNm', '영업상태명']),
       category: pick(r, ['BZSTAT_SE_NM', 'SNTTN_BZSTAT_NM']),
-      region_code: pick(r, ['OPN_ATMY_GRP_CD'])
+      region_code: pick(r, ['OPN_ATMY_GRP_CD']),
+      // 온보딩 1/3에서 가게를 고르면 전화번호까지 자동으로 채워 주기 위한 필드(사장님이 수정 가능).
+      tel: pick(r, ['LOCP_TEL_NO', 'SITE_TEL_NO', 'siteTel', 'LOCPLC_TEL_NO', '소재지전화'])
     }))
     .filter(r => r.restaurant_id && r.name)
     .filter(r => !r.status.includes('폐업'))   // 영업 중인 곳만
@@ -294,8 +310,11 @@ export async function handle(request, env, store) {
       const restaurant_name = String(b.restaurant_name || '');
       const public_key = String(b.public_key);
       // district(선택): 관할 지역(공개 사업장 정보, 예 "서울특별시 광진구"). 개인정보 아님(§0 허용).
-      const district = b.district != null ? String(b.district) : '';
-      if (tooLong(restaurant_id, MAX_STR) || tooLong(restaurant_name, MAX_STR) || tooLong(public_key, MAX_PUBKEY) || tooLong(district, MAX_DISTRICT))
+      // 길이 제한은 원문 기준으로 검사한 뒤 정규화해 저장한다(저장값을 항상 "{시도} {시군구}" 정규형으로
+      // 유지 → 조회의 정확 일치가 성립).
+      const districtRaw = b.district != null ? String(b.district) : '';
+      const district = normalizeDistrict(districtRaw);
+      if (tooLong(restaurant_id, MAX_STR) || tooLong(restaurant_name, MAX_STR) || tooLong(public_key, MAX_PUBKEY) || tooLong(districtRaw, MAX_DISTRICT))
         return j({ error: '입력 길이 초과' }, 400);
       // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id에 '다른' 공개키로 재등록하려면
       // 기존 키 소유를 증명(챌린지-응답)해야 한다. 동일 키 재등록은 앱 재시도(네트워크 실패 등)일
@@ -391,12 +410,15 @@ export async function handle(request, env, store) {
 
     // 담당자 웹: 특정 시도(+선택 시군구)의 '등록된(명단 받기 가능)' 음식점 목록.
     // 공개 정보만 반환(id·이름·district — 연락처 미포함). district 없는(레거시) 등록분은 제외.
-    // 매칭: district가 sido로 시작하고, sigungu가 주어지면 district에 sigungu 포함. 이름 가나다 정렬.
+    // 매칭(정확 일치): sigungu가 있으면 district == "{sido} {sigungu}", 없으면 district == sido 이거나
+    // "{sido} "로 시작(시도 경계 고정). 과거 부분 일치(LIKE '%시군구%')는 시군구명이 다른 시군구명의
+    // 부분문자열인 실제 3쌍(부산 서구⊂강서구, 대구 서구⊂달서구, 경기 양주시⊂남양주시)에서 남의 관할
+    // 음식점을 노출시켰다 — 담당자가 다른 구의 음식점으로 명단을 보낼 수 있는 경로라 정확 일치로 고정.
     if (path === '/api/registered-list' && request.method === 'GET') {
-      const sido = String(url.searchParams.get('sido') || '');
-      const sigungu = String(url.searchParams.get('sigungu') || '');
+      const sidoRaw = String(url.searchParams.get('sido') || ''), sigunguRaw = String(url.searchParams.get('sigungu') || '');
+      const sido = normalizeDistrict(sidoRaw), sigungu = normalizeDistrict(sigunguRaw);
       if (!sido) return j({ error: 'sido_required' }, 400);
-      if (tooLong(sido, MAX_STR) || tooLong(sigungu, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      if (tooLong(sidoRaw, MAX_STR) || tooLong(sigunguRaw, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
       const restaurants = await store.registeredByDistrict(sido, sigungu);
       return j({ restaurants });
     }
@@ -717,12 +739,21 @@ export function makeD1Store(DB) {
       const r = await DB.prepare('SELECT restaurant_id FROM public_key_registry WHERE restaurant_id IN (' + ph + ')').bind(...ids).all();
       return (r.results || []).map(x => x.restaurant_id);
     },
-    // 시도(+선택 시군구)로 등록 음식점 조회. district가 sido로 시작하고, sigungu가 주어지면
-    // district에 sigungu를 포함하는 행만. NULL district(레거시)는 제외. 이름 가나다 정렬(BINARY=한글 순서).
+    // 시도(+선택 시군구)로 등록 음식점 조회 — 정규화 후 '정확 일치'.
+    //  · sigungu 있음: 정규화(district) = "{sido} {sigungu}"  (부분 일치 금지 — 서구/강서구 오매칭 방지)
+    //  · sigungu 없음: 정규화(district) = sido  또는  "{sido} "로 시작(시도 경계를 공백으로 고정)
+    // NULL district(레거시)는 제외. 이름 가나다 정렬(BINARY=한글 순서).
+    // 정규화 식(SQL_NORM_DISTRICT)은 인덱스를 타지 못하지만 등록 음식점 테이블은 소규모라 무시 가능.
     async registeredByDistrict(sido, sigungu) {
-      let sql = 'SELECT restaurant_id, restaurant_name, district FROM public_key_registry WHERE district IS NOT NULL AND district LIKE ?';
-      const params = [sido + '%'];
-      if (sigungu) { sql += ' AND district LIKE ?'; params.push('%' + sigungu + '%'); }
+      let sql = 'SELECT restaurant_id, restaurant_name, district FROM public_key_registry WHERE district IS NOT NULL AND ';
+      const params = [];
+      if (sigungu) {
+        sql += SQL_NORM_DISTRICT + ' = ?';
+        params.push(sido + ' ' + sigungu);
+      } else {
+        sql += '(' + SQL_NORM_DISTRICT + " = ? OR " + SQL_NORM_DISTRICT + " LIKE ? ESCAPE '\\')";
+        params.push(sido, likeEscape(sido) + ' %');
+      }
       sql += ' ORDER BY restaurant_name';
       const r = await DB.prepare(sql).bind(...params).all();
       return (r.results || []).map(x => ({ restaurant_id: x.restaurant_id, restaurant_name: x.restaurant_name, district: x.district }));
@@ -932,14 +963,17 @@ export function makeMemoryStore() {
     // 연락처(contact_kakao/contact_email)도 같은 레코드에 있으므로 삭제로 함께 사라진다.
     async deregisterKey(id) { keys.delete(id); },
     async registeredAmong(ids) { return ids.filter(id => keys.has(id)); },
-    // 시도(+선택 시군구)로 등록 음식점 조회 — D1 registeredByDistrict와 동등. 레거시(district 없음) 제외, 이름 가나다 정렬.
+    // 시도(+선택 시군구)로 등록 음식점 조회 — D1 registeredByDistrict와 동등(정규화 후 정확 일치).
+    // 레거시(district 없음) 제외, 이름 가나다 정렬.
     async registeredByDistrict(sido, sigungu) {
       const out = [];
+      const want = sigungu ? sido + ' ' + sigungu : '';
       for (const row of keys.values()) {
         const d = row.district;
         if (typeof d !== 'string' || !d) continue;
-        if (!d.startsWith(sido)) continue;
-        if (sigungu && !d.includes(sigungu)) continue;
+        const nd = normalizeDistrict(d);
+        if (want) { if (nd !== want) continue; }
+        else if (nd !== sido && !nd.startsWith(sido + ' ')) continue;
         out.push({ restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, district: d });
       }
       out.sort((a, b) => String(a.restaurant_name || '').localeCompare(String(b.restaurant_name || ''), 'ko'));

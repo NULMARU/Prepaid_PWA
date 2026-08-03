@@ -796,6 +796,73 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const rlOther = await handle(new Request('http://x/api/registered?ids=rl-list-other', { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.77' } }), env, store);
   ok(rlOther.status === 200, 'registered-list: 강화된 레이트리밋은 registered-list 전용(다른 엔드포인트 영향 없음)');
 
+  // 20-h) 회귀(중대): 시군구명이 다른 시군구명의 '부분문자열'인 실제 충돌 3쌍에서 남의 관할이 섞이면 안 됨.
+  // 과거 구현(district LIKE '%{시군구}%')은 아래 3쌍에서 상대 구의 음식점을 함께 반환했고, 담당자가
+  // '다른 구의 음식점'에 직원 명단을 보낼 수 있는 경로였다 → 정규화 후 정확 일치로 고정(§4.6).
+  const kJ = await mkKey(); // 관할 매칭 검증용(등록 id만 다르면 되므로 키는 공유)
+  const jur = [
+    ['J-BS-SEO', '부산서구식당', '부산광역시 서구'], ['J-BS-GANGSEO', '부산강서구식당', '부산광역시 강서구'],
+    ['J-DG-SEO', '대구서구식당', '대구광역시 서구'], ['J-DG-DALSEO', '대구달서구식당', '대구광역시 달서구'],
+    ['J-GG-YJ', '양주시식당', '경기도 양주시'], ['J-GG-NYJ', '남양주시식당', '경기도 남양주시'],
+  ];
+  for (const [id, name, district] of jur)
+    await call(store, env, 'POST', '/api/register-key', { restaurant_id: id, restaurant_name: name, public_key: kJ.spki, district });
+
+  const listDistrict = async (sido, sigungu) => {
+    const qs = '/api/registered-list?sido=' + encodeURIComponent(sido) + (sigungu !== undefined ? '&sigungu=' + encodeURIComponent(sigungu) : '');
+    const rr = await call(store, env, 'GET', qs);
+    return { status: rr.status, ids: ((await rr.json()).restaurants || []).map(x => x.restaurant_id) };
+  };
+  const pairs = [
+    ['부산광역시', '서구', 'J-BS-SEO', '강서구', 'J-BS-GANGSEO'],
+    ['대구광역시', '서구', 'J-DG-SEO', '달서구', 'J-DG-DALSEO'],
+    ['경기도', '양주시', 'J-GG-YJ', '남양주시', 'J-GG-NYJ'],
+  ];
+  for (const [sido, shortName, shortId, longName, longId] of pairs) {
+    const a = await listDistrict(sido, shortName);
+    ok(a.ids.length === 1 && a.ids[0] === shortId,
+      `registered-list: ${sido} ${shortName} 조회에 ${longName}(${longId}) 미포함 — 자기 관할 1곳만`);
+    const bq = await listDistrict(sido, longName);
+    ok(bq.ids.length === 1 && bq.ids[0] === longId,
+      `registered-list: ${sido} ${longName} 조회에 ${shortName}(${shortId}) 미포함 — 자기 관할 1곳만`);
+  }
+  // 시도 전체 조회에서는 두 구가 모두(그리고 둘만) 나온다 — 정확 일치가 '누락'을 만들지 않음을 확인.
+  const bsAll = await listDistrict('부산광역시');
+  ok(bsAll.ids.length === 2 && bsAll.ids.includes('J-BS-SEO') && bsAll.ids.includes('J-BS-GANGSEO'),
+    'registered-list: 시도 전체 조회는 서구·강서구 둘 다 반환(정확 일치가 누락을 만들지 않음)');
+  // 다른 시도의 같은 이름 시군구(대구 서구)는 부산 서구 조회에 섞이지 않는다(시도 경계).
+  const bsSeo = await listDistrict('부산광역시', '서구');
+  ok(!bsSeo.ids.includes('J-DG-SEO'), 'registered-list: 동명 시군구(서구)라도 다른 시도(대구)는 제외');
+
+  // 20-i) 공백 변형 관용: 저장 시 정규화(연속 공백·앞뒤 공백) + 조회 파라미터 정규화 + 레거시 행 관용.
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'J-WS', restaurant_name: '공백변형식당', public_key: kJ.spki, district: '  부산광역시   서구  ' });
+  ok(r.status === 200, 'registered-list: 공백 변형 district 등록 200');
+  let ws = await listDistrict('부산광역시', '서구');
+  ok(ws.ids.includes('J-WS'), 'registered-list: 등록 시 공백 변형(앞뒤·연속)은 정규화되어 정확 일치로 조회됨');
+  ok(store._dump().keys.get('J-WS').district === '부산광역시 서구', 'registered-list: 저장값 자체가 "{시도} {시군구}" 정규형으로 보관됨');
+  ws = await listDistrict(' 부산광역시 ', ' 서구 ');
+  ok(ws.ids.includes('J-WS') && ws.ids.includes('J-BS-SEO') && !ws.ids.includes('J-BS-GANGSEO'),
+    'registered-list: 조회 파라미터의 앞뒤 공백도 정규화(관용) — 단 강서구는 여전히 제외');
+  // 레거시/외부 유입으로 정규형이 아닌 값이 이미 저장돼 있어도 조회에서 관용(D1은 SQL TRIM/REPLACE로 동등 처리).
+  await store.setDistrict('J-WS', '부산광역시  서구');
+  ws = await listDistrict('부산광역시', '서구');
+  ok(ws.ids.includes('J-WS'), 'registered-list: 정규형이 아닌 레거시 저장값(연속 공백)도 조회 시 관용');
+  await store.setDistrict('J-WS', '부산광역시 강서구'); // 정리: 이후 카운트 테스트에 영향 없도록 다른 구로 이동
+  ws = await listDistrict('부산광역시', '서구');
+  ok(!ws.ids.includes('J-WS'), 'registered-list: district 변경 후 이전 시군구 목록에서 제외(정확 일치)');
+
+  // 20-j) 경계 고정: 시도명의 부분문자열·와일드카드로는 조회되지 않는다(LIKE 이스케이프 포함).
+  const partial = await listDistrict('부산');
+  ok(partial.status === 200 && partial.ids.length === 0, 'registered-list: 시도명 부분문자열("부산")은 매칭되지 않음(경계 고정)');
+  const wild = await listDistrict('%');
+  ok(wild.status === 200 && wild.ids.length === 0, 'registered-list: sido 와일드카드(%)는 리터럴로 처리 — 전체 목록 유출 없음');
+  const wild2 = await listDistrict('부산광역시', '%');
+  ok(wild2.status === 200 && wild2.ids.length === 0, 'registered-list: sigungu 와일드카드(%)도 리터럴 — 시도 전체 유출 없음');
+  // district가 NULL(레거시)인 행은 어떤 조회에도 나오지 않는다(3쌍 회귀 데이터와 무관하게 재확인).
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'J-NULL', restaurant_name: '무관할식당', public_key: kJ.spki });
+  const nullAll = await listDistrict('부산광역시');
+  ok(!nullAll.ids.includes('J-NULL'), 'registered-list: district NULL 행은 시도 전체 조회에서도 제외');
+
   // 21) 알림 배지·경량 폴링용 개수 조회(/api/inbox-count) — 응답은 {count} 뿐, inbox와 동일 필터
   const RIDC = 'MGT-CNT1';
   const kCnt = await mkKey();
@@ -960,6 +1027,56 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const dumpFb = store._dump();
   ok(!dumpFb.feedbacks.some(f => f.message === '보존기한 테스트(오래된 것)'), 'feedback TTL: 180일 경과 피드백은 cron이 삭제');
   ok(dumpFb.feedbacks.some(f => f.message === '보존기한 테스트(최근 것)'), 'feedback TTL: 최근 피드백은 유지');
+
+  // 25) blob items의 '선택 필드 org'는 batch_hash 계산·검증에 영향을 주지 않는다(PROTOCOL §3 canonical
+  // = "name|dept|amount" 불변). 서버 관점 왕복(제출 → inbox 조회 → 복호화 → 재계산)으로 확인한다.
+  const RIDORG = 'MGT-ORG1';
+  const kOrg = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDORG, restaurant_name: '소속식당', public_key: kOrg.spki });
+  ok(r.status === 200, 'org: 테스트용 음식점 공개키 등록 200');
+
+  const orgItems = [
+    { name: '김철수', dept: '총무과', amount: 50000, org: '강남구청' },
+    { name: '이영희', dept: '세무과', amount: 70000, org: '강남구보건소' },
+  ];
+  const bareItems = orgItems.map(({ name, dept, amount }) => ({ name, dept, amount }));
+  const hOrg = await batchHash(orgItems);
+  ok(hOrg === await batchHash(bareItems), 'org: canonical(name|dept|amount)은 org 유무와 무관하게 동일한 batch_hash');
+
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDORG, restaurant_name: '소속식당', year_month: '2026-07', total_amount: 120000, member_count: 2, batch_hash: hOrg },
+    blob: { restaurant_id: RIDORG, ciphertext: await encryptBlob(orgItems, kOrg.kp.publicKey) }
+  });
+  const sjOrg = await r.json();
+  ok(r.status === 200 && !!sjOrg.summary_id && !sjOrg.deduped, 'org: org 포함 명단 제출 200(신규)');
+
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDORG);
+  const inboxOrg = await r.json();
+  const gotOrg = inboxOrg.find(x => x.summary_id === sjOrg.summary_id);
+  ok(!!gotOrg && gotOrg.summary.batch_hash === hOrg, 'org: inbox 왕복 후에도 summary.batch_hash 그대로');
+  const plainOrg = await decryptBlob(gotOrg.ciphertext, kOrg.kp.privateKey);
+  ok(plainOrg.items.length === 2 && plainOrg.items[0].org === '강남구청' && plainOrg.items[1].org === '강남구보건소',
+    'org: 복호화 결과에 선택 필드 org가 그대로 보존됨(서버가 blob을 건드리지 않음)');
+  ok(await batchHash(plainOrg.items) === gotOrg.summary.batch_hash,
+    'org: 수신 측 재계산 해시가 일치(org는 canonical에 포함되지 않음 — 변조 오탐 없음)');
+  // 서버는 org를 평문으로 알지 못한다(요약에도, 저장된 암호문에도 평문 org 없음).
+  const dumpOrg = store._dump();
+  const sRowOrg = dumpOrg.summaries.find(s => s.id === sjOrg.summary_id);
+  ok(!!sRowOrg && !('org' in sRowOrg) && !('items' in sRowOrg), 'org: deposit_summary에 org·명단 평문 없음(§0 불변식)');
+  ok(dumpOrg.blobs.filter(b => b.summary_id === sjOrg.summary_id).every(b => !b.ciphertext.includes('강남구청')),
+    'org: encrypted_blob에도 평문 org 없음(암호문만 저장)');
+
+  // 같은 명단을 org 값만 바꿔 재제출 → 동일 batch_hash라 멱등(deduped) — org가 해시에 섞이지 않는다는 서버 측 증거.
+  const orgItems2 = orgItems.map(i => ({ ...i, org: '(소속 표기 변경)' + i.org }));
+  ok(await batchHash(orgItems2) === hOrg, 'org: org 값만 달라진 동일 명단의 batch_hash 동일');
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDORG, restaurant_name: '소속식당', year_month: '2026-07', total_amount: 120000, member_count: 2, batch_hash: await batchHash(orgItems2) },
+    blob: { restaurant_id: RIDORG, ciphertext: await encryptBlob(orgItems2, kOrg.kp.publicKey) }
+  });
+  const sjOrg2 = await r.json();
+  ok(r.status === 200 && sjOrg2.deduped === true && sjOrg2.summary_id === sjOrg.summary_id,
+    'org: org만 다른 재제출은 동일 (restaurant_id,batch_hash)로 멱등 처리(deduped:true)');
+  ok(dumpOrg.summaries.filter(s => s.restaurant_id === RIDORG).length === 1, 'org: 재제출로 새 summary 행이 생기지 않음');
 
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
