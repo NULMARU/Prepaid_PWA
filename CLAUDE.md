@@ -162,7 +162,7 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - **OTP 발송 한도 안내(신규)**: Resend가 429(하루/월 한도)를 주면 서버가 `429 {error:'email_quota_exceeded'}`로 구분 응답 → 담당자 웹이 "오늘 인증번호 발송 한도 도달 · 잠시 후/다음 날 재시도" 안내를 띄운다(1단계 화면에 상시 고지문도 표시). 기관 안내서 1단계에도 같은 안내 + "마감 직전보다 여유 있게" 권고. 목 하니스 14c-2b로 회귀 검증.
 - **기관 안내서 정리**: 9번 '문의' 섹션(담당 부서 연락처 자리표시자) 삭제, 인증번호 관련 stale 문구("파일럿 기간에는 자동 입력") → 실제 동작(기관 이메일로 발송·유효시간 10분·스팸함 확인)으로 교체.
 - **담당자 웹 전송 동의 모달 문구 정리**: 파일럿 배지("⚠ 파일럿 테스트 모드 — 동의 문구는 법률 검토 후 확정됩니다")와 "※ 문구는 법률 검토(출시 게이트) 후 확정됩니다" 삭제 → 확정본 링크(개인정보처리방침·이용약관, 시행 2026-07-06) + "대상 직원 본인의 사전 동의 확보는 제공 기관의 책임" 고지로 교체. 미사용 `.pilot-badge` CSS 제거. 형식확인 fallback 문구도 "(파일럿 — 정식 이메일 인증은 준비 중)" → "이 서버에서는 인증번호 확인이 진행되지 않았습니다"로 수정(정직성 원칙 유지, PROTOCOL.md 반영).
-- **직원용 앱(별도 리포 NULMARU/bapjangbu-staff, PoC)**: 현 라이브 https://nulmaru.github.io/bapjangbu-staff/. staff.bapjangbu.com 전환 검토 완료 — 코드는 상대경로라 무수정 동작. 남은 수동 작업: Cloudflare DNS에 CNAME staff→nulmaru.github.io 추가, staff 리포 Settings→Pages→Custom domain 설정(+HTTPS 강제), 서버 deploy(CORS), 홈페이지 링크 2곳 교체. ⚠️ localStorage는 오리진 단위라 도메인 전환은 **시범 사용자 생기기 전에** 완료할 것(전환 시 기존 데이터는 백업 JSON으로만 이전 가능).
+- **직원용 앱(별도 리포 NULMARU/bapjangbu-staff, PoC)**: 라이브 **https://staff.bapjangbu.com/** (2026-08-03 도메인 전환 완료 — CNAME staff→nulmaru.github.io(DNS only) + Pages 커스텀 도메인·HTTPS 강제, CORS 선등재, 홈페이지·안내서 링크 교체). 옛 주소 `nulmaru.github.io/bapjangbu-staff/`도 계속 작동. 코드는 상대경로라 무수정. ⚠️ localStorage는 오리진 단위 — 전환 시점에 시범 사용자 0명이라 이전 비용 0이었다(이후 사용자가 생기면 백업 JSON으로만 이전 가능).
 
 ## 기관·부서 데이터 (전국)
 
