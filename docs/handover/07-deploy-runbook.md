@@ -169,9 +169,43 @@ npx wrangler secret put RESEND_API_KEY
 | 증상 | 먼저 볼 곳 |
 |---|---|
 | 담당자 웹에 관할 음식점이 안 뜬다 | D1 `public_key_registry.district`가 채워졌는가 → 앱의 `relayDistrict()`·자동 치유([04](04-contracts.md) C2) |
+| 사장님이 "가게 등록이 안 된다"(재설치 후) | 서버에 예전 열쇠의 등록이 남은 고아 등록 → §12 수동 해제 |
 | 담당자가 "인증번호가 안 온다" | Resend 하루 100통 한도(`429 email_quota_exceeded`) / `AUTH_MODE`가 `prod`인가 / `RESEND_API_KEY` 등록 여부 |
 | 음식점 앱이 명단을 못 받는다 | `batch_hash` 불일치([04](04-contracts.md) C1) / 72시간 만료 / 승인 후 재조회 |
 | 담당자가 "보냈는데 없어졌다" | `deduped:true` 응답 확인([04](04-contracts.md) C6) / `batch_hash` 충돌([04](04-contracts.md) C1 부수 계약) |
 | 배포했는데 안 바뀐다 | Pages `--branch=main` 누락(§5) / GitHub Pages 런 실패(§6) / 커스텀 도메인 반영 지연 |
 | 새 프론트에서 CORS 오류 | `ALLOW_ORIGIN`에 추가 후 `wrangler deploy`(§8) |
 | 관리자 통계가 503 | `ADMIN_TOKEN` 미등록(§7) |
+
+---
+
+## 12. 고아 등록 수동 해제 (운영자 런북)
+
+**언제 필요한가**: 사장님이 앱을 삭제 후 재설치했거나 열쇠 없이 초기화해서, 서버에 **예전 공개키의 등록만 남은** 경우. 새 설치의 등록 시도는 `register-key`가 401 `auth_required`로 거절하고, 앱은 "이 가게는 이미 등록되어 있어요" 안내에서 ①예전 폰 해제 ②열쇠 백업 복원 ③운영자 문의(contact@bapjangbu.com)를 권한다. ①·②가 불가능한 사장님이 ③으로 오면 이 절차를 따른다.
+
+> beta.28부터 설정의 완전초기화는 지우기 전에 서버 등록을 스스로 해제하므로(`wipeDeregisterGate`), 이 절차가 필요한 경우는 **앱 삭제·브라우저 데이터 삭제·PIN 분실 복구 초기화** 뒤의 재등록뿐이다. PIN 분실 복구 경로가 등록을 해제하지 않는 것은 의도된 설계다(무PIN 화면 — 제3자의 가게 가로채기·백업 소실 방지).
+
+**본인 확인(필수)**: 요청 이메일의 가게 이름·주소·전화번호를 받아, 공개된 가게 전화번호로 **직접 전화**해 사장님 본인이 요청했는지 확인한다. 확인 전에는 절대 지우지 않는다 — 이 절차 자체가 소유증명의 대체물이므로, 여기가 뚫리면 서버의 가로채기 방지가 통째로 무력화된다.
+
+**절차** (`--command` 문 단위 실행 — §4의 함정과 동일):
+
+```bash
+cd server
+# 1) 대상 행 확인 — restaurant_id·이름·district가 요청과 일치하는가
+npx wrangler d1 execute prepaid-relay --remote --command \
+  "SELECT restaurant_id, restaurant_name, district, registered_at FROM public_key_registry WHERE restaurant_name LIKE '%가게명%'"
+
+# 2) 미수령 신청·잔존 데이터 확인(있으면 사장님에게 고지 후 진행)
+npx wrangler d1 execute prepaid-relay --remote --command \
+  "SELECT COUNT(*) AS pending FROM deposit_summary WHERE restaurant_id='<ID>' AND status='PENDING'"
+
+# 3) 등록 삭제 + 예전 열쇠로 암호화된 클라우드 백업 삭제(열쇠가 없으면 어차피 복호화 불가한 죽은 데이터)
+npx wrangler d1 execute prepaid-relay --remote --command \
+  "DELETE FROM public_key_registry WHERE restaurant_id='<ID>'"
+npx wrangler d1 execute prepaid-relay --remote --command \
+  "DELETE FROM ledger_backup WHERE restaurant_id='<ID>'"
+```
+
+삭제 후 사장님에게 "앱에서 다시 [우리 가게 등록]을 해 주세요"라고 회신한다. 새 등록은 선착순 신규 등록으로 통과하고, beta.26+ 앱은 district도 함께 실어 보내므로 담당자 웹 관할 목록에 바로 나타난다.
+
+**하지 말 것**: `UPDATE public_key_registry SET public_key=...`(새 키를 대신 심는 것 — 사장님 기기의 키를 운영자가 알 방법이 없고 알아서도 안 된다). 자동 만료·무인증 덮어쓰기 기능 추가(활성 가게 가로채기 경로가 된다 — [05](05-invariants.md)).

@@ -345,6 +345,147 @@ async function runDistrictHeal(browser, url, cors) {
   }
 }
 
+// beta.28: 설정의 완전초기화는 열쇠가 지워지기 **전에** 서버 등록을 해제한다(wipeDeregisterGate).
+//   안 그러면 서버에 예전 공개키의 고아 등록이 남아 다음 설치의 register-key가 401로 막힌다.
+//   검증 3갈래: (A) 해제 실패 경고에서 [취소] → 초기화 중단·데이터 보존
+//              (B) 오프라인 경고에서 [취소] → 중단(해제 시도 없음)
+//              (C) 온라인 성공 → 소유증명 토큰을 실은 deregister 1회 → 로컬 삭제까지 완주
+//   + 정적 계약: pinReset(무PIN 복구 경로)은 절대 해제하지 않는다(제3자 가게 가로채기 방지 — 의도된 비대칭).
+async function runWipeDeregister(browser, url, cors) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const dialogs = [];
+  const problems = [];
+  const deregCalls = [];
+  const registerCalls = [];
+  let deregStatus = 500;
+  let dismissRe = null; // 이 정규식에 걸리는 confirm만 [취소], 나머지는 전부 [확인]
+  await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
+  await context.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not found"}' }));
+  await context.route('**/api/register-key**', route => {
+    registerCalls.push(JSON.parse(route.request().postData() || '{}'));
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true}' });
+  });
+  await context.route('**/api/deregister**', route => {
+    deregCalls.push(JSON.parse(route.request().postData() || '{}'));
+    return route.fulfill({ status: deregStatus, contentType: 'application/json', headers: cors, body: deregStatus === 200 ? '{"ok":true}' : '{"error":"internal"}' });
+  });
+  page.on('dialog', async d => {
+    dialogs.push({ type: d.type(), message: d.message() });
+    if (d.type() === 'confirm' && dismissRe && dismissRe.test(d.message())) await d.dismiss();
+    else await d.accept();
+  });
+  page.on('pageerror', err => problems.push(err.message));
+  page.on('console', msg => {
+    if (msg.type() === 'error' && !/^relay /.test(msg.text()) && !/status of (404|500)/.test(msg.text())) problems.push(msg.text());
+  });
+  try {
+    // 정적 계약부터: fullReset은 게이트를 지나고, pinReset은 지나지 않는다.
+    const src = await fsp.readFile(path.join(root, 'index.html'), 'utf8');
+    const fullResetSrc = src.slice(src.indexOf('async function fullReset'), src.indexOf('// ── 부서 관리'));
+    await assert(fullResetSrc.includes('wipeDeregisterGate'), 'fullReset must pass through wipeDeregisterGate before wiping');
+    const pinResetSrc = src.slice(src.indexOf('async function pinReset'), src.indexOf('// ══ 잠금 화면'));
+    await assert(!pinResetSrc.includes('wipeDeregisterGate') && !pinResetSrc.includes('/api/deregister'),
+      'pinReset (the no-PIN recovery path) must never deregister the store — deliberate asymmetry against store takeover');
+
+    await page.goto(url, { waitUntil: 'load' });
+    const pinHash = crypto.createHash('sha256').update('1234').digest('hex');
+    // 등록을 마친 기기 상태로 시드. districtSyncedAt을 찍어 부팅 자동 치유(register-key)가 돌지 않게 한다.
+    await page.evaluate(({ hash, t }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta'], 'readwrite');
+        const ms = tx.objectStore('meta');
+        ms.put({ key: 'setupComplete', value: true });
+        ms.put({ key: 'welcomeSeen', value: true });
+        ms.put({ key: 'termsAgreedAt', value: t });
+        ms.put({ key: 'pinHash', value: hash });
+        ms.put({ key: 'storeRegisterPending', value: false });
+        ms.put({ key: 'restaurantId', value: 'rid-wipe-1' });
+        ms.put({ key: 'relayStoreName', value: '초기화식당' });
+        ms.put({ key: 'shopName', value: '초기화식당' });
+        ms.put({ key: 'storeAddr', value: '서울특별시 광진구 아차산로 399, 1층 B호 (구의동)' });
+        ms.put({ key: 'districtSyncedAt', value: t });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { hash: pinHash, t: Date.now() });
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await page.waitForSelector('[data-a="screen"][data-screen="settings"]', { timeout: 8000 });
+
+    // 소유증명 챌린지는 페이지 fetch 스파이로 응답한다(앱이 방금 부팅에서 만든 공개키로 암호화).
+    const bootMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(Boolean(bootMeta.pubKey), 'the seeded device should have generated a keypair at boot');
+    const installChallengeSpy = () => page.evaluate(({ pub }) => {
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        const url = String(u);
+        if (url.includes('/api/challenge')) {
+          const pk = await crypto.subtle.importKey('spki', b2u(pub).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+          const cc = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pk, new TextEncoder().encode('TESTTOKEN'));
+          return new Response(JSON.stringify({ challenge_ct: u2b(cc) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return orig(u, o);
+      };
+    }, { pub: bootMeta.pubKey });
+    await installChallengeSpy();
+
+    const tapFullReset = async () => {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await page.waitForTimeout(150);
+      const danger = page.locator('details', { hasText: '위험 작업' }).locator('summary');
+      await danger.click();
+      await page.locator('[data-a="full-reset"]').click();
+      await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+      await page.waitForTimeout(250);
+    };
+
+    // (A) 해제 실패(500) → 경고 confirm에서 [취소] → 초기화가 중단되고 데이터가 그대로 남는다.
+    dismissRe = /해제에 실패/;
+    await tapFullReset();
+    await assert(deregCalls.length === 1, `a registered wipe should attempt exactly one deregister (got ${deregCalls.length})`);
+    const firstConfirm = dialogs.find(d => d.type === 'confirm' && d.message.includes('모든 장부'));
+    await assert(Boolean(firstConfirm) && firstConfirm.message.includes('서버의 우리 가게 등록'),
+      'the first wipe confirm must disclose that the server registration + cloud backup go too');
+    let meta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(meta.restaurantId === 'rid-wipe-1', 'declining the deregister-failure warning must abort the wipe (data intact)');
+
+    // (B) 오프라인 → 해제 시도 없이 경고 confirm → [취소] → 중단.
+    dismissRe = /인터넷이 연결되어 있지 않아/;
+    await context.setOffline(true);
+    await tapFullReset();
+    await context.setOffline(false);
+    await assert(deregCalls.length === 1, 'an offline wipe must not attempt a deregister call');
+    await assert(dialogs.some(d => d.type === 'confirm' && /인터넷이 연결되어 있지 않아/.test(d.message)),
+      'an offline wipe must warn that the server registration will be orphaned');
+    meta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(meta.restaurantId === 'rid-wipe-1', 'declining the offline warning must abort the wipe (data intact)');
+
+    // (C) 온라인 성공 → 소유증명 토큰을 실은 deregister → 로컬 삭제 완주 → 온보딩으로.
+    dismissRe = null;
+    deregStatus = 200;
+    await installChallengeSpy(); // (B)의 오프라인 토글로 페이지 상태가 흔들려도 스파이를 보장
+    await tapFullReset();
+    await assert(deregCalls.length === 2, `an online wipe should deregister exactly once (got ${deregCalls.length - 1})`);
+    await assert(deregCalls[1].restaurant_id === 'rid-wipe-1' && deregCalls[1].auth_token === 'TESTTOKEN',
+      'the wipe deregister must carry the restaurant id and the proven auth token');
+    await page.waitForSelector('#setupStoreName', { timeout: 8000 });
+    meta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(!meta.restaurantId && !meta.pinHash, 'a completed wipe must clear the registration and the PIN');
+    await assert(dialogs.some(d => d.type === 'alert' && d.message.includes('초기화 완료')), 'the wipe should end with the completion alert');
+    await assert(registerCalls.length === 0, 'no register-key call may fire anywhere in the wipe scenarios');
+    await assert(problems.length === 0, `wipe-deregister scenarios should produce no unexpected console errors ${JSON.stringify(problems.slice(0, 3))}`);
+  } finally {
+    await page.close().catch(() => {});
+    await context.close().catch(() => {});
+  }
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -397,6 +538,7 @@ async function main() {
     // beta.26 신설 시나리오는 "새 설치" 상태가 필요하므로 각자 독립 컨텍스트에서 먼저 돌린다.
     await runSearchOnboarding(browser, url, cors);
     await runDistrictHeal(browser, url, cors);
+    await runWipeDeregister(browser, url, cors);
 
     await page.goto(url, { waitUntil: 'load' });
 
@@ -435,11 +577,12 @@ async function main() {
     // 서버 등록은 약관 동의(3/3) 이후에만 — 그 전에 register-key가 호출되면 안 된다.
     const registerCalls = [];
     let registerStatus = 200;
+    let registerErrorCode = 'internal'; // 비200일 때의 서버 오류 코드(auth_required 시나리오에서 갈아끼운다)
     await context.route('**/api/register-key**', route => {
       registerCalls.push(JSON.parse(route.request().postData() || '{}'));
       return registerStatus === 200
         ? route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true}' })
-        : route.fulfill({ status: registerStatus, contentType: 'application/json', headers: cors, body: '{"error":"internal"}' });
+        : route.fulfill({ status: registerStatus, contentType: 'application/json', headers: cors, body: JSON.stringify({ error: registerErrorCode }) });
     });
     // S1 회귀 방지: 직접 입력으로 빠져나갈 길은 검색 전에도, 결과가 0건일 때도 항상 보여야 한다(막다른 길 금지).
     await assert(await count(page, '[data-a="setup-manual-toggle"]') === 1, 'the escape hatch must be available before searching (no dead end)');
@@ -1198,8 +1341,30 @@ async function main() {
     await assert(await count(page, '[data-a="go-register-store"]') === 1, 'the finish-registration banner must remain after a failed registration');
     await assert(!(await page.locator('.app').innerText()).includes('공공기관 명단 받는 중'), 'a failed registration must not render the "receiving" chip');
 
+    // (1b) 재설치 충돌 경로(beta.28): 같은 가게가 예전 열쇠로 이미 등록됨 → 401 auth_required.
+    //      네트워크 오류가 아니므로 "인터넷 확인" 토스트가 아니라 해결 3갈래(예전 폰 해제·열쇠 복원·문의)
+    //      안내 alert가 떠야 하고, 로컬 상태는 (1)과 동일하게 롤백되어야 한다.
+    registerStatus = 401;
+    registerErrorCode = 'auth_required';
+    // (1)의 "인터넷 확인" 토스트(3초)가 남아 있으면 아래 '토스트 겹침 금지' 단언이 잔상을 잡는다 — 먼저 걷어낸다.
+    await page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 });
+    const dialogsBeforeTaken = dialogs.length;
+    await pickStore();
+    const takenAlerts = dialogs.slice(dialogsBeforeTaken).filter(d => d.type === 'alert');
+    await assert(takenAlerts.length === 1, `an auth_required registration must open exactly one guidance alert (got ${takenAlerts.length})`);
+    await assert(takenAlerts[0].message.includes('이미 등록되어 있어요'), 'the guidance alert must say the store is already registered');
+    await assert(takenAlerts[0].message.includes('자동 등록 중단') && takenAlerts[0].message.includes('내 열쇠 백업') && takenAlerts[0].message.includes('contact@bapjangbu.com'),
+      'the guidance alert must offer all three ways out (old-phone deregister · key-backup restore · operator contact)');
+    await assert(!takenAlerts[0].message.includes('인터넷'), 'the auth_required guidance must not blame the network');
+    const takenToast = (await page.locator('.toast').count()) ? await page.locator('.toast').innerText() : '';
+    await assert(!takenToast.includes('인터넷'), 'the misleading network toast must not stack on top of the auth_required alert');
+    regMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(!regMeta.restaurantId, 'an auth_required registration must roll back restaurantId like any failure');
+    await assert(regMeta.storeRegisterPending === true, 'an auth_required registration must keep storeRegisterPending');
+
     // (2) 성공 경로: register-key 200 → 등록 확정 + 열쇠 백업 유도 + 새 신청 칩
     registerStatus = 200;
+    registerErrorCode = 'internal';
     inboxCountBody = { count: 2 };
     await pickStore();
     regMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
@@ -4351,7 +4516,7 @@ async function main() {
     // 남겨 두는 예외는 **하니스가 일부러 만든 네트워크 실패**뿐이고, 그것도 상한을 둔다.
     //   상한을 넘거나 목록에 없는 오류가 하나라도 나오면 실패한다(신규·증가 = 회귀).
     const EXPECTED_CONSOLE = [
-      { name: 'mocked HTTP 404/500', re: /Failed to load resource: the server responded with a status of (404|500)/, max: 60 },
+      { name: 'mocked HTTP 401/404/500', re: /Failed to load resource: the server responded with a status of (401|404|500)/, max: 60 },
       { name: 'offline/DNS 실패 시나리오', re: /net::ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_REFUSED|FAILED)/, max: 8 },
       { name: '위 실패에 대한 앱의 정상적인 오류 로깅', re: /^error: (silent cloud backup|register-key|relay|keygen|key-backup)/, max: 8 }
     ];
