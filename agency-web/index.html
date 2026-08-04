@@ -663,8 +663,9 @@ const ORG_COLS=['음식점명','소속','부서명','직원명','선금금액','
 const COLS=['음식점명','부서명','직원명','선금금액','입금자명'];
 const OLD_COLS=['음식점명','기관명','부서명','직원명','선금금액','입금자명'];
 $('csvTemplateBtn').addEventListener('click',()=>{
-  // 양식 파일은 권장(6열) 양식으로 내려준다. '소속'은 선택 항목이라 예시는 빈 칸으로 둔다.
-  const example=['예시식당','','예시부서','홍길동','90000','홍길동'];
+  // 양식 파일은 권장(6열) 양식으로 내려준다. 예시는 실제 기입 모습이 한눈에 보이게 전 칸을 채운다
+  // (소속은 선택 항목 — 비워도 2단계에서 고른 기관으로 자동 채워진다는 안내는 화면 도움말이 맡는다).
+  const example=['광진맛집','광진구청','홍보과','홍길동','27000','김서무'];
   const csv=ORG_COLS.join(',')+'\r\n'+example.join(',')+'\r\n';
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
