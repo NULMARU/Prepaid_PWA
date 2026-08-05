@@ -60,6 +60,8 @@
 /* display를 두 클래스로 못 박는 이유: 아래 @media(max-width:520px)가 .section-head를 grid로 바꾼다.
    접힘 머리글은 오른쪽 끝의 화살표가 제목과 같은 줄에 있어야 "누르면 열린다"로 읽히므로 flex를 유지한다. */
 .section-head.fold-head{display:flex;cursor:pointer;border-radius:10px;padding:4px 2px;margin:-4px -2px;align-items:center;min-height:48px;transition:background .15s}
+/* 설정 위계(beta.30): 섹션 헤더(주항목) 20px > 접힘 카드 제목(하위 항목) 17px — 15% 작게 해 소속 관계가 눈에 읽히게 */
+.fold-head .section-title{font-size:17px}
 .fold-head:active{background:var(--primary-soft)}
 .fold-arrow{flex:0 0 auto;font-size:13px;color:var(--muted);line-height:1}
 .section-actions{display:grid;gap:8px}
@@ -514,7 +516,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.29',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.30',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -2724,18 +2726,19 @@ ${relayRegistered()?`<div class="meta" style="margin-top:8px">마지막 저장: 
 // ── 그룹 3: 가게 기본설정(beta.29 개명) — 가게 정보·연락처·부서 목록·비밀번호를 한 그룹으로 ──
 // [위험 작업 — 전체 초기화]는 예전부터 <details>로 접혀 있다. 카드 아코디언과 겹쳐 두 번 접지 않는다
 //   — 초기화는 "찾기 어려워야 하는" 기능이지 "요약을 읽고 여는" 기능이 아니다(요약이 곧 유도가 된다).
-const basicHead=`<div class="section-head" style="margin:14px 2px 8px"><div><div class="section-title">가게 기본설정</div><div class="section-kicker">가게 정보·연락처·부서 목록·비밀번호</div></div></div>`;
-const basicGroup=foldCard('basic','가게 정보',`가게 이름·주소·전화 — ${esc(state.data.meta.shopName||'가게 이름 없음')}`,`
-<div class="inline-form"><input id="shopNameInput" type="text" value="${esc(state.data.meta.shopName||'')}" placeholder="음식점 이름을 입력하세요"><button class="btn-primary" data-a="save-shop">가게 저장</button></div>
-${shopExtra}`)
-+contactCard
-+foldCard('depts','공공기관 부서 목록 관리',`부서를 고를 때 뜨는 추천 목록 ${depts.length}개 · 현재 공공기관 ${esc(org)}`,`
+// 부서 목록 관리는 등록·직원 관리와 같은 일감이라(beta.30, 사용자 지시) 직원 목록 관리 바로 아래에 둔다.
+const deptsCard=foldCard('depts','공공기관 부서 목록 관리',`부서를 고를 때 뜨는 추천 목록 ${depts.length}개 · 현재 공공기관 ${esc(org)}`,`
 <div class="meta" style="line-height:1.6">공공기관을 선택하면 그 기관의 과 목록을 한 번에 채울 수 있어요.</div>
 <div class="agency-current"><div><div class="meta">현재 공공기관</div><div class="agency-current-name">${esc(org)}</div></div><button class="small" data-a="edit-org">공공기관명 변경</button></div>
 ${agencyPickerHtml('settings')}
 <div class="section-kicker">현재 사용 부서 ${depts.length}개</div>
 <div class="dept-tags">${deptTags}</div>
-<div class="inline-form"><input id="newDeptInput" type="text" placeholder="새 부서명 입력"><button class="btn-secondary" data-a="add-dept">추가</button></div>`)
+<div class="inline-form"><input id="newDeptInput" type="text" placeholder="새 부서명 입력"><button class="btn-secondary" data-a="add-dept">추가</button></div>`);
+const basicHead=`<div class="section-head" style="margin:14px 2px 8px"><div><div class="section-title">가게 기본설정</div><div class="section-kicker">가게 정보·연락처·비밀번호</div></div></div>`;
+const basicGroup=foldCard('basic','가게 정보',`가게 이름·주소·전화 — ${esc(state.data.meta.shopName||'가게 이름 없음')}`,`
+<div class="inline-form"><input id="shopNameInput" type="text" value="${esc(state.data.meta.shopName||'')}" placeholder="음식점 이름을 입력하세요"><button class="btn-primary" data-a="save-shop">가게 저장</button></div>
+${shopExtra}`)
++contactCard
 +foldCard('pin','비밀번호(PIN)','앱을 열 때 사용하는 4자리 비밀번호',`
 <div class="section-actions"><button class="btn-secondary action-btn" data-a="change-pin"><span class="action-icon">🔒</span><div><strong>비밀번호 변경</strong><span>새 4자리 비밀번호로 바꿔요</span></div></button></div>
 ${webauthnCardHtml()}`)
@@ -2754,8 +2757,8 @@ const infoGroup=foldCard('info','앱 정보',`v${APP_VERSION} · 저장 위치: 
 <div class="meta" style="margin-top:8px">본 서비스는 무상으로 제공되며, 백업하지 않은 데이터의 복구와 서비스 중단·오류로 인한 손해를 보장하지 않습니다. 자세한 내용은 이용약관 제6조를 확인해 주세요.</div>
 <div class="meta" style="font-size:11px">관련 문서: <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> · <a href="https://app.bapjangbu.com/docs/terms.html" target="_blank" rel="noopener">이용약관</a></div>
 <div class="meta" style="margin-top:8px;font-size:11px;color:#98a2b3;text-align:center">© 2026 밥장부(선입금대장) · 널마루. All rights reserved.</div></div>`,'font-size:15px');
-// beta.29 배치: 등록(자동/수동) → 직원 목록 → 장부 지키기(안전 저장 + 폰 분실 클라우드) → 가게 기본설정(가게 정보·연락처·부서·비밀번호·위험 작업) → 앱 정보.
-return `${backupBanner()}${enrollGroup}${employeeCard}${ledgerHead}${ledgerGroup}${cloudVaultCard}${basicHead}${basicGroup}${infoGroup}`}
+// beta.30 배치: 등록(자동/수동) → 직원 목록 → 부서 목록 → 장부 지키기(안전 저장 + 폰 분실 클라우드) → 가게 기본설정(가게 정보·연락처·비밀번호·위험 작업) → 앱 정보.
+return `${backupBanner()}${enrollGroup}${employeeCard}${deptsCard}${ledgerHead}${ledgerGroup}${cloudVaultCard}${basicHead}${basicGroup}${infoGroup}`}
 
 // ── Service Worker 등록 ──
 if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(()=>{})}

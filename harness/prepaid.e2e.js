@@ -674,9 +674,19 @@ async function main() {
     //     ② 그룹 제목(직원 선금대장 등록·장부 지키기·가게 기본설정)은 섹션 헤더로 **항상 보인다** — 2단 중첩 접힘 금지.
     //     ③ 머리글을 누르면 열리고 그 안의 버튼에 실제로 닿는다(기능이 사라진 게 아니라 접힌 것뿐이다).
     // 이 시점은 미등록 상태라 '가게 연락처(contact)' 카드는 아직 없다(등록 후에만 렌더).
+    // beta.30: 부서 목록 관리는 직원 목록 관리 바로 아래다(등록·직원 관리와 같은 일감 — 사용자 지시).
     const foldedKeys = (await page.locator('.fold-head').evaluateAll(els => els.map(e => e.dataset.card)));
-    await assert(JSON.stringify(foldedKeys) === JSON.stringify(['enroll-auto', 'enroll-manual', 'employees', 'ledger', 'cloud', 'basic', 'depts', 'pin', 'info']),
-      `the collapsible settings cards must be exactly [자동·수동·직원 목록·장부·클라우드·가게 정보·부서·PIN·앱 정보] in order (got ${JSON.stringify(foldedKeys)})`);
+    await assert(JSON.stringify(foldedKeys) === JSON.stringify(['enroll-auto', 'enroll-manual', 'employees', 'depts', 'ledger', 'cloud', 'basic', 'pin', 'info']),
+      `the collapsible settings cards must be exactly [자동·수동·직원 목록·부서·장부·클라우드·가게 정보·PIN·앱 정보] in order (got ${JSON.stringify(foldedKeys)})`);
+    // 위계 시각화(beta.30): 하위 카드 제목은 섹션 헤더(주항목)보다 15% 작아야 한다(20px → 17px).
+    const titleSizes = await page.evaluate(() => {
+      const px = el => parseFloat(getComputedStyle(el).fontSize);
+      const groupHead = [...document.querySelectorAll('.section-head:not(.fold-head) .section-title')].find(t => t.textContent.includes('직원 선금대장 등록'));
+      const cardTitle = document.querySelector('.fold-head[data-card="enroll-auto"] .section-title');
+      return { group: groupHead ? px(groupHead) : 0, card: cardTitle ? px(cardTitle) : 0 };
+    });
+    await assert(titleSizes.group > 0 && titleSizes.card > 0 && Math.abs(titleSizes.card / titleSizes.group - 0.85) < 0.03,
+      `a sub-card title must be ~15% smaller than its group header (got group ${titleSizes.group}px vs card ${titleSizes.card}px)`);
     const foldedOpen = await page.locator('.fold-head').evaluateAll(els => els.map(e => e.getAttribute('aria-expanded')));
     await assert(foldedOpen.every(v => v === 'false'), `every collapsible settings card must start collapsed (got ${JSON.stringify(foldedOpen)})`);
     // 그룹 제목(섹션 헤더)은 접히지 않고 항상 보인다 — 접힘은 카드 1단까지만.
