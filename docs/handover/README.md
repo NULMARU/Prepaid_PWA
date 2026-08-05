@@ -106,3 +106,5 @@ npx wrangler pages deploy agency-web --project-name=prepaid-agency --branch=main
 npx wrangler pages deploy homepage   --project-name=bapjangbu-home --branch=main
 cd server && npx wrangler deploy                  # 중계 서버
 ```
+
+- [`11-security-review-2026-08.md`](11-security-review-2026-08.md) — **보안 점검 보고서(2026-08-06)**. OWASP Top 10·STRIDE·NIST 기준 4개 독립 조사 종합. 초보자용 서술 + 우선순위. 🔴 6건은 필드테스트 전 조치 권장.
