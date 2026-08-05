@@ -330,18 +330,18 @@ async function runViewport(context, url, w, h) {
   // ── 그룹 헤더(아코디언): 손가락 터치 타겟 + 화면 안쪽 ──
   const clientW = await page.evaluate(() => document.documentElement.clientWidth);
 
-  // ── 홈 상단바 2행 구조(beta.17) ──
-  //   1행: 검색창 전폭(폰에서도 300px 이상) / 2행: 소속 필터 + 음성 검색
-  //   상단바는 sticky를 유지하고, [장부 저장] 버튼은 홈에 상시 존재해야 한다.
-  const bar = await page.evaluate(() => {
+  // ── 홈 상단바 2행 구조(beta.17 → beta.29 개편) ──
+  //   1행: 검색창 전폭(폰에서도 300px 이상, 지울 것이 있으면 ✕가 옆에 붙음) / 2행: 소속 필터 + 음성 검색
+  //   상단바는 sticky를 유지하고, [장부 저장] 상시 버튼은 폐지 → [직원 목록 관리] 바로가기가 자리를 잇는다.
+  const readBar = () => page.evaluate(() => {
     const top = document.querySelector('.top');
     const rows = [...document.querySelectorAll('.home-filters .filter-row')];
     const box = el => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }; };
     const search = document.querySelector('#searchInput');
     const select = document.querySelector('#deptFilterSelect');
     const mic = document.querySelector('[data-a="voice-search"]');
-    const save = document.querySelector('.top .tool [data-a="monthly-backup-now"]');
-    const reset = document.querySelector('.top .tool [data-a="reset-filter"]');
+    const goEmp = document.querySelector('.top .tool [data-a="go-employees"]');
+    const clear = document.querySelector('.filter-row [data-a="reset-filter"]');
     return {
       sticky: getComputedStyle(top).position,
       rows: rows.length,
@@ -350,26 +350,43 @@ async function runViewport(context, url, w, h) {
       search: search ? box(search) : null,
       select: select ? box(select) : null,
       mic: mic ? box(mic) : null,
-      save: save ? { ...box(save), due: save.dataset.due, text: save.innerText.trim() } : null,
-      reset: reset ? box(reset) : null,
+      goEmp: goEmp ? { ...box(goEmp), text: goEmp.innerText.trim() } : null,
+      clear: clear ? box(clear) : null,
+      saveBtnCount: document.querySelectorAll('[data-a="monthly-backup-now"]').length,
+      topReset: document.querySelectorAll('.top .tool [data-a="reset-filter"]').length,
       firstOption: select ? select.options[0].textContent.trim() : ''
     };
   });
+  const bar = await readBar();
   check(bar.sticky === 'sticky', `${w}px 상단바: .top은 sticky를 유지해야 한다 (got ${bar.sticky})`);
   check(bar.rows === 2, `${w}px 상단바: 홈 필터는 2행(검색창 / 소속 필터+음성)이어야 한다 (${bar.rows}행)`);
-  check(bar.row1.join(',') === 'searchInput', `${w}px 상단바: 첫 행에는 검색창만 있어야 한다 ${JSON.stringify(bar.row1)}`);
+  check(bar.row1.join(',') === 'searchInput', `${w}px 상단바: 지울 것이 없으면 첫 행에는 검색창만 있어야 한다 ${JSON.stringify(bar.row1)}`);
   check(bar.row2.join(',') === 'deptFilterSelect,voice-search', `${w}px 상단바: 둘째 행은 소속 필터 + 음성 검색이어야 한다 ${JSON.stringify(bar.row2)}`);
   check(Boolean(bar.search) && bar.search.width >= 300, `${w}px 상단바: 검색창이 전폭(300px 이상)이어야 한다 (${bar.search && Math.round(bar.search.width)}px)`);
   check(Boolean(bar.select) && bar.search.bottom <= bar.select.top + 1, `${w}px 상단바: 소속 필터는 검색창 아래(둘째 행)로 내려가야 한다`);
   check(bar.firstOption === '전체 소속', `${w}px 상단바: 필터 첫 옵션은 '전체 소속'이어야 한다 (got "${bar.firstOption}")`);
-  [['검색창', bar.search], ['소속 필터', bar.select], ['음성 검색', bar.mic], ['장부 저장', bar.save], ['검색 초기화', bar.reset]].forEach(([label, b]) => {
+  check(bar.saveBtnCount === 0, `${w}px 상단바: [장부 저장] 상시 버튼은 폐지되었어야 한다(beta.29 — 30일 리마인더 배너로 대체)`);
+  check(bar.topReset === 0, `${w}px 상단바: [검색 초기화]는 상단바를 떠나 검색창 옆 ✕가 되었어야 한다(beta.29)`);
+  check(bar.clear === null, `${w}px 상단바: 지울 것이 없으면 ✕(검색 초기화)는 렌더되지 않아야 한다`);
+  [['검색창', bar.search], ['소속 필터', bar.select], ['음성 검색', bar.mic], ['직원 목록 관리', bar.goEmp]].forEach(([label, b]) => {
     check(Boolean(b), `${w}px 상단바: ${label}이(가) 렌더되지 않았다`);
     if (b) check(b.right <= clientW + 1 && b.left >= -1, `${w}px 상단바: ${label}이(가) 화면 밖으로 나갔다 (${Math.round(b.left)}~${Math.round(b.right)} / ${clientW})`);
   });
-  check(Boolean(bar.save) && bar.save.text.includes('장부 저장'), `${w}px 상단바: 홈에는 [장부 저장] 버튼이 상시 있어야 한다 (got "${bar.save && bar.save.text}")`);
-  check(Boolean(bar.save) && bar.save.height >= 36, `${w}px 상단바: [장부 저장] 버튼 터치 타겟이 너무 작다 (${bar.save && Math.round(bar.save.height)}px)`);
+  check(Boolean(bar.goEmp) && bar.goEmp.text.includes('직원 목록 관리'), `${w}px 상단바: 홈에는 [직원 목록 관리] 바로가기가 있어야 한다 (got "${bar.goEmp && bar.goEmp.text}")`);
+  check(Boolean(bar.goEmp) && bar.goEmp.height >= 36, `${w}px 상단바: [직원 목록 관리] 버튼 터치 타겟이 너무 작다 (${bar.goEmp && Math.round(bar.goEmp.height)}px)`);
   check(Boolean(bar.mic) && bar.mic.height >= 44, `${w}px 상단바: 음성 검색 버튼 터치 타겟이 너무 작다 (${bar.mic && Math.round(bar.mic.height)}px)`);
-  check(await page.locator('.banner [data-a="monthly-backup-now"]').count() === 0, `${w}px 홈: 월말 백업 배너는 더 이상 렌더되지 않아야 한다(상단 [장부 저장] 버튼으로 대체)`);
+  check(await page.locator('.banner [data-a="monthly-backup-now"]').count() === 0, `${w}px 홈: 월말 백업 배너는 더 이상 렌더되지 않아야 한다`);
+  // 검색어를 넣으면 ✕가 검색창 옆(같은 행)에 나타나고, 검색창과 함께 화면 안에 들어와야 한다.
+  await page.locator('#searchInput').fill('직');
+  await page.locator('#searchInput').dispatchEvent('input');
+  await page.waitForTimeout(250);
+  const barQ = await readBar();
+  check(barQ.row1.join(',') === 'searchInput,reset-filter', `${w}px 상단바: 검색 중 첫 행은 검색창+✕여야 한다 ${JSON.stringify(barQ.row1)}`);
+  check(Boolean(barQ.clear) && barQ.clear.height >= 44, `${w}px 상단바: ✕(검색 초기화) 터치 타겟이 너무 작다 (${barQ.clear && Math.round(barQ.clear.height)}px)`);
+  check(Boolean(barQ.clear) && barQ.clear.right <= clientW + 1, `${w}px 상단바: ✕(검색 초기화)가 화면 밖으로 나갔다`);
+  check(Boolean(barQ.search) && barQ.search.width >= 220, `${w}px 상단바: ✕가 붙어도 검색창이 충분히 넓어야 한다 (${barQ.search && Math.round(barQ.search.width)}px)`);
+  await page.locator('.filter-row [data-a="reset-filter"]').click();
+  await page.waitForTimeout(150);
 
   const heads = await page.evaluate(() => [...document.querySelectorAll('.group-head')].map(h => {
     const r = h.getBoundingClientRect();
@@ -562,8 +579,23 @@ async function runViewport(context, url, w, h) {
 
   // ── 설정·이력 화면도 가로로 밀리면 안 된다 ──
   await page.locator('[data-a="screen"][data-screen="settings"]').click();
+  await page.waitForSelector('.fold-head[data-card="enroll-manual"]');
+  await noHorizontalOverflow(page, '설정(접힘)', w);
+  // beta.29: 등록·직원 목록 카드도 접힘 — 접힌 헤더의 터치 타겟과 화면 안쪽을 확인한 뒤 펼쳐서 기하를 잰다.
+  const foldHeads = await page.evaluate(() => [...document.querySelectorAll('.fold-head')].map(h => {
+    const r = h.getBoundingClientRect();
+    return { card: h.dataset.card, height: r.height, left: r.left, right: r.right };
+  }));
+  foldHeads.forEach(h => {
+    check(h.height >= 44, `${w}px 설정: 접힘 카드 헤더(${h.card}) 터치 타겟이 너무 작다 (${Math.round(h.height)}px)`);
+    check(h.right <= clientW + 1 && h.left >= -1, `${w}px 설정: 접힘 카드 헤더(${h.card})가 화면 밖으로 나갔다`);
+  });
+  for (const key of ['enroll-auto', 'enroll-manual', 'employees']) {
+    const head = page.locator(`.fold-head[data-card="${key}"]`);
+    if ((await head.getAttribute('aria-expanded')) === 'false') { await head.click(); await page.waitForTimeout(100); }
+  }
   await page.waitForSelector('[data-a="quick-add-employee"]');
-  await noHorizontalOverflow(page, '설정', w);
+  await noHorizontalOverflow(page, '설정(펼침)', w);
   // 홈 하단에서 옮겨온 요약(활성 직원 수 · 잔액 합계)이 [직원 목록 관리] 카드 안에서 밀리지 않아야 한다.
   const mgr = await page.evaluate(() => {
     const el = document.querySelector('.mgr-summary');

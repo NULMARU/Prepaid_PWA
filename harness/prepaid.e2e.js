@@ -253,7 +253,12 @@ async function runSearchOnboarding(browser, url, cors) {
     await assert(typeof meta.districtSyncedAt === 'number' && meta.districtSyncedAt > 0, 'sending a district should stamp districtSyncedAt so the self-heal never runs again');
 
     // 설정: 자동 등록 카드는 '등록됨' 상태. 중복 등록 버튼(우리 가게 등록 — 처음 한 번)은 없어야 한다.
+    // beta.29: 자동 등록 카드도 접힘 — 접힌 요약이 등록 상태를 말하고, 본문 단언은 펼친 뒤에 한다.
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('.fold-head[data-card="enroll-auto"]');
+    const enrollSummary = await page.locator('.fold-head[data-card="enroll-auto"]').innerText();
+    await assert(enrollSummary.includes('Harness Shop') && enrollSummary.includes('명단 받는 중'), 'the collapsed auto-enroll header must show the registered store and its receiving state');
+    await openSettingsCard(page, 'enroll-auto');
     await page.waitForSelector('.agency-current-name');
     const settingsText = await page.locator('.app').innerText();
     await assert(settingsText.includes('공공기관 명단 받는 중'), 'the settings auto-enrollment card must render the registered state');
@@ -663,21 +668,26 @@ async function main() {
     await assert(await count(page, '[data-a="full-reset"]') === 1, 'full-reset action must appear once');
     await assert(await count(page, '[data-a="export-csv"]') === 0, 'standalone CSV export action must be removed from settings');
 
-    // ── beta.27: 설정 카드 아코디언 ─────────────────────────────────────────────
-    //   폰에서 7화면이던 설정을 접었다. 계약은 셋이다.
-    //     ① 매일 쓰는 것(직원 선금대장 등록 = 자동/수동, 직원 목록 관리)은 **접히지 않는다** — 접힘 머리글이 아예 없다.
-    //     ② 나머지 카드는 기본 접힘이되 **제목과 한 줄 요약은 항상 보인다**(무엇이 들어 있는지 모르는 접힘 금지).
+    // ── beta.27→29: 설정 카드 아코디언 ──────────────────────────────────────────
+    //   beta.29에서 등록(자동/수동)·직원 목록까지 전부 1단 접힘으로 통일했다(사용자 결정). 계약은 셋이다.
+    //     ① 모든 카드는 기본 접힘이되 **제목과 한 줄 요약은 항상 보인다**(무엇이 들어 있는지 모르는 접힘 금지).
+    //     ② 그룹 제목(직원 선금대장 등록·장부 지키기·가게 기본설정)은 섹션 헤더로 **항상 보인다** — 2단 중첩 접힘 금지.
     //     ③ 머리글을 누르면 열리고 그 안의 버튼에 실제로 닿는다(기능이 사라진 게 아니라 접힌 것뿐이다).
+    // 이 시점은 미등록 상태라 '가게 연락처(contact)' 카드는 아직 없다(등록 후에만 렌더).
     const foldedKeys = (await page.locator('.fold-head').evaluateAll(els => els.map(e => e.dataset.card)));
-    await assert(JSON.stringify(foldedKeys) === JSON.stringify(['ledger', 'cloud', 'basic', 'depts', 'pin', 'info']),
-      `the collapsible settings cards must be exactly [장부 지키기·폰 분실 대비·기본 설정·부서 목록·PIN·앱 정보] in order (got ${JSON.stringify(foldedKeys)})`);
+    await assert(JSON.stringify(foldedKeys) === JSON.stringify(['enroll-auto', 'enroll-manual', 'employees', 'ledger', 'cloud', 'basic', 'depts', 'pin', 'info']),
+      `the collapsible settings cards must be exactly [자동·수동·직원 목록·장부·클라우드·가게 정보·부서·PIN·앱 정보] in order (got ${JSON.stringify(foldedKeys)})`);
     const foldedOpen = await page.locator('.fold-head').evaluateAll(els => els.map(e => e.getAttribute('aria-expanded')));
     await assert(foldedOpen.every(v => v === 'false'), `every collapsible settings card must start collapsed (got ${JSON.stringify(foldedOpen)})`);
-    // 자주 쓰는 카드에는 접힘 머리글이 붙지 않는다 — 펼치는 탭 한 번을 더 받는 카드가 되면 안 된다.
-    for (const alwaysOpen of ['자동 등록 — 공공기관에서 보낸 명단 받기', '수동 등록 — 직접 입력하기', '직원 목록 관리']) {
-      await assert(await page.locator('.fold-head', { hasText: alwaysOpen }).count() === 0, `"${alwaysOpen}" must never be collapsible (it is the reason owners open settings)`);
+    // 그룹 제목(섹션 헤더)은 접히지 않고 항상 보인다 — 접힘은 카드 1단까지만.
+    const settingsAppText = await page.locator('.app').innerText();
+    for (const groupTitle of ['직원 선금대장 등록', '장부 지키기', '가게 기본설정']) {
+      await assert(settingsAppText.includes(groupTitle), `the group header "${groupTitle}" must stay visible while its cards are collapsed`);
     }
-    await assert(await count(page, '[data-a="quick-add-employee"]') === 1, 'the always-open 수동 등록 card must keep its quick-add form visible without any tap');
+    // 접힌 수동 등록의 본문은 DOM에 없고, 펼치면 빠른 등록 폼이 그대로 나타난다.
+    await assert(await count(page, '[data-a="quick-add-employee"]') === 0, 'the collapsed 수동 등록 card must not leave its quick-add form in the DOM');
+    await openSettingsCard(page, 'enroll-manual');
+    await assert(await count(page, '[data-a="quick-add-employee"]') === 1, 'expanding 수동 등록 must reveal the quick-add form');
     // 접힌 카드도 제목 + 한 줄 요약을 읽을 수 있어야 한다.
     const foldSummaries = await page.locator('.fold-head').evaluateAll(els => els.map(e => ({
       title: e.querySelector('.section-title').innerText.trim(),
@@ -686,8 +696,8 @@ async function main() {
     for (const f of foldSummaries) {
       await assert(f.title.length > 0 && f.kicker.length > 0, `a collapsed settings card must show both a title and a one-line summary (got ${JSON.stringify(f)})`);
     }
-    await assert(foldSummaries.find(f => f.title.includes('장부 지키기')).kicker.includes('내 열쇠 백업'),
-      'the collapsed 장부 지키기 summary must name the key backup — the one action an owner can never afford to miss');
+    await assert(foldSummaries.find(f => f.title.includes('장부 안전 저장')).kicker.includes('내 열쇠 백업'),
+      'the collapsed 장부 카드 summary must name the key backup — the one action an owner can never afford to miss');
     // 접힌 상태에서는 본문이 DOM에 없다(숨김이 아니라 미렌더) → 펼치면 그 자리에 그대로 나타난다.
     await assert(await count(page, '[data-a="export-safe"]') === 0, 'a collapsed card must not leave its actions in the DOM');
     await openSettingsCard(page, 'ledger');
@@ -710,7 +720,8 @@ async function main() {
     await assert((await page.locator('.agency-current-name').textContent()).includes('광진구청'), 'setup agency should be reflected as current agency');
     await page.locator('#agencySelectSettings').selectOption('gangnam');
     await page.waitForFunction(() => document.querySelector('.agency-current-name')?.textContent.includes('강남구청'));
-    // 보조 경로로 유지된 기존 개별등록 모달
+    // 보조 경로로 유지된 기존 개별등록 모달 — beta.29부터 수동 등록 카드도 접히므로 먼저 펼친다.
+    await openSettingsCard(page, 'enroll-manual');
     await page.locator('[data-a="add-employee"]').click();
     await page.locator('#empDept').fill('Dept A');
     await page.locator('#empName').fill('User A');
@@ -726,6 +737,8 @@ async function main() {
     await assert((await page.locator('.section-title', { hasText: '직원 선금대장 등록' }).count()) === 1, 'settings should group enrollment under a single 직원 선금대장 등록 heading');
     await assert((await page.locator('.section-title', { hasText: '자동 등록 — 공공기관에서 보낸 명단 받기' }).count()) === 1, 'the relay card should be titled 자동 등록 — 공공기관에서 보낸 명단 받기');
     await assert((await page.locator('.section-title', { hasText: '수동 등록 — 직접 입력하기' }).count()) === 1, 'a 수동 등록 — 직접 입력하기 card should hold the manual enrollment actions');
+    // 돈 오해 차단 문구는 자동 등록 카드 본문에 있다 — beta.29부터 접혀 있으므로 펼쳐서 확인한다.
+    await openSettingsCard(page, 'enroll-auto');
     const settingsText = await page.locator('.app').innerText();
     await assert(!/구청 선금|선금 받기|직원개별등록/.test(settingsText), 'the retired wording (구청 선금 / 선금 받기 / 직원개별등록) must be gone from settings');
     await assert(settingsText.includes('가게 은행 계좌로 따로 입금'), 'the auto-enrollment card must state that money is deposited to the bank account, not the app');
@@ -738,6 +751,7 @@ async function main() {
 
     // ②-1 홈 하단에서 옮겨온 "활성 직원 N명 · 잔액 합계" 요약은 [직원 목록 관리] 카드 상단에 있어야 한다.
     //      (새 .section-title을 만들지 않는다 — e2e 계약상 "직원 목록 관리" 제목은 정확히 1개)
+    await openSettingsCard(page, 'employees');
     const mgrSummary = await page.locator('.mgr-summary').innerText();
     await assert(mgrSummary.includes('활성 직원 2명') && mgrSummary.includes('잔액 합계 39,000원'), `직원 목록 관리 카드 상단에 활성 직원 수·잔액 합계 요약이 있어야 한다 (got "${mgrSummary.replace(/\n/g, ' ')}")`);
     await assert((await page.locator('.section-title').allInnerTexts()).filter(t => t.includes('직원 목록 관리')).length === 1, 'the moved summary must not introduce a second 직원 목록 관리 section title');
@@ -1071,32 +1085,68 @@ async function main() {
       };
     }), { ts: prevTs });
 
-    // (3) 활동 있는 지난달이 미백업(미등록) → 홈 상단바 [장부 저장] 버튼에 ⚠️ 배지가 붙는다(beta.17: 월말 배너 폐지).
+    // (3) beta.29: 홈 상단 [장부 저장] 상시 버튼 폐지 → ① [직원 목록 관리] 바로가기 ② 30일 백업 리마인더 배너로 대체.
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.waitForSelector('[data-a="screen"][data-screen="home"]');
-    const saveBtn = page.locator('.top .tool [data-a="monthly-backup-now"]');
-    await assert(await saveBtn.count() === 1, 'home top bar must carry exactly one always-on [장부 저장] button');
-    await assert((await saveBtn.innerText()).includes('장부 저장'), 'the top-bar backup button must read 장부 저장');
-    await assert(await count(page, '.banner [data-a="monthly-backup-now"]') === 0, 'the month-end backup banner must be gone — the top-bar button replaces it');
-    await assert(!(await page.locator('.app').innerText()).includes('지금 저장하기'), 'the old 지금 저장하기 banner wording must no longer render anywhere on home');
-    await assert((await saveBtn.getAttribute('data-due')) === '1', 'an unbacked month with activity must flag the [장부 저장] button as due');
-    await assert((await saveBtn.innerText()).includes('⚠️'), 'a due [장부 저장] button must carry the ⚠️ badge');
-    const dueTip = await saveBtn.getAttribute('title');
-    await assert(dueTip.includes(prevYmStr) && dueTip.includes('이번 달 아직'), `the due button must name the due month ${prevYmStr} and say it is still pending (got ${JSON.stringify(dueTip)})`);
-    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'backup-banner.png') }).catch(() => {});
-    // 눌러 보면 옛 배너의 [지금 저장하기]와 똑같은 저장 흐름(백업 파일 다운로드 + "정말 저장됐나요?" 확인)이 돈다.
-    const savedByBtn = [];
-    const onSaveBtnDownload = d => savedByBtn.push(d);
-    page.on('download', onSaveBtnDownload);
-    const dialogsBefore = dialogs.length;
-    await saveBtn.click();
-    for (let i = 0; i < 30 && !savedByBtn.length; i += 1) await page.waitForTimeout(100);
-    page.off('download', onSaveBtnDownload);
-    await assert(savedByBtn.length === 1 && /^밥장부백업_\d{4}-\d{2}\.json$/.test(savedByBtn[0].suggestedFilename()),
-      `tapping [장부 저장] must download the monthly backup file (got ${JSON.stringify(savedByBtn.map(d => d.suggestedFilename()))})`);
-    await assert(dialogs.slice(dialogsBefore).some(d => d.type === 'confirm' && d.message.includes('파일이 실제로 저장된 것을 확인')),
-      'tapping [장부 저장] must run the save-confirmation dialog flow, exactly like the old banner button');
+    await assert(await count(page, '[data-a="monthly-backup-now"]') === 0, 'the always-on [장부 저장] top-bar button must be gone (beta.29)');
+    await assert(await count(page, '.top .tool [data-a="go-employees"]') === 1, 'the home top bar must carry the [직원 목록 관리] shortcut instead');
+    await assert(await count(page, '.top .tool [data-a="reset-filter"]') === 0, '[검색 초기화] must leave the top bar (it moves next to the search input)');
+    // 검색 ✕: 지울 것이 없으면 없다 → 검색어를 넣으면 검색창 옆에 나타나고, 누르면 검색어가 지워진다.
+    await assert(await count(page, '.filter-row [data-a="reset-filter"]') === 0, 'the search-clear ✕ must not render while there is nothing to clear');
+    await page.locator('#searchInput').fill('User');
+    await page.locator('#searchInput').dispatchEvent('input');
+    await page.waitForTimeout(250);
+    await assert(await count(page, '.filter-row [data-a="reset-filter"]') === 1, 'typing a query must reveal the ✕ clear button beside the search input');
+    await page.locator('.filter-row [data-a="reset-filter"]').click();
+    await page.waitForTimeout(150);
+    await assert((await page.locator('#searchInput').inputValue()) === '', 'tapping ✕ must clear the search query');
+    await assert(await count(page, '.filter-row [data-a="reset-filter"]') === 0, 'the ✕ must disappear again once the query is cleared');
+    // [직원 목록 관리] 바로가기: 설정 화면의 직원 목록 카드를 자동 펼침으로 연다(모달 아님 — 모달 중첩 미지원 구조).
+    await page.locator('.top .tool [data-a="go-employees"]').click();
+    await page.waitForTimeout(200);
+    await assert((await page.locator('.fold-head[data-card="employees"]').getAttribute('aria-expanded')) === 'true',
+      'the home [직원 목록 관리] shortcut must open settings with the employees card expanded');
+    await assert(await count(page, '.mgr-summary') === 1, 'the expanded employees card must show its summary right away');
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(150);
+    // 리마인더 배너: 방금 백업했으므로 아직 조건 미충족 → 없음.
+    await assert(await count(page, '[data-a="dismiss-backup-reminder"]') === 0, 'the 30-day backup reminder must not show right after a backup');
+    // 마지막 백업을 40일 전으로 되돌리면(지난달 15일 씨앗 거래가 그 뒤에 있음) 배너가 선다.
+    await page.evaluate(({ old }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta'], 'readwrite');
+        tx.objectStore('meta').put({ key: 'lastBackupAt', value: old });
+        tx.objectStore('meta').put({ key: 'lastCloudBackupAt', value: 0 });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { old: Date.now() - 40 * 86400000 });
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('[data-a="screen"][data-screen="home"]');
+    await assert(await count(page, '.banner[data-a="export-safe"]') === 1, 'a 40-day-old backup with newer transactions must raise the reminder banner');
+    // ✕로 닫으면 이번 실행 동안만 숨는다(다른 배너 2종과 같은 규칙).
+    await page.locator('.banner[data-a="export-safe"] [data-a="dismiss-backup-reminder"]').click();
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.banner[data-a="export-safe"]') === 0, 'dismissing the reminder must hide it for this session');
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await page.waitForSelector('.banner[data-a="export-safe"]', { timeout: 8000 });
+    // 배너 본문을 누르면 [장부 안전 저장]과 동일 동작(CSV + 복원용 JSON 두 파일) → 저장 도장으로 배너가 스스로 내려간다.
+    const savedByBanner = [];
+    const onBannerDownload = d => savedByBanner.push(d);
+    page.on('download', onBannerDownload);
+    await page.locator('.banner[data-a="export-safe"]').click({ position: { x: 30, y: 40 } });
+    for (let i = 0; i < 40 && savedByBanner.length < 2; i += 1) await page.waitForTimeout(100);
+    page.off('download', onBannerDownload);
+    await assert(savedByBanner.length === 2 && savedByBanner.some(d => /^밥장부백업_/.test(d.suggestedFilename())),
+      `tapping the reminder banner must run the safe export (CSV + backup JSON, got ${JSON.stringify(savedByBanner.map(d => d.suggestedFilename()))})`);
+    await page.waitForTimeout(300);
+    await assert(await count(page, '.banner[data-a="export-safe"]') === 0, 'a completed safe export must clear the reminder banner without a reload');
 
     // (4) 자동 백업 토글: 기본 켜짐 → 끄면 저장·복원되고 [장부 저장] 버튼 설명에 "꺼져 있어요" 경고가 붙는다
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
@@ -1110,10 +1160,6 @@ async function main() {
     await page.waitForTimeout(150);
     let mm = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
     await assert(mm.autoCloudBackup === false, 'unchecking the toggle should persist autoCloudBackup=false');
-    await page.locator('[data-a="screen"][data-screen="home"]').click();
-    await page.waitForTimeout(150);
-    const offTip = await page.locator('.top .tool [data-a="monthly-backup-now"]').getAttribute('title');
-    await assert(offTip.includes('꺼져 있어요'), `with auto backup off, the [장부 저장] button must warn that auto backup is disabled (got ${JSON.stringify(offTip)})`);
     // 재로드 후 토글 상태 복원(꺼짐 유지) 확인 → 다시 켠다
     await page.reload({ waitUntil: 'load' });
     await unlock();
@@ -1124,7 +1170,8 @@ async function main() {
     await page.locator('[data-a="toggle-auto-cloud"]').check();
     await page.waitForTimeout(150);
 
-    // (5) 이미 이번 대상 달을 백업했으면(lastMonthlyBackup 기록) [장부 저장] 배지 해제 + monthlyBackupDue()=='' (버튼 자체는 계속 남는다)
+    // (5) 이미 이번 대상 달을 백업했으면(lastMonthlyBackup 기록) monthlyBackupDue()=='' — 이 판정은 이제
+    //     화면 버튼이 아니라 월말 자동 클라우드 백업(maybeMonthlyAutoBackup)의 트리거로만 쓰인다(beta.29).
     await page.evaluate(({ ym }) => new Promise((resolve, reject) => {
       const req = indexedDB.open('prepaid-ledger-db');
       req.onerror = () => reject(req.error);
@@ -1146,17 +1193,9 @@ async function main() {
     const curYmStr = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
     const isLastDayToday = (() => { const n = new Date(), t = new Date(); t.setDate(n.getDate() + 1); return t.getMonth() !== n.getMonth(); })();
     const dueAfterRecord = await page.evaluate(() => window.__prepaidTestHooks.monthlyBackupDue());
-    const recordedBtn = page.locator('.top .tool [data-a="monthly-backup-now"]');
-    await assert(await recordedBtn.count() === 1, 'the [장부 저장] button must stay on the home top bar in every state (it is always-on, not a banner)');
     if (isLastDayToday) {
       await assert(dueAfterRecord === curYmStr, `on the last day of the month the due target must roll over from ${prevYmStr} to ${curYmStr} (got "${dueAfterRecord}")`);
-      await assert((await recordedBtn.getAttribute('data-due')) === '1', 'the rolled-over due month must keep the [장부 저장] button flagged as due');
-      const rollTip = await recordedBtn.getAttribute('title');
-      await assert(rollTip.includes(curYmStr), `the rolled-over due button must name ${curYmStr} (got ${JSON.stringify(rollTip)})`);
-      await assert(!rollTip.includes(prevYmStr), `the month already recorded as backed up must not be named by the button any more (got ${JSON.stringify(rollTip)})`);
     } else {
-      await assert((await recordedBtn.getAttribute('data-due')) === '0', 'a month already backed up must clear the due flag on the [장부 저장] button');
-      await assert(!(await recordedBtn.innerText()).includes('⚠️'), 'a non-due [장부 저장] button must not show the ⚠️ badge');
       await assert(dueAfterRecord === '', 'monthlyBackupDue() must return empty once the due month is recorded as backed up');
     }
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'no-banner-backed-up.png') }).catch(() => {});
@@ -1286,9 +1325,13 @@ async function main() {
     // ───────────────────────────────────────────────────────────────
     const metaNow = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
     await assert(Boolean(metaNow.pubKey), 'a keypair should exist before the store-registration scenarios');
-    // 온보딩에서 직접 입력을 택했으니 아직 미등록이다 — 설정에는 [우리 가게 등록(처음 한 번)]이 **보여야** 한다.
+    // 온보딩에서 직접 입력을 택했으니 아직 미등록이다 — 접힌 자동 등록 헤더가 '등록 필요'를 알리고,
+    // 펼치면 [우리 가게 등록(처음 한 번)]이 **보여야** 한다(beta.29 접힘).
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await page.waitForTimeout(120);
+    await assert((await page.locator('.fold-head[data-card="enroll-auto"]').innerText()).includes('등록 필요'),
+      'the collapsed auto-enroll header must badge the unregistered state (등록 필요)');
+    await openSettingsCard(page, 'enroll-auto');
     await assert(await page.locator('[data-a="relay-find-store"]', { hasText: '우리 가게 등록' }).count() === 1, 'an unregistered store must keep the manual [우리 가게 등록] path in settings');
     // 검색 목: 주소가 실려야 등록 페이로드에 district가 실린다(설정 경로도 온보딩과 같은 계약).
     storeSearchResults = [
@@ -1465,8 +1508,9 @@ async function main() {
     const relayCardText = await page.locator('.card.employee', { hasText: '공공직원' }).first().innerText();
     await assert(relayCardText.includes('강남구청 세무과'), 'the employee card dept line should still show the combined org+dept label');
 
-    // (b)(c) 소속을 입력한 등록 / 소속을 비운 등록
+    // (b)(c) 소속을 입력한 등록 / 소속을 비운 등록 — beta.29: 리로드 후라 수동 등록 카드를 다시 펼친다.
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'enroll-manual');
     await page.locator('[data-a="add-employee"]').click();
     await page.waitForSelector('#empOrg');
     await page.locator('#empOrg').fill('한빛물산');
@@ -1620,6 +1664,7 @@ async function main() {
     }, { pubKey: relayMeta.pubKey });
     const beforeApprove = await readDb(page);
     const activeBefore = beforeApprove.employees.filter(e => !e.isDeleted).length;
+    await openSettingsCard(page, 'enroll-auto');// beta.29: 신청 확인 버튼은 접힌 자동 등록 카드 안에 있다
     await page.locator('[data-a="relay-inbox"]').first().click();
     await page.waitForSelector('[data-a="relay-approve"]', { timeout: 8000 });
     await page.locator('[data-a="relay-approve"]').click();
@@ -1832,6 +1877,7 @@ async function main() {
     // 설정 > 직원 목록 관리는 부서별 아코디언이다(펼침 상태가 세션 내 유지됨) — 이름으로 행을 찾아 [수정]을 연다.
     const openEditFor = async (name) => {
       await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'employees');// beta.29: 직원 목록 카드도 접힌다
       await page.waitForTimeout(200);
       for (let guard = 0; guard < 12; guard += 1) {
         const btn = page.locator('.row', { hasText: name }).locator('[data-a="edit-employee"]');
@@ -1962,6 +2008,7 @@ async function main() {
     await assert(ordOpts.join('|') === ordExpected.join('|'), `the department filter must follow the same group order (got ${JSON.stringify(ordOpts)})`);
     // 설정 > 직원 목록 관리도 같은 원칙으로 정렬된다(그룹핑 키는 결합 라벨 그대로 — 순서만 맞춘다).
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'employees');// beta.29: 직원 목록 카드도 접힌다
     await page.waitForTimeout(200);
     const mgrTitles = (await page.locator('.mgr-dept').allInnerTexts()).map(t => t.trim());
     // 설정 화면의 그룹 이름은 결합 라벨(deptKey) 그대로다 — 회사는 홈과 달리 "회사명 부서명"으로 묶인다(그룹핑 키 불변, 순서만 변경).
@@ -3721,14 +3768,18 @@ async function main() {
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.waitForTimeout(200);
 
-    // ── (i) 요청은 백업 JSON에도 없다 ──
+    // ── (i) 요청은 백업 JSON에도 없다 — beta.29: 홈 상단 버튼이 사라져 이력 화면의 [백업] 버튼으로 받는다 ──
     const reqBackups = [];
     const onReqBackup = d2 => reqBackups.push(d2);
     page.on('download', onReqBackup);
-    await page.locator('.top .tool [data-a="monthly-backup-now"]').click();
+    await page.locator('[data-a="screen"][data-screen="history"]').click();
+    await page.waitForSelector('[data-a="export"]', { timeout: 8000 });
+    await page.locator('[data-a="export"]').click();
     for (let i = 0; i < 25 && !reqBackups.length; i += 1) await page.waitForTimeout(100);
     page.off('download', onReqBackup);
     await assert(reqBackups.length >= 1, 'the backup button must still produce a file');
+    await page.locator('[data-a="go-home"]').click();
+    await page.waitForTimeout(150);
     const reqBackupText = await fsp.readFile(await reqBackups[0].path(), 'utf8');
     await assert(!/pendingAmount|pendingSign|custAmount|custQuery|pendingCustomer/.test(reqBackupText), 'no request state may leak into the backup file');
     // 구조적 보장 — 요청 4필드는 state.data 바깥에 산다. 저장·전송의 유일한 입구(repo.apply)에 닿는 줄이
@@ -3753,6 +3804,7 @@ async function main() {
       return { found: true, listId, dupes, options: dl ? [...dl.options].map(o => o.value) : null };
     }, inputId);
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'enroll-manual');// beta.29: 빠른 등록 폼은 접힌 수동 등록 카드 안에 있다
     await page.waitForSelector('#quickAddOrg');
     const quickOrg = await orgListOf('quickAddOrg');
     await assert(quickOrg.found && quickOrg.options, `빠른 등록 소속 입력은 실재하는 datalist를 가리켜야 한다 (got ${JSON.stringify(quickOrg)})`);
@@ -3850,16 +3902,20 @@ async function main() {
     await page.locator('.cust-actions [data-a="cust-back"]').click();
     await page.waitForSelector('#custSearchInput');
     await unlockPin(page);
-    await page.waitForSelector('.top .tool [data-a="monthly-backup-now"]', { timeout: 8000 });
+    await page.waitForSelector('.top .tool [data-a="go-employees"]', { timeout: 8000 });
 
-    // (10) 손님 화면 상태는 백업 파일에도 남지 않는다.
+    // (10) 손님 화면 상태는 백업 파일에도 남지 않는다 — beta.29: 이력 화면 [백업] 버튼으로 받는다.
     const custBackups = [];
     const onCustBackup = d => custBackups.push(d);
     page.on('download', onCustBackup);
-    await page.locator('.top .tool [data-a="monthly-backup-now"]').click();
+    await page.locator('[data-a="screen"][data-screen="history"]').click();
+    await page.waitForSelector('[data-a="export"]', { timeout: 8000 });
+    await page.locator('[data-a="export"]').click();
     for (let i = 0; i < 25 && !custBackups.length; i += 1) await page.waitForTimeout(100);
     page.off('download', onCustBackup);
-    await assert(custBackups.length >= 1, 'the [장부 저장] button should still download a backup');
+    await assert(custBackups.length >= 1, 'the [백업] button should still download a backup');
+    await page.locator('[data-a="go-home"]').click();
+    await page.waitForTimeout(150);
     const custBackupText = await fsp.readFile(await custBackups[0].path(), 'utf8');
     await assert(!/pendingCustomer|custQuery|lockView|custStage/.test(custBackupText), 'no customer-screen state may leak into the backup file');
     await assert(!/"pinFails"|"pinDelayUntil"/.test(custBackupText), 'the device lock state (pinFails/pinDelayUntil) must not travel inside a backup file');
@@ -3889,6 +3945,7 @@ async function main() {
     const activeKeys = latinDb.employees.filter(e => !e.isDeleted).map(e => `${[e.org, e.dept].filter(Boolean).join(' ')}|${e.name}`);
     await assert(new Set(activeKeys).size === activeKeys.length, `duplicate match keys must not exist among active employees (got ${JSON.stringify(activeKeys.filter((k, i) => activeKeys.indexOf(k) !== i))})`);
     // 사장님용 토스트가 떠 있는 채로 손님에게 넘겨도 손님 화면에는 그 문구가 남으면 안 된다(P4).
+    await openSettingsCard(page, 'enroll-manual');// beta.29: 빠른 등록 버튼은 접힌 수동 등록 카드 안에 있다
     await page.locator('[data-a="quick-add-employee"]').click();
     await page.waitForSelector('.toast');
     await assert((await page.locator('.toast').innerText()).includes('직원명'), 'the owner toast must be showing before the handover');
@@ -4283,6 +4340,7 @@ async function main() {
       window.__chainInbox = items;
     }, relayRosters);
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'enroll-auto');// beta.29: 신청 확인 버튼은 접힌 자동 등록 카드 안에 있다
     await page.waitForSelector('[data-a="relay-inbox"]', { timeout: 8000 });
     await page.locator('[data-a="relay-inbox"]').first().click();
     await page.waitForSelector('[data-a="relay-approve"]', { timeout: 10000 });
