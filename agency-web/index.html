@@ -164,9 +164,9 @@ tr.err{background:#fdecea}
 
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
-<div class="step-help">아래에 직원명·선금 금액이 담긴 명단 CSV(엑셀 저장 파일)를 올려 주세요. 형식은 자동으로 확인됩니다. 실제 돈은 음식점 계좌로 따로 이체하시고, 여기서는 명단만 보냅니다.</div>
-<div class="meta">항목(순서 고정): 음식점명, <b>소속</b>, 부서명, 직원명, 선금금액, 입금자명 · <b>소속은 선택 항목</b>이라 비워 두셔도 됩니다(비우면 2단계에서 고른 기관이 자동으로 들어갑니다). 산하기관·협력업체처럼 소속이 여러 곳이면 행마다 다르게 적어 주세요 — 소속·부서별로 나뉘어 전달됩니다 · 소속 열이 없는 예전 양식(음식점명, 부서명, 직원명, 선금금액, 입금자명)도 그대로 올리실 수 있습니다 · 엑셀에서 그냥 'CSV로 저장'한 파일도 그대로 올리시면 됩니다(인코딩 자동 인식).</div>
-<div class="meta" style="margin-top:6px">💡 <b>입금자명은 실제로 이체한 사람 이름</b>을 적어 주세요 — 음식점 사장님이 <b>통장 입금 내역과 명단을 대조하는 기준</b>이 됩니다. 한 부서에서 <b>팀·개인별로 나눠 입금·전송</b>한다면 부서명에 팀까지 적어 주세요(예: "홍보과 1팀") — 명단과 입금을 팀 단위로 정확히 맞춰볼 수 있고, 다른 팀 전송과 겹치거나 같은 직원의 잔액이 한데 섞이는 일도 막을 수 있습니다.</div>
+<div class="step-help">아래에 직원명·선금 금액이 담긴 명단 CSV(엑셀 저장 파일)를 올려 주세요. 엑셀에서 그냥 'CSV로 저장'한 파일을 그대로 올리시면 됩니다.</div>
+<div class="meta">💡 <b>입금자명은 실제로 이체한 이름</b>을 적어 주세요(예: “보건의료과”).</div>
+<div class="meta" style="margin-top:6px">💡 한 부서에서 <b>팀·개인별로 나눠 각각 명단을 전송한다면 입금도 각각</b> 해주세요. 음식점 사장님이 <b>통장 입금 내역과 전송명단을 대조하는 기준</b>이 됩니다.</div>
 <button id="csvTemplateBtn" type="button" style="margin-top:8px">CSV 양식 다운로드</button>
 <label for="csv" class="sr-only">CSV 파일 선택</label>
 <input type="file" id="csv" accept=".csv" style="padding-top:8px">
@@ -191,7 +191,7 @@ tr.err{background:#fdecea}
 </div>
 <div class="mode-card" data-mode="direct" tabindex="0" role="button" aria-pressed="false">
 <h3>직접 전달</h3>
-<p>명단이 서버에 저장되지 않습니다. 암호화된 파일을 만들어 이메일·카카오톡 등으로 직접 전달하거나, 화면의 QR을 음식점 사장님이 앱으로 찍게 하세요. 음식점을 여러 곳 선택했다면 파일·QR이 <b>가게(부서)별로 각각</b> 만들어집니다.</p>
+<p>명단이 서버에 저장되지 않습니다. 암호화된 파일을 만들어 이메일·카카오톡 등으로 직접 전달하거나, 화면의 QR을 음식점 사장님이 앱으로 찍게 하세요. 음식점을 여러 곳 선택했다면 파일·QR이 <b>가게(부서)별로 각각</b> 만들어집니다 — <b>파일 1개 = 입금 1건</b>으로 각각 이체해 주세요.</p>
 </div>
 </div>
 <button class="btn-primary" id="submitBtn" disabled style="margin-top:12px">전송 방법을 선택하세요</button>
@@ -1290,7 +1290,13 @@ function renderConfirm(){
     '<table><thead><tr><th>음식점</th>'+(multiOrg?'<th>소속</th>':'')+'<th>부서</th><th>인원</th><th>선금 합계</th><th>입금자명</th></tr></thead><tbody>'+rows+'</tbody></table>'+
     '<div style="margin-top:10px;padding:10px 12px;background:#eef2ff;border:1px solid var(--primary);border-radius:8px">'+
     '<div style="font-weight:700;font-size:14px">총 합계 '+totalAmount.toLocaleString()+'원 <span style="font-weight:400;color:var(--muted);font-size:12px">(음식점 '+new Set(groups.map(g=>g.restaurant_id)).size+'곳 · '+(multiOrg?'소속·부서 조합 ':'부서 조합 ')+groups.length+'건 · '+totalPeople+'명)</span></div>'+
-    '<div class="meta" style="margin-top:4px">음식점 계좌로 이체하실 금액과 같은지 확인하세요. 돈은 계좌로 직접 이체하고, 이 웹은 명단만 전달합니다.<br>음식점 사장님은 <b>줄마다 "입금자명 ↔ 실제 입금 1건 ↔ 합계 금액"</b>을 통장과 대조한 뒤 장부에 올립니다 — 입금자명과 이체 금액이 명단과 정확히 맞아야 승인이 빨라집니다.</div>'+
+    // 원칙: 명단 1건 = 입금 1건. 표가 여러 줄이면 **합계 한 번에 이체**가 곧 대조 불가능이므로, 총 합계는
+    // 참고값으로 낮추고 "줄마다 따로 이체"를 주문장으로 올린다(사장님은 건별로 통장과 맞춰 승인한다).
+    (groups.length>1
+      ? '<div class="meta" style="margin-top:4px;color:var(--text);font-weight:700">⚠️ 위 표는 '+groups.length+'건입니다 — <b>줄마다 그 금액을 따로 이체</b>해 주세요. 명단 1건 = 입금 1건이어야 사장님이 통장과 대조해 승인할 수 있습니다. 합계를 한 번에 보내면 어느 명단의 돈인지 확인할 수 없어 승인이 지연됩니다.</div>'
+        +'<div class="meta" style="margin-top:4px">총 합계는 참고용입니다. 돈은 계좌로 직접 이체하고, 이 웹은 명단만 전달합니다.</div>'
+      : '<div class="meta" style="margin-top:4px">이 금액을 음식점 계좌로 이체하세요 — 명단 1건 = 입금 1건입니다. 돈은 계좌로 직접 이체하고, 이 웹은 명단만 전달합니다.</div>')+
+    '<div class="meta" style="margin-top:4px">사장님은 <b>줄마다 “입금자명 ↔ 실제 입금 1건 ↔ 합계 금액”</b>을 통장과 대조한 뒤 장부에 올립니다 — 입금자명과 이체 금액이 명단과 정확히 맞아야 승인이 빨라집니다.</div>'+
     '</div>';
 }
 function computeStep(){
@@ -1626,7 +1632,7 @@ async function runRelay(list){
   const rows=[...relayResults.values()];
   const failN=rows.filter(r=>!r.ok).length;
   const dedupN=rows.filter(r=>{const d=dedupInfo(r);return d&&d.attention}).length;
-  log('\n완료: 성공 '+(rows.length-failN)+' · 실패 '+failN+(dedupN?' · 확인 필요(이미 처리된 명단) '+dedupN:'')+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).\n\n다음 할 일: 음식점에 전화 등으로 전달 사실을 알려 주시고, 이 화면(또는 위 로그)을 캡처해 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.');
+  log('\n완료: 성공 '+(rows.length-failN)+' · 실패 '+failN+(dedupN?' · 확인 필요(이미 처리된 명단) '+dedupN:'')+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).\n\n💰 입금 확인: 방금 보낸 명단은 '+rows.length+'건입니다 — 음식점 계좌로 '+rows.length+'건을 각각 그 금액대로 이체(또는 결제)해 주세요. 명단 1건 = 입금 1건이어야 사장님이 통장과 대조해 승인할 수 있습니다.\n\n다음 할 일: 음식점에 전화 등으로 전달 사실을 알려 주시고, 이 화면(또는 위 로그)을 캡처해 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.');
 }
 async function doSubmitRelay(){
   if(sending)return; // 재진입 차단(S6) — 이중 클릭·동의 모달 재진입
