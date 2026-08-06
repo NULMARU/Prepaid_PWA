@@ -29,10 +29,22 @@ async function decryptBlob(blob,priv){
 }
 function assignDuplicateSuffix(rows){const g=new Map();rows.forEach(r=>{const k=(r.dept||'')+'|'+r.name;if(!g.has(k))g.set(k,[]);g.get(k).push(r)});let c=0;g.forEach(l=>{if(l.length<2)return;l.forEach((r,i)=>{if(!/[a-z]$/.test(r.name)){r.name+=String.fromCharCode(97+i);c++}})});return c}
 
-const call = (store, env, method, path, body) =>
+// 공공데이터 목 카탈로그(F-01 등록 검증용). 서버는 최초 등록 시 이 목록으로 "그 restaurant_id가
+// 실제로 있고 상호가 일치하는지"를 대조한다. 아래 call()은 /api/register-key 호출을 만나면
+// 그 가게를 자동으로 카탈로그에 등재해 준다(기존 시나리오가 전부 '실존 가게'로 동작하게).
+// 실존/이름 불일치·공공API 장애 회귀는 등재를 건너뛰는 callRaw()로 직접 호출해 검증한다.
+const publicCatalog = new Map([['MGT-0001', '정식김밥'], ['MGT-0002', '한밭식당']]);
+const seedStore = (id, name) => publicCatalog.set(String(id), String(name == null ? '' : name));
+
+const callRaw = (store, env, method, path, body) =>
   handle(new Request('http://x' + path, body !== undefined
     ? { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
     : { method }), env, store);
+const call = (store, env, method, path, body) => {
+  if (method === 'POST' && path === '/api/register-key' && body && body.restaurant_id)
+    seedStore(body.restaurant_id, body.restaurant_name);
+  return callRaw(store, env, method, path, body);
+};
 // 헤더(X-Agency-Token 등)까지 지정해야 하는 호출용.
 const callH = (store, env, method, path, body, headers) =>
   handle(new Request('http://x' + path, { method, headers: { 'content-type': 'application/json', ...(headers||{}) }, body: body !== undefined ? JSON.stringify(body) : undefined }), env, store);
@@ -45,6 +57,11 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const pt = await subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, unb64(challenge_ct));
   return decU.decode(pt);
 }
+// 수신함은 소유 증명 필수(F-02) — 매 호출마다 1회용 auth_token을 새로 받아 쿼리에 싣는다.
+async function inboxOf(store, env, restaurant_id, privateKey) {
+  const t = await getAuthToken(store, env, restaurant_id, privateKey);
+  return await call(store, env, 'GET', '/api/inbox?restaurant_id=' + encodeURIComponent(restaurant_id) + '&auth_token=' + encodeURIComponent(t || ''));
+}
 
 (async () => {
   const store = makeMemoryStore();
@@ -53,13 +70,13 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
     ALLOW_ORIGIN: '*',
     AUTH_MODE: 'dev',
     REQUIRE_AGENCY_AUTH: '0',
-    // 목 LOCALDATA: 실제 키/엔드포인트 대체
+    // 목 LOCALDATA: 실제 키/엔드포인트 대체. 카탈로그(publicCatalog)를 그대로 돌려주되
+    // 이름 부분일치 필터만 적용한다(defaultSearch와 동일한 계약 — region은 선택).
     searchRestaurants: async (_env, region, q) => {
-      const all = [
-        { restaurant_id: 'MGT-0001', name: '정식김밥', address: '서울 강남구 1', status: '영업/정상' },
-        { restaurant_id: 'MGT-0002', name: '한밭식당', address: '서울 강남구 2', status: '영업/정상' }
-      ];
-      return all.filter(r => region && (!q || r.name.includes(q)));
+      const kw = String(q || '').trim();
+      return [...publicCatalog].map(([restaurant_id, name]) =>
+        ({ restaurant_id, name, address: '서울 강남구', status: '영업/정상' }))
+        .filter(r => !kw || r.name.includes(kw));
     }
   };
   const badCipher = { ct: 'x', encKey: 'y' };
@@ -108,7 +125,7 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(blobsAreCipher, 'encrypted_blob은 암호문만(평문 명단 없음)');
 
   // 5) 음식점 앱: 수신함 폴링 → 표시(이름 미열람)
-  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID);
+  r = await inboxOf(store, env, RID, kp.privateKey);
   const inbox = await r.json();
   ok(inbox.length === 1 && inbox[0].summary.member_count === 3 && inbox[0].summary.total_amount === 270000, '수신함: 부서·총액·인원만 노출(이름 ❌)');
 
@@ -128,7 +145,10 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const plain = await decryptBlob(inbox[0].ciphertext, kp.privateKey);
   ok(plain.items.length === 3 && plain.items[0].name === '김철수', '음식점 앱 복호화 성공');
   const reHash = await batchHash(plain.items);
-  ok(reHash === inbox[0].summary.batch_hash, 'batch_hash 재계산 일치(전송 변조 없음)');
+  ok(reHash === bh, 'batch_hash 재계산 일치(전송 변조 없음)');
+  // 오라클 차단(§4.9): 수신함 요약에는 batch_hash가 실리지 않는다 — 서버가 가진 값을 되돌려주면
+  // "이 명단이 맞나"를 서버에 물어볼 수 있는 확인 채널이 된다. 수신 측 검증은 blob 내부 값으로.
+  ok(!('batch_hash' in inbox[0].summary), '수신함 요약에 batch_hash 없음(오라클 차단)');
   const changed = assignDuplicateSuffix(plain.items);
   ok(changed === 2 && plain.items[0].name === '김철수a' && plain.items[1].name === '김철수b', '동명이인 자동 보완(a/b)');
 
@@ -138,7 +158,7 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(tamperCaught, '암호문 변조 시 복호화 실패(탐지)');
 
   // 승인 후 수신함 비워짐(PENDING 아님)
-  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID);
+  r = await inboxOf(store, env, RID, kp.privateKey);
   ok((await r.json()).length === 0, '승인 후 수신함에서 제거');
 
   // 이미 처리된 summary를 '새' 유효 토큰으로 재승인 시도 → 인증은 통과하지만 상태 전이 가드에서 409
@@ -549,7 +569,7 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(r.status === 200, '보존 테스트: 승인 200');
   const dumpAfterApprove = store._dump();
   ok(!dumpAfterApprove.blobs.some(b => b.summary_id === sjApprove.summary_id), '보존 테스트: 승인 즉시 encrypted_blob 삭제(inbox 재조회로도 ciphertext 접근 불가)');
-  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID7);
+  r = await inboxOf(store, env, RID7, kp7.privateKey);
   ok(!(await r.json()).some(x => x.summary_id === sjApprove.summary_id), '보존 테스트: 승인 후 inbox 재조회에서도 해당 건 노출 안 됨(PENDING 아님)');
   const summaryAfterApprove = dumpAfterApprove.summaries.find(s => s.id === sjApprove.summary_id);
   ok(!!summaryAfterApprove && summaryAfterApprove.status === 'APPROVED' && summaryAfterApprove.total_amount === 1000, '보존 테스트: 비식별 요약(총액·인원·해시) 행은 즉시 삭제되지 않고 유지');
@@ -577,11 +597,11 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
     blob: { restaurant_id: RID7, ciphertext: badCipher }
   });
   const sjExpire = await r.json();
-  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID7);
+  r = await inboxOf(store, env, RID7, kp7.privateKey);
   ok((await r.json()).some(x => x.summary_id === sjExpire.summary_id), '보존 테스트: 만료 전(정상 PENDING)에는 inbox에 노출');
   const summaryToAge = store._dump().summaries.find(s => s.id === sjExpire.summary_id);
   summaryToAge.created_at = Date.now() - (72 * 60 * 60 * 1000 + 60 * 1000); // 72시간 + 1분 전 제출로 시뮬레이션
-  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RID7);
+  r = await inboxOf(store, env, RID7, kp7.privateKey);
   ok(!(await r.json()).some(x => x.summary_id === sjExpire.summary_id), '보존 테스트: 미수령 72시간 경과 항목은 cron 실행 전에도 inbox 쿼리 조건으로 제외(이중 방어)');
 
   // 17-e) TTL cron: 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 삭제(이중 방어 2단계)
@@ -768,8 +788,12 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(rl.restaurants.map(x => x.restaurant_name).join(',') === '가나분식,나다김밥,다라식당', 'registered-list: 이름 가나다 정렬');
   ok(rl.restaurants.every(x => x.district === '서울특별시 광진구'), 'registered-list: 반환 district가 조회 지역과 일치');
   ok(!rl.restaurants.some(x => x.restaurant_id === 'D-L'), 'registered-list: district 없는 레거시 등록분은 미노출');
-  ok(rl.restaurants.every(x => Object.keys(x).sort().join(',') === 'district,restaurant_id,restaurant_name'),
-    'registered-list: 각 항목은 id·이름·district만(연락처 등 미포함 — 연락처 등록된 D-B도 노출 안 됨)');
+  ok(rl.restaurants.every(x => Object.keys(x).sort().join(',') === 'district,registered_at,restaurant_id,restaurant_name,verified'),
+    'registered-list: 각 항목은 id·이름·district·registered_at·verified만(연락처 등 미포함 — 연락처 등록된 D-B도 노출 안 됨)');
+  ok(rl.restaurants.every(x => typeof x.registered_at === 'number' && x.registered_at > 0),
+    'registered-list: registered_at(등록 시각) 포함 — 담당자 웹 "신규 등록" 배지용');
+  ok(rl.restaurants.every(x => x.verified === 1),
+    'registered-list: 공공데이터 대조에 성공한 등록분은 verified=1');
 
   // 20-b) sigungu 없이 sido 전체 → 서울 4곳(광진3+성동1), 다른 시도(경기)·레거시 제외
   r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시'));
@@ -905,7 +929,7 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const cnt1 = await r.json();
   ok(r.status === 200 && cnt1.count === 1, 'inbox-count: 제출 1건 후 count 1');
   ok(Object.keys(cnt1).join(',') === 'count', 'inbox-count: 응답은 count만(기관·부서·총액·암호문 등 미노출)');
-  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDC);
+  r = await inboxOf(store, env, RIDC, kCnt.kp.privateKey);
   ok((await r.json()).length === cnt1.count, 'inbox-count: inbox 항목 수와 count 일치(동일 필터)');
 
   // 21-c) 승인(수령) 후 → count 0 (PENDING 아님)
@@ -997,7 +1021,7 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const dumpOrphan = store._dump();
   const oi = dumpOrphan.blobs.findIndex(b => b.summary_id === sjOrphan.summary_id);
   dumpOrphan.blobs.splice(oi, 1);
-  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDO);
+  r = await inboxOf(store, env, RIDO, kOrp.kp.privateKey);
   const inboxOrphan = await r.json();
   ok(inboxOrphan.length === 0, 'orphan: blob 없는 summary는 inbox에서 제외(ciphertext:null 항목도 반환하지 않음)');
   r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDO);
@@ -1068,14 +1092,14 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   const sjOrg = await r.json();
   ok(r.status === 200 && !!sjOrg.summary_id && !sjOrg.deduped, 'org: org 포함 명단 제출 200(신규)');
 
-  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDORG);
+  r = await inboxOf(store, env, RIDORG, kOrg.kp.privateKey);
   const inboxOrg = await r.json();
   const gotOrg = inboxOrg.find(x => x.summary_id === sjOrg.summary_id);
-  ok(!!gotOrg && gotOrg.summary.batch_hash === hOrg, 'org: inbox 왕복 후에도 summary.batch_hash 그대로');
+  ok(!!gotOrg && !('batch_hash' in gotOrg.summary), 'org: inbox 요약에는 batch_hash가 없다(오라클 차단 — 검증은 blob 내부 값으로)');
   const plainOrg = await decryptBlob(gotOrg.ciphertext, kOrg.kp.privateKey);
   ok(plainOrg.items.length === 2 && plainOrg.items[0].org === '강남구청' && plainOrg.items[1].org === '강남구보건소',
     'org: 복호화 결과에 선택 필드 org가 그대로 보존됨(서버가 blob을 건드리지 않음)');
-  ok(await batchHash(plainOrg.items) === gotOrg.summary.batch_hash,
+  ok(await batchHash(plainOrg.items) === hOrg,
     'org: 수신 측 재계산 해시가 일치(org는 canonical에 포함되지 않음 — 변조 오탐 없음)');
   // 서버는 org를 평문으로 알지 못한다(요약에도, 저장된 암호문에도 평문 org 없음).
   const dumpOrg = store._dump();
@@ -1095,6 +1119,310 @@ async function getAuthToken(store, env, restaurant_id, privateKey) {
   ok(r.status === 200 && sjOrg2.deduped === true && sjOrg2.summary_id === sjOrg.summary_id,
     'org: org만 다른 재제출은 동일 (restaurant_id,batch_hash)로 멱등 처리(deduped:true)');
   ok(dumpOrg.summaries.filter(s => s.restaurant_id === RIDORG).length === 1, 'org: 재제출로 새 summary 행이 생기지 않음');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 2026-08 보안 강화(OWASP/ASVS/STRIDE 점검 반영) 회귀
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // 26) 열쇠 지문 확인 기록(§4.8) — 가게 선점 방어의 핵심.
+  // 지문 = SHA-256(공개키 SPKI raw) → hex 소문자 → 앞 8자 → 대문자 4자씩 하이픈("ABCD-EF12").
+  // 세 컴포넌트가 같은 규칙으로 계산해야 하므로 하니스도 서버와 독립적으로 계산해 대조한다.
+  const fingerprintOf = async (spkiB64) => {
+    const h = await subtle.digest('SHA-256', unb64(spkiB64));
+    const s = Array.from(new Uint8Array(h)).map(v => v.toString(16).padStart(2, '0')).join('').slice(0, 8).toUpperCase();
+    return s.slice(0, 4) + '-' + s.slice(4, 8);
+  };
+  const AGT = { 'X-Agency-Token': rjAgencyTok.token };
+  const RIDK = 'MGT-KEYCHECK-1';
+  const kKc = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDK, restaurant_name: '지문식당', public_key: kKc.spki });
+  ok(r.status === 200, 'keycheck: 테스트용 음식점 등록 200');
+  const fpK = await fingerprintOf(kKc.spki);
+  ok(/^[0-9A-F]{4}-[0-9A-F]{4}$/.test(fpK), 'keycheck: 지문 형식 "ABCD-EF12"(대문자 hex 4-4)');
+
+  // 26-a) 기관 토큰 없으면 401(저장·조회 양쪽)
+  r = await call(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDK, fingerprint: fpK });
+  ok(r.status === 401 && (await r.json()).error === 'agency_auth_required', 'keycheck: X-Agency-Token 없이 저장 401(agency_auth_required)');
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDK, fingerprint: fpK }, { 'X-Agency-Token': 'not-a-real-token' });
+  ok(r.status === 401, 'keycheck: 무효 토큰으로 저장 401');
+  r = await call(store, env, 'GET', '/api/agency/keychecks?institution=' + encodeURIComponent('서울특별시 강남구') + '&department=' + encodeURIComponent('총무과'));
+  ok(r.status === 401, 'keycheck: X-Agency-Token 없이 조회 401');
+
+  // 26-b) 정상 저장 200 + 서버가 재계산한 지문 반환
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDK, fingerprint: fpK }, AGT);
+  const kcOk = await r.json();
+  ok(r.status === 200 && kcOk.ok === true && kcOk.fingerprint === fpK, 'keycheck: 지문 일치 시 저장 200(서버 재계산 지문 반환)');
+
+  // 26-c) 그 부서의 확인 목록 조회 — restaurant_id·fingerprint·checked_at만(인원·금액 등 금지)
+  r = await callH(store, env, 'GET', '/api/agency/keychecks?institution=' + encodeURIComponent('서울특별시 강남구') + '&department=' + encodeURIComponent('총무과'), undefined, AGT);
+  const kcList = await r.json();
+  ok(r.status === 200 && Array.isArray(kcList.keychecks) && kcList.keychecks.length === 1
+    && kcList.keychecks[0].restaurant_id === RIDK && kcList.keychecks[0].fingerprint === fpK
+    && typeof kcList.keychecks[0].checked_at === 'number', 'keycheck: 확인 목록 조회 200(restaurant_id·fingerprint·checked_at)');
+  ok(kcList.keychecks.every(x => Object.keys(x).sort().join(',') === 'checked_at,fingerprint,restaurant_id'),
+    'keycheck: 응답 항목은 3필드만(인원·금액·기관 이메일 등 다른 정보 없음)');
+
+  // 26-d) 부서 격리: 같은 기관이라도 다른 부서는 '미확인'으로 남는다(부서별 독립 확인)
+  r = await callH(store, env, 'GET', '/api/agency/keychecks?institution=' + encodeURIComponent('서울특별시 강남구') + '&department=' + encodeURIComponent('세무과'), undefined, AGT);
+  const kcOther = await r.json();
+  ok(r.status === 200 && kcOther.keychecks.length === 0, 'keycheck: 같은 기관 다른 부서(세무과)는 미확인 — 부서 격리');
+  // 다른 기관도 마찬가지로 격리
+  r = await callH(store, env, 'GET', '/api/agency/keychecks?institution=' + encodeURIComponent('부산광역시 서구') + '&department=' + encodeURIComponent('총무과'), undefined, AGT);
+  ok((await r.json()).keychecks.length === 0, 'keycheck: 다른 기관도 확인 기록이 공유되지 않음');
+
+  // 26-e) upsert: 같은 (기관,부서,음식점) 재확인은 행이 늘지 않고 갱신만 된다
+  const kcBefore = store._dump().keychecks.size;
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDK, fingerprint: fpK.toLowerCase() }, AGT);
+  ok(r.status === 200, 'keycheck: 소문자 지문도 정규화되어 저장 200');
+  ok(store._dump().keychecks.size === kcBefore, 'keycheck: 같은 부서 재확인은 upsert(행 증가 없음)');
+
+  // 26-f) 지문 불일치 409 + 서버가 계산한 current 지문 안내
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDK, fingerprint: 'AAAA-BBBB' }, AGT);
+  const kcMis = await r.json();
+  ok(r.status === 409 && kcMis.error === 'fingerprint_mismatch' && kcMis.current === fpK,
+    'keycheck: 지문 불일치 409(fingerprint_mismatch + current)');
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDK, fingerprint: '지문아님' }, AGT);
+  ok(r.status === 400 && (await r.json()).error === 'invalid_fingerprint', 'keycheck: 지문 형식 오류 400(invalid_fingerprint)');
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 강남구', department: '총무과', restaurant_id: 'MGT-NO-SUCH-KC', fingerprint: fpK }, AGT);
+  ok(r.status === 404, 'keycheck: 미등록 음식점 404');
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '', department: '총무과', restaurant_id: RIDK, fingerprint: fpK }, AGT);
+  ok(r.status === 400, 'keycheck: 기관·부서 누락 400');
+  r = await callH(store, env, 'GET', '/api/agency/keychecks?institution=' + encodeURIComponent('서울특별시 강남구'), undefined, AGT);
+  ok(r.status === 400, 'keycheck: 조회 시 부서 누락 400');
+
+  // 26-g) 핵심 시나리오: 공개키가 바뀌면(가게 선점·기기 교체) 예전 지문은 더 이상 통하지 않는다
+  const kKc2 = await mkKey();
+  const tokKc = await getAuthToken(store, env, RIDK, kKc.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDK, restaurant_name: '지문식당', public_key: kKc2.spki, auth_token: tokKc });
+  ok(r.status === 200, 'keycheck: 소유 증명 후 키 교체 200');
+  const fpK2 = await fingerprintOf(kKc2.spki);
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDK, fingerprint: fpK }, AGT);
+  const kcAfter = await r.json();
+  ok(r.status === 409 && kcAfter.current === fpK2, 'keycheck: 키 교체 후 예전 지문은 409(current는 새 지문 — 담당자가 재확인해야 함)');
+
+  // 26-h) 보존: 열쇠 지문 확인 기록은 TTL cron 정리 대상이 아니다(장기 보관)
+  const kcSizeBeforeCron = store._dump().keychecks.size;
+  await store.cleanupTTL(Date.now());
+  ok(store._dump().keychecks.size === kcSizeBeforeCron, 'keycheck: TTL cron이 확인 이력을 지우지 않음(장기 보관)');
+
+  // 27) 가게 등록 강화(F-01) — 공공데이터 실존·상호 대조.
+  // callRaw는 목 카탈로그에 자동 등재하지 않으므로 "공공데이터에 없는 가게" 상황을 만든다.
+  const kFake = await mkKey();
+  r = await callRaw(store, env, 'POST', '/api/register-key', { restaurant_id: 'MGT-NOT-REAL-1', restaurant_name: '유령식당', public_key: kFake.spki });
+  ok(r.status === 400 && (await r.json()).error === 'store_not_found', 'register-key: 공공데이터에 없는 가게는 400(store_not_found)');
+  ok(!store._dump().keys.has('MGT-NOT-REAL-1'), 'register-key: 실존 확인 실패 시 공개키가 저장되지 않음');
+
+  seedStore('MGT-REAL-1', '진짜식당');
+  r = await callRaw(store, env, 'POST', '/api/register-key', { restaurant_id: 'MGT-REAL-1', restaurant_name: '남의가게이름', public_key: kFake.spki });
+  ok(r.status === 400 && (await r.json()).error === 'store_not_found', 'register-key: id는 실존하나 상호가 다르면 400(선점 방어)');
+
+  const kReal = await mkKey();
+  r = await callRaw(store, env, 'POST', '/api/register-key', { restaurant_id: 'MGT-REAL-1', restaurant_name: ' 진짜식당 (본점) ', public_key: kReal.spki });
+  ok(r.status === 400, 'register-key: 괄호 안 표기가 공공데이터와 다르면 여전히 400(정규화는 공백·괄호 문자만 제거)');
+  seedStore('MGT-REAL-2', '진짜식당(본점)');
+  const kReal2 = await mkKey();
+  r = await callRaw(store, env, 'POST', '/api/register-key', { restaurant_id: 'MGT-REAL-2', restaurant_name: '진짜식당 (본점)', public_key: kReal2.spki });
+  ok(r.status === 200, 'register-key: 공백·괄호 표기 차이는 정규화 후 일치로 통과 200');
+  ok(store._dump().keys.get('MGT-REAL-2').verified === 1, 'register-key: 대조 성공 시 verified=1');
+
+  // 공공 API 장애(조회 실패)에는 등록을 막지 않는다 — 가용성 우선, verified=0으로 표시만.
+  const envApiDown = { ...env, searchRestaurants: async () => { throw new Error('공공API HTTP 503'); } };
+  const kDown = await mkKey();
+  r = await callRaw(store, envApiDown, 'POST', '/api/register-key', { restaurant_id: 'MGT-APIDOWN-1', restaurant_name: '장애중식당', public_key: kDown.spki, district: '서울특별시 광진구' });
+  ok(r.status === 200, 'register-key: 공공API 장애 시에도 등록 200(가용성 우선 — 등록을 막지 않음)');
+  ok(store._dump().keys.get('MGT-APIDOWN-1').verified === 0, 'register-key: 공공API 장애로 판정 불가면 verified=0');
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시') + '&sigungu=' + encodeURIComponent('광진구'));
+  ok((await r.json()).restaurants.some(x => x.restaurant_id === 'MGT-APIDOWN-1' && x.verified === 0),
+    'registered-list: 미확인 등록분은 verified=0으로 노출(담당자 웹이 배지로 구분)');
+
+  // 재등록(다른 키, 소유 증명)은 실존 재대조를 하지 않는다 — 최초 등록에서만 검증(§4.10).
+  const kDown2 = await mkKey();
+  const tokDown = await getAuthToken(store, envApiDown, 'MGT-APIDOWN-1', kDown.kp.privateKey);
+  r = await callRaw(store, envApiDown, 'POST', '/api/register-key', { restaurant_id: 'MGT-APIDOWN-1', restaurant_name: '장애중식당', public_key: kDown2.spki, auth_token: tokDown });
+  ok(r.status === 200, 'register-key: 소유 증명 재등록은 공공API 조회 없이 200(최초 등록에서만 대조)');
+
+  // 28) 수신함 인증(F-02/M-5)
+  const RIDA = 'MGT-INBOXAUTH-1';
+  const kIa = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDA, restaurant_name: '수신함식당', public_key: kIa.spki });
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 강남구', department: '총무과', restaurant_id: RIDA, restaurant_name: '수신함식당', year_month: '2026-08', total_amount: 10000, member_count: 1, batch_hash: 'h-inboxauth' },
+    blob: { restaurant_id: RIDA, ciphertext: badCipher }
+  });
+  ok(r.status === 200, 'inbox 인증: 사전 제출 200');
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDA);
+  ok(r.status === 401 && (await r.json()).error === 'auth_required', 'inbox: 무인증 조회 401(auth_required)');
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDA + '&auth_token=bogus');
+  ok(r.status === 401, 'inbox: 위조 auth_token 401');
+  // 다른 음식점의 유효한 토큰으로는 남의 수신함을 열 수 없다.
+  const tokOtherShop = await getAuthToken(store, env, RIDK, kKc2.kp.privateKey);
+  r = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDA + '&auth_token=' + encodeURIComponent(tokOtherShop));
+  ok(r.status === 401, 'inbox: 다른 음식점의 유효 토큰으로도 401(가게별 챌린지 격리)');
+  // 헤더(X-Auth-Token) 경로도 동작
+  const tokIa1 = await getAuthToken(store, env, RIDA, kIa.kp.privateKey);
+  r = await callH(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDA, undefined, { 'X-Auth-Token': tokIa1 });
+  const inboxIa = await r.json();
+  ok(r.status === 200 && inboxIa.length === 1, 'inbox: X-Auth-Token 헤더 인증으로 200');
+  ok(!('batch_hash' in inboxIa[0].summary), 'inbox: 요약에 batch_hash 없음(오라클 차단 — 재확인)');
+  // 토큰은 1회용
+  r = await callH(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDA, undefined, { 'X-Auth-Token': tokIa1 });
+  ok(r.status === 401, 'inbox: 동일 auth_token 재사용 401(1회용)');
+  // inbox-count는 현행대로 무인증(개수만 — /api/inbox로 알 수 있는 값의 부분집합)
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDA);
+  const cntIa = await r.json();
+  ok(r.status === 200 && cntIa.count === 1 && Object.keys(cntIa).join(',') === 'count',
+    'inbox-count: 인증 없이 200 유지(응답은 count만 — 요약 메타 없음)');
+
+  // 29) OTP 발송 남용 차단(F-03)
+  const ymd = new Date();
+  const otpKey = 'otp_sent_' + ymd.getUTCFullYear() + '-' + String(ymd.getUTCMonth() + 1).padStart(2, '0') + '-' + String(ymd.getUTCDate()).padStart(2, '0');
+  // 29-a) 발송 성공 시 일일 카운터 +1
+  const otpUsedBefore = store._dump().counters.get(otpKey) || 0;
+  stub = makeFetchStub({ ok: true, status: 200 });
+  globalThis.fetch = stub.fn.bind(stub);
+  try { r = await call(store, envProd, 'POST', '/api/agency/request-otp', { email: 'budget-1@seoul.go.kr' }); }
+  finally { globalThis.fetch = realFetch; }
+  ok(r.status === 200 && (store._dump().counters.get(otpKey) || 0) === otpUsedBefore + 1,
+    'otp 예산: 발송 성공 시 일일 카운터(otp_sent_YYYY-MM-DD) +1');
+  // 29-b) 예산 초과 → Resend 호출 없이 429
+  const envBudget0 = { ...envProd, OTP_DAILY_BUDGET: '0' };
+  stub = makeFetchStub({ ok: true, status: 200 });
+  globalThis.fetch = stub.fn.bind(stub);
+  try { r = await call(store, envBudget0, 'POST', '/api/agency/request-otp', { email: 'budget-2@seoul.go.kr' }); }
+  finally { globalThis.fetch = realFetch; }
+  const rjBudget = await r.json();
+  ok(r.status === 429 && rjBudget.error === 'email_quota_exceeded' && stub.calls.length === 0,
+    'otp 예산: 일일 상한 초과 시 Resend 호출 없이 429(email_quota_exceeded)');
+  ok(!store._dump().agencyOtps.has(await sha256hex('budget-2@seoul.go.kr')),
+    'otp 예산: 예산 초과 요청은 OTP 행을 만들지 않음(60초 스로틀 미소모)');
+  // 예산은 prod에서만 검사 — dev/pilot은 발송 자체가 없으므로 영향 없음
+  r = await call(store, { ...env, OTP_DAILY_BUDGET: '0' }, 'POST', '/api/agency/request-otp', { email: 'budget-3@seoul.go.kr' });
+  ok(r.status === 200, 'otp 예산: 발송하지 않는 모드(dev)는 예산과 무관하게 통과');
+
+  // 29-c) IP당 시간당 5회 저한도(per-isolate 한계는 §6.3 — 없는 것보단 낫다)
+  let otpIpLimited = false;
+  for (let i = 0; i < 8; i++) {
+    const rr = await handle(new Request('http://x/api/agency/request-otp', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '203.0.113.111' },
+      body: JSON.stringify({ email: 'otp-ip-' + i + '@seoul.go.kr' })
+    }), env, store);
+    if (rr.status === 429 && (await rr.json()).error === 'rate_limited') { otpIpLimited = i >= 5; break; }
+  }
+  ok(otpIpLimited, 'otp: 같은 IP에서 시간당 5회 초과 요청은 429(rate_limited)');
+  const otpIpOther = await handle(new Request('http://x/api/registered?ids=otp-ip-other', { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.111' } }), env, store);
+  ok(otpIpOther.status === 200, 'otp: OTP 전용 IP 한도는 다른 엔드포인트에 영향 없음(독립 카운터)');
+
+  // 30) 응답 보안 헤더(H-5 서버 몫) — 모든 응답에 공통 적용, CORS 동작 불변
+  const secHdr = await handle(new Request('http://x/api/registered?ids=sec-1', { method: 'GET', headers: { Origin: 'https://a.example' } }), { ...env, ALLOW_ORIGIN: 'https://a.example' }, store);
+  ok(secHdr.headers.get('Cache-Control') === 'no-store', '보안 헤더: Cache-Control: no-store');
+  ok(secHdr.headers.get('X-Content-Type-Options') === 'nosniff', '보안 헤더: X-Content-Type-Options: nosniff');
+  ok(secHdr.headers.get('Referrer-Policy') === 'no-referrer', '보안 헤더: Referrer-Policy: no-referrer');
+  ok(secHdr.headers.get('Strict-Transport-Security') === 'max-age=31536000; includeSubDomains', '보안 헤더: Strict-Transport-Security');
+  ok(secHdr.headers.get('Access-Control-Allow-Origin') === 'https://a.example', '보안 헤더: CORS 동작 불변(화이트리스트 Origin echo 유지)');
+  const secErr = await call(store, env, 'GET', '/api/inbox?restaurant_id=' + RIDA);
+  ok(secErr.status === 401 && secErr.headers.get('Cache-Control') === 'no-store' && secErr.headers.get('X-Content-Type-Options') === 'nosniff',
+    '보안 헤더: 오류 응답(401)에도 동일하게 적용');
+  const secOpt = await handle(new Request('http://x/api/inbox', { method: 'OPTIONS', headers: { Origin: 'https://a.example' } }), { ...env, ALLOW_ORIGIN: 'https://a.example' }, store);
+  ok(secOpt.status === 204 && secOpt.headers.get('X-Content-Type-Options') === 'nosniff'
+    && secOpt.headers.get('Access-Control-Allow-Headers').includes('X-Auth-Token'),
+    '보안 헤더: OPTIONS 프리플라이트에도 적용 + X-Auth-Token 허용 헤더 등재');
+
+  // 31) /api/registered ids 상한(F-14): 100개 초과는 500이 아니라 400
+  const ids100 = Array.from({ length: 100 }, (_, i) => 'ID-' + i).join(',');
+  r = await call(store, env, 'GET', '/api/registered?ids=' + ids100);
+  ok(r.status === 200 && Array.isArray(await r.json()), 'registered: 경계값 100개는 200');
+  const ids101 = Array.from({ length: 101 }, (_, i) => 'ID-' + i).join(',');
+  r = await call(store, env, 'GET', '/api/registered?ids=' + ids101);
+  const rjIds = await r.json();
+  ok(r.status === 400 && rjIds.error === 'too_many_ids' && rjIds.max === 100,
+    'registered: 101개는 400(too_many_ids) — 과거엔 D1 바인딩 초과로 500이었음');
+
+  // 32) 피드백 전화번호 차단(불변식 4 보호)
+  r = await call(store, env, 'POST', '/api/feedback', { role: '음식점', message: '연락주세요 010-1234-5678' });
+  ok(r.status === 400 && (await r.json()).error === 'no_personal_info', 'feedback: message에 전화번호가 있으면 400(no_personal_info)');
+  r = await call(store, env, 'POST', '/api/feedback', { role: '기관', message: '문의드립니다', contact: '01012345678' });
+  ok(r.status === 400 && (await r.json()).error === 'no_personal_info', 'feedback: contact에 하이픈 없는 전화번호도 400');
+  r = await call(store, env, 'POST', '/api/feedback', { role: '직원', message: '011-222-3333로 연락 부탁' });
+  ok(r.status === 400, 'feedback: 011 등 다른 통신사 번호도 차단');
+  ok(!store._dump().feedbacks.some(f => /01[0-9]-?\d{3,4}-?\d{4}/.test(String(f.message) + String(f.contact || ''))),
+    'feedback: 저장소 어디에도 전화번호 패턴이 남지 않음');
+  r = await call(store, env, 'POST', '/api/feedback', { role: '기타', message: '2026-08-01에 써봤어요. 좋네요', contact: 'https://open.kakao.com/o/ok1' });
+  ok(r.status === 200, 'feedback: 전화번호가 아닌 숫자(날짜 등)는 정상 저장 200(오탐 없음)');
+
+  // 33) 이메일 해시 pepper(F-09/M-8): 설정 시 HMAC, 미설정 시 기존 SHA-256, 구 해시 조회 폴백
+  const hmacHex = async (key, msg) => {
+    const k = await subtle.importKey('raw', encU.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return Array.from(new Uint8Array(await subtle.sign('HMAC', k, encU.encode(msg)))).map(v => v.toString(16).padStart(2, '0')).join('');
+  };
+  const envPepper = { ...env, EMAIL_PEPPER: 'test-pepper-value' };
+  const PEP_EMAIL = 'pepper-officer@seoul.go.kr';
+  r = await call(store, envPepper, 'POST', '/api/agency/request-otp', { email: PEP_EMAIL });
+  const rjPep = await r.json();
+  ok(r.status === 200 && /^\d{6}$/.test(rjPep.dev_otp || ''), 'pepper: EMAIL_PEPPER 설정 상태에서도 OTP 발급 정상');
+  const pepKey = await hmacHex('test-pepper-value', PEP_EMAIL);
+  const pepLegacyKey = await sha256hex(PEP_EMAIL);
+  ok(store._dump().agencyOtps.has(pepKey) && !store._dump().agencyOtps.has(pepLegacyKey),
+    'pepper: 저장 키가 HMAC-SHA256(EMAIL_PEPPER, email)이며 구 SHA-256 키가 아님');
+  r = await call(store, envPepper, 'POST', '/api/agency/verify-otp', { email: PEP_EMAIL, otp: rjPep.dev_otp });
+  const rjPepTok = await r.json();
+  ok(r.status === 200 && typeof rjPepTok.token === 'string', 'pepper: HMAC 키로 verify-otp 정상 통과');
+  ok([...store._dump().agencyTokens.values()].some(t => t.email_hash === pepKey), 'pepper: agency_token에도 HMAC 해시로 저장');
+
+  // 미설정(기본): 기존 SHA-256 그대로 — 배포 순서 안전(secret 등록 전에도 동작)
+  const NOPEP_EMAIL = 'nopepper-officer@seoul.go.kr';
+  r = await call(store, env, 'POST', '/api/agency/request-otp', { email: NOPEP_EMAIL });
+  ok(r.status === 200 && store._dump().agencyOtps.has(await sha256hex(NOPEP_EMAIL)),
+    'pepper: EMAIL_PEPPER 미설정이면 기존 SHA-256 키로 동작(구 동작 보존)');
+
+  // 전환기 폴백: pepper 도입 전에 구 SHA-256 키로 저장된 행도 계속 검증된다
+  const LEGACY_EMAIL = 'legacy-officer@seoul.go.kr';
+  const legacyKey = await sha256hex(LEGACY_EMAIL);
+  await store.upsertAgencyOtp({ email_hash: legacyKey, otp_hash: await sha256hex('654321'), expires_at: Date.now() + 60000, attempts: 0, created_at: Date.now() - 120000 });
+  r = await call(store, envPepper, 'POST', '/api/agency/verify-otp', { email: LEGACY_EMAIL, otp: '654321' });
+  ok(r.status === 200 && typeof (await r.json()).token === 'string',
+    'pepper 폴백: pepper 도입 전 SHA-256 키로 저장된 OTP 행도 검증 성공');
+  ok(!store._dump().agencyOtps.has(legacyKey), 'pepper 폴백: 검증 성공 시 구 키 행이 삭제됨(1회용 유지)');
+  // 구 키 행이 남아 있으면 재요청 스로틀도 그 행을 인식한다(두 키로 갈라지지 않음)
+  const legacyKey2 = await sha256hex('legacy2-officer@seoul.go.kr');
+  await store.upsertAgencyOtp({ email_hash: legacyKey2, otp_hash: await sha256hex('111111'), expires_at: Date.now() + 60000, attempts: 0, created_at: Date.now() });
+  r = await call(store, envPepper, 'POST', '/api/agency/request-otp', { email: 'legacy2-officer@seoul.go.kr' });
+  ok(r.status === 429, 'pepper 폴백: 구 키 행도 60초 재요청 스로틀에 그대로 반영');
+
+  // 34) 챌린지 상한·정리·레이트리밋
+  const RIDCH = 'MGT-CHAL-1';
+  const kCh = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDCH, restaurant_name: '챌린지식당', public_key: kCh.spki });
+  let chalStatuses = [];
+  for (let i = 0; i < 6; i++) {
+    const rr = await call(store, env, 'POST', '/api/challenge', { restaurant_id: RIDCH });
+    chalStatuses.push(rr.status);
+  }
+  ok(chalStatuses.slice(0, 5).every(s => s === 200) && chalStatuses[5] === 429,
+    'challenge: 소비되지 않은 챌린지가 5개 차면 6번째는 429(too_many_challenges)');
+  ok(store._dump().challenges.filter(c => c.restaurant_id === RIDCH).length === 5,
+    'challenge: 상한 초과분은 저장되지 않음(미만료 5개 유지)');
+  // 만료분은 발급 직전에 정리되므로 다시 발급받을 수 있다
+  store._dump().challenges.forEach(c => { if (c.restaurant_id === RIDCH) c.expires_at = Date.now() - 1000; });
+  r = await call(store, env, 'POST', '/api/challenge', { restaurant_id: RIDCH });
+  ok(r.status === 200, 'challenge: 만료분은 발급 전에 정리되어 다시 발급 가능');
+  ok(store._dump().challenges.filter(c => c.restaurant_id === RIDCH).length === 1,
+    'challenge: 만료된 5개가 지워지고 새 1개만 남음(저장 남용 방지)');
+  // 정상 소비 흐름(발급 즉시 1회용 소비)은 8회를 반복해도 상한에 걸리지 않는다.
+  let consumeOk = true;
+  for (let i = 0; i < 8; i++) { if ((await inboxOf(store, env, RIDCH, kCh.kp.privateKey)).status !== 200) consumeOk = false; }
+  ok(consumeOk, 'challenge: 발급→소비를 반복하는 정상 흐름은 상한에 걸리지 않음');
+  // IP당 분당 20회 별도 레이트리밋(독립 카운터)
+  let chLimited = false;
+  for (let i = 0; i < 25; i++) {
+    const rr = await handle(new Request('http://x/api/challenge', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '203.0.113.222' },
+      body: JSON.stringify({ restaurant_id: RIDCH })
+    }), env, store);
+    if (rr.status === 429 && (await rr.json()).error === 'rate_limited') { chLimited = true; break; }
+  }
+  ok(chLimited, 'challenge: 강화된 레이트리밋(IP당 분당 20회) 초과 시 429');
+  const chOther = await handle(new Request('http://x/api/registered?ids=ch-other', { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.222' } }), env, store);
+  ok(chOther.status === 200, 'challenge: 챌린지 전용 레이트리밋은 다른 엔드포인트에 영향 없음');
 
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);

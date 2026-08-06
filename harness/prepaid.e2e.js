@@ -76,15 +76,73 @@ async function assert(condition, message) {
 //   (PIN 최초 설정·변경 단계에서는 손님 화면이 없으므로 그때는 곧바로 패드가 떠 있다.)
 // beta.19/21: 손님이 요청을 넘긴 뒤에는 이미 PIN 패드("사장님 확인")가 떠 있다 —
 //   그때는 [사장님용 잠금 해제]가 없으므로 이 헬퍼가 곧바로 4자리를 누른다(인계 경로와 그대로 정합).
+// PIN 키패드 입력. beta.31에서 PIN 저장이 PBKDF2(60만 회)로 바뀌면서 4자리째 입력 뒤 검증이
+//   수백 ms 걸린다 — 그동안 들어온 탭은 앱이 (정상적으로) 무시한다. 하니스가 20타를 10ms 간격으로
+//   때리면 5회 실패 시나리오가 1회로 줄어든다. 그래서 4자리마다 입력칸이 비워질 때까지 기다린다.
+async function typePin(page, digits) {
+  for (let i = 0; i < digits.length; i += 1) {
+    await page.locator(`[data-a="pin-key"][data-key="${digits[i]}"]`).click();
+    if ((i + 1) % 4 === 0) {
+      await page.waitForFunction(() => {
+        const H = window.__prepaidTestHooks;
+        return !H || !H.lockState || H.lockState().pinLen === 0;
+      }, null, { timeout: 15000 }).catch(() => {});
+    }
+  }
+}
+
+// ── 씨앗 장부 체인 봉인 ────────────────────────────────────────────────────────
+// beta.31부터 해시 체인은 canonical v2 + 꼬리 앵커(meta.chainTip·txCount)로 검증되고,
+//   txHash가 없는 거래(구 형식)는 더 이상 조용히 통과하지 않는다("체인을 지우면 검증 우회" 차단).
+//   그래서 IndexedDB에 직접 심는 씨앗 거래도 실제 앱이 만든 것과 같은 모양이어야 한다.
+//   이 함수는 저장소의 거래 전부를 시간순으로 다시 이어 붙이고 앵커까지 맞춘다.
+async function resealChain(page) {
+  return page.evaluate(async () => {
+    const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const str = v => (typeof v === 'string' ? v.trim() : '');
+    const hex = b => Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
+    const h = async t => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(t))));
+    const canon = (t, prev) => 'bapjangbu/tx/v2\n' + JSON.stringify([str(t.id), str(t.employeeId), str(t.type),
+      num(t.amount), num(t.beforeBalance), num(t.afterBalance), t.targetTransactionId ? str(t.targetTransactionId) : '',
+      str(t.signatureHash), str(t.reason), str(t.note), str(prev || ''), num(t.createdAt)]);
+    const cmp = (a, b) => (num(a.createdAt) - num(b.createdAt)) || (str(a.id) < str(b.id) ? -1 : str(a.id) > str(b.id) ? 1 : 0);
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('prepaid-ledger-db'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const rows = await new Promise((res, rej) => { const q = db.transaction('transactions', 'readonly').objectStore('transactions').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
+    const sorted = rows.slice().sort(cmp);
+    // 잔액 정합화: 실제 앱이 만든 장부는 언제나 beforeBalance = 직전 afterBalance 이고
+    //   beforeBalance ± 금액 = afterBalance 다. beta.31의 금액 대조(reconcile)가 그 관계를 전건 검사하므로
+    //   씨앗도 같은 모양이어야 한다(예전 씨앗은 0/0으로 두고 derive 재계산에만 기댔다).
+    const run = new Map();
+    for (const t of sorted) {
+      const k = str(t.employeeId), before = num(run.get(k));
+      t.beforeBalance = before;
+      t.afterBalance = t.type === 'use' ? before - num(t.amount) : before + num(t.amount);
+      run.set(k, t.afterBalance);
+    }
+    let tip = '';
+    for (const t of sorted) {
+      if (t.signatureData && !t.signatureHash) t.signatureHash = await h(String(t.signatureData));
+      t.hv = 2; t.prevHash = tip; t.txHash = await h(canon(t, tip)); tip = t.txHash;
+    }
+    await new Promise((res, rej) => {
+      const tx = db.transaction(['transactions', 'meta'], 'readwrite');
+      const ts = tx.objectStore('transactions');
+      sorted.forEach(v => ts.put(v));
+      tx.objectStore('meta').put({ key: 'chainTip', value: tip });
+      tx.objectStore('meta').put({ key: 'txCount', value: sorted.length });
+      tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+    });
+    return { count: sorted.length, tip };
+  });
+}
+
 async function unlockPin(page) {
   await page.waitForSelector('.cust-screen, [data-a="pin-key"]', { timeout: 8000 });
   if (await page.locator('[data-a="lock-to-pin"]').count()) {
     await page.locator('[data-a="lock-to-pin"]').click();
     await page.waitForSelector('[data-a="pin-key"]');
   }
-  for (const key of ['1', '2', '3', '4']) {
-    await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
-  }
+  await typePin(page, ['1', '2', '3', '4']);
 }
 
 // 홈 그룹은 기본 접힘(아코디언, beta.14)이다 — 직원 카드를 눌러야 하는 시나리오에서는 먼저 그룹 헤더를 탭해 펼친다.
@@ -232,7 +290,7 @@ async function runSearchOnboarding(browser, url, cors) {
     await assert(registerBodies.length === 0, 'no register-key call may happen before the terms are agreed');
     await page.locator('#setupTermsChk').check();
     await page.locator('[data-a="setup-complete"]').click();
-    for (const key of ['1', '2', '3', '4', '1', '2', '3', '4']) await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
+    await typePin(page, ['1', '2', '3', '4', '1', '2', '3', '4']);
     await page.waitForSelector('[data-a="guide-dismiss"]');
 
     // 등록은 정확히 한 번, 그리고 district가 실려 있어야 한다.
@@ -491,6 +549,391 @@ async function runWipeDeregister(browser, url, cors) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// beta.31 보안 강화 회귀 — 실제로 재현됐던 취약점이 다시 열리지 않는지 못 박는다.
+//   ① CSV 오류 문구 XSS  ② 서명 dataURL XSS  ③ 조작된 백업의 meta 바꿔치기
+//   ④ CSP 선언            ⑤ 서비스워커 캐시 오염(교차출처·404)
+//   ⑥ 수신함 소유증명 토큰 ⑦⑧ 총액·인원 대조   ⑨ 열쇠 지문   ⑭ 잠금 중 자동 백업 금지
+//   ⑯ 해시체인 v2(꼬리 앵커·유형/잔액/서명 변조)
+// ══════════════════════════════════════════════════════════════════════════════
+async function runSecurityHardening(browser, url, cors) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const dialogs = [];
+  const problems = [];
+  page.on('dialog', async d => { dialogs.push({ type: d.type(), message: d.message() }); await d.accept(); });
+  page.on('pageerror', err => problems.push(err.message));
+  page.on('console', m => { if (['error', 'warning'].includes(m.type())) problems.push(`${m.type()}: ${m.text()}`); });
+  await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
+  await context.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"nf"}' }));
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+
+    // ── ④ CSP 선언 ────────────────────────────────────────────────────────────
+    const csp = await page.evaluate(() => {
+      const el = document.querySelector('meta[http-equiv="Content-Security-Policy" i]');
+      return el ? el.getAttribute('content') : '';
+    });
+    for (const directive of ["default-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'self'",
+      "img-src 'self' data:", 'connect-src', 'https://prepaid-relay.sulsul-plus.workers.dev', 'upgrade-insecure-requests']) {
+      await assert(csp.includes(directive), `the CSP meta tag must declare ${directive} (got ${JSON.stringify(csp)})`);
+    }
+    // meta 형태에서는 frame-ancestors가 무시된다 — 넣어서 "막았다"고 착각하지 않는다(주석으로만 남긴다).
+    await assert(!csp.includes('frame-ancestors'), 'frame-ancestors is ignored in a meta CSP — it must not be declared there (clickjacking stays unsolved; see the comment in index.html)');
+    // djb2 폴백 제거 + http 차단 화면(정적 계약 — 보안 컨텍스트가 아니면 앱이 뜨면 안 된다)
+    const appSrc = await fsp.readFile(path.join(root, 'index.html'), 'utf8');
+    await assert(!/x\s*=\s*5381/.test(appSrc), 'the djb2 hash fallback must be gone (a 32-bit hash makes the chain and the PIN forgeable by brute force)');
+    await assert(appSrc.includes('안전하지 않은 주소') && appSrc.includes('if(!cryptoOk())'), 'init() must block the app outside a secure context instead of silently degrading');
+
+    // 등록을 마친 기기 상태로 시드(PIN 1234는 구 형식 SHA-256 — 새 형식으로 자동 승격되어야 한다)
+    const legacyPinHash = crypto.createHash('sha256').update('1234').digest('hex');
+    await page.evaluate(({ hash, t }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta'], 'readwrite');
+        const ms = tx.objectStore('meta');
+        ms.put({ key: 'setupComplete', value: true });
+        ms.put({ key: 'welcomeSeen', value: true });
+        ms.put({ key: 'termsAgreedAt', value: t });
+        ms.put({ key: 'pinHash', value: hash });
+        ms.put({ key: 'shopName', value: '보안식당' });
+        ms.put({ key: 'departments', value: ['총무과'] });
+        ms.put({ key: 'storeRegisterPending', value: false });
+        ms.put({ key: 'restaurantId', value: 'rid-sec-1' });
+        ms.put({ key: 'relayStoreName', value: '보안식당' });
+        ms.put({ key: 'relayRegisteredAt', value: t });
+        ms.put({ key: 'districtSyncedAt', value: t });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { hash: legacyPinHash, t: Date.now() });
+    // 잠금이 실제로 풀렸는지로 판정한다 — 홈의 빠른 버튼은 직원이 있을 때만 그려진다.
+    const awaitUnlocked = () => page.waitForFunction(() => {
+      const H = window.__prepaidTestHooks;
+      return !!H && H.lockState && H.lockState().locked === false;
+    }, null, { timeout: 15000 });
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await awaitUnlocked();
+    // ⑰ 구 형식 PIN은 첫 성공 즉시 PBKDF2 형식으로 조용히 승격된다(솔트·반복수가 값 안에 들어간다).
+    const upgraded = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {}).pinHash;
+    await assert(/^pbkdf2\$600000\$[A-Za-z0-9+/=]+\$[0-9a-f]{64}$/.test(String(upgraded)),
+      `a legacy SHA-256 PIN must be re-saved as salted PBKDF2 on the first successful unlock (got ${JSON.stringify(String(upgraded).slice(0, 40))})`);
+    await assert(String(upgraded) !== legacyPinHash, 'the upgraded PIN hash must not equal the unsalted SHA-256 value');
+
+    // ── ① CSV 오류 문구 XSS ───────────────────────────────────────────────────
+    //   재현: 금액 칸에 <img src=x onerror=…> 를 적은 CSV → 미리보기 표에서 그대로 실행됐다.
+    const evilCsv = '﻿부서,이름,금액\r\n총무과,홍길동,"<img src=x onerror=window.__CSVXSS=1>"\r\n총무과,김서무,"<svg onload=window.__CSVXSS2=1>"\r\n';
+    await page.evaluate(() => { window.__CSVXSS = 0; window.__CSVXSS2 = 0; });
+    await page.locator('#csvFile').setInputFiles({ name: 'evil.csv', mimeType: 'text/csv', buffer: Buffer.from(evilCsv, 'utf8') });
+    await page.waitForSelector('.csv-table', { timeout: 8000 });
+    const csvProbe = await page.evaluate(() => ({
+      fired: !!window.__CSVXSS || !!window.__CSVXSS2,
+      injected: document.querySelectorAll('.csv-table img, .csv-table svg, .csv-table [onerror], .csv-table [onload]').length,
+      text: document.querySelector('.csv-table').innerText.replace(/\s+/g, ' ')
+    }));
+    await assert(csvProbe.fired === false, 'a malicious CSV cell must never execute script in the preview table');
+    await assert(csvProbe.injected === 0, 'a malicious CSV cell must not inject any element into the preview table');
+    await assert(csvProbe.text.includes('금액 오류'), 'the preview must still explain the amount error as plain text');
+    // 오류 문구는 원본 셀을 **길이 제한 + 태그 문자 제거**한 뒤에만 싣는다(출력부 esc()가 2중 방어).
+    await assert(!/[<>]/.test(csvProbe.text), `the error message must not echo raw markup back (got ${JSON.stringify(csvProbe.text.slice(0, 160))})`);
+    await assert(/금액 오류: "[^"]{0,20}"/.test(csvProbe.text), `the echoed cell must stay short (<=20 chars) in the error message (got ${JSON.stringify(csvProbe.text.slice(0, 160))})`);
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(120);
+
+    // ── ②③ 조작된 백업: 서명 dataURL XSS + meta 바꿔치기 ─────────────────────
+    const beforeRestore = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(Boolean(beforeRestore.deviceSecret) && Boolean(beforeRestore.privKeyWrapped), 'the device should own a keypair before the tampered-restore test');
+    const evilSig = 'data:image/png;base64,AAA" onerror="window.__SIGXSS=1" x="';
+    const attackerPin = crypto.createHash('sha256').update('9999').digest('hex');
+    const tNow = Date.now();
+    const tamperedBackup = JSON.stringify({
+      schemaVersion: 3, appName: '선입금대장', appVersion: 'x', exportedAt: tNow,
+      payload: {
+        employees: [{ id: 'sec-e1', org: '보안기관', orgKind: 'public', dept: '총무과', name: '홍길동', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: tNow - 2000, updatedAt: tNow - 2000 }],
+        transactions: [
+          { id: 'sec-t1', employeeId: 'sec-e1', type: 'open', amount: 10000, beforeBalance: 0, afterBalance: 10000, reason: '초기', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: tNow - 1500 },
+          { id: 'sec-t2', employeeId: 'sec-e1', type: 'use', amount: 1000, beforeBalance: 10000, afterBalance: 9000, reason: '', note: '점심', targetTransactionId: null, signatureData: evilSig, signatureHash: '', txHash: '', prevHash: '', createdAt: tNow - 1000 }
+        ],
+        // 공격자가 노리는 값들 — 전부 무시되어야 한다.
+        meta: { setupComplete: true, shopName: '보안식당', departments: [], pinHash: attackerPin, pinFails: 0, pinDelayUntil: 0, deviceSecret: 'ATTACKER-SECRET', privKeyWrapped: 'ATTACKER-KEY', __proto__: { polluted: 1 }, evilUnknownKey: 'x' }
+      }
+    });
+    await page.evaluate(() => { window.__SIGXSS = 0; });
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForSelector('#restoreFile', { state: 'attached' });
+    await page.locator('#restoreFile').setInputFiles({ name: 'tampered.json', mimeType: 'application/json', buffer: Buffer.from(tamperedBackup, 'utf8') });
+    for (let i = 0; i < 60; i += 1) {
+      const db = await readDb(page);
+      if (db.employees.some(e => e.id === 'sec-e1')) break;
+      await page.waitForTimeout(200);
+    }
+    const afterRestore = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(afterRestore.pinHash === beforeRestore.pinHash, 'a restored backup must NEVER replace this device PIN hash (an edited backup used to unlock the app with the attacker PIN)');
+    await assert(afterRestore.deviceSecret === beforeRestore.deviceSecret, 'a restored backup must never replace the device secret');
+    await assert(afterRestore.privKeyWrapped === beforeRestore.privKeyWrapped, 'a restored backup must never replace the wrapped private key');
+    await assert(afterRestore.evilUnknownKey === undefined, 'unknown meta keys from a backup must be dropped by the whitelist');
+    await assert(afterRestore.shopName === '보안식당', 'ordinary meta (shop name) must still restore normally');
+    // 서명 페이로드: sigD 화이트리스트에서 걸러지고, 남았더라도 esc()로 문자로만 그려진다.
+    await assert((await page.evaluate(() => !!window.__SIGXSS)) === false, 'a signature dataURL payload must never execute');
+    const storedSig = (await readDb(page)).transactions.find(t => t.id === 'sec-t2');
+    await assert(storedSig && storedSig.signatureData === '', `a signature dataURL that is not a clean base64 image must be dropped at the storage boundary (got ${JSON.stringify(storedSig && storedSig.signatureData)})`);
+    // 복원 직후 열려 있을 수 있는 모달(안내 등)을 먼저 닫는다 — 화면 전환 클릭이 가려진다.
+    // 복원본에 termsAgreedAt이 없으면 약관 동의 게이트가 다시 뜬다(정상) — 동의하고 지나간다.
+    if (await count(page, '#termsChk')) {
+      await page.locator('#termsChk').check();
+      await page.locator('[data-a="terms-agree"]').click();
+      await page.waitForTimeout(250);
+    }
+    for (let i = 0; i < 4 && await count(page, '.modal-back'); i += 1) {
+      await page.locator('.modal-back [data-a="close-modal"]').first().click({ timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(150);
+    }
+    await assert(await count(page, '.modal-back') === 0, `no modal may stay open after a restore: ${JSON.stringify((await page.evaluate(() => { const m = document.querySelector('.modal-back'); return m ? m.innerText.replace(/\s+/g, ' ').slice(0, 200) : ''; })))}`);
+    await page.locator('[data-a="screen"][data-screen="history"]').click();
+    await page.waitForTimeout(400);
+    const domProbe = await page.evaluate(() => ({
+      fired: !!window.__SIGXSS,
+      badImgs: document.querySelectorAll('img[onerror], img.thumb[onerror]').length,
+      thumbs: [...document.querySelectorAll('img.thumb')].map(i => i.getAttribute('src'))
+    }));
+    await assert(domProbe.fired === false, 'rendering the restored ledger must not execute the signature payload');
+    await assert(domProbe.badImgs === 0, 'no rendered <img> may carry an onerror attribute smuggled through a dataURL');
+    await assert(domProbe.thumbs.every(srcVal => /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(srcVal || '')), `every rendered signature src must match the strict dataURL whitelist (got ${JSON.stringify(domProbe.thumbs)})`);
+    // PIN이 그대로인지 실제로 잠갔다 풀어 확인한다 — 공격자 PIN(9999)은 통하지 않아야 한다.
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForSelector('[data-a="hand-to-customer"]');
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+    await typePin(page, ['9', '9', '9', '9']);
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).locked === true, 'the attacker PIN from the tampered backup must NOT unlock the app');
+    await typePin(page, ['1', '2', '3', '4']);
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).locked === false, 'the real device PIN must still unlock after a restore');
+    await assert(afterRestore.pubKey === beforeRestore.pubKey, 'a restore must keep this device public key paired with its private key');
+    // 복원은 가게 등록(restaurantId)을 백업 내용으로 바꾼다 — 이 백업에는 없었으므로 지워졌다. 아래 시나리오용으로 다시 심는다.
+    await page.evaluate(t => new Promise((res, rej) => {
+      const r = indexedDB.open('prepaid-ledger-db');
+      r.onsuccess = () => { const tx = r.result.transaction('meta', 'readwrite'); const ms = tx.objectStore('meta');
+        ms.put({ key: 'restaurantId', value: 'rid-sec-1' }); ms.put({ key: 'relayStoreName', value: '보안식당' });
+        ms.put({ key: 'relayRegisteredAt', value: t }); ms.put({ key: 'districtSyncedAt', value: t });
+        tx.oncomplete = () => res(true); tx.onerror = () => rej(tx.error); };
+    }), Date.now());
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await awaitUnlocked();
+
+    // ── ⑨ 열쇠 지문 ───────────────────────────────────────────────────────────
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'enroll-auto');
+    await page.waitForSelector('#keyFp', { timeout: 8000 });
+    const fpText = (await page.locator('#keyFp').innerText()).trim();
+    await assert(/^[0-9A-F]{4}-[0-9A-F]{4}$/.test(fpText), `the store key fingerprint must render as ABCD-EF12 (got ${JSON.stringify(fpText)})`);
+    const fpExpected = await page.evaluate(async () => {
+      const b64 = new Promise(res => { const r = indexedDB.open('prepaid-ledger-db'); r.onsuccess = () => { const q = r.result.transaction('meta', 'readonly').objectStore('meta').get('pubKey'); q.onsuccess = () => res(q.result.value); }; });
+      const pk = await b64;
+      const bin = atob(pk); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const h = await crypto.subtle.digest('SHA-256', u.buffer);
+      const hex = Array.from(new Uint8Array(h)).map(v => v.toString(16).padStart(2, '0')).join('').slice(0, 8).toUpperCase();
+      return hex.slice(0, 4) + '-' + hex.slice(4, 8);
+    });
+    await assert(fpText === fpExpected, `the fingerprint must be SHA-256(SPKI) hex[0..8] (expected ${fpExpected}, got ${fpText})`);
+    await assert((await page.locator('.settings-card', { hasText: '우리 가게 열쇠 지문' }).innerText()).includes('전화로'),
+      'the fingerprint block must explain the phone-confirmation procedure in plain language');
+    await assert(await count(page, '[data-a="copy-key-fp"]') === 1, 'the fingerprint must offer a copy button');
+
+    // ── ⑭ 잠금 중에는 개인키를 쓰는 자동 백업이 돌지 않는다 ──────────────────
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForSelector('[data-a="hand-to-customer"]');
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    const lockedBackup = await page.evaluate(async () => {
+      window.__authCalls = 0;
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => { if (String(u).includes('/api/challenge') || String(u).includes('/api/ledger-backup')) window.__authCalls += 1; return orig(u, o); };
+      const silent = await window.__prepaidTestHooks.relayBackupSilent();
+      await window.__prepaidTestHooks.maybeMonthlyAutoBackup();
+      window.fetch = orig;
+      return { silent, calls: window.__authCalls, locked: window.__prepaidTestHooks.lockState().locked };
+    });
+    await assert(lockedBackup.locked === true, 'the auto-backup guard test must actually run on the locked screen');
+    await assert(lockedBackup.silent === false, 'the silent cloud backup must refuse to run while the app is locked (it unwraps the private key)');
+    await assert(lockedBackup.calls === 0, 'no challenge/backup request may leave the device before the PIN is entered');
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-key"]');
+    await typePin(page, ['1', '2', '3', '4']);
+    await awaitUnlocked();
+
+    // ── ⑤ 서비스워커 캐시: 교차출처·비정상 응답을 담지 않는다 ────────────────
+    const swProbe = await page.evaluate(async (relay) => {
+      const out = { controller: !!navigator.serviceWorker.controller };
+      try { await fetch(relay + '/api/inbox-count?restaurant_id=rid-sec-1'); } catch (e) { out.crossErr = String(e).slice(0, 60); }
+      try { await fetch('./__does_not_exist__.json'); } catch (e) { out.missErr = String(e).slice(0, 60); }
+      await new Promise(r => setTimeout(r, 400));
+      const names = await caches.keys();
+      const urls = [];
+      for (const n of names) { const c = await caches.open(n); (await c.keys()).forEach(k => urls.push(k.url)); }
+      out.urls = urls;
+      return out;
+    }, 'https://prepaid-relay.sulsul-plus.workers.dev');
+    await assert(swProbe.controller === true, 'the service worker must control the page for this cache test to mean anything');
+    await assert(!swProbe.urls.some(u => u.includes('/api/')), `the service worker must never cache relay API responses — ciphertext used to persist forever in Cache Storage (got ${JSON.stringify(swProbe.urls.filter(u => u.includes('/api/')))})`);
+    await assert(!swProbe.urls.some(u => u.includes('__does_not_exist__')), 'a 404 must never be written into the app-shell cache (cache poisoning)');
+    await assert(swProbe.urls.some(u => u.endsWith('/index.html') || u.endsWith('/')), 'the app shell itself must still be cached (offline-first must keep working)');
+
+    // ── ⑥⑦⑧ 수신함 소유증명 + 총액·인원 대조 ───────────────────────────────
+    const meta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await page.evaluate(async ({ pubKey }) => {
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+      const sealBlob = async (items) => {
+        const aes = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(JSON.stringify({ v: 1, items })));
+        const raw = await crypto.subtle.exportKey('raw', aes);
+        return { alg: 'RSA-OAEP-2048+AES-256-GCM', encKey: u2b(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw)), iv: u2b(iv), ct: u2b(ct) };
+      };
+      const items = [{ name: '보안가', dept: '총무과', amount: 10000 }, { name: '보안나', dept: '총무과', amount: 20000 }];
+      window.__inboxHeaders = [];
+      window.__approveBodies = [];
+      // 요약은 서버가 보여 주는 값이다 — 일부러 실제 명단과 어긋나게 만든다(총액 30,000 → 99,000).
+      window.__inboxItems = [{
+        summary_id: 'sid-bad',
+        summary: { institution: '보안기관', department: '총무과', restaurant_id: 'rid-sec-1', restaurant_name: '보안식당', year_month: '2026-08', total_amount: 99000, member_count: 2 },
+        ciphertext: await sealBlob(items), status: 'PENDING'
+      }];
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        const s = String(u);
+        if (s.includes('/api/challenge')) {
+          const ct = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, new TextEncoder().encode('SECTOKEN'));
+          return new Response(JSON.stringify({ challenge_ct: u2b(ct) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (s.includes('/api/inbox?')) {
+          const h = (o && o.headers) || {};
+          window.__inboxHeaders.push(h['X-Auth-Token'] || h['x-auth-token'] || '');
+          return new Response(JSON.stringify(window.__inboxItems), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (s.includes('/api/approve')) { window.__approveBodies.push(JSON.parse(o.body)); return new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+        return orig(u, o);
+      };
+    }, { pubKey: meta.pubKey });
+
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'enroll-auto');
+    await page.locator('[data-a="relay-inbox"]').click();
+    await page.waitForSelector('[data-a="relay-approve"]', { timeout: 10000 });
+    const inboxHeaders = await page.evaluate(() => window.__inboxHeaders);
+    await assert(inboxHeaders.length === 1 && inboxHeaders[0] === 'SECTOKEN',
+      `GET /api/inbox must carry the ownership proof token (got ${JSON.stringify(inboxHeaders)})`);
+    const empsBefore = (await readDb(page)).employees.length;
+    const alertsBefore = dialogs.filter(d => d.type === 'alert').length;
+    await page.locator('[data-a="relay-approve"]').click();
+    await page.waitForTimeout(1500);
+    const blockAlerts = dialogs.filter(d => d.type === 'alert').slice(alertsBefore);
+    await assert(blockAlerts.some(d => d.message.includes('차단') && d.message.includes('총액')),
+      `a summary whose total does not match the decrypted list must block the import with an explicit reason (got ${JSON.stringify(blockAlerts.map(d => d.message.slice(0, 80)))})`);
+    await assert((await readDb(page)).employees.length === empsBefore, 'a blocked batch must not add a single employee');
+    await assert((await page.evaluate(() => window.__approveBodies)).length === 0, 'a blocked batch must not be reported as APPROVED to the server');
+
+    // 총액·인원이 맞는 배치는 정상 등록된다(대조가 정상 경로를 막지 않는지 확인).
+    await page.evaluate(() => { window.__inboxItems[0].summary.total_amount = 30000; window.__inboxItems[0].summary_id = 'sid-ok'; });
+    await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(150);
+    await page.locator('[data-a="relay-inbox"]').click();
+    await page.waitForSelector('[data-a="relay-approve"]', { timeout: 10000 });
+    await page.locator('[data-a="relay-approve"]').click();
+    for (let i = 0; i < 60 && (await readDb(page)).employees.length <= empsBefore; i += 1) await page.waitForTimeout(200);
+    const okDb = await readDb(page);
+    await assert(okDb.employees.filter(e => /^보안(가|나)$/.test(e.name)).length === 2, 'a matching batch must still import normally');
+    await assert((await page.evaluate(() => window.__approveBodies)).length === 1, 'a successful import must report APPROVED exactly once');
+    if (await count(page, '.modal-back')) await page.locator('.modal-actions [data-a="close-modal"]').first().click().catch(() => {});
+    await page.waitForTimeout(150);
+
+    // ── ⑯ 해시체인 v2: 예전에 못 잡던 변조들 ─────────────────────────────────
+    const chainRep = () => page.evaluate(async () => {
+      const c = await window.__prepaidTestHooks.verifyChain();
+      return { ok: c.ok, tamperOk: c.tamperOk, checked: c.checked, legacy: c.legacy, broken: (c.broken || []).map(b => `${b.id}(${b.reason})`) };
+    });
+    const patchTx = (mut) => page.evaluate(async (m) => new Promise((res, rej) => {
+      const r = indexedDB.open('prepaid-ledger-db');
+      r.onsuccess = () => {
+        const db = r.result;
+        const q = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+        q.onsuccess = () => {
+          const rows = (q.result || []).slice().sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
+          const tx = db.transaction('transactions', 'readwrite');
+          const ts = tx.objectStore('transactions');
+          const target = rows[rows.length - 1];
+          if (m === 'drop-tail') ts.delete(target.id);
+          if (m === 'flip-type') ts.put(Object.assign({}, target, { type: target.type === 'use' ? 'topup' : 'use' }));
+          if (m === 'before-balance') ts.put(Object.assign({}, target, { beforeBalance: Number(target.beforeBalance) + 12345 }));
+          if (m === 'strip-hashes') rows.forEach(row => ts.put(Object.assign({}, row, { txHash: '', prevHash: '', hv: 0 })));
+          if (m === 'note') ts.put(Object.assign({}, target, { note: '조작', reason: '조작' }));
+          tx.oncomplete = () => res(target.id); tx.onerror = () => rej(tx.error);
+        };
+      };
+    }), mut);
+    const reloadUnlocked = async () => { await page.reload({ waitUntil: 'load' }); await unlockPin(page); await awaitUnlocked(); await page.waitForTimeout(150); };
+
+    await reloadUnlocked();
+    const clean = await chainRep();
+    await assert(clean.tamperOk === true && clean.checked > 0, `a freshly written ledger must verify cleanly (got ${JSON.stringify(clean)})`);
+    const snapshot = await page.evaluate(() => new Promise(res => { const r = indexedDB.open('prepaid-ledger-db'); r.onsuccess = () => { const q = r.result.transaction('transactions', 'readonly').objectStore('transactions').getAll(); q.onsuccess = () => res(JSON.parse(JSON.stringify(q.result || []))); }; }));
+    const restoreSnapshot = () => page.evaluate(rows => new Promise((res, rej) => {
+      const r = indexedDB.open('prepaid-ledger-db');
+      r.onsuccess = () => { const tx = r.result.transaction('transactions', 'readwrite'); const ts = tx.objectStore('transactions'); ts.clear(); rows.forEach(v => ts.put(v)); tx.oncomplete = () => res(true); tx.onerror = () => rej(tx.error); };
+    }), snapshot);
+
+    for (const [mut, label] of [['drop-tail', '마지막 거래 삭제'], ['flip-type', '거래 유형 변조(use↔topup)'],
+      ['before-balance', 'beforeBalance 변조'], ['note', '사유·비고 변조'], ['strip-hashes', '체인 전체 제거(legacy 강등)']]) {
+      await patchTx(mut);
+      await reloadUnlocked();
+      const rep = await chainRep();
+      await assert(rep.tamperOk === false, `${label} must be detected by the ledger integrity check (got ${JSON.stringify(rep)})`);
+      await restoreSnapshot();
+    }
+    await reloadUnlocked();
+    await assert((await chainRep()).tamperOk === true, 'restoring the untouched ledger must clear the warning again');
+
+    // ── ⑫ 금액 대조가 실제로 무언가를 잡는가(예전 대조식은 항등식이라 언제나 통과했다) ──
+    await page.evaluate(() => new Promise((res, rej) => {
+      const r = indexedDB.open('prepaid-ledger-db');
+      r.onsuccess = () => {
+        const db = r.result;
+        const q = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+        q.onsuccess = () => {
+          const rows = (q.result || []).slice().sort((a, b) => a.createdAt - b.createdAt);
+          const last = rows[rows.length - 1];
+          const tx = db.transaction('transactions', 'readwrite');
+          // 있지도 않은 충전 1건을 끼워 넣는다(전후 잔액을 전혀 맞추지 않은 채) — 예전 대조는 이것을 통과시켰다.
+          tx.objectStore('transactions').put({ id: 'fake-topup', employeeId: last.employeeId, type: 'topup', amount: 999999, beforeBalance: 0, afterBalance: 0, reason: '', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', hv: 0, txHash: '', prevHash: '', createdAt: last.createdAt + 5000 });
+          tx.oncomplete = () => res(true); tx.onerror = () => rej(tx.error);
+        };
+      };
+    }));
+    await reloadUnlocked();
+    const recon = await page.evaluate(() => {
+      const H = window.__prepaidTestHooks;
+      return H.reconcileLedger ? H.reconcileLedger() : null;
+    });
+    await assert(recon && recon.ok === false, `an injected top-up with inconsistent running balances must fail the amount reconciliation (got ${JSON.stringify(recon)})`);
+    await restoreSnapshot();
+    await reloadUnlocked();
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.reconcileLedger())).ok === true, 'the untouched ledger must reconcile');
+
+    await assert(problems.filter(m => !/status of (401|404|500)/.test(m) && !/no mock/.test(m) && !/^error: (silent cloud backup|relay|register-key|keygen)/.test(m)).length === 0,
+      `the security scenario must not raise unexpected console errors: ${JSON.stringify(problems.slice(0, 5))}`);
+  } finally {
+    await page.close().catch(() => {});
+    await context.close().catch(() => {});
+  }
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -517,6 +960,9 @@ async function main() {
   // 목 응답은 시나리오마다 바뀌므로 라우트는 한 번만 걸고 변수로 갈아끼운다.
   let storeSearchResults = [];        // 기본: 검색 결과 없음
   let inboxCountBody = null;          // null = 404(구서버 호환 경로)
+  // 안전망: 목이 없는 중계 API 호출은 전부 500으로 끊는다 — 로컬 e2e가 라이브 서버에 절대 닿지 않게 한다.
+  //   Playwright는 **나중에 등록한 라우트가 이긴다** → 이 catch-all을 먼저 걸고 개별 목을 뒤에 건다.
+  await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
   await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(storeSearchResults) }));
   await context.route('**/api/inbox-count**', route => (inboxCountBody === null
     ? route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not found"}' })
@@ -535,6 +981,11 @@ async function main() {
     else await dialog.accept();
   });
   page.on('pageerror', err => consoleProblems.push(err.message));
+  // E2E_DEBUG=1 이면 페이지 콘솔·대화상자를 실시간으로 흘려 본다(실패 지점 추적용).
+  if (process.env.E2E_DEBUG) {
+    page.on('console', m => console.log('PAGE', m.type(), m.text().slice(0, 300)));
+    page.on('requestfailed', r => console.log('REQFAIL', r.url().slice(0, 140), r.failure() && r.failure().errorText));
+  }
   page.on('console', msg => {
     if (['error', 'warning'].includes(msg.type())) consoleProblems.push(`${msg.type()}: ${msg.text()}`);
   });
@@ -544,6 +995,7 @@ async function main() {
     await runSearchOnboarding(browser, url, cors);
     await runDistrictHeal(browser, url, cors);
     await runWipeDeregister(browser, url, cors);
+    await runSecurityHardening(browser, url, cors);
 
     await page.goto(url, { waitUntil: 'load' });
 
@@ -633,9 +1085,7 @@ async function main() {
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'onboarding-contact.png') }).catch(() => {});
     await page.locator('[data-a="setup-complete"]').click();
 
-    for (const key of ['1', '2', '3', '4', '1', '2', '3', '4']) {
-      await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
-    }
+    await typePin(page, ['1', '2', '3', '4', '1', '2', '3', '4']);
 
     await page.waitForSelector('[data-a="guide-dismiss"]');
     await assert(await count(page, '[data-a="guide-add-employee"]') === 1, 'setup completion guide should offer employee registration path');
@@ -974,9 +1424,19 @@ async function main() {
       const subtle = window.crypto.subtle;
       const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
       async function h(t){const b=new TextEncoder().encode(String(t)),d=await subtle.digest('SHA-256',b);return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,'0')).join('')}
+      const str = v => (typeof v === 'string' ? v.trim() : '');
+      // canonical v2 (beta.31) — 거래를 이루는 값을 전부 넣는다. 앱의 txCanonical()과 한 글자도 달라선 안 된다.
+      const canon = (t, prevHash) => 'bapjangbu/tx/v2\n' + JSON.stringify([str(t.id), str(t.employeeId), str(t.type),
+        num(t.amount), num(t.beforeBalance), num(t.afterBalance), t.targetTransactionId ? str(t.targetTransactionId) : '',
+        str(t.signatureHash), str(t.reason), str(t.note), str(prevHash || ''), num(t.createdAt)]);
       const sorted = txs.slice().sort((a,b)=>a.createdAt-b.createdAt||(a.id<b.id?-1:a.id>b.id?1:0));
       let prev='';
-      for(const t of sorted){ if(!t.txHash){prev='';continue} const e=await h(String(t.employeeId)+'|'+num(t.amount)+'|'+num(t.afterBalance)+'|'+(t.prevHash||'')+'|'+t.createdAt); if(e!==t.txHash) return false; if((t.prevHash||'')!==prev) return false; prev=t.txHash; }
+      for(const t of sorted){ if(!t.txHash){prev='';continue}
+        if(Number(t.hv)!==2) return false;                      // 구 형식이 새로 만들어지면 안 된다
+        const e=await h(canon(t, t.prevHash||'')); if(e!==t.txHash) return false;
+        if((t.prevHash||'')!==prev) return false; prev=t.txHash;
+        if(t.signatureData){ const sh=await h(String(t.signatureData)); if(sh!==String(t.signatureHash||'')) return false; }
+      }
       return true;
     }, data.transactions);
     await assert(chainOk, 'integrity hash chain should recompute and verify');
@@ -1078,7 +1538,10 @@ async function main() {
     await assert(gate.curHas === true, 'current month must register activity from seeded transactions');
     await assert(gate.emptyHas === false, 'a zero-transaction month must report no activity (empty-month gate)');
 
-    // 지난달(15일) 씨앗 거래 주입 + 더미 릴레이 서버 지정. txHash 비워 해시체인 검증은 이 거래를 건너뛴다(무결성 경고 유발 안 함).
+    // 지난달(15일) 씨앗 거래 주입. txHash 비워 해시체인 검증은 이 거래를 건너뛴다(무결성 경고 유발 안 함).
+    // beta.31: 예전에는 여기서 relayServer를 'https://relay.invalid.test'로 바꿔 백그라운드 백업을 DNS 실패로 끊었다.
+    //   앱에 CSP(connect-src)가 생기면서 기본 중계 서버 외 도메인은 브라우저가 아예 연결하지 않는다
+    //   → 그 트릭은 이제 '검색 목'까지 함께 막아 버린다. 대신 아래 `**/api/**` 안전망 목(500)이 같은 역할을 한다.
     const pm = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 15);
     const prevTs = pm.getTime();
     const prevYmStr = `${pm.getFullYear()}-${String(pm.getMonth() + 1).padStart(2, '0')}`;
@@ -1089,11 +1552,11 @@ async function main() {
         const db = req.result;
         const tx = db.transaction(['transactions', 'meta'], 'readwrite');
         tx.objectStore('transactions').put({ id: 'seed-prev-' + ts, employeeId: 'seed-emp', type: 'use', amount: 1000, beforeBalance: 0, afterBalance: 0, reason: '', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: ts });
-        tx.objectStore('meta').put({ key: 'relayServer', value: 'https://relay.invalid.test' });
         tx.oncomplete = () => resolve(true);
         tx.onerror = () => reject(tx.error);
       };
     }), { ts: prevTs });
+    await resealChain(page);
 
     // (3) beta.29: 홈 상단 [장부 저장] 상시 버튼 폐지 → ① [직원 목록 관리] 바로가기 ② 30일 백업 리마인더 배너로 대체.
     await page.reload({ waitUntil: 'load' });
@@ -1289,6 +1752,7 @@ async function main() {
         tx.oncomplete = () => resolve(true);
       };
     }), { ts: prevTs });
+    await resealChain(page);
     await page.reload({ waitUntil: 'load' });
     await unlock();
     // 새로고침하면 그룹 펼침 상태(세션 상태)가 초기화되므로 다시 펼쳐야 직원 카드가 보인다.
@@ -1409,6 +1873,15 @@ async function main() {
     await assert(takenAlerts[0].message.includes('자동 등록 중단') && takenAlerts[0].message.includes('내 열쇠 백업') && takenAlerts[0].message.includes('contact@bapjangbu.com'),
       'the guidance alert must offer all three ways out (old-phone deregister · key-backup restore · operator contact)');
     await assert(!takenAlerts[0].message.includes('인터넷'), 'the auth_required guidance must not blame the network');
+    // beta.31 ⑩ 선점 신고: 안내 뒤에 [신고하기] 제안이 이어지고, 눌렀을 때 열리는 메일에는
+    //   가게 이름·가게 번호·시각·열쇠 지문만 담긴다(직원 명단·금액은 절대 담기지 않는다).
+    await assert(takenAlerts[0].message.includes('신고하기'), 'the auth_required guidance must point at the takeover report path');
+    const report = await page.evaluate(() => window.__lastReportHref || '');
+    await assert(report.startsWith('mailto:contact@bapjangbu.com?'), `accepting the report offer must open a prefilled mail draft (got ${JSON.stringify(report.slice(0, 60))})`);
+    const reportBody = decodeURIComponent((report.split('&body=')[1] || ''));
+    await assert(reportBody.includes('가게 번호:') && reportBody.includes('발생 시각:') && reportBody.includes('열쇠 지문:'),
+      `the report draft must prefill the store id, the timestamp and the key fingerprint (got ${JSON.stringify(reportBody.slice(0, 160))})`);
+    await assert(!/원|직원|명단/.test(reportBody), 'the report draft must not carry any employee or amount data');
     const takenToast = (await page.locator('.toast').count()) ? await page.locator('.toast').innerText() : '';
     await assert(!takenToast.includes('인터넷'), 'the misleading network toast must not stack on top of the auth_required alert');
     regMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
@@ -1789,11 +2262,7 @@ async function main() {
     await assert(prodTimers.ownerPinIdle === 120000, `TIMERS.ownerPinIdle must stay 120000 in production (got ${prodTimers.ownerPinIdle})`);
     await page.locator('[data-a="lock-to-pin"]').click();
     await page.waitForSelector('[data-a="pin-key"]');
-    for (let i = 0; i < 5; i += 1) {
-      for (const key of ['9', '9', '9', '9']) {
-        await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
-      }
-    }
+    for (let i = 0; i < 5; i += 1) await typePin(page, ['9', '9', '9', '9']);
     await page.waitForSelector('.pin-delay');
     const delayText = await page.locator('.pin-delay').innerText();
     await assert(/\d+초/.test(delayText) && delayText.includes('5번'), `five PIN failures must show a countdown delay, got ${JSON.stringify(delayText)}`);
@@ -1877,6 +2346,7 @@ async function main() {
           tx.onerror = () => reject(tx.error);
         };
       }), { emps, hash: pinHash, t: Date.now(), extraMeta });
+      await resealChain(page);
       await page.reload({ waitUntil: 'load' });
       await unlock();
       await page.waitForSelector('[data-a="quick-find-emp"]', { timeout: 8000 });
@@ -2166,6 +2636,7 @@ async function main() {
         tx.onerror = () => reject(tx.error);
       };
     }), { ts: Date.now() + 60000 });
+    await resealChain(page);
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
@@ -2250,6 +2721,7 @@ async function main() {
         tx.onerror = () => reject(tx.error);
       };
     }), { t: cxBase });
+    await resealChain(page);
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
@@ -3444,7 +3916,9 @@ async function main() {
       const wait = ageMs - (Date.now() - t0) - 40;
       if (wait > 0) await page.waitForTimeout(wait);
       await page.locator('[data-a="pin-key"][data-key="4"]').click();
-      await page.waitForTimeout(400);
+      // PBKDF2 검증(beta.31)이 끝나 잠금이 풀릴 때까지 기다린다 — 고정 대기는 기기 속도에 따라 흔들린다.
+      await page.waitForFunction(() => !window.__prepaidTestHooks.lockState().locked, null, { timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(300);
       return await count(page, '#useAmount') === 1;
     };
     await assert(await ttlProbe(Math.round(TTL * 119 / 120)) === true, 'a request at 119/120 of the TTL must still open the usage modal (an early expiry silently kills real handovers)');
@@ -4120,9 +4594,7 @@ async function main() {
     await page.waitForSelector('[data-a="cust-call-owner"]');
     await page.locator('[data-a="cust-call-owner"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]');
-    for (let i = 0; i < 5; i += 1) {
-      for (const key of ['9', '9', '9', '9']) await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
-    }
+    for (let i = 0; i < 5; i += 1) await typePin(page, ['9', '9', '9', '9']);
     await page.waitForSelector('.pin-delay');
     await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState())).pinDelayLeft > 0, 'five failures on the 사장님 확인 screen must start the input delay');
     await page.waitForTimeout(1600);
@@ -4194,7 +4666,7 @@ async function main() {
     // ═══════════════════════════════════════════════════════════════════════
     const chainReport = () => page.evaluate(async () => {
       const c = await window.__prepaidTestHooks.verifyChain();
-      return { ok: c.ok, checked: c.checked, legacy: c.legacy, broken: (c.broken || []).map(b => `${b.id}(${b.reason})`) };
+      return { ok: c.ok, tamperOk: c.tamperOk, anchor: c.anchor, checked: c.checked, legacy: c.legacy, broken: (c.broken || []).map(b => `${b.id}(${b.reason})`) };
     });
     const balanceReport = id => page.evaluate(eid => window.__prepaidTestHooks.verifyBalanceFor(eid), id);
     // 배치 거래를 체인 연결 순서(prevHash→txHash)대로 늘어놓는다.
@@ -4465,8 +4937,11 @@ async function main() {
     const legDb = await readDb(page);
     await assert(legDb.employees.length === 3 && legDb.transactions.length === 8, `the legacy backup must restore (got ${legDb.employees.length} employees / ${legDb.transactions.length} transactions)`);
     const legRep = await chainReport();
-    await assert(legRep.ok, `a legacy ledger with fractional/tied createdAt must still verify (broken: ${legRep.broken.join(', ')})`);
-    await assert(legRep.checked === 7 && legRep.legacy === 1, `the hashless legacy transaction must be counted as legacy, not verified (checked=${legRep.checked}, legacy=${legRep.legacy})`);
+    // beta.31: 구 형식(canonical v1 · 해시 없음) 거래는 더 이상 "조용히 통과"하지 않는다.
+    //   ok=false(재검증 불가)이지만 **변조 증거는 없다**(tamperOk) — 그 구분이 아래 손님/증표 판정을 가른다.
+    await assert(legRep.ok === false, 'a pre-v2 (legacy) ledger must NOT report a clean ok — hashless/old-format rows must raise the warning state');
+    await assert(legRep.tamperOk === true, `a legacy ledger must still show no evidence of tampering (broken: ${legRep.broken.join(', ')})`);
+    await assert(legRep.checked === 0 && legRep.legacy === 8, `every pre-v2 row must be counted as 구 형식, not verified (checked=${legRep.checked}, legacy=${legRep.legacy})`);
     await assert(balanceOfId(legDb, 'leg-a') === 34100 && balanceOfId(legDb, 'leg-b') === 26300 && balanceOfId(legDb, 'leg-c') === 18100, 'restoring a legacy ledger must reproduce the exact same balances');
     for (const id of ['leg-a', 'leg-b', 'leg-c']) {
       const verdict = await balanceReport(id);
@@ -4498,7 +4973,10 @@ async function main() {
     const legTopupBatch = await runCsvImport('﻿소속,부서,이름,금액\r\n강남상사,총무부,레거시가,900\r\n', 'legacy top-up import');
     await assert(legTopupBatch.length === 1, 'the legacy top-up import must write exactly one transaction');
     const afterLegacyRep = await chainReport();
-    await assert(afterLegacyRep.ok, `appending to a legacy ledger must keep the chain verifiable (broken: ${afterLegacyRep.broken.join(', ')})`);
+    // 구 형식 8건은 그대로 '재검증 불가'로 남는다(ok=false) — 다만 변조 증거는 없어야 하고,
+    //   새로 얹은 v2 거래는 구 형식 꼬리에 이어져 '체인 단절'로 오판되면 안 된다.
+    await assert(afterLegacyRep.tamperOk === true, `appending to a legacy ledger must not look like tampering (broken: ${afterLegacyRep.broken.join(', ')})`);
+    await assert(afterLegacyRep.checked === 1 && afterLegacyRep.legacy === 8, `the appended row must verify as v2 while the old rows stay 구 형식 (checked=${afterLegacyRep.checked}, legacy=${afterLegacyRep.legacy})`);
     await assert(balanceOfId(await readDb(page), 'leg-a') === 35000, 'the legacy top-up must land on the existing employee');
     const legacyAfterVerdict = await balanceReport('leg-a');
     await assert(legacyAfterVerdict.integrityOk && legacyAfterVerdict.crossOk, 'appending to a legacy ledger must keep the customer-screen verdict healthy');

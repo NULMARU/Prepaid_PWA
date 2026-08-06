@@ -15,7 +15,10 @@ const b64 = b => { let s = ''; const u = new Uint8Array(b); for (let i = 0; i < 
 const unb64 = s => { const x = atob(s), u = new Uint8Array(x.length); for (let i = 0; i < x.length; i++)u[i] = x.charCodeAt(i); return u.buffer; };
 const sha = async s => { const h = await subtle.digest('SHA-256', encU.encode(s)); return Array.from(new Uint8Array(h)).map(v => v.toString(16).padStart(2, '0')).join(''); };
 // 매 실행 고유 RID: 서버의 재등록 409·중복제출(batch_hash) 멱등 규칙과 충돌하지 않게 함
-const RID = 'DEMO-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+// 진단 전용 접두사(__diag_): 서버가 실존 대조를 건너뛰고 verified=0으로 등록하며,
+// 담당자 목록(/api/registered-list)에서는 제외된다. 실제 가게 id로 스모크를 돌리면
+// 그 자체가 '가게 선점'이 되므로 절대 쓰지 않는다.
+const RID = '__diag_live-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
 let pass = 0, fail = 0; const ok = (c, m) => { c ? pass++ : fail++; console.log((c ? '✅' : '❌') + ' ' + m); };
 const jf = async (p, opt) => { const r = await fetch(BASE + p, opt); return { r, j: await r.json().catch(() => null) }; };
 
@@ -61,6 +64,24 @@ async function getAuthToken(privateKey) {
   const pt = await subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, unb64(ch.challenge_ct));
   return decU.decode(pt);
 }
+// 6-a) 신규 보안 계약(2026-08): 실존하지 않는 가게 id는 등록 거부(가게 선점 방어).
+const fakeKp = await subtle.generateKey({ name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['encrypt', 'decrypt']);
+const fakeSpki = b64(await subtle.exportKey('spki', fakeKp.publicKey));
+const { r: fakeR, j: fakeJ } = await jf('/api/register-key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_id: 'NOPE-9999-0000-0000', restaurant_name: '존재하지않는가게', public_key: fakeSpki }) });
+ok(fakeR.status === 400 && fakeJ && fakeJ.error === 'store_not_found', '가게 선점 방어: 미실존 id 등록 거부(400 store_not_found)');
+
+// 6-b) 수신함은 소유 증명 필수(무인증 조회 차단) + 진단 id는 담당자 목록에서 제외.
+ok((await jf('/api/inbox?restaurant_id=' + RID)).r.status === 401, '수신함 무인증 조회 401');
+const inboxToken = await getAuthToken(kp.privateKey);
+const { r: inbR } = await jf('/api/inbox?restaurant_id=' + RID + '&auth_token=' + encodeURIComponent(inboxToken));
+ok(inbR.ok, '수신함 소유증명 조회 200');
+const { j: listJ } = await jf('/api/registered-list?sido=' + encodeURIComponent('서울특별시'));
+ok(listJ && Array.isArray(listJ.restaurants) && !listJ.restaurants.some(x => String(x.restaurant_id).startsWith('__diag_')), '진단용 등록은 담당자 목록에서 제외');
+
+// 6-c) 보안 응답 헤더 4종.
+const hres = await fetch(BASE + '/api/registered-list?sido=' + encodeURIComponent('서울특별시'));
+ok(hres.headers.get('cache-control') === 'no-store' && hres.headers.get('x-content-type-options') === 'nosniff' && (hres.headers.get('referrer-policy') || '').includes('no-referrer') && (hres.headers.get('strict-transport-security') || '').includes('max-age'), '보안 응답 헤더 4종');
+
 const deregToken = await getAuthToken(kp.privateKey);
 ok((await jf('/api/deregister', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_id: RID, auth_token: deregToken }) })).r.ok, '등록 해제(챌린지-응답 소유 증명 통과)');
 

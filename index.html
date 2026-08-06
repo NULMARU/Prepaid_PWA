@@ -2,6 +2,18 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<!-- ── Content-Security-Policy ─────────────────────────────────────────────────
+     GitHub Pages는 응답 헤더를 설정할 수 없어 meta로 선언한다.
+     ⚠️ meta 형태에서는 `frame-ancestors`가 **무시된다** — 즉 클릭재킹(iframe 감싸기)은
+        이 선언으로 막지 못한다(미해결). 헤더를 붙일 수 있는 호스팅으로 옮기거나
+        JS frame-busting을 넣기 전까지 남는 위험이다.
+     ⚠️ 'unsafe-inline'(script-src)은 이 앱이 단일 파일 인라인 스크립트라 뺄 수 없다.
+        따라서 CSP는 XSS "실행"을 막지 못한다 — 실행 자체를 막는 것은 esc()/sigD()이고,
+        여기서 얻는 것은 **유출 경로 차단**(connect-src로 개인키·명단을 외부로 못 보냄),
+        object-src/base-uri 봉쇄다.
+     ⚠️ connect-src를 좁힌 대가: 설정>고급의 '중계 서버 주소'를 기본값 외 도메인으로 바꾸면
+        연결이 차단된다(기본 서버만 허용). 자체 서버 운용이 필요해지면 이 목록을 함께 넓힐 것. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; connect-src 'self' https://prepaid-relay.sulsul-plus.workers.dev; upgrade-insecure-requests">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f4e79">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -516,7 +528,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.30',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.31',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -605,7 +617,9 @@ function setupBackHistory(){try{history.replaceState({bapBase:true},'');history.
 setupBackHistory();
 window.__prepaidBackTest={armed:()=>__backArmed,disarm:()=>{__backArmed=false;clearTimeout(__backArmTimer)},screen:()=>state.screen,modal:()=>state.modal&&state.modal.type,locked:()=>!!state.pinLocked};
 init();
-// 테스트/디버그 훅 — 서버로 아무것도 전송하지 않는 순수 로컬 함수 참조만 노출한다(자동화 검증용, §검증6).
+// 테스트/디버그 훅 — 순수 로컬 계산 함수만 항상 노출한다(자동화 검증용, §검증6).
+// 네트워크·복호화에 닿는 훅은 E2E_HOOKS(로컬호스트 또는 ?e2e=1)일 때만 붙는다 — 배포본에는 없다.
+const E2E_HOOKS=(function(){try{return /(?:^|[?&])e2e=1(?:&|$)/.test(location.search)||['localhost','127.0.0.1','::1','[::1]'].includes(location.hostname)}catch(e){return false}})();
 window.__prepaidTestHooks={TIMERS,clickActionKeys:()=>Object.keys(clickActions),lockAllowed:()=>[...LOCK_ALLOWED],
 // 읽기 전용 잠금 상태 스냅샷(자동화 검증용) — 쓰기 경로는 없다.
 // 체인 결정성 회귀용(읽기 전용) — 전부 순수 계산 함수다(저장·전송 경로 없음).
@@ -629,7 +643,11 @@ pinLen:str(state.pinInput).length}),
 // 최후의 방벽(custComposeGuard) 검증용 — 하니스가 "게이트를 빼먹은 새 경로"를 흉내 내 render를 직접 부른다.
 //   프로덕션 코드에는 이 훅을 부르는 곳이 없다(순수 재렌더 — 저장·전송 경로 없음).
 forceRender:()=>render(),custComposeActive,
-parseWon,renderIsDisruptive,signInProgress,buildCloudBackupBlob,decryptBlob,matchAgencyByRegion,relayDistrict:(...a)=>relayDistrict(...a),monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,relayBackupSilent,maybeMonthlyAutoBackup,refreshInboxCount:(...a)=>refreshInboxCount(...a)};
+parseWon,renderIsDisruptive,signInProgress,reconcileLedger,reconcileEmployee,keyFingerprint,matchAgencyByRegion,relayDistrict:(...a)=>relayDistrict(...a),monthlyBackupDue,monthHasActivity,monthAlreadyBackedUp,backupFileName,
+// ⚠️ 아래는 **네트워크 전송·복호화**에 직접 닿는 함수다. 라이브(https://app.bapjangbu.com)에서 window에
+//   걸어 두면 XSS 한 줄이 "장부를 통째로 암호화해 업로드"·"기관 명단 복호화"를 그대로 호출할 수 있다.
+//   하니스가 필요로 하므로 없애지는 않고, localhost 또는 ?e2e=1 일 때만 노출한다.
+...(E2E_HOOKS?{buildCloudBackupBlob,decryptBlob,relayBackupSilent,maybeMonthlyAutoBackup,refreshInboxCount:(...a)=>refreshInboxCount(...a)}:{})};
 
 // ── 유틸리티 ──
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
@@ -640,7 +658,13 @@ function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
 function parseWon(v){const s=String(v==null?'':v).replace(/,/g,'').replace(/원/g,'').replace(/\s/g,'').trim();if(!s)return NaN;if(!/^[+-]?[0-9]+$/.test(s))return NaN;const n=Number(s);if(!Number.isFinite(n))return NaN;if(!Number.isInteger(n))return NaN;return n}
 function numTime(v){const n=Number(v);return Number.isFinite(n)&&n>0?n:now()}
 function str(v){return typeof v==='string'?v.trim():''}
-function sigD(v){return typeof v==='string'&&/^data:image\//.test(v)?v:''}
+// 서명 이미지(dataURL) 정규화 — **전체 일치 화이트리스트**다.
+//   예전에는 접두(`^data:image/`)만 봤다. 그러면 `data:image/png;base64,AAA" onerror="…` 같은 값이
+//   그대로 통과해, 이력 카드의 <img src="${…}"> 안에서 따옴표를 닫고 onerror를 붙이는 XSS가 됐다
+//   (조작된 백업 파일 한 장이면 개인키·장부가 통째로 빠져나간다). 이제 base64 문자만 허용한다.
+//   ⚠️ 렌더 시 esc()도 반드시 함께 쓸 것 — 이 함수는 "저장·복원 경계"의 방어이고, esc()는 "출력 경계"의 방어다.
+const SIG_DATAURL_RE=/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+function sigD(v){return typeof v==='string'&&SIG_DATAURL_RE.test(v)?v:''}
 function uid(){return 'id-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,9)}
 function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 function money(v){return num(v).toLocaleString('ko-KR')+'원'}
@@ -714,7 +738,31 @@ const order=[...meta.values()].sort((a,b)=>cmpGroupSort(a.sort,b.sort)||a.label.
 const used=new Map();order.forEach(g=>{const n=(used.get(g.label)||0)+1;used.set(g.label,n);if(n>1)g.label=g.label+' ('+n+')'});
 return{meta,order}}
 // org(소속) — 회사·공공기관명. 구버전 데이터·백업(schemaVersion 3 그대로)에는 없으므로 str()이 ''로 채운다(레거시는 dept에 "기관명 부서명"이 합성돼 있고 표시 결과가 동일하다).
-function norm(d){const __n={employees:(Array.isArray(d.employees)?d.employees:[]).map(e=>({id:e.id||uid(),org:str(e.org),orgKind:str(e.orgKind),dept:str(e.dept),name:str(e.name),note:str(e.note),isDeleted:!!e.isDeleted,phone:typeof e.phone==='string'?e.phone:'',phoneConsent:!!e.phoneConsent,yearMonth:str(e.yearMonth),createdAt:numTime(e.createdAt),updatedAt:numTime(e.updatedAt)})),transactions:(Array.isArray(d.transactions)?d.transactions:[]).map(t=>({id:t.id||uid(),employeeId:t.employeeId||'',type:t.type||'use',amount:num(t.amount),beforeBalance:num(t.beforeBalance),afterBalance:num(t.afterBalance),reason:str(t.reason),note:str(t.note),targetTransactionId:t.targetTransactionId||null,signatureData:sigD(t.signatureData),signatureHash:str(t.signatureHash),txHash:str(t.txHash),prevHash:str(t.prevHash),createdAt:numTime(t.createdAt)})),meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS],...(d.meta&&typeof d.meta==='object'?d.meta:{})}};seedTxClock(__n.transactions);return __n}
+// ── meta 화이트리스트 ─────────────────────────────────────────────────────────
+// 예전 norm()은 백업의 meta를 **스프레드로 통째 병합**했다. 그래서 손으로 고친 백업 한 장이
+//   pinHash·deviceSecret·privKeyWrapped·restaurantId를 바꿔치기할 수 있었다
+//   (공격자가 정한 PIN으로 잠금이 열리는 것까지 실증됨). 이제 아는 키만 통과시킨다.
+// ⚠️ 새 meta 키를 만들면 여기에 반드시 등록할 것 — 등록하지 않으면 저장은 되어도 복원·재시작 후 사라진다.
+const META_KEYS=['lastBackupAt','orgName','shopName','shopAddr','shopTel','departments','setupComplete','welcomeSeen','termsAgreedAt',
+'relayServer','relayStoreName','relayRegisteredAt','restaurantId','storeAddr','storeRegisterPending','districtSyncedAt',
+'contactKakaoLink','contactEmail','receivedBatchHashes','autoCloudBackup','lastCloudBackupAt','lastMonthlyBackup','myKeyBackedUpAt',
+'pubKey','keyCreatedAt','chainTip','txCount',
+// 보안 민감 키(아래 META_DEVICE_KEYS)도 목록에는 있어야 한다 — 이 기기의 저장소를 다시 읽을 때 필요하다.
+'pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped'];
+// **이 기기에만 속하는 값**이다. 장부(백업 파일·클라우드 백업)에서 절대 가져오지 않는다.
+//   backupCore()가 내보낼 때 빼고, restoreFromParsed()가 들여올 때 현재 기기 값으로 되돌린다.
+// pubKey·keyCreatedAt도 이 기기 것이다 — 개인키는 백업에 절대 실리지 않으므로, 공개키만 백업에서
+//   들여오면 "이 기기 개인키 ≠ 저장된 공개키"인 짝 안 맞는 상태가 된다(챌린지 복호화가 영영 실패).
+//   기기 사이 열쇠 이동은 오직 '내 열쇠 백업' 파일로만 한다(importKeyBackup).
+const META_DEVICE_KEYS=['pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped','pubKey','keyCreatedAt'];
+function normMeta(m){const src=(m&&typeof m==='object')?m:{};
+const out={lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]};
+META_KEYS.forEach(k=>{if(Object.prototype.hasOwnProperty.call(src,k))out[k]=src[k]});
+// 배열이어야 하는 항목은 형태까지 강제한다(문자열·객체가 들어오면 렌더가 깨진다).
+if(!Array.isArray(out.departments))out.departments=[...DEFAULT_DEPTS];
+if(out.receivedBatchHashes!==undefined&&!Array.isArray(out.receivedBatchHashes))out.receivedBatchHashes=[];
+return out}
+function norm(d){const __n={employees:(Array.isArray(d.employees)?d.employees:[]).map(e=>({id:e.id||uid(),org:str(e.org),orgKind:str(e.orgKind),dept:str(e.dept),name:str(e.name),note:str(e.note),isDeleted:!!e.isDeleted,phone:typeof e.phone==='string'?e.phone:'',phoneConsent:!!e.phoneConsent,yearMonth:str(e.yearMonth),createdAt:numTime(e.createdAt),updatedAt:numTime(e.updatedAt)})),transactions:(Array.isArray(d.transactions)?d.transactions:[]).map(t=>({id:t.id||uid(),employeeId:t.employeeId||'',type:t.type||'use',amount:num(t.amount),beforeBalance:num(t.beforeBalance),afterBalance:num(t.afterBalance),reason:str(t.reason),note:str(t.note),targetTransactionId:t.targetTransactionId||null,signatureData:sigD(t.signatureData),signatureHash:str(t.signatureHash),hv:num(t.hv),txHash:str(t.txHash),prevHash:str(t.prevHash),createdAt:numTime(t.createdAt)})),meta:normMeta(d.meta)};seedTxClock(__n.transactions);return __n}
 
 // ── IndexedDB ──
 async function makeRepo(){try{const db=await openDb();return makeIdbRepo(db)}catch(e){console.error('IndexedDB 오류:',e);return null}}
@@ -748,7 +796,13 @@ function monthlyBackupDue(){
 function daysAgoText(ts){if(!ts)return '아직 없음';const days=Math.floor((now()-ts)/86400000);return days<=0?'오늘':days+'일 전'}
 
 // ── SHA-256 ──
-async function hash(text){if(window.crypto&&window.crypto.subtle){const buf=new TextEncoder().encode(String(text)),h=await crypto.subtle.digest('SHA-256',buf);return Array.from(new Uint8Array(h)).map(v=>v.toString(16).padStart(2,'0')).join('')}let x=5381,s=String(text);for(let i=0;i<s.length;i++)x=((x<<5)+x)+s.charCodeAt(i);return String(x>>>0)}
+// ⚠️ djb2 폴백을 제거했다. 예전에는 crypto.subtle이 없으면(= http로 열었을 때) 조용히 32비트
+//   djb2로 강등돼, 해시 체인·백업 체크섬이 수초 만에 전수탐색으로 위조되는 상태로 "정상 동작"했다.
+//   이제 그런 환경에서는 앱이 아예 뜨지 않는다(init의 차단 화면) — 조용한 강등보다 정직한 정지가 낫다.
+async function hash(text){const buf=new TextEncoder().encode(String(text)),h=await crypto.subtle.digest('SHA-256',buf);return Array.from(new Uint8Array(h)).map(v=>v.toString(16).padStart(2,'0')).join('')}
+function hexOf(buf){return Array.from(new Uint8Array(buf)).map(v=>v.toString(16).padStart(2,'0')).join('')}
+// 길이·내용 노출을 줄이는 상수시간 비교(타이밍 관측이 현실적 위협은 아니지만 비교는 공짜다).
+function timingSafeEq(a,b){a=String(a);b=String(b);if(a.length!==b.length)return false;let d=0;for(let i=0;i<a.length;i++)d|=a.charCodeAt(i)^b.charCodeAt(i);return d===0}
 
 // ── 거래 시각 발급기 (단조 증가·정수) ────────────────────────────────────────
 // 해시 체인은 "만든 순서"대로 엮인다. 그런데 표시·정렬·검증은 createdAt으로 하므로,
@@ -773,11 +827,21 @@ function sortTxDesc(list){return[...(list||[])].sort(cmpTxDesc)}
 // 체인 꼬리 = "아무도 prevHash로 가리키지 않는" 해시. createdAt 최댓값이 아니다 —
 // 옛 장부에는 소수·동률 createdAt이 섞여 있어 가장 늦은 시각이 실제 꼬리가 아닐 수 있고,
 // 그 자리에 새 거래를 이으면 체인이 두 갈래로 갈라진다.
-function chainTip(){const txs=state.data.transactions.filter(t=>t&&str(t.txHash));if(!txs.length)return '';const pointed=new Set();txs.forEach(t=>{const p=str(t.prevHash);if(p)pointed.add(p)});const tails=sortTxAsc(txs.filter(t=>!pointed.has(str(t.txHash))));const pick=tails.length?tails:sortTxAsc(txs);return str(pick[pick.length-1].txHash)}
-function txHashOf(employeeId,amount,afterBalance,prevHash,createdAt){return hash(String(employeeId)+'|'+num(amount)+'|'+num(afterBalance)+'|'+(prevHash||'')+'|'+createdAt)}
+function chainTipOf(list){const txs=(list||[]).filter(t=>t&&str(t.txHash));if(!txs.length)return '';const pointed=new Set();txs.forEach(t=>{const p=str(t.prevHash);if(p)pointed.add(p)});const tails=sortTxAsc(txs.filter(t=>!pointed.has(str(t.txHash))));const pick=tails.length?tails:sortTxAsc(txs);return str(pick[pick.length-1].txHash)}
+function chainTip(){return chainTipOf(state.data.transactions)}
+// ── 거래 해시 canonical v2 ────────────────────────────────────────────────────
+// v1은 employeeId|amount|afterBalance|prevHash|createdAt 다섯 값뿐이었다. 그래서
+//   거래 유형(use↔topup) 변조, beforeBalance 변조, 서명 교체, 사유·비고 변조, 거래 id 바꿔치기가
+//   전부 "무변조"로 통과했다(스크래치패드 chain.mjs로 실증). v2는 거래를 이루는 값을 모두 넣는다.
+// 구분자 대신 JSON 배열을 해시한다 — 사유·비고에 '|'가 들어가도 경계가 흔들리지 않는다.
+// ⚠️ 이것은 **원장 내부 체인** 전용이다. 담당자 웹과 주고받는 batchHashOf(name|dept|amount)는
+//   기설치 담당자 웹과의 계약이므로 절대 건드리지 않는다.
+const TX_HASH_VER=2;
+function txCanonical(t,prevHash){return 'bapjangbu/tx/v2\n'+JSON.stringify([str(t.id),str(t.employeeId),str(t.type),num(t.amount),num(t.beforeBalance),num(t.afterBalance),t.targetTransactionId?str(t.targetTransactionId):'',str(t.signatureHash),str(t.reason),str(t.note),str(prevHash||''),num(t.createdAt)])}
+function txHashOf(t,prevHash){return hash(txCanonical(t,prevHash))}
 // createdAt은 언제나 nextTxTime()이 발급한다 — 호출자가 배치 시작 시각(t)을 넘겨도
 // 같은 밀리초면 자동으로 +1ms씩 밀려, 배치 안 거래들의 시간 순서 = 체인 연결 순서가 된다.
-async function makeTx(f,prevTip){const createdAt=nextTxTime(f.createdAt),prevHash=prevTip!=null?prevTip:chainTip();const tx={id:f.id||uid(),employeeId:f.employeeId||'',type:f.type||'use',amount:num(f.amount),beforeBalance:num(f.beforeBalance),afterBalance:num(f.afterBalance),reason:str(f.reason),note:str(f.note),targetTransactionId:f.targetTransactionId||null,signatureData:sigD(f.signatureData),signatureHash:str(f.signatureHash),prevHash,txHash:'',createdAt};tx.txHash=await txHashOf(tx.employeeId,tx.amount,tx.afterBalance,prevHash,createdAt);return tx}
+async function makeTx(f,prevTip){const createdAt=nextTxTime(f.createdAt),prevHash=prevTip!=null?prevTip:chainTip();const tx={id:f.id||uid(),employeeId:f.employeeId||'',type:f.type||'use',amount:num(f.amount),beforeBalance:num(f.beforeBalance),afterBalance:num(f.afterBalance),reason:str(f.reason),note:str(f.note),targetTransactionId:f.targetTransactionId||null,signatureData:sigD(f.signatureData),signatureHash:str(f.signatureHash),hv:TX_HASH_VER,prevHash,txHash:'',createdAt};tx.txHash=await txHashOf(tx,prevHash);return tx}
 // 검증은 "저장된 시각 순서"가 아니라 "체인 연결(prevHash→txHash)" 자체를 따라간다.
 //   ① 각 거래의 자기 해시 재계산 — 내용(직원·금액·잔액·시각)이 한 글자라도 바뀌면 즉시 잡힌다.
 //   ② 각 거래의 prevHash가 실제로 존재하는(그리고 ①을 통과한) 거래를 가리키는지 — 중간 거래를
@@ -785,11 +849,54 @@ async function makeTx(f,prevTip){const createdAt=nextTxTime(f.createdAt),prevHas
 // 시각 정렬에 의존하지 않으므로, 소수·동률 createdAt이 섞인 옛 장부(백업 복원 포함)에서도
 // 멀쩡한 체인을 "단절"로 오판하지 않는다. createdAt은 표시·정렬용으로만 쓴다.
 // (txHash가 없는 아주 옛 거래는 체인 밖 — 예전과 같이 legacy로 세고 검증에서 제외한다.)
-async function verifyChain(){const txs=sortTxAsc(state.data.transactions);let checked=0;const broken=[],legacy=[],sound=[];
-for(const t of txs){if(!str(t.txHash)){legacy.push(t.id);continue}checked++;const expect=await txHashOf(t.employeeId,t.amount,t.afterBalance,t.prevHash||'',t.createdAt);if(expect!==str(t.txHash))broken.push({id:t.id,reason:'해시 변조'});else sound.push(t)}
+// 검증 3단: ①각 거래의 v2 해시 재계산 ②prevHash 연결 ③꼬리 앵커(meta.chainTip·txCount) 대조.
+// ③이 새로 생긴 이유: ①②만으로는 **마지막 거래를 지우면** 남은 체인이 완전히 정합해 아무도 못 잡았다
+//   (chain.mjs ④⑤로 실증). 커밋할 때마다 꼬리와 건수를 meta에 남겨 두고 그것과 대조한다.
+// legacy(txHash 없음 또는 구 형식 hv≠2)는 이제 **조용히 통과시키지 않는다** — 전건 legacy면 예전에는
+//   ok:true였고, 이는 "체인을 통째로 지우면 검증을 우회한다"는 뜻이었다. 이제 경고 상태로 표시한다.
+//   list를 넘겨 부른 경우(순수 계산 검증)에는 앵커 대조를 건너뛴다 — 앵커는 이 기기 장부의 것이다.
+async function verifyChain(list){const live=!list;const txs=sortTxAsc(list||state.data.transactions);let checked=0;const broken=[],legacy=[],sound=[];
+for(const t of txs){
+if(num(t.hv)!==TX_HASH_VER||!str(t.txHash)){legacy.push(str(t.id));continue}
+checked++;
+const expect=await txHashOf(t,t.prevHash||'');
+if(!timingSafeEq(expect,str(t.txHash))){broken.push({id:t.id,reason:'해시 변조'});continue}
+// 서명 그림만 갈아끼우는 변조 — signatureHash는 canonical에 들어가지만 그림 자체는 아니다.
+if(str(t.signatureData)){const sh=await hash(str(t.signatureData));if(!timingSafeEq(sh,str(t.signatureHash))){broken.push({id:t.id,reason:'서명 이미지 변조'});continue}}
+sound.push(t)}
 const known=new Set(sound.map(t=>str(t.txHash)));
+// 구 형식 거래의 해시도 "존재하는 고리"로 인정한다 — 옛 장부 위에 새 거래를 얹으면 첫 v2 거래의
+//   prevHash가 구 형식 꼬리를 가리킨다. 그것을 단절로 보면 정상 장부가 통째로 경고가 된다.
+//   (지워진 거래의 해시는 애초에 목록에 없으므로 '중간 거래 삭제' 탐지는 그대로다.)
+txs.forEach(t=>{if(num(t.hv)!==TX_HASH_VER&&str(t.txHash))known.add(str(t.txHash))});
 for(const t of sound){const p=str(t.prevHash);if(p&&!known.has(p))broken.push({id:t.id,reason:'체인 단절'})}
-return{checked,broken,legacy:legacy.length,ok:broken.length===0}}
+const expectTip=live?str(state.data.meta.chainTip):'',expectCount=live?num(state.data.meta.txCount):0;
+const anchor={expectTip,expectCount,tip:chainTipOf(txs),count:txs.length,ok:true};
+if(live&&(expectTip||expectCount)){
+if(expectCount&&txs.length!==expectCount){anchor.ok=false;broken.push({id:'(장부 전체)',reason:`거래 건수 불일치 — 기록 ${expectCount}건 · 현재 ${txs.length}건`})}
+else if(expectTip&&!timingSafeEq(anchor.tip,expectTip)){anchor.ok=false;broken.push({id:'(장부 전체)',reason:'마지막 거래가 지워지거나 바뀌었습니다'})}}
+return{checked,broken,legacy:legacy.length,legacyIds:legacy.slice(0,5),anchor,tamperOk:broken.length===0,ok:broken.length===0&&legacy.length===0}}
+// ── 꼬리 앵커 기록 ────────────────────────────────────────────────────────────
+// 거래를 저장하는 **모든** 경로가 이 값을 함께 남겨야 한다. 한 곳이라도 빠지면 다음 검증에서
+//   멀쩡한 장부가 "마지막 거래 삭제"로 오판된다 → 그래서 호출부마다 손으로 넣지 않고
+//   repo를 감싸서 apply/replaceAll 안에서 자동으로 계산한다(withChainAnchor).
+function mergeTxList(base,incoming){const out=[...(base||[])];(incoming||[]).forEach(t=>{const i=out.findIndex(v=>v&&str(v.id)===str(t.id));if(i>=0)out[i]=t;else out.push(t)});return out}
+function withChainAnchor(r){if(!r)return r;const rawApply=r.apply.bind(r),rawReplace=r.replaceAll.bind(r);
+return{modeLabel:r.modeLabel,loadAll:r.loadAll.bind(r),
+async apply(c){const ch=(c&&typeof c==='object')?{...c}:{};
+if(Array.isArray(ch.transactions)&&ch.transactions.length&&state.data&&Array.isArray(state.data.transactions)){
+const merged=mergeTxList(state.data.transactions,ch.transactions);
+const chainTip=chainTipOf(merged),txCount=merged.length;
+ch.meta={...(ch.meta||{}),chainTip,txCount};
+state.data.meta.chainTip=chainTip;state.data.meta.txCount=txCount}
+return rawApply(ch)},
+// ⚠️ 호출자가 넘긴 객체를 **그대로** 고친다(사본이 아니다) — 복원·초기화는 이 객체를 곧바로
+//   state.data로 삼기 때문에, 사본에만 앵커를 넣으면 저장소와 화면의 값이 갈라진다.
+async replaceAll(d){const data=(d&&typeof d==='object')?d:{employees:[],transactions:[],meta:{}};
+const txs=Array.isArray(data.transactions)?data.transactions:[];
+if(!data.meta||typeof data.meta!=='object')data.meta={};
+data.meta.chainTip=chainTipOf(txs);data.meta.txCount=txs.length;
+return rawReplace(data)}}}
 
 // ── 암호 모듈 (스펙 §4.1, §4.2) : RSA-OAEP 키페어 + AES-GCM 래핑 ──
 function cryptoOk(){return !!(window.crypto&&window.crypto.subtle&&window.crypto.getRandomValues)}
@@ -799,21 +906,78 @@ function randBytes(n){const u=new Uint8Array(n);crypto.getRandomValues(u);return
 async function deriveAesKey(passphrase,salt){const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(String(passphrase)),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:120000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
 async function aesEncryptStr(plaintext,passphrase){const salt=randBytes(16),iv=randBytes(12),key=await deriveAesKey(passphrase,salt),ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(String(plaintext)));return JSON.stringify({v:1,salt:bufToB64(salt),iv:bufToB64(iv),ct:bufToB64(ct)})}
 async function aesDecryptStr(bundleStr,passphrase){const o=JSON.parse(bundleStr),salt=new Uint8Array(b64ToBuf(o.salt)),iv=new Uint8Array(b64ToBuf(o.iv)),key=await deriveAesKey(passphrase,salt),pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},key,b64ToBuf(o.ct));return new TextDecoder().decode(pt)}
+// ── 화면 잠금 PIN 저장 (PBKDF2-HMAC-SHA256) ──────────────────────────────────
+// 예전 형식: pinHash = SHA-256(pin), 솔트 없음. 4자리 PIN 10,000개의 SHA-256은 미리 계산해 두면
+//   표 조회 한 번이라 기기를 손에 넣은 사람에게는 사실상 평문이었다. 이제 기기별 랜덤 솔트 +
+//   60만 회 반복으로 저장한다(솔트가 있으므로 무지개표·기기 간 대조가 통하지 않는다).
+// ⚠️ 정직한 한계: 4자리 PIN은 후보가 1만 개뿐이라, 저장소를 통째로 훔친 오프라인 공격자에게는
+//   반복 횟수를 늘려도 몇 초~몇 분 수준이다. PIN은 **화면 잠금**이지 암호화가 아니다
+//   (장부 본문은 이 값으로 암호화되지 않는다). 이 사실을 설정 화면 문구로도 밝힌다.
+const PIN_KDF_ITER=600000;
+// 저장 형식은 **자기서술적**이다: `pbkdf2$<반복수>$<솔트b64>$<해시hex>`.
+//   알고리즘·솔트를 별도 meta 키로 두면, 어느 한쪽만 남거나 덮어써졌을 때(백업 복원·시드 주입)
+//   "새 형식 표식은 있는데 솔트는 옛것"인 상태가 생겨 정상 PIN이 영영 안 맞는다. 한 문자열에 담는다.
+//   64자리 hex만 있는 값은 구 형식(무솔트 SHA-256)으로 읽는다.
+function pinIsLegacy(v){return /^[0-9a-f]{64}$/.test(str(v))}
+async function derivePinHash(pin,saltB64,iter){
+const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(String(pin)),'PBKDF2',false,['deriveBits']);
+const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new Uint8Array(b64ToBuf(saltB64)),iterations:num(iter)||PIN_KDF_ITER,hash:'SHA-256'},base,256);
+return hexOf(bits)}
+async function savePinHash(pin){const salt=bufToB64(randBytes(16));
+const pinHash='pbkdf2$'+PIN_KDF_ITER+'$'+salt+'$'+await derivePinHash(pin,salt,PIN_KDF_ITER);
+state.data.meta.pinHash=pinHash;await repo.apply({meta:{pinHash}});return pinHash}
+// 입력 PIN 검증. 구 형식은 검증에 성공한 그 순간에만 원문을 알 수 있으므로 바로 새 형식으로 재저장한다
+//   (사용자는 아무것도 하지 않는다 — 다음 잠금 해제부터 솔트가 붙는다).
+async function verifyPin(pin){const stored=str(state.data.meta.pinHash);if(!stored)return false;
+if(pinIsLegacy(stored)){if(!timingSafeEq(await hash(pin),stored))return false;
+try{await savePinHash(pin)}catch(e){console.error('pin rehash',e)}return true}
+const p=stored.split('$');
+if(p.length!==4||p[0]!=='pbkdf2')return false;
+try{return timingSafeEq(await derivePinHash(pin,p[2],p[1]),p[3])}catch(e){console.error('pin verify',e);return false}}
 async function genKeyPair(){return crypto.subtle.generateKey({name:'RSA-OAEP',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['encrypt','decrypt'])}
 async function wrapPrivateKey(priv,passphrase){const pkcs8=bufToB64(await crypto.subtle.exportKey('pkcs8',priv));return aesEncryptStr(pkcs8,passphrase)}
-async function unwrapPrivateKey(bundleStr,passphrase){const pkcs8=await aesDecryptStr(bundleStr,passphrase);return crypto.subtle.importKey('pkcs8',b64ToBuf(pkcs8),{name:'RSA-OAEP',hash:'SHA-256'},true,['decrypt'])}
-async function ensureKeyPair(){if(!cryptoOk())return;const m=state.data.meta;let secret=m.deviceSecret;if(!secret)secret=bufToB64(randBytes(32));if(m.pubKey&&m.privKeyWrapped&&m.deviceSecret)return;const kp=await genKeyPair(),pubKey=bufToB64(await crypto.subtle.exportKey('spki',kp.publicKey)),privKeyWrapped=await wrapPrivateKey(kp.privateKey,secret),keyCreatedAt=now();await repo.apply({meta:{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt}});m.deviceSecret=secret;m.pubKey=pubKey;m.privKeyWrapped=privKeyWrapped;m.keyCreatedAt=keyCreatedAt}
-async function getPrivateKey(){const m=state.data.meta;if(!m.privKeyWrapped||!m.deviceSecret)return null;try{return await unwrapPrivateKey(m.privKeyWrapped,m.deviceSecret)}catch(e){console.error('privkey unwrap',e);return null}}
+// extractable=false 가 기본이다 — 이렇게 임포트한 키는 exportKey로 다시 꺼낼 수 없어,
+//   XSS가 개인키 **바이트**를 훔쳐 서버로 보내는 길이 막힌다(복호화 자체는 그대로 된다).
+//   진짜로 바이트가 필요한 곳은 '내 열쇠 백업' 만들기/불러오기 둘뿐이라 거기서만 true를 넘긴다.
+async function unwrapPrivateKey(bundleStr,passphrase,extractable){const pkcs8=await aesDecryptStr(bundleStr,passphrase);return crypto.subtle.importKey('pkcs8',b64ToBuf(pkcs8),{name:'RSA-OAEP',hash:'SHA-256'},!!extractable,['decrypt'])}
+// ── 우리 가게 '열쇠 지문' ─────────────────────────────────────────────────────
+// 공개키 SPKI 원문의 SHA-256 앞 4바이트를 대문자 8자로 읽고 4자씩 끊는다(ABCD-EF12).
+// 쓰임: 공공기관 담당자가 전화로 물어보고 화면의 값과 맞춰 본다 → 다른 사람이 우리 가게 이름으로
+//   먼저 등록해 버리는 '선점'을 사람이 확인하는 절차. 앱만으로는 막을 수 없는 종류의 공격이라,
+//   서버가 아니라 **전화 한 통**을 확인 수단으로 쓴다.
+async function keyFingerprint(pubB64){if(!str(pubB64)||!cryptoOk())return '';
+try{const h=await crypto.subtle.digest('SHA-256',b64ToBuf(pubB64));const hex=hexOf(h).slice(0,8).toUpperCase();return hex.slice(0,4)+'-'+hex.slice(4,8)}catch(e){console.error('key fingerprint',e);return ''}}
+let __fpFor='';
+async function refreshKeyFingerprint(){const pk=str(state.data.meta.pubKey);
+if(!pk){__fpFor='';state.keyFingerprint='';return}
+if(__fpFor===pk)return;
+const fp=await keyFingerprint(pk);__fpFor=pk;state.keyFingerprint=fp;
+if(state.loaded&&!renderIsDisruptive())render()}
+async function ensureKeyPair(){if(!cryptoOk())return;const m=state.data.meta;let secret=m.deviceSecret;if(!secret)secret=bufToB64(randBytes(32));if(m.pubKey&&m.privKeyWrapped&&m.deviceSecret){refreshKeyFingerprint();return}const kp=await genKeyPair(),pubKey=bufToB64(await crypto.subtle.exportKey('spki',kp.publicKey)),privKeyWrapped=await wrapPrivateKey(kp.privateKey,secret),keyCreatedAt=now();await repo.apply({meta:{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt}});m.deviceSecret=secret;m.pubKey=pubKey;m.privKeyWrapped=privKeyWrapped;m.keyCreatedAt=keyCreatedAt;refreshKeyFingerprint()}
+async function getPrivateKey(extractable){const m=state.data.meta;if(!m.privKeyWrapped||!m.deviceSecret)return null;try{return await unwrapPrivateKey(m.privKeyWrapped,m.deviceSecret,!!extractable)}catch(e){console.error('privkey unwrap',e);return null}}
+// ── deviceSecret(개인키 언랩 키 + 전화번호 복호 키)을 PIN으로 감싸지 않는 이유 (2026-08 검토) ──
+// 검토했고, **하지 않기로** 했다. 근거:
+//  ① 이 앱의 PIN은 4자리다(후보 1만 개). PBKDF2 60만 회를 얹어도 저장소를 통째로 가져간 공격자에게는
+//     전수탐색이 GPU 기준 수 초다 — 즉 "감쌌다"는 표시만 남고 실제 방어력은 거의 늘지 않는다.
+//  ② 대신 잃는 것이 크다. PIN 분실 복구(백업 파일로 복구 → 새 PIN 설정) 경로에서 옛 PIN을 모르면
+//     deviceSecret을 풀 수 없으므로 **가게 열쇠와 저장된 전화번호가 함께 영구 소실**된다.
+//     지금은 그 경로에서도 열쇠·전화번호가 살아남는다(META_DEVICE_KEYS 보존).
+//  ③ 손님 화면(잠금 상태)에서도 앱은 계속 돌아야 하는데, 키를 메모리에만 두면 자동 잠금 → 백그라운드
+//     복귀 때마다 PIN을 다시 받아야 한다(하루 수십 번 쓰는 가게 폰에서 현실적이지 않다).
+// 그래서 실제로 값이 있는 조치만 넣었다: 잠금 중에는 개인키를 쓰는 경로를 전면 금지하고(relayBackupSilent·
+//   maybeMonthlyAutoBackup), 개인키는 extractable:false로 임포트하며, 설정 화면에서 "PIN은 화면 잠금이지
+//   장부 암호화가 아니다"라고 정직하게 밝힌다. 기기 자체의 방어는 OS 잠금(지문·패턴)에 맡긴다.
+// 다음 라운드 후보: WebAuthn PRF가 있는 기기에서만 그 확장으로 KEK를 파생해 결속(폴백 없이, 옵트인).
 async function getPhone(emp){if(!emp||!emp.phone||!state.data.meta.deviceSecret)return '';try{return await aesDecryptStr(emp.phone,state.data.meta.deviceSecret)}catch(e){console.error('phone decrypt',e);return ''}}
 async function setPhone(empId,phoneRaw){const emp=state.data.employees.find(v=>v.id===empId);if(!emp)return;if(!state.data.meta.deviceSecret)await ensureKeyPair();const enc=phoneRaw?await aesEncryptStr(phoneRaw,state.data.meta.deviceSecret):'';const next={...emp,phone:enc,phoneConsent:!!phoneRaw,updatedAt:now()};await repo.apply({employees:[next]});upsertEmp(next)}
 async function setPhoneConsent(empId,consent){const emp=state.data.employees.find(v=>v.id===empId);if(!emp||!emp.phone)return;const next={...emp,phoneConsent:!!consent,updatedAt:now()};await repo.apply({employees:[next]});upsertEmp(next)}
 function formatPhone(v){const s=str(v).replace(/[^0-9]/g,'');if(s.length===11)return s.slice(0,3)+'-'+s.slice(3,7)+'-'+s.slice(7);if(s.length===10)return s.slice(0,3)+'-'+s.slice(3,6)+'-'+s.slice(6);return s}
 // 개인키 암호화 백업 (스펙 STEP 12) — 사용자 passphrase로 래핑, 기기 분실 대비 별도 파일
-async function exportKeyBackup(){if(!cryptoOk()){toast('이 브라우저는 열쇠 백업을 지원하지 않습니다.');return}const priv=await getPrivateKey();if(!priv||!state.data.meta.pubKey){toast('등록된 열쇠가 없습니다.');return}const pass=window.prompt('내 열쇠 백업 암호를 입력하세요 (분실 시 복구 불가).\n이 암호는 어디에도 저장되지 않습니다.','');if(pass===null)return;if(str(pass).length<8){toast('암호는 8자 이상이어야 합니다.');return}setBusy('내 열쇠 백업을 만드는 중입니다.');try{const pkBackup=await wrapPrivateKey(priv,pass),body={type:'prepaid-key-backup',v:1,appVersion:APP_VERSION,exportedAt:now(),pubKey:state.data.meta.pubKey,pkBackup};downloadFile(JSON.stringify(body,null,2),`선입금대장_내열쇠백업_${dateStamp()}.json`,'application/json');const myKeyBackedUpAt=now();state.data.meta.myKeyBackedUpAt=myKeyBackedUpAt;try{await repo.apply({meta:{myKeyBackedUpAt}})}catch(e2){console.error('key-backup flag save:',e2)}clearBusy();toast('내 열쇠 백업 파일을 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('내 열쇠 백업 오류')}}
+async function exportKeyBackup(){if(!cryptoOk()){toast('이 브라우저는 열쇠 백업을 지원하지 않습니다.');return}const priv=await getPrivateKey(true);if(!priv||!state.data.meta.pubKey){toast('등록된 열쇠가 없습니다.');return}const pass=window.prompt('내 열쇠 백업 암호를 입력하세요 (분실 시 복구 불가).\n이 암호는 어디에도 저장되지 않습니다.','');if(pass===null)return;if(str(pass).length<8){toast('암호는 8자 이상이어야 합니다.');return}setBusy('내 열쇠 백업을 만드는 중입니다.');try{const pkBackup=await wrapPrivateKey(priv,pass),body={type:'prepaid-key-backup',v:1,appVersion:APP_VERSION,exportedAt:now(),pubKey:state.data.meta.pubKey,pkBackup};downloadFile(JSON.stringify(body,null,2),`선입금대장_내열쇠백업_${dateStamp()}.json`,'application/json');const myKeyBackedUpAt=now();state.data.meta.myKeyBackedUpAt=myKeyBackedUpAt;try{await repo.apply({meta:{myKeyBackedUpAt}})}catch(e2){console.error('key-backup flag save:',e2)}clearBusy();toast('내 열쇠 백업 파일을 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('내 열쇠 백업 오류')}}
 // 장부 백업(JSON) 다운로드에는 개인키가 포함되지 않는다(backupCore가 제외). 기관 연동용 키가 있는데 아직
 // '내 열쇠 백업'을 한 번도 받지 않았다면, 장부 백업만 믿고 있다가 기기 분실 시 신청을 못 받는 상황을 막기 위해 안내한다.
 function maybeWarnKeyMissing(){if(state.data.meta.pubKey&&!state.data.meta.myKeyBackedUpAt){window.alert("저장한 파일에는 '가게 열쇠'가 들어있지 않아요.\n자동 등록(공공기관 명단 받기)을 쓰신다면 설정의 [내 열쇠 백업]도 한 번 따로 보관해 주세요.")}}
-async function importKeyBackup(parsed){if(!parsed||parsed.type!=='prepaid-key-backup'||!parsed.pkBackup){throw new Error('내 열쇠 백업 형식이 아닙니다.')}const pass=window.prompt('내 열쇠 백업 암호를 입력하세요.','');if(pass===null)return false;const priv=await unwrapPrivateKey(parsed.pkBackup,pass);let secret=state.data.meta.deviceSecret;if(!secret){secret=bufToB64(randBytes(32))}const privKeyWrapped=await wrapPrivateKey(priv,secret),pubKey=str(parsed.pubKey)||state.data.meta.pubKey,keyCreatedAt=now();await repo.apply({meta:{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt}});Object.assign(state.data.meta,{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt});return true}
+async function importKeyBackup(parsed){if(!parsed||parsed.type!=='prepaid-key-backup'||!parsed.pkBackup){throw new Error('내 열쇠 백업 형식이 아닙니다.')}const pass=window.prompt('내 열쇠 백업 암호를 입력하세요.','');if(pass===null)return false;const priv=await unwrapPrivateKey(parsed.pkBackup,pass,true);let secret=state.data.meta.deviceSecret;if(!secret){secret=bufToB64(randBytes(32))}const privKeyWrapped=await wrapPrivateKey(priv,secret),pubKey=str(parsed.pubKey)||state.data.meta.pubKey,keyCreatedAt=now();await repo.apply({meta:{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt}});Object.assign(state.data.meta,{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt});refreshKeyFingerprint();return true}
 // SMS 안내 (스펙 §수정4) — 직원별 전화번호+동의가 모두 있을 때만, 차감 저장 직후 기기 문자앱을 sms: URI로 자동 오픈 시도한다.
 // 웹 특성상 완전 자동 발송은 불가능하다(문자 앱에서 사장님이 '보내기'를 한 번 눌러야 실제 전송됨) — 화면 안내 문구로 이 한계를 명시한다.
 // iOS는 'sms:번호&body=' , Android는 'sms:번호?body=' 형식을 쓴다. 데스크톱 등 미지원 환경에서는 조용히 생략하고 토스트만 띄운다.
@@ -833,7 +997,31 @@ window.__lastSmsHref=href;// 자동화 검증용 훅(문자 앱 오픈 시도 �
 try{location.href=href}catch(e){console.error('sms nav',e)}
 toast('문자 앱이 열리면 보내기를 눌러 주세요.');
 }
-async function runIntegrityCheck(){setBusy('무결성을 검증하는 중입니다.');try{const chain=await verifyChain();const txs=state.data.transactions;const sum=types=>txs.filter(t=>types.includes(t.type)).reduce((s,t)=>s+num(t.amount),0);const deposits=sum(['open','topup']),adjustments=sum(['adjust']),uses=sum(['use']),voids=sum(['void']);const balanceSum=state.data.employees.reduce((s,e)=>s+balanceOf(e.id),0);const reconcile=(deposits+adjustments+voids)===(uses+balanceSum);state.verifyResult={chain,deposits,adjustments,uses,voids,balanceSum,reconcile,at:now()};clearBusy();render();toast(chain.ok&&reconcile?'무결성 검증 통과':'무결성 경고 — 결과를 확인하세요.')}catch(e){console.error(e);clearBusy();toast('검증 중 오류')}}
+// ── 금액 대조(reconcile) ──────────────────────────────────────────────────────
+// 예전 대조식은 (입금+조정+취소) === (사용 + 잔액합)이었다. 그런데 '잔액합'은 바로 그 거래 목록을
+//   같은 규칙으로 다시 더한 값이다 — 좌변과 우변이 같은 계산의 이항일 뿐인 **항등식**이라
+//   언제나 참이었다(유형 변조·꼬리 삭제·가짜 충전 삽입 어느 것도 잡지 못함, recon.mjs로 실증).
+// 이제 대조 상대는 거래가 **스스로 적어 둔 전후 잔액**이다. 두 가지를 전건 검사한다.
+//   ① beforeBalance + 금액 === afterBalance      (그 거래 안에서 앞뒤가 맞는가)
+//   ② beforeBalance === 직전 거래의 afterBalance (직원별 잔액 흐름이 이어지는가)
+//   ③ 마지막 afterBalance === 처음부터 다시 더한 값 (저장값 vs 재계산값 — 서로 다른 두 경로)
+function reconcileEmployee(id){const txs=sortTxAsc(state.data.transactions.filter(t=>str(t.employeeId)===str(id)));
+const issues=[];let prevAfter=0,computed=0;
+for(const t of txs){
+if(num(t.beforeBalance)!==prevAfter)issues.push(`${dt(t.createdAt)} 거래의 시작 잔액이 직전 잔액과 다릅니다.`);
+if(applyTx(num(t.beforeBalance),t)!==num(t.afterBalance))issues.push(`${dt(t.createdAt)} 거래의 금액과 전후 잔액이 맞지 않습니다.`);
+computed=applyTx(computed,t);prevAfter=num(t.afterBalance)}
+const stored=txs.length?num(txs[txs.length-1].afterBalance):0;
+if(stored!==computed)issues.push('마지막에 적힌 잔액과 다시 더한 잔액이 다릅니다.');
+return{ok:issues.length===0,issues,stored,computed,count:txs.length}}
+function reconcileLedger(){const issues=[];let storedSum=0,computedSum=0;
+const empIds=new Set(state.data.employees.map(e=>str(e.id)));
+state.data.employees.forEach(e=>{const r=reconcileEmployee(e.id);storedSum+=r.stored;computedSum+=r.computed;
+r.issues.slice(0,2).forEach(m=>issues.push(`${e.name}: ${m}`))});
+const orphans=state.data.transactions.filter(t=>!empIds.has(str(t.employeeId)));
+if(orphans.length)issues.push(`존재하지 않는 직원에 달린 거래 ${orphans.length}건`);
+return{ok:issues.length===0,issues:issues.slice(0,8),storedSum,computedSum}}
+async function runIntegrityCheck(){setBusy('무결성을 검증하는 중입니다.');try{const chain=await verifyChain();const txs=state.data.transactions;const sum=types=>txs.filter(t=>types.includes(t.type)).reduce((s,t)=>s+num(t.amount),0);const deposits=sum(['open','topup']),adjustments=sum(['adjust']),uses=sum(['use']),voids=sum(['void']);const rec=reconcileLedger();const balanceSum=rec.storedSum;const reconcile=rec.ok;state.verifyResult={chain,deposits,adjustments,uses,voids,balanceSum,computedSum:rec.computedSum,reconcile,reconcileIssues:rec.issues,at:now()};clearBusy();render();toast(chain.ok&&reconcile?'무결성 검증 통과':'무결성 경고 — 결과를 확인하세요.')}catch(e){console.error(e);clearBusy();toast('검증 중 오류')}}
 
 // ── 중계 서버 연동 (스펙 §3.3 승인, 2차) — server/PROTOCOL.md 와 일치 ──
 function relayBase(){return(str(state.data.meta.relayServer)||DEFAULT_RELAY).replace(/\/$/,'')}
@@ -865,6 +1053,24 @@ out.push(pt)});
 return out}
 async function decryptBlob(blob){const priv=await getPrivateKey();if(!priv)throw new Error('가게 열쇠가 없습니다');const raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(blob.encKey));const aesKey=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['decrypt']);const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(b64ToBuf(blob.iv))},aesKey,b64ToBuf(blob.ct));return JSON.parse(new TextDecoder().decode(pt))}
 async function batchHashOf(items){return hash(items.map(i=>i.name+'|'+i.dept+'|'+num(i.amount)).sort().join('\n'))}
+// ── 복호화한 명단 ↔ 사장님이 보고 승인한 요약 대조 (F-07) ─────────────────────
+// 서버 응답에서 batch_hash가 사라졌다(§4.9 오라클 차단 — 서버가 가진 확인값을 그대로 돌려주면
+//   명단을 아는 자가 "이 배치가 맞나"를 서버에 물어보는 채널이 된다). 그래서 확인값은
+//   ① 암호문 **안**(blob 평문)의 batch_hash → ② 파일·구서버가 밖에 실어 준 batch_hash 순으로 쓴다.
+// ③ 총액·인원 대조는 **언제나** 한다. 승인 확인창에 뜬 "총액 N원 · M명"은 사장님이 통장과 맞춰 본
+//   바로 그 숫자다 — 그 숫자와 실제 암호문 내용이 어긋나면 등록을 막아야 한다(서버가 요약만
+//   바꿔치기해 사장님을 속이는 경로를 여기서 끊는다).
+async function verifyBatchAgainstSummary(plain,summary,outerHash,requireHash){
+const items=(plain&&Array.isArray(plain.items))?plain.items:null;
+if(!items)return{ok:false,detail:'명단 형식 오류'};
+const expectHash=str(plain&&plain.batch_hash)||str(outerHash);
+if(requireHash&&!expectHash)return{ok:false,detail:'명단 확인값(batch_hash)이 없습니다.'};
+if(expectHash){const re=await batchHashOf(items);if(!timingSafeEq(re,expectHash))return{ok:false,detail:'명단 확인값이 다릅니다.'}}
+const sm=summary&&typeof summary==='object'?summary:{};
+const total=items.reduce((a,i)=>a+num(i.amount),0);
+if(total!==num(sm.total_amount))return{ok:false,detail:`총액이 다릅니다 — 안내 ${money(num(sm.total_amount))} · 실제 ${money(total)}`};
+if(items.length!==num(sm.member_count))return{ok:false,detail:`인원이 다릅니다 — 안내 ${num(sm.member_count)}명 · 실제 ${items.length}명`};
+return{ok:true,detail:'',hash:expectHash}}
 function relayRegistered(){return !!str(state.data.meta.restaurantId)}
 // 등록은 됐는데 열쇠 백업을 아직 안 한 상태 — 폰을 잃으면 복구 불가라 설정 배지·홈 배너·완료 안내에서 공통으로 쓴다.
 function keyBackupUrgent(){return relayRegistered()&&!state.data.meta.myKeyBackedUpAt}
@@ -893,7 +1099,18 @@ const REGISTER_TAKEN_MSG='이 가게는 이미 등록되어 있어요.\n\n'
 +'아래 중 하나로 해결할 수 있어요.\n'
 +'① 예전 폰이 아직 있다면 — 그 폰의 앱 설정에서 [자동 등록 중단 (가게 등록 해제)]을 누른 뒤, 이 폰에서 다시 등록해 주세요.\n'
 +'② \'내 열쇠 백업\' 파일을 저장해 뒀다면 — 설정의 [저장한 데이터 불러오기(복원)]에서 그 파일을 불러온 뒤, 다시 등록해 주세요.\n'
-+'③ 둘 다 없다면 — contact@bapjangbu.com 으로 가게 이름·주소·가게 전화번호를 보내 주세요. 사장님 가게가 맞는지 확인한 뒤 예전 등록을 지워 드려요.';
++'③ 둘 다 없다면 — contact@bapjangbu.com 으로 가게 이름·주소·가게 전화번호를 보내 주세요. 사장님 가게가 맞는지 확인한 뒤 예전 등록을 지워 드려요.\n\n'
++'※ 다른 사람이 우리 가게 이름으로 먼저 등록한 것 같다면 이어지는 [신고하기]를 눌러 주세요 — 가게 이름·가게 번호·발생 시각이 채워진 메일 창이 열립니다.';
+// 선점(다른 사람이 우리 가게로 먼저 등록) 신고 — mailto 프리필. 개인정보는 최소로만 담는다
+//   (직원 이름·금액·전화번호는 절대 넣지 않는다). 열쇠 지문은 본인 확인에 쓰이는 공개값이다.
+function offerTakeoverReport(){
+if(!window.confirm('[신고하기]\n\n가게 이름·가게 번호·발생 시각이 채워진 메일 창을 열까요?\n(직원 명단·금액은 담기지 않아요)'))return;
+const rid=str(state.data.meta.restaurantId),nm=str(state.data.meta.relayStoreName||state.data.meta.shopName);
+const body=['우리 가게가 이미 등록되어 있다고 나옵니다. 확인 부탁드립니다.','',
+'가게 이름: '+nm,'가게 번호: '+rid,'발생 시각: '+dt(now()),'우리 가게 열쇠 지문: '+str(state.keyFingerprint),'앱 버전: v'+APP_VERSION].join('\n');
+const href='mailto:contact@bapjangbu.com?subject='+encodeURIComponent('[밥장부] 가게 등록 확인 요청(선점 신고)')+'&body='+encodeURIComponent(body);
+window.__lastReportHref=href;// 자동화 검증용 훅 — 네트워크로 전송되지 않는다
+try{location.href=href}catch(e){console.error('report mail',e)}}
 // 호출부(설정 relayPickStore·온보딩 finishSetup)가 실패 후속 안내를 실패 종류에 맞게 고르도록 남기는 표지.
 //   auth_required일 때 "인터넷 확인" 토스트가 겹쳐 뜨면 위 안내를 도로 덮는 오답이 된다.
 let relayRegisterLastError='';
@@ -911,7 +1128,7 @@ if(savedKakao||savedEmail){try{await relayContactSave({kakao:savedKakao,email:sa
 else{toast('우리 가게를 등록했습니다. 이제 공공기관 신청을 받을 수 있어요.')}
 // 서버 원문(영문 코드 등)은 콘솔에만 남기고 사용자에게는 사람 말로 안내한다(A5).
 }catch(e){console.error('register-key:',e);clearBusy();relayRegisterLastError=str(e&&e.message)||'error';
-if(relayRegisterLastError==='auth_required'){window.alert(REGISTER_TAKEN_MSG);return}
+if(relayRegisterLastError==='auth_required'){window.alert(REGISTER_TAKEN_MSG);offerTakeoverReport();return}
 toast('가게 등록에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.')}}
 // ── 기존 등록분 자동 치유(beta.26) ─────────────────────────────────────────────
 // beta.25까지는 공식 주소를 저장하지 않아 register-key 페이로드에서 district가 통째로 빠졌다
@@ -976,10 +1193,13 @@ async function relayStop(){if(!navigator.onLine){toast('인터넷 연결을 확�
 function isKakaoOpenLink(v){return /^https:\/\/open\.kakao\.com\//.test(str(v))}
 async function relayContactSave(opts){opts=opts&&typeof opts==='object'?opts:{};if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 등록하세요.');return}const kakao=typeof opts.kakao==='string'?opts.kakao:str(qs('contactKakao')&&qs('contactKakao').value),email=typeof opts.email==='string'?opts.email:str(qs('contactEmail')&&qs('contactEmail').value);if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}setBusy('연락처를 저장하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:kakao,email})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'저장 실패');state.data.meta.contactKakaoLink=kakao;state.data.meta.contactEmail=email;await repo.apply({meta:{contactKakaoLink:kakao,contactEmail:email}});render();toast(opts.successToast||'가게 연락처를 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처 저장 오류: '+(e.message||''))}}
 async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('등록된 연락처를 지울까요?\n\n담당자 화면에서 카톡·이메일 전달 버튼이 사라집니다.'))return;setBusy('연락처를 지우는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:'',email:''})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'해제 실패');state.data.meta.contactKakaoLink='';state.data.meta.contactEmail='';await repo.apply({meta:{contactKakaoLink:'',contactEmail:''}});render();toast('가게 연락처 등록을 해제했습니다.')}catch(e){console.error(e);clearBusy();toast('등록 해제 오류: '+(e.message||''))}}
-async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}setBusy('신청을 불러오는 중입니다.');try{const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid));const items=await r.json();clearBusy();if(!Array.isArray(items))throw new Error(items.error||'수신 오류');state.inboxCount=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
+// 수신함은 소유증명(챌린지-응답) 뒤에 있다 — restaurant_id는 공개값이라, 예전에는 그것만 알면
+//   누구나 그 가게의 기관·부서·총액·인원과 암호문까지 받아 갈 수 있었다(암호문은 못 열어도
+//   요약 메타 자체가 조직 정보다). 토큰은 헤더(X-Auth-Token)로 보낸다 — 쿼리스트링은 로그에 남는다.
+async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}setBusy('신청을 불러오는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid),{headers:{'X-Auth-Token':authToken}});const items=await r.json();clearBusy();if(r.status===401){toast('가게 확인에 실패했어요. 설정에서 우리 가게 등록 상태를 확인해 주세요.');return}if(!Array.isArray(items))throw new Error(items.error||'수신 오류');state.inboxCount=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
 // 처리 도중 뒤로가기(popstate)로 모달이 닫혀도 TypeError 없이 끝나도록 진입 시 모달을 지역 변수로 캡처한다(A6).
 async function relayReject(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)} 신청을 거절할까요? (열어보지 않고 폐기)`))return;setBusy('처리 중입니다.');try{const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'REJECTED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();toast('거절했습니다.')}catch(e){console.error(e);clearBusy();toast('처리 오류: '+(e.message||''))}}
-async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)}\n${item.summary.restaurant_name||''}\n총액 ${money(item.summary.total_amount)} · ${item.summary.member_count}명\n\n통장 입금을 확인하셨으면 승인하세요.`))return;setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const reHash=await batchHashOf(plain.items);if(reHash!==item.summary.batch_hash){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);const t=now(),ym=str(item.summary.year_month),groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();for(const it of plain.items){/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const amt=num(it.amount);const exist=activeByKey.get(empMatchKey(rec));publicOrgPatchesForLabel(rec,patchedIds).forEach(pt=>patches.push(pt));if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'공공기관 신청 승인 추가 충전',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}const eid=uid();emps.push({id:eid,org:rec.org,orgKind:'public',dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'공공기관 신청 승인',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}await repo.apply({employees:emps.concat(patches),transactions:txs});emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'APPROVED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}}
+async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)}\n${item.summary.restaurant_name||''}\n총액 ${money(item.summary.total_amount)} · ${item.summary.member_count}명\n\n통장 입금을 확인하셨으면 승인하세요.`))return;setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const chk=await verifyBatchAgainstSummary(plain,item.summary,item.summary&&item.summary.batch_hash,false);if(!chk.ok){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+chk.detail+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);const t=now(),ym=str(item.summary.year_month),groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();for(const it of plain.items){/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const amt=num(it.amount);const exist=activeByKey.get(empMatchKey(rec));publicOrgPatchesForLabel(rec,patchedIds).forEach(pt=>patches.push(pt));if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'공공기관 신청 승인 추가 충전',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}const eid=uid();emps.push({id:eid,org:rec.org,orgKind:'public',dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'공공기관 신청 승인',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}await repo.apply({employees:emps.concat(patches),transactions:txs});emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'APPROVED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}}
 // ── 직접 전달(파일·QR) 수신 — 서버를 거치지 않고 기관이 건넨 암호문을 그 자리에서 열어 장부에 등록 ──
 // 계약(고정): {v:1, type:'direct-transfer', restaurant_id, restaurant_name, institution, department, year_month, summary:{total_amount, member_count, batch_hash}, ciphertext:{alg,encKey,iv,ct}}
 function directTransferBatchHashes(){return Array.isArray(state.data.meta.receivedBatchHashes)?state.data.meta.receivedBatchHashes:[]}
@@ -996,8 +1216,8 @@ setBusy('열어보는 중입니다.');
 try{
 const plain=await decryptBlob(parsed.ciphertext);
 if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');
-const reHash=await batchHashOf(plain.items);
-if(reHash!==batchHash){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}
+const chk=await verifyBatchAgainstSummary(plain,parsed.summary,batchHash,true);
+if(!chk.ok){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+chk.detail+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}
 assignDuplicateSuffix(plain.items);
 const t=now(),ym=str(parsed.year_month),groupDept=combinedDeptLabel(parsed.institution,parsed.department);let tip=chainTip();const emps=[],txs=[],patches=[];
 const noteLabel=str(parsed.institution)+' '+str(parsed.department);
@@ -1042,9 +1262,12 @@ function stripPhonesForCloud(core){return{...core,payload:{...core.payload,emplo
 async function buildCloudBackupBlob(){if(!state.data.meta.pubKey)throw new Error('키가 없습니다.');const core=stripPhonesForCloud(backupCore());const plaintext=JSON.stringify(core);const aesRaw=randBytes(32);const aesKey=await crypto.subtle.importKey('raw',aesRaw,{name:'AES-GCM'},false,['encrypt']);const iv=randBytes(12);const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},aesKey,new TextEncoder().encode(plaintext));const pub=await crypto.subtle.importKey('spki',b64ToBuf(state.data.meta.pubKey),{name:'RSA-OAEP',hash:'SHA-256'},true,['encrypt']);const encKey=await crypto.subtle.encrypt({name:'RSA-OAEP'},pub,aesRaw);return{encKey:bufToB64(encKey),iv:bufToB64(iv),ct:bufToB64(ct)}}
 async function relayBackupNow(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록하세요.');return}setBusy('장부 되찾기용 백업을 만드는 중입니다.');try{const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000){clearBusy();toast('장부 용량이 커서 백업을 만들 수 없어요.');return}const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'백업 실패');const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});clearBusy();render();toast('장부를 안전하게 저장했어요.')}catch(e){console.error(e);clearBusy();toast('백업 오류: '+(e.message||''))}}
 // 조용한 클라우드 백업 — buildCloudBackupBlob/relayAuthToken/relayBase를 그대로 재사용(새 서버 계약 없음). busy/toast 없이 성공 여부만 반환. 실패는 조용히 false.
-async function relayBackupSilent(){try{if(!navigator.onLine||!relayRegistered()||!state.data.meta.pubKey)return false;const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000)return false;const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});if(!r.ok)return false;const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});return true}catch(e){console.error('silent cloud backup',e);return false}}
+// ⚠️ 잠금(손님) 화면에서는 절대 돌지 않는다 — 이 경로는 개인키를 풀어 챌린지를 복호화하고
+//   장부 전체를 암호화해 업로드한다. PIN을 넣기 전에 그 일이 벌어질 이유가 없다.
+async function relayBackupSilent(){try{if(lockScreenActive())return false;if(!navigator.onLine||!relayRegistered()||!state.data.meta.pubKey)return false;const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000)return false;const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});if(!r.ok)return false;const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});return true}catch(e){console.error('silent cloud backup',e);return false}}
 // 월말 자동 클라우드 백업 트리거(앱 로드 시 1회). 활동 게이트·등록·토글을 모두 통과할 때만 서버를 호출한다. 실패해도 조용히 넘기고 배너로 유도.
-async function maybeMonthlyAutoBackup(){try{if(state.data.meta.autoCloudBackup===false)return;if(!relayRegistered())return;if(!navigator.onLine)return;const due=monthlyBackupDue();if(!due)return;/*활동0·이미백업·월말아님이면 여기서 종료 → 서버 호출 없음*/const ok=await relayBackupSilent();if(ok){state.data.meta.lastMonthlyBackup=due;await repo.apply({meta:{lastMonthlyBackup:due}});render();toast('이번 달 장부를 안전하게 백업했어요.')}}catch(e){console.error('monthly auto backup',e)}}
+// 잠금 중에는 미룬다(개인키 사용 금지) — 잠금 해제 직후 다시 호출된다.
+async function maybeMonthlyAutoBackup(){try{if(lockScreenActive())return;if(state.data.meta.autoCloudBackup===false)return;if(!relayRegistered())return;if(!navigator.onLine)return;const due=monthlyBackupDue();if(!due)return;/*활동0·이미백업·월말아님이면 여기서 종료 → 서버 호출 없음*/const ok=await relayBackupSilent();if(ok){state.data.meta.lastMonthlyBackup=due;await repo.apply({meta:{lastMonthlyBackup:due}});render();toast('이번 달 장부를 안전하게 백업했어요.')}}catch(e){console.error('monthly auto backup',e)}}
 async function relayRestoreFromCloud(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록하세요.');return}if(!window.confirm('보관된 내용으로 복원할까요?\n\n현재 기기의 장부가 백업 시점 내용으로 바뀌어요.'))return;setBusy('보관된 내용을 불러오는 중입니다.');try{const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(r.status===404){clearBusy();toast('보관된 내용이 없어요.');return}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'복원 실패');if(j.blob_hash){const calc=await hash(j.blob);if(calc!==j.blob_hash){clearBusy();toast('백업 무결성 확인에 실패했습니다.');return}}const blob=JSON.parse(atob(j.blob));const core=await decryptBlob(blob);clearBusy();const ok=await restoreFromParsed(core);if(ok){const at=j.updated_at?(new Date(j.updated_at).getTime()||now()):now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});render()}}catch(e){console.error(e);clearBusy();toast('복원 오류: '+(e.message||''))}}
 
 // ── UI ──
@@ -1261,11 +1484,10 @@ const isSetup=!hasPin||state.pinMode==='change';
 if(isSetup){
 if(!state.pinSetup1){state.pinSetup1=pin;state.pinInput='';render();return}
 if(state.pinSetup1!==pin){state.pinSetup1='';state.pinInput='';state.pinMsg='비밀번호가 일치하지 않습니다. 다시 설정하세요.';render();return}
-const h=await hash(pin);state.data.meta.pinHash=h;await repo.apply({meta:{pinHash:h}});
+await savePinHash(pin);
 state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();await clearPinGuard();resetCustomerState();render();toast('비밀번호가 설정되었습니다.')
 }else{
-const h=await hash(pin);
-if(h===state.data.meta.pinHash){state.pinInput='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();stopPinDelayTick();await clearPinGuard();
+if(await verifyPin(pin)){state.pinInput='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();stopPinDelayTick();await clearPinGuard();maybeMonthlyAutoBackup();
 // 손님 인계: 손님이 요청을 넘긴 직후(120초 이내)라면 그 직원의 사용 모달을 바로 연다.
 //   · A([사장님 부르기]) = 대상만 넘어온다 → 금액 빈 칸(사장님이 정한다).
 //   · B([사장님 확인 받기]) = 금액·서명이 함께 넘어온다 → 프리필하되 **금액은 그대로 수정 가능**하다.
@@ -1851,9 +2073,9 @@ function soloEmpCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';c
 function empCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';const initial=esc(Array.from(str(e.name))[0]||'?');return `<div class="card employee" style="display:flex;align-items:center;gap:12px"><div class="emp-avatar" aria-hidden="true">${initial}</div><div class="employee-main" data-a="history-for" data-id="${esc(e.id)}"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.name)}</div><div class="dept" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(orgDeptLabel(e)||'부서 없음')}${e.note?' · '+esc(e.note):''}</div></div><div class="bal ${c}" style="margin:0;white-space:nowrap;font-size:20px">${money(e.balance)}</div><button class="small" data-a="receipt" data-id="${esc(e.id)}" aria-label="${esc(e.name)} 잔액증표 보기" title="잔액증표(명함)" style="flex:0 0 auto;min-width:44px;font-size:18px">🧾<span class="rcpt-label">증표</span></button><button class="btn-primary" data-a="use" data-id="${esc(e.id)}" style="min-width:auto;padding:10px 16px;flex:0 0 auto">사용</button></div>`}
 function historyHtml(d){if(state.historyTab==='employee')return historyByEmployee(d);return historyByDate(d)}
 function historyByDate(d){if(!d.dateGroups.length)return '<div class="card empty">거래 이력이 없습니다.<br>홈 화면에서 직원을 골라 [사용]을 눌러 등록해 보세요.<br><button class="btn-primary" data-a="go-home" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">홈으로 가기</button></div>';return d.dateGroups.map(g=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1.5px solid #eef1f4"><div class="name" style="font-size:16px">${esc(g.date)}</div><div style="font-size:12px;color:var(--muted)">${g.count}건${g.useTotal?` · 사용 ${money(g.useTotal)}`:''}</div></div><div class="list">${g.items.map(t=>txCardDate(t,d)).join('')}</div></div>`).join('')}
-function txCardDate(t,d){const e=d.empMap.get(t.employeeId);const eName=e?e.name:'알 수 없음';const eDept=e?e.deptKey:'';const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const sig=t.signatureData?`<img class="thumb" src="${t.signatureData}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:'';const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">이 사용 기록 취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';const time=new Date(t.createdAt);const hm=String(time.getHours()).padStart(2,'0')+':'+String(time.getMinutes()).padStart(2,'0');return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div><div class="txn-title">${esc(eName)} <span style="font-weight:400;color:var(--muted);font-size:11px">${esc(eDept)} · ${esc(lbl)}</span></div></div><div class="amt ${cls}">${sign}${money(isAdj?t.amount:Math.abs(t.amount))}</div></div><div class="chips"><span>${hm}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
+function txCardDate(t,d){const e=d.empMap.get(t.employeeId);const eName=e?e.name:'알 수 없음';const eDept=e?e.deptKey:'';const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const sigSrc=sigD(t.signatureData);const sig=sigSrc?`<img class="thumb" src="${esc(sigSrc)}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:'';const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">이 사용 기록 취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';const time=new Date(t.createdAt);const hm=String(time.getHours()).padStart(2,'0')+':'+String(time.getMinutes()).padStart(2,'0');return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div><div class="txn-title">${esc(eName)} <span style="font-weight:400;color:var(--muted);font-size:11px">${esc(eDept)} · ${esc(lbl)}</span></div></div><div class="amt ${cls}">${sign}${money(isAdj?t.amount:Math.abs(t.amount))}</div></div><div class="chips"><span>${hm}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
 function historyByEmployee(d){if(!d.historyGroups.length)return '<div class="card empty">거래 이력이 없습니다.<br>홈 화면에서 직원을 골라 [사용]을 눌러 등록해 보세요.<br><button class="btn-primary" data-a="go-home" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">홈으로 가기</button></div>';return d.historyGroups.map(g=>{const emp=g.employee;const bal=emp?emp.balance:0;const canAdjust=emp&&!emp.isDeleted;return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="name">${esc(g.name)}<span class="dept" style="margin-left:8px">${esc(g.dept)}</span></div><div style="display:flex;align-items:center;gap:8px"><div style="font-size:22px;font-weight:800;color:var(--danger);white-space:nowrap">잔액 ${money(bal)}</div>${canAdjust?`<button class="small" data-a="adjust" data-id="${esc(g.employeeId)}">조정</button>`:''}</div></div><div class="list">${g.items.map(t=>txCard(t,d)).join('')}</div></div>`}).join('')}
-function txCard(t,d){const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const displayAmt=isAdj?money(t.amount):money(Math.abs(t.amount));const sig=t.signatureData?`<img class="thumb" src="${t.signatureData}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:'';const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">이 사용 기록 취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div class="txn-title">${esc(lbl)}</div><div class="amt ${cls}">${sign}${displayAmt}</div></div><div class="chips"><span style="font-size:14px;font-weight:600">${dt(t.createdAt)}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
+function txCard(t,d){const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const displayAmt=isAdj?money(t.amount):money(Math.abs(t.amount));const sigSrc=sigD(t.signatureData);const sig=sigSrc?`<img class="thumb" src="${esc(sigSrc)}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:'';const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">이 사용 기록 취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div class="txn-title">${esc(lbl)}</div><div class="amt ${cls}">${sign}${displayAmt}</div></div><div class="chips"><span style="font-size:14px;font-weight:600">${dt(t.createdAt)}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
 // 전화번호 등록/수정·삭제 + 문자 안내 동의 체크박스는 활성 직원에게만 노출(스펙 §수정3). 번호는 이 폰에만 저장되며 서버로 전송되지 않는다.
 function phoneControlsHtml(e){const has=!!e.phone;return `<div class="phone-row"><button class="small" data-a="emp-phone-edit" data-id="${esc(e.id)}">${has?'번호 수정':'번호 등록'}</button>${has?`<button class="small" data-a="emp-phone-clear" data-id="${esc(e.id)}">번호 삭제</button>`:''}<label class="phone-consent${has?'':' disabled'}"><input type="checkbox" data-a="emp-phone-consent" data-id="${esc(e.id)}"${has?'':' disabled'}${e.phoneConsent?' checked':''}> 문자 안내 동의</label></div><div class="meta" style="font-size:10px">전화번호는 이 폰에만 저장되며 서버로 전송되지 않아요.</div>`}
 function manageRow(e){return `<div class="row"><div class="left"><div class="txn-title">${esc(e.name)}${e.isDeleted?'<span class="hidden-badge">숨김</span>':''}</div><div class="meta">${esc(orgDeptLabel(e)||'부서 없음')} · 현재 잔액 ${money(e.balance)}</div>${e.note?`<div class="meta">${esc(e.note)}</div>`:''}${e.isDeleted?'':phoneControlsHtml(e)}</div><div class="right">${e.isDeleted?`<button class="small" data-a="restore-emp" data-id="${esc(e.id)}">복원</button>`:`<button class="small" data-a="edit-employee" data-id="${esc(e.id)}">수정</button><button class="small" data-a="topup" data-id="${esc(e.id)}">충전</button><button class="small" data-a="adjust" data-id="${esc(e.id)}">조정</button><button class="small" data-a="hide" data-id="${esc(e.id)}">숨김</button>`}</div></div>`}
@@ -1883,11 +2105,11 @@ const sigField=preSign
 :`<div class="field"><label>서명</label><div class="sig-box"><canvas id="signCanvas" class="signature"></canvas><div class="sig-hint">여기에 손가락으로 서명해 주세요</div></div></div>`;
 const sigBtn=preSign?'':'<button class="btn" data-a="clear-sign">서명 지우기</button>';
 return `<div class="modal-back"><div class="modal"><h2>사용 등록</h2><p class="help">${preAmount>0?'손님이 보낸 요청이에요. 금액과 서명을 확인한 뒤 저장하세요 (금액을 고치면 서명을 다시 받습니다).':'금액을 입력한 뒤 서명을 받고 저장하세요.'}</p>${resignWarn}<div class="receipt"><div class="receipt-row"><span>직원</span><strong>${esc(e.name)}</strong></div><div class="receipt-row"><span>소속·부서</span><strong>${esc(orgDeptLabel(e)||'부서 없음')}</strong></div><div class="receipt-row"><span>현재 잔액</span><strong style="font-size:24px;color:var(--primary)">${money(e.balance)}</strong></div>${reqNote}</div><div class="form"><div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-use" data-amount="9000">9,000원</button><button data-a="fill-use" data-amount="18000">18,000원</button><button data-a="fill-use" data-amount="27000">27,000원</button></div></div>${field('useAmount','사용 금액',amtVal,'금액을 입력하세요','number','data-modal-focus')}${field('useNote','비고 (점심/저녁/특식 등)',noteVal,'선택 입력')}${smsBox}${sigField}</div><div class="modal-actions">${sigBtn}<button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-use">서명 후 저장</button></div></div></div>`}
-if(state.modal.type==='signature'){const t=state.data.transactions.find(v=>v.id===state.modal.id);if(!t||!t.signatureData)return '';const e=state.data.employees.find(v=>v.id===t.employeeId);return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>서명 확인</h2><p class="help">${esc(e?e.name:'알 수 없음')} · ${dt(t.createdAt)} · ${money(t.amount)}</p><img src="${t.signatureData}" style="max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff" alt="서명"><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
+if(state.modal.type==='signature'){const t=state.data.transactions.find(v=>v.id===state.modal.id);if(!t)return '';const sigSrc=sigD(t.signatureData);if(!sigSrc)return '';const e=state.data.employees.find(v=>v.id===t.employeeId);return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>서명 확인</h2><p class="help">${esc(e?e.name:'알 수 없음')} · ${dt(t.createdAt)} · ${money(t.amount)}</p><img src="${esc(sigSrc)}" style="max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff" alt="서명"><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 if(state.modal.type==='store-search'){const results=state.modal.results||[];const emptyMsg=state.modal.regionFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':'검색 결과가 없습니다. 가게 이름을 바꿔보세요.';const list=results.length?results.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">${esc(x.name)}</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.address||'')}</div></div><button class="btn-primary small" data-a="relay-pick-store" data-id="${esc(x.restaurant_id)}" data-name="${esc(x.name)}" data-addr="${esc(x.address||'')}" style="flex-shrink:0">이 가게</button></div>`).join(''):(state.modal.searched?`<div class="empty">${esc(emptyMsg)}</div>`:'');return `<div class="modal-back"><div class="modal"><h2>우리 가게 찾기</h2><p class="help">가게 이름으로 검색해 우리 가게를 선택하세요. 한 번만 등록하면 됩니다.</p><div class="form"><div class="field"><label>가게 이름</label><input id="storeName" placeholder="예: 정식김밥" value="${esc(state.modal.q||'')}"></div><div class="field"><label>지역(선택) — 예: 광진구 구의동</label><input id="storeRegion" placeholder="예: 광진구 구의동" value="${esc(state.modal.region||'')}"></div></div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button><button class="btn-primary" data-a="relay-search-stores">${state.modal.searching?'검색 중…':'검색'}</button></div>${list?`<div style="margin-top:12px">${list}</div>`:''}</div></div>`}
 if(state.modal.type==='inbox'){const items=state.modal.items||[];const body=items.length?items.map(it=>`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px"><div style="font-weight:700">${esc(combinedDeptLabel(it.summary.institution,it.summary.department))}</div><div class="meta">${esc(it.summary.restaurant_name||'')} · ${esc(it.summary.year_month||'')}</div><div style="margin:6px 0">총액 <b>${money(it.summary.total_amount)}</b> · ${num(it.summary.member_count)}명 <span class="meta">(승인 전에는 이름이 보이지 않습니다)</span></div><div style="display:flex;gap:8px"><button class="btn-primary" data-a="relay-approve" data-sid="${esc(it.summary_id)}">통장 확인 후 승인</button><button class="btn-danger" data-a="relay-reject" data-sid="${esc(it.summary_id)}">거절</button></div></div>`).join(''):'<div class="empty">대기 중인 신청이 없습니다.<br>공공기관에서 신청을 보내면 여기에 나타나요.</div>';return `<div class="modal-back"><div class="modal"><h2>공공기관 명단 신청 수신함</h2><p class="help">통장에서 입금자명·금액을 대조한 뒤 승인하세요. 승인 시에만 명단이 열립니다.</p>${body}<div class="modal-actions"><button class="btn" data-a="relay-inbox">새로고침</button><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 if(state.modal.type==='qr-scan'){return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>QR(사각 코드)로 받기</h2><p class="help">담당자가 보여주는 QR(사각 코드)를 카메라로 비춰주세요. 서버를 거치지 않고 바로 등록돼요.</p><video id="qrVideo" autoplay playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover"></video><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button></div></div></div>`}
-if(state.modal.type==='csv'){const rows=state.modal.rows||[];const dupWarn=state.modal.dupWarn||0;const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''} — 등록 가능</div>`;const hasOrg=rows.some(r=>str(r.org));const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th>${hasOrg?'<th>소속</th>':''}<th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td>${hasOrg?`<td>${esc(r.org||'')}</td>`:''}<td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error||(r.mode==='topup'?'🔄 추가 충전':'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>엑셀 명단(CSV) 불러오기</h2><p class="help">엑셀에서 저장한 CSV 파일을 불러와요. 첫 줄(제목 줄)에 부서, 이름, 금액 칸이 있어야 해요. <b>소속</b> 칸이 있으면 함께 읽어요(선택).<br>이미 등록된 직원은 금액이 추가로 충전돼요.</p>${sm}${dupWarn?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">⚠️ 동명이인 ${dupWarn}건 감지 — 구분 마커(·2, ·3 …)를 자동 부여했습니다. 표에서 확인하세요.</div>`:''}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">등록하기</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
+if(state.modal.type==='csv'){const rows=state.modal.rows||[];const dupWarn=state.modal.dupWarn||0;const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''} — 등록 가능</div>`;const hasOrg=rows.some(r=>str(r.org));const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th>${hasOrg?'<th>소속</th>':''}<th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td>${hasOrg?`<td>${esc(r.org||'')}</td>`:''}<td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error?esc(r.error):(r.mode==='topup'?'🔄 추가 충전':'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>엑셀 명단(CSV) 불러오기</h2><p class="help">엑셀에서 저장한 CSV 파일을 불러와요. 첫 줄(제목 줄)에 부서, 이름, 금액 칸이 있어야 해요. <b>소속</b> 칸이 있으면 함께 읽어요(선택).<br>이미 등록된 직원은 금액이 추가로 충전돼요.</p>${sm}${dupWarn?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">⚠️ 동명이인 ${dupWarn}건 감지 — 구분 마커(·2, ·3 …)를 자동 부여했습니다. 표에서 확인하세요.</div>`:''}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">등록하기</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
 if(state.modal.type==='receipt'){return receiptCardHtml(d)}
 return ''}
 
@@ -1898,8 +2120,13 @@ function receiptCardHtml(d){const e=d.empMap.get(state.modal.id);if(!e)return ''
 // 잔액 표시 전 안전장치 ②③ — 해시체인 재검증 + 시간순 applyTx 누적 교차검증.
 //   증표(사장님)와 손님 화면이 반드시 같은 판정을 쓰도록 헬퍼로 뽑았다(한쪽만 완화되는 일이 없게).
 async function verifyBalanceFor(id){let integrityOk=true,crossOk=true;
-try{const chain=await verifyChain();integrityOk=chain.ok}catch(err){console.error('balance verify',err);integrityOk=false}
-try{const d=derive();const e=d.empMap.get(id);if(e){const txs=sortTxAsc(state.data.transactions.filter(t=>t.employeeId===id));const recomputed=txs.reduce((s,t)=>applyTx(s,t),0);crossOk=recomputed===e.balance}}catch(err){console.error('balance cross-check',err);crossOk=false}
+// ⚠️ 여기서는 tamperOk(변조 증거 없음)를 본다. 구 형식(hv≠2·txHash 없음) 장부는 '재검증 불가'이지
+//   '변조됨'이 아니다 — 그것만으로 손님 화면의 잔액을 지우면 옛 백업을 되살린 사장님이 영영 못 쓴다.
+//   변조를 실제로 가리키는 신호(해시 불일치·체인 단절·꼬리 앵커 불일치)는 그대로 잔액을 막는다.
+try{const chain=await verifyChain();integrityOk=chain.tamperOk!==false}catch(err){console.error('balance verify',err);integrityOk=false}
+// ③ 교차검증 — 예전에는 derive()의 잔액과 "같은 거래를 같은 규칙으로 다시 더한 값"을 비교했다.
+//   두 값은 정의상 언제나 같다(항등식). 진짜 교차검증은 **거래가 적어 둔 전후 잔액**과 대조하는 것이다.
+try{const d=derive();const e=d.empMap.get(id);if(e){const r=reconcileEmployee(id);crossOk=r.ok&&r.stored===num(e.balance)}}catch(err){console.error('balance cross-check',err);crossOk=false}
 return{integrityOk,crossOk}}
 async function openReceipt(id){const{integrityOk,crossOk}=await verifyBalanceFor(id);state.modal={type:'receipt',id,integrityOk,crossOk};render()}
 // 사용 모달 열기 — 홈의 [사용] 버튼과 손님 인계(A·B)가 같은 경로를 쓴다.
@@ -2042,6 +2269,8 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 'relay-search-stores':async()=>{await relaySearchStores()},
 'relay-pick-store':async(el)=>{await relayPickStore(el.dataset.id,el.dataset.name,el.dataset.addr)},
 'relay-inbox':async()=>{await relayOpenInbox()},
+'copy-key-fp':async()=>{const fp=str(state.keyFingerprint);if(!fp){toast('아직 열쇠가 만들어지지 않았어요.');return}
+try{await navigator.clipboard.writeText(fp);toast('열쇠 지문을 복사했어요.')}catch(e){toast('복사할 수 없어요. 화면의 값을 그대로 읽어 주세요.')}},
 'relay-approve':async(el)=>{await relayApprove(el.dataset.sid)},
 'relay-reject':async(el)=>{await relayReject(el.dataset.sid)},
 'direct-transfer-open':()=>{qs('directTransferFile').value='';qs('directTransferFile').click()},
@@ -2384,10 +2613,22 @@ async function exportSafeLedger(){setBusy('장부와 백업 파일을 만드는 
 function downloadBlob(blob,filename){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function downloadFile(content,filename,type){if(typeof AndroidBridge!=='undefined'&&AndroidBridge.saveBackup&&(!type||type.indexOf('json')>=0)){AndroidBridge.saveBackup(content,filename);return true}downloadBlob(new Blob([content],{type:type||'application/json'}),filename);return false}
 window.onBackupSaved=async function(fn){const lastBackupAt=now();try{await repo.apply({meta:{lastBackupAt}});state.data.meta.lastBackupAt=lastBackupAt;state.backupConfirmed=true;render()}catch(e){console.error(e)}toast('백업 저장 완료: '+fn)};
-async function restoreFromParsed(parsed){const parsedBackup=parseBackupPayload(parsed);const checksum=parsedBackup.checksum,calc=await hash(JSON.stringify(parsedBackup.core));const data=norm(parsedBackup.data);const validation=validateRestoreData(data);if(validation.errors.length){throw new Error('복원 검증 실패: '+validation.errors.join(', '))}
+// 백업 복원. opts.forgotPin=true 는 [PIN을 잊으셨나요?] → [백업 파일로 복구] 경로에서만 선다.
+// ⚠️ 보안 민감 meta(META_DEVICE_KEYS)는 **백업에서 절대 들여오지 않는다**.
+//   예전에는 norm()이 meta를 통째로 병합해, 손으로 고친 백업 한 장으로 pinHash를 바꿔 잠금을 열고
+//   privKeyWrapped/deviceSecret까지 갈아끼울 수 있었다(실증됨). 이제 이 기기의 값을 그대로 유지한다.
+//   그 덕에 복원해도 이 기기의 '가게 열쇠'가 살아남는다(예전에는 복원마다 키가 새로 만들어졌다).
+//   forgotPin 경로에서만 PIN 관련 값을 **비운다** — 백업 값을 쓰는 것이 아니라 지우는 것이라
+//   복원 직후 "새 비밀번호 설정" 화면으로 가는 기존 복구 흐름은 그대로다.
+async function restoreFromParsed(parsed,opts){opts=opts&&typeof opts==='object'?opts:{};const parsedBackup=parseBackupPayload(parsed);const checksum=parsedBackup.checksum,calc=await hash(JSON.stringify(parsedBackup.core));const data=norm(parsedBackup.data);
+const curMeta=(state.data&&state.data.meta)||{};
+META_DEVICE_KEYS.forEach(k=>{delete data.meta[k]});
+if(opts.forgotPin){['deviceSecret','privKeyWrapped','pubKey','keyCreatedAt'].forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
+else{META_DEVICE_KEYS.forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
+const validation=validateRestoreData(data);if(validation.errors.length){throw new Error('복원 검증 실패: '+validation.errors.join(', '))}
 // 데이터 보존: 복원 데이터에 직원/거래가 있으면 설정 마법사로 되돌아가지 않도록 setupComplete 유지
 if((data.employees.length||data.transactions.length)&&!data.meta.setupComplete)data.meta.setupComplete=true;
-const ec=data.employees.filter(v=>!v.isDeleted).length,tc=data.transactions.length;clearBusy();let warn='';if(checksum&&checksum!==calc)warn+='\n\n⚠️ 확인값이 일치하지 않아요. 파일이 수정되었거나 손상되었을 수 있습니다.';if(validation.warnings.length)warn+='\n\n⚠️ 검증 경고\n- '+validation.warnings.slice(0,5).join('\n- ')+(validation.warnings.length>5?`\n- 외 ${validation.warnings.length-5}건`:'' );const ok=window.confirm(`복원 미리보기\n\n백업 형식: v${parsedBackup.version}\n직원 수: ${ec}명\n거래 수: ${tc}건${warn}\n\n현재 데이터를 이 백업으로 바꿀까요?`);if(!ok)return false;const safety={employees:[...state.data.employees],transactions:[...state.data.transactions],meta:{...state.data.meta}};setBusy('복원 중입니다.');try{const hadPrivKey=!!(data.meta&&data.meta.privKeyWrapped&&data.meta.deviceSecret);await repo.replaceAll(data);state.data=data;
+const ec=data.employees.filter(v=>!v.isDeleted).length,tc=data.transactions.length;clearBusy();let warn='';if(checksum&&checksum!==calc)warn+='\n\n⚠️ 확인값이 일치하지 않아요. 파일이 수정되었거나 손상되었을 수 있습니다.';if(validation.warnings.length)warn+='\n\n⚠️ 검증 경고\n- '+validation.warnings.slice(0,5).join('\n- ')+(validation.warnings.length>5?`\n- 외 ${validation.warnings.length-5}건`:'' );const ok=window.confirm(`복원 미리보기\n\n백업 형식: v${parsedBackup.version}\n직원 수: ${ec}명\n거래 수: ${tc}건${warn}\n\n현재 데이터를 이 백업으로 바꿀까요?`);if(!ok)return false;const safety={employees:[...state.data.employees],transactions:[...state.data.transactions],meta:{...state.data.meta}};setBusy('복원 중입니다.');try{const bmeta=(parsedBackup.data&&parsedBackup.data.meta)||{};const hadPrivKey=!!(bmeta.privKeyWrapped&&bmeta.deviceSecret);await repo.replaceAll(data);state.data=data;
 // 복원본에는 pinHash가 없어 곧바로 "새 비밀번호 설정" 화면이 뜬다 — 이전 기기의 입력 지연이 남아 있으면
 //   사장님이 새 PIN을 못 넣는다. 복원과 함께 잠금 지연을 비운다(장부와 무관한 이 기기의 상태다).
 stopPinDelayTick();clearPinGuard();try{await ensureKeyPair()}catch(ke){console.error('keygen after restore:',ke)}state.screen='home';state.search='';state.historyEmployeeId='';
@@ -2402,10 +2643,15 @@ const allowed=!!state.allowLockedRestore;state.allowLockedRestore=false;
 if(!file)return;
 if(lockScreenActive()&&!allowed){qs('restoreFile').value='';return}
 if(allowed)leaveRecovery();
-setBusy('백업 파일을 읽는 중입니다.');try{const text=await file.text(),parsed=JSON.parse(text);if(parsed&&parsed.type==='prepaid-key-backup'){const ok=await importKeyBackup(parsed);clearBusy();render();toast(ok?'내 열쇠를 복원했습니다.':'내 열쇠 복원 취소됨')}else{await restoreFromParsed(parsed)}}catch(err){console.error(err);clearBusy();toast('파일을 읽을 수 없습니다: '+(err&&err.message||''))}finally{qs('restoreFile').value=''}}
+setBusy('백업 파일을 읽는 중입니다.');try{const text=await file.text(),parsed=JSON.parse(text);if(parsed&&parsed.type==='prepaid-key-backup'){const ok=await importKeyBackup(parsed);clearBusy();render();toast(ok?'내 열쇠를 복원했습니다.':'내 열쇠 복원 취소됨')}else{await restoreFromParsed(parsed,{forgotPin:allowed})}}catch(err){console.error(err);clearBusy();toast('파일을 읽을 수 없습니다: '+(err&&err.message||''))}finally{qs('restoreFile').value=''}}
 window.onRestoreData=async function(json){setBusy('백업 데이터를 읽는 중입니다.');try{const parsed=JSON.parse(json);await restoreFromParsed(parsed)}catch(e){console.error(e);clearBusy();toast('복원 실패')}};
 
 // ── CSV 임포트 ──
+// CSV 원본 셀을 오류 안내 문구에 넣을 때의 안전 처리.
+// 이 문구는 미리보기 표에 그대로 들어간다 — 예전에는 셀 원문이 이스케이프 없이 innerHTML에 실려
+//   `금액` 칸에 `<img src=x onerror=…>` 를 적어 둔 CSV 한 장으로 스크립트가 실행됐다(실증됨).
+// ① 태그 문자를 아예 지우고 ② 길이를 20자로 잘라 문구를 짧게 유지한다. 출력부의 esc()가 2중 방어다.
+function csvCellForMsg(v){return String(v==null?'':v).replace(/[<>&"'`]/g,' ').replace(/\s+/g,' ').trim().slice(0,20)}
 function parseCsvLine(line){const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===','&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
 function parseAmount(raw){const n=parseWon(raw);return isNaN(n)||n<=0?null:n}
 // 동명이인 자동 보완 (스펙 §2.4-나): 화면 라벨(소속·부서)+이름이 같은 중복 그룹에 구분 마커 '·2','·3'…을 붙인다.
@@ -2470,7 +2716,7 @@ if(/합계|소계|총계|total|합\s*계/i.test(name+dept+(f[0]||'')))continue;
 if(!name)continue;
 const amount=parseAmount(ar);let error='',mode='new',existId='';
 if(!dept)error='부서명 없음 (부서 칸이 없고, 파일 앞부분에서도 부서 이름을 찾지 못했어요)';
-else if(!amount)error='금액 오류: "'+ar+'"';
+else if(!amount)error='금액 오류: "'+csvCellForMsg(ar)+'"';
 else if(ex.has(empMatchKey({org,dept,name}))){mode='topup';const existEmp=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===empMatchKey({org,dept,name}));if(existEmp)existId=existEmp.id}
 rows.push({org,dept:dept||'(없음)',name,amount,error,line:i+1,mode:error?'error':mode,existId})}
 if(!rows.length){toast('등록할 직원이 없습니다.');return}
@@ -2607,7 +2853,11 @@ async function detectWebauthn(){try{if(!window.PublicKeyCredential||!PublicKeyCr
 function webauthnCardHtml(){if(!state.webauthnAvailable)return '';return `<div class="meta" style="margin-top:10px;padding-top:10px;border-top:1px solid #eef1f4">🔒 이 기기는 생체 인증(지문/얼굴)을 지원합니다. 생체 인증으로 잠금을 강화하는 기능은 안전성 검증 후 제공될 예정이며, 현재는 비밀번호로만 잠금이 유지됩니다.</div>`}
 
 // 무결성 검증 결과 — 쉬운 말 요약 + 기술 상세는 접기(스펙 §4 항목4)
-function verifyResultHtml(){const v=state.verifyResult;if(!v)return '';const okAll=v.chain.ok&&v.reconcile;const simple=okAll?'✅ 장부에 이상이 없습니다':'⚠️ 장부 기록에 이상이 발견됐습니다';const detail=`<div class="meta">해시 체인: ${v.chain.ok?'✅ 정상':'❌ '+v.chain.broken.length+'건 이상'} (검증 ${v.chain.checked}건${v.chain.legacy?', 레거시 '+v.chain.legacy+'건 제외':''})</div><div class="meta">입금합계(선금/충전): ${money(v.deposits)}</div><div class="meta">조정합계: ${money(v.adjustments)} · 취소환급: ${money(v.voids)}</div><div class="meta">사용합계: ${money(v.uses)} · 잔액합계: ${money(v.balanceSum)}</div><div class="meta" style="font-weight:700;color:${v.reconcile?'var(--success)':'var(--danger)'}">대조: ${v.reconcile?'✅ 일치':'❌ 불일치'}</div>`;return `<div class="stack" style="margin-top:10px"><div class="meta" style="font-weight:700;font-size:14px;color:${okAll?'var(--success)':'var(--danger)'}">${simple}</div><details><summary style="cursor:pointer;font-size:12px;color:var(--muted)">기술 상세 (해시체인·합계 검증)</summary><div class="stack" style="margin-top:6px">${detail}</div></details></div>`}
+function verifyResultHtml(){const v=state.verifyResult;if(!v)return '';const okAll=v.chain.ok&&v.reconcile;const simple=okAll?'✅ 장부에 이상이 없습니다':'⚠️ 장부 기록에 이상이 발견됐습니다';// 레거시(txHash 없음·구 형식)는 이제 "제외"가 아니라 **경고**다 — 체인을 지워서 검증을 우회하는 길을 막는다.
+const chainLine=v.chain.broken.length?('❌ '+v.chain.broken.length+'건 이상'):(v.chain.legacy?'⚠️ 구 형식 — 재검증 불가':'✅ 정상');
+const brokenList=v.chain.broken.length?`<div class="meta" style="color:var(--danger)">${esc(v.chain.broken.slice(0,5).map(b=>b.id+' — '+b.reason).join(' / '))}</div>`:'';
+const recList=(v.reconcileIssues&&v.reconcileIssues.length)?`<div class="meta" style="color:var(--danger)">${esc(v.reconcileIssues.slice(0,5).join(' / '))}</div>`:'';
+const detail=`<div class="meta">해시 체인: ${chainLine} (검증 ${v.chain.checked}건${v.chain.legacy?', 구 형식 '+v.chain.legacy+'건':''})</div>${brokenList}<div class="meta">입금합계(선금/충전): ${money(v.deposits)}</div><div class="meta">조정합계: ${money(v.adjustments)} · 취소환급: ${money(v.voids)}</div><div class="meta">사용합계: ${money(v.uses)} · 잔액합계: ${money(v.balanceSum)}</div><div class="meta" style="font-weight:700;color:${v.reconcile?'var(--success)':'var(--danger)'}">대조: ${v.reconcile?'✅ 일치':'❌ 불일치'}</div>${recList}`;return `<div class="stack" style="margin-top:10px"><div class="meta" style="font-weight:700;font-size:14px;color:${okAll?'var(--success)':'var(--danger)'}">${simple}</div><details><summary style="cursor:pointer;font-size:12px;color:var(--muted)">기술 상세 (해시체인·합계 검증)</summary><div class="stack" style="margin-top:6px">${detail}</div></details></div>`}
 
 // ── 설정 카드 접기(beta.27) ──────────────────────────────────────────────
 // 설정 화면은 폰에서 7화면 스크롤이었다. 매일 쓰는 카드만 펼쳐 두고 나머지는 접는다.
@@ -2643,12 +2893,19 @@ const inboxBadge=(relayRegistered()&&inboxN>0)?`<span class="badge-count">${inbo
 // 관할 지역(district) — 담당자 웹의 '관할 음식점' 목록은 이 값에만 의존한다. 비면 목록에 아예 뜨지 않는다.
 // 주소를 모르는 기존 사용자를 위해 상태를 그대로 보여주고, 수동으로 다시 보낼 길을 남긴다.
 const curDistrict=relayDistrict();
+// 우리 가게 '열쇠 지문' — 담당자가 전화로 물어보면 그대로 읽어 주는 값. 선점(가로채기) 확인 절차다.
+const fp=str(state.keyFingerprint);
+const fpBlock=fp?`<div style="margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--primary-soft,#eef4fa)">
+<div class="meta">우리 가게 열쇠 지문</div>
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div id="keyFp" style="font-size:26px;font-weight:800;letter-spacing:2px;font-family:ui-monospace,Menlo,Consolas,monospace">${esc(fp)}</div><button class="small" data-a="copy-key-fp">복사</button></div>
+<div class="meta" style="line-height:1.6;margin-top:4px">공공기관 담당자가 전화로 이 값을 물어보면 그대로 읽어 주세요. 다른 사람이 우리 가게를 가로채는 것을 막는 확인 절차예요.</div></div>`:'';
 const districtRow=`<div class="meta" style="line-height:1.6;margin-top:8px">관할 지역: <b>${curDistrict?esc(curDistrict):'아직 없음'}</b>${curDistrict?' — 담당자 화면의 <b>관할 음식점 목록</b>에 우리 가게가 보여요.':' — 담당자 화면의 <b>관할 음식점 목록</b>에 우리 가게가 뜨지 않아요. 위 [변경]으로 우리 가게를 다시 고르면 지역이 함께 전송돼요.'}</div><div style="margin-top:6px"><button class="btn" data-a="relay-send-district" style="min-height:40px;padding:0 14px;font-size:13px">관할 정보 보내기</button></div>`;
 // beta.29: 자동·수동 등록도 접힘 카드다(설정 전체가 1단 아코디언). 접힌 채로도 상태가 읽히도록
 //   제목에 배지를 승격한다 — 📩 새 신청 N건(설정의 신청확인 배지 대체), 미등록이면 '⚠️ 등록 필요'.
 //   홈의 📩 칩·등록 배너가 주 알림이고, 여기 배지는 설정에 들어온 사장님을 위한 보조 신호다.
 const autoTitleBadge=relayRegistered()?((inboxN>0)?` <span class="badge-count">📩 ${inboxN}건</span>`:''):' <span class="badge-count">⚠️ 등록 필요</span>';
 const autoCard=relayRegistered()?foldCard('enroll-auto',`자동 등록 — 공공기관에서 보낸 명단 받기${autoTitleBadge}`,`등록된 우리 가게: ${esc(state.data.meta.relayStoreName||state.data.meta.restaurantId)} · 명단 받는 중`,`
+${fpBlock}
 <div class="agency-current"><div><div class="meta">등록된 우리 가게</div><div class="agency-current-name">${esc(state.data.meta.relayStoreName||state.data.meta.restaurantId)} <span class="chip" style="background:var(--success-soft);color:var(--success)">공공기관 명단 받는 중</span></div></div><button class="small" data-a="relay-find-store">변경</button></div>
 ${districtRow}
 ${moneyNotice}
@@ -2662,6 +2919,7 @@ ${state.qrAvailable?`<button class="btn-secondary action-btn" data-a="qr-scan-op
 <details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">고급 설정</summary><label class="meta" style="display:block;margin:8px 0 4px">중계 서버 주소 (기본값 사용을 권장)</label><div class="inline-form"><input id="relayServer" type="url" value="${esc(state.data.meta.relayServer||'')}" placeholder="${esc(DEFAULT_RELAY)}"><button class="btn" data-a="relay-save-server">저장</button></div></details>`)
 :foldCard('enroll-auto',`자동 등록 — 공공기관에서 보낸 명단 받기${autoTitleBadge}`,'우리 가게를 아직 등록하지 않았어요 — 여기서 한 번만 등록해요',`
 ${moneyNotice}
+${fpBlock}
 <div class="meta" style="margin-bottom:10px">공공기관 명단을 받으려면 <b>우리 가게를 한 번만 등록</b>하면 됩니다. 등록 후에는 앱으로 바로 받거나, 담당자 전달파일·QR(사각 코드)로 받을 수 있어요.</div>
 <button class="btn-primary action-btn" data-a="relay-find-store" style="width:100%;min-height:64px;font-size:17px"><span class="action-icon">🔍</span><div><strong>우리 가게 등록 (처음 한 번)</strong><span>가게 이름으로 찾아서 등록해요</span></div></button>`);
 // [수동 등록] — 공공기관을 거치지 않고 사장님이 직접 올리는 경로(한 명씩·엑셀 명단·빠른 등록)
@@ -2741,6 +2999,7 @@ ${shopExtra}`)
 +contactCard
 +foldCard('pin','비밀번호(PIN)','앱을 열 때 사용하는 4자리 비밀번호',`
 <div class="section-actions"><button class="btn-secondary action-btn" data-a="change-pin"><span class="action-icon">🔒</span><div><strong>비밀번호 변경</strong><span>새 4자리 비밀번호로 바꿔요</span></div></button></div>
+<div class="meta" style="line-height:1.6;margin-top:8px">비밀번호는 <b>화면 잠금</b>이에요 — 곁에 있는 사람이 장부를 들여다보지 못하게 막아 줍니다.<br>장부 내용 자체를 암호로 잠그는 것은 아니에요(폰을 통째로 가져가 분해하는 사람까지 막지는 못합니다). 폰에는 반드시 <b>기기 잠금(지문·패턴)</b>도 함께 걸어 주세요.</div>
 ${webauthnCardHtml()}`)
 +`<div class="card settings-card">
 <details><summary style="cursor:pointer;font-weight:800;font-size:15px;color:var(--danger)">위험 작업 — 전체 초기화</summary>
@@ -2764,7 +3023,12 @@ return `${backupBanner()}${enrollGroup}${employeeCard}${deptsCard}${ledgerHead}$
 if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(()=>{})}
 
 // ── 초기화 ──
-async function init(){setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!repo){clearBusy();qs('app').innerHTML='<div class="pin-screen"><div class="pin-icon" style="background:linear-gradient(135deg,var(--danger),#e74c3c)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="pin-title">저장소 오류</div><div class="pin-sub">이 브라우저/기기에서 IndexedDB를 사용할 수 없습니다.<br><br>선입금대장은 안정적인 데이터 저장을 위해<br>IndexedDB가 필수입니다.<br><br><strong>해결 방법:</strong><br>① Chrome 최신 버전을 사용하세요<br>② 시크릿/사생활 모드가 아닌지 확인하세요<br>③ 브라우저 설정에서 저장공간을 확인하세요</div></div>';return}state.mode=repo.modeLabel;state.data=norm(await repo.loadAll());
+async function init(){
+// ⚠️ 웹 암호(crypto.subtle)는 보안 컨텍스트(https 또는 localhost)에서만 존재한다.
+//   예전에는 없으면 hash()가 djb2로 조용히 강등돼 "동작은 하지만 안전하지 않은" 상태가 됐다.
+//   여기서 멈추는 편이 정직하다 — PIN 해시·해시 체인·서명 해시·개인키가 전부 이 API에 얹혀 있다.
+if(!cryptoOk()){clearBusy();qs('app').innerHTML='<div class="pin-screen"><div class="pin-icon" style="background:linear-gradient(135deg,var(--danger),#e74c3c)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="pin-title">안전하지 않은 주소</div><div class="pin-sub">이 주소(http)에서는 안전하게 동작할 수 없어요.<br>https 주소로 접속해 주세요.<br><br><strong>https://app.bapjangbu.com</strong><br><br>장부 잠금·서명·가게 열쇠가 모두 브라우저 암호 기능을 씁니다.<br>그 기능은 https에서만 켜집니다.</div></div>';return}
+setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!repo){clearBusy();qs('app').innerHTML='<div class="pin-screen"><div class="pin-icon" style="background:linear-gradient(135deg,var(--danger),#e74c3c)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="pin-title">저장소 오류</div><div class="pin-sub">이 브라우저/기기에서 IndexedDB를 사용할 수 없습니다.<br><br>선입금대장은 안정적인 데이터 저장을 위해<br>IndexedDB가 필수입니다.<br><br><strong>해결 방법:</strong><br>① Chrome 최신 버전을 사용하세요<br>② 시크릿/사생활 모드가 아닌지 확인하세요<br>③ 브라우저 설정에서 저장공간을 확인하세요</div></div>';return}repo=withChainAnchor(repo);state.mode=repo.modeLabel;state.data=norm(await repo.loadAll());
 // PIN 실패 횟수·입력 지연은 meta에서 되살린다 — 새로고침·앱 재시작으로 지연을 지울 수 없어야 한다(브루트포스 차단).
 state.pinFails=num(state.data.meta.pinFails);state.pinDelayUntil=num(state.data.meta.pinDelayUntil);
 try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectWebauthn();detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}

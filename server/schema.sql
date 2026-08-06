@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS public_key_registry (
   registered_at   INTEGER NOT NULL,
   contact_kakao   TEXT,                -- 업무용 카카오 오픈채팅 링크(선택, https://open.kakao.com/ 로 시작)
   contact_email   TEXT,                -- 업무용 공식 접수 이메일(선택)
-  district        TEXT                 -- 관할 지역(공개 사업장 정보, 예 "서울특별시 광진구"). 개인정보 아님(§0 허용). 등록 목록 조회용.
+  district        TEXT,                -- 관할 지역(공개 사업장 정보, 예 "서울특별시 광진구"). 개인정보 아님(§0 허용). 등록 목록 조회용.
+  verified        INTEGER NOT NULL DEFAULT 0  -- 1=최초 등록 시 공공데이터에서 실존·상호 대조 성공, 0=미확인(공공API 장애 등). 개인정보 아님.
 );
 
 CREATE TABLE IF NOT EXISTS deposit_summary (
@@ -81,6 +82,20 @@ CREATE TABLE IF NOT EXISTS agency_token (
   email      TEXT NOT NULL,
   expires_at INTEGER NOT NULL
 );
+
+-- 열쇠 지문 확인 기록(§4.8). 담당자(서무)가 사장님과 통화로 공개키 지문을 대조하고 "확인했다"를
+-- 체크한 사실을 기관+부서 단위로 남긴다(같은 부서는 재확인 불필요, 다른 부서는 처음에 다시 확인).
+-- 저장값은 조직정보(기관·부서)·공개ID·공개키 지문·시각뿐 — 개인정보 없음. TTL 정리 대상이 아니다
+-- (확인 이력은 장기 보관해야 "이미 확인한 가게"를 계속 알아볼 수 있다).
+CREATE TABLE IF NOT EXISTS agency_keycheck (
+  institution   TEXT NOT NULL,
+  department    TEXT NOT NULL,
+  restaurant_id TEXT NOT NULL,
+  fingerprint   TEXT NOT NULL,   -- "ABCD-EF12" (SHA-256(SPKI) hex 앞 8자, 대문자 4자씩 하이픈)
+  checked_at    INTEGER NOT NULL,
+  PRIMARY KEY (institution, department, restaurant_id)
+);
+CREATE INDEX IF NOT EXISTS idx_keycheck_dept ON agency_keycheck(institution, department);
 
 -- ── 비식별 집계 통계 (개인정보 아님 — 조직정보·공개ID·누적 카운터만 저장) ──
 -- 직원명·개인별 금액·이메일은 어디에도 저장하지 않는다(§0 불변식). 관리자 통계 API의 재료.

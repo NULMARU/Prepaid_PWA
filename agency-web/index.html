@@ -55,11 +55,30 @@ tr.err{background:#fdecea}
 .qr-wrap img{width:min(320px,90%);height:auto;image-rendering:pixelated;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px}
 .done-note{color:var(--ok);font-weight:700;font-size:13px;margin-top:6px}
 .contact-note{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5}
+.topbar{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.topbar h1{flex:1 1 240px}
+#logoutBtn{flex:0 0 auto;min-height:34px;font-size:13px;padding:0 12px;margin-top:10px}
+.banner-danger{background:#fdecea;border:2px solid var(--danger);color:#8e2418;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px;line-height:1.6}
+.banner-danger b{color:#c0392b}
+/* 열쇠 지문 확인 카드 */
+.kc-card{border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px;background:#fff}
+.kc-card.kc-danger{border:2px solid var(--danger);background:#fdecea}
+.kc-fp{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:30px;font-weight:700;letter-spacing:2px;text-align:center;background:#f8fafc;border:1px dashed #9fb3cc;border-radius:10px;padding:12px 6px;margin:8px 0;color:#1f2937;word-break:break-all}
+.kc-card.kc-danger .kc-fp{background:#fff;border-color:var(--danger);color:#c0392b}
+.kc-old{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700}
+.kc-check{display:flex;align-items:flex-start;gap:8px;margin:8px 0 0;font-size:14px;color:#1f2937;cursor:pointer;line-height:1.5}
+.kc-check input{width:auto;min-height:auto;flex:0 0 auto;margin-top:2px;transform:scale(1.25)}
+.kc-ok{font-size:13px;color:var(--ok);font-weight:700;padding:4px 0}
+.kc-ok .kc-fpmini{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted);font-weight:600}
 </style>
 </head>
 <body>
 <div class="wrap">
+<div id="srvWarn" class="hide" role="alert"></div>
+<div class="topbar">
 <h1>선입금대장 — 공공기관 담당자(서무) 업로드</h1>
+<button type="button" id="logoutBtn" class="hide" title="이 브라우저에 남은 인증을 폐기하고 1단계로 돌아갑니다">인증 해제</button>
+</div>
 <div class="meta">직원 명단(직원명·선금 금액)만 암호화해 음식점에 전달합니다(전화번호는 수집하지 않습니다). 서버는 암호화된 내용을 열어볼 수 없습니다.</div>
 <div class="meta" style="margin-top:4px"><b>선금(돈)은 음식점 은행 계좌로 직접 이체하세요. 이 웹은 암호화된 직원 명단만 전달해요.</b></div>
 <ol class="stepper" id="stepper">
@@ -103,6 +122,8 @@ tr.err{background:#fdecea}
 <select id="agencySel"><option value="">기관 선택</option></select>
 </div>
 <div class="meta" id="agencyMsg">소속 기관을 선택하면 관할 음식점이 자동으로 표시됩니다.</div>
+<label for="deptInput">우리 부서(과) <span class="meta">— 열쇠 지문 확인 기록을 부서 단위로 저장합니다</span></label>
+<input id="deptInput" maxlength="40" placeholder="예: 총무과">
 
 <div id="jurisBox" class="hide" style="margin-top:12px">
 <label for="jurisFilter">관할 등록 음식점</label>
@@ -130,6 +151,12 @@ tr.err{background:#fdecea}
 
 <label style="margin-top:12px">선택된 음식점</label>
 <div id="selected"><span class="meta">없음</span></div>
+</div>
+
+<div class="card hide" id="keycheckCard">
+<h2>2-1단계 · 가게 열쇠 지문 확인</h2>
+<div class="step-help">명단은 그 가게의 <b>열쇠(공개키)</b>로만 열리게 잠급니다. 사장님과 통화해 지문이 같은지 한 번만 맞춰 보면, 다른 사람이 그 가게인 척 등록해 명단을 가로채는 일을 막을 수 있어요. <b>부서마다 가게당 한 번만</b> 확인하면 됩니다.</div>
+<div id="keycheckList"></div>
 </div>
 
 <div class="card hide" id="csvCard">
@@ -190,12 +217,20 @@ qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
 </script>
 <script>
 (()=>{'use strict';
-const S={authed:false,token:null,email:'',otpMode:null,restaurants:[],rows:null,rawRows:null,csvFormat:null,fileErrors:[],fileWarnings:[],valid:false,groups:null,mode:null,lastList:[],registered:new Set(),agencyIndex:null,agency:null,jurisList:[],excluded:new Set(JSON.parse(localStorage.getItem('agency-excluded')||'[]'))};
+const S={authed:false,token:null,email:'',otpMode:null,restaurants:[],rows:null,rawRows:null,csvFormat:null,fileErrors:[],fileWarnings:[],valid:false,groups:null,mode:null,lastList:[],registered:new Set(),agencyIndex:null,agency:null,dept:'',jurisList:[],excluded:new Set(JSON.parse(localStorage.getItem('agency-excluded')||'[]')),
+  // 열쇠 지문 확인 상태(가게 선점·가로채기 방어)
+  keychecks:new Map(),   // restaurant_id → {fingerprint, checked_at}  (이 기관+부서가 이미 확인한 값)
+  fps:new Map(),         // restaurant_id → 현재 서버에 등록된 공개키의 지문
+  fpErr:new Map(),       // restaurant_id → 지문 조회 실패 사유
+  kcMsg:new Map(),       // restaurant_id → 확인 시도 결과 안내(409 등)
+  regInfo:new Map(),     // restaurant_id → {registered_at, verified}
+  kcUnsupported:false,   // 서버에 지문 확인 API가 아직 없음(구서버 호환 — 게이트 비활성)
+  kcBusy:false};
 function saveExcluded(){localStorage.setItem('agency-excluded',JSON.stringify([...S.excluded]))}
 const $=id=>document.getElementById(id);
 const subtle=window.crypto.subtle;
 const enc=new TextEncoder(),dec=new TextDecoder();
-function srv(){return ($('server').value||'').trim().replace(/\/$/,'')}
+function srv(){return SERVER}
 function log(m){const el=$('log');el.classList.remove('hide');el.textContent+=m+'\n';el.scrollTop=el.scrollHeight}
 
 // ── 이용약관·개인정보처리방침 동의(최초 1회) ──
@@ -203,10 +238,72 @@ const TERMS_URL='https://app.bapjangbu.com/docs/terms.html',PRIVACY_URL='https:/
 const TERMS_KEY='bapjangbu_terms_agreed';
 function hasAgreedTerms(){return !!localStorage.getItem(TERMS_KEY)}
 
-// ── 서버 주소 기억 ──
+// ── 중계 서버 주소 고정(프로덕션) ────────────────────────────────────────────
+// 예전에는 localStorage['relay-server']를 아무 값으로나 바꿀 수 있었다. 공용 PC에서 앞사람이
+// 자기 서버 주소를 넣어 두면, 다음 담당자가 올린 명단이 '공격자 키'로 암호화돼 그쪽으로 나간다.
+// (명단은 서버 주소로부터 받은 공개키로 잠그므로, 주소를 바꾸면 잠금 대상이 통째로 바뀐다.)
+// 그래서 운영 환경에서는 주소를 상수로 못박고, 개발 편의는 다음 두 조건을 모두 만족할 때만 연다:
+//   ① 개발 모드(호스트가 localhost·127.0.0.1 이거나 URL에 ?dev=1)
+//   ② 넣는 주소 자체가 localhost·127.0.0.1 (외부 호스트는 어떤 경우에도 불가)
+// 그리고 기본값과 다른 주소가 실제로 쓰이면 화면 맨 위에 붉은 배너로 계속 알린다.
 const DEFAULT_SERVER='https://prepaid-relay.sulsul-plus.workers.dev';
-$('server').value=localStorage.getItem('relay-server')||DEFAULT_SERVER;
-$('server').addEventListener('change',()=>localStorage.setItem('relay-server',$('server').value));
+const SERVER_LS_KEY='relay-server';
+const DEV_MODE=(()=>{try{
+  const h=String(location.hostname||'').toLowerCase();
+  if(h==='localhost'||h==='127.0.0.1'||h==='::1'||h==='[::1]'||h==='')return true;
+  return new URLSearchParams(location.search).get('dev')==='1';
+}catch(e){return false}})();
+function isLocalServerUrl(u){
+  try{
+    const x=new URL(String(u));
+    if(x.protocol!=='http:'&&x.protocol!=='https:')return false;
+    const h=x.hostname.toLowerCase();
+    return h==='localhost'||h==='127.0.0.1'||h==='::1'||h==='[::1]';
+  }catch(e){return false}
+}
+let SERVER=DEFAULT_SERVER,serverOverrideDropped=false;
+(function initServer(){
+  let stored=null;
+  try{stored=localStorage.getItem(SERVER_LS_KEY)}catch(e){stored=null}
+  stored=stored?String(stored).trim().replace(/\/$/,''):'';
+  if(stored&&stored!==DEFAULT_SERVER){
+    if(DEV_MODE&&isLocalServerUrl(stored))SERVER=stored;
+    else{ // 운영 환경에 남아 있던 임의 주소는 무시하고 지운다(공용 PC 방어)
+      serverOverrideDropped=true;
+      try{localStorage.removeItem(SERVER_LS_KEY)}catch(e){}
+    }
+  }
+  // 주소 입력칸은 개발 모드에서만 노출된다(운영에서는 계속 숨김 + 편집 불가).
+  $('server').value=SERVER;
+  if(DEV_MODE){
+    $('serverCard').classList.remove('hide');
+    $('server').addEventListener('change',()=>{
+      const v=($('server').value||'').trim().replace(/\/$/,'');
+      if(v===DEFAULT_SERVER||isLocalServerUrl(v)){
+        SERVER=v||DEFAULT_SERVER;
+        try{SERVER===DEFAULT_SERVER?localStorage.removeItem(SERVER_LS_KEY):localStorage.setItem(SERVER_LS_KEY,SERVER)}catch(e){}
+      }else{
+        alert('개발 모드에서도 localhost·127.0.0.1 주소만 사용할 수 있습니다.');
+      }
+      $('server').value=SERVER;
+      renderServerWarning();
+    });
+  }else{
+    $('server').readOnly=true;
+  }
+})();
+function renderServerWarning(){
+  const el=$('srvWarn');if(!el)return;
+  let html='';
+  if(SERVER!==DEFAULT_SERVER){
+    html+='<b>⚠️ 중계 서버 주소가 기본값이 아닙니다(개발용).</b><br>지금 쓰는 주소: <b>'+esc(SERVER)+'</b><br>'+
+      '일반 업무 중이라면 이 화면을 <b>사용하지 마시고</b> 새 브라우저 창에서 <b>agency.bapjangbu.com</b>으로 다시 접속해 주세요.';
+  }else if(serverOverrideDropped){
+    html+='<b>⚠️ 이 브라우저에 저장돼 있던 다른 서버 주소를 무시하고 지웠습니다.</b><br>정식 주소(<b>'+esc(DEFAULT_SERVER)+'</b>)로만 연결합니다. 공용 PC라면 사용 후 브라우저를 닫아 주세요.';
+  }
+  el.innerHTML=html;
+  el.className=html?'banner-danger':'hide';
+}
 
 // ── crypto (PROTOCOL.md §2·§3와 일치) ──
 function b64(buf){let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s)}
@@ -282,6 +379,9 @@ function restoreToken(){
 // 서버가 401(agency_auth_required)을 주면 토큰이 죽은 것 — 폐기하고 1단계로 되돌린다.
 function expireToken(){
   S.token=null;S.authed=false;S.otpMode=null;clearToken();
+  S.keychecks=new Map();
+  if(idleTimer){clearTimeout(idleTimer);idleTimer=null}
+  $('logoutBtn').classList.add('hide');
   $('authStep1').classList.remove('hide');
   $('authStep2').classList.add('hide');
   if($('otp'))$('otp').value='';
@@ -290,8 +390,46 @@ function expireToken(){
 }
 function unlockAfterAuth(){
   $('searchCard').classList.remove('hide');$('csvCard').classList.remove('hide');
+  $('logoutBtn').classList.remove('hide');
+  resetIdle();          // 무조작 30분 자동 인증 폐기 타이머 시작
+  loadKeychecks();      // 이 기관+부서가 이미 확인해 둔 가게 목록
   revalidate();
 }
+// ── 인증 해제(로그아웃) ─────────────────────────────────────────────────────
+// 공용 PC·공용 태블릿에서 자리를 뜰 때 토큰과 화면에 남은 명단을 즉시 지운다.
+// 30분 무조작이면 같은 일이 자동으로 일어난다.
+const IDLE_MS=30*60*1000;
+let idleTimer=null;
+function resetIdle(){
+  if(idleTimer){clearTimeout(idleTimer);idleTimer=null}
+  if(!S.authed)return;
+  idleTimer=setTimeout(()=>{if(S.authed&&!sending)doLogout(true)},IDLE_MS);
+}
+function doLogout(idle){
+  if(sending&&!idle){alert('전송이 끝난 뒤에 인증을 해제해 주세요.');return}
+  S.token=null;S.authed=false;S.otpMode=null;clearToken();
+  if(idleTimer){clearTimeout(idleTimer);idleTimer=null}
+  // 화면·메모리에 남은 명단과 선택을 함께 폐기한다(다음 사람이 볼 수 없게).
+  S.restaurants=[];S.rows=null;S.rawRows=null;S.csvFormat=null;S.fileErrors=[];S.fileWarnings=[];
+  S.valid=false;S.mode=null;S.lastList=[];S.registered=new Set();
+  S.keychecks=new Map();S.fps=new Map();S.fpErr=new Map();S.kcMsg=new Map();
+  keyInfoCache.clear();relayResults=new Map();relayPubCache=new Map();
+  if($('csv'))$('csv').value='';
+  if($('otp'))$('otp').value='';
+  ['csvResult','results','directPanel','sendResult','keycheckList'].forEach(id=>{if($(id))$(id).innerHTML=''});
+  $('log').textContent='';$('log').classList.add('hide');
+  $('sendProgress').classList.add('hide');$('sendProgress').innerHTML='';
+  ['searchCard','csvCard','keycheckCard','confirmCard','submitCard'].forEach(id=>$(id).classList.add('hide'));
+  $('authStep1').classList.remove('hide');$('authStep2').classList.add('hide');
+  $('logoutBtn').classList.add('hide');
+  $('authMsg').innerHTML=idle
+    ?'<span class="warn">⏱ 30분 동안 사용이 없어 인증을 해제했어요. 계속하려면 다시 인증해 주세요.</span>'
+    :'<span class="good">인증을 해제했어요.</span> 다시 이용하시려면 인증번호를 받아 주세요.';
+  renderSelected();updateStepper();
+  if($('authCard')&&$('authCard').scrollIntoView)$('authCard').scrollIntoView({block:'start'});
+}
+$('logoutBtn').addEventListener('click',()=>doLogout(false));
+['click','keydown','pointerdown','scroll','input'].forEach(ev=>document.addEventListener(ev,resetIdle,{passive:true}));
 // 정직성 원칙(감사 항목 1): 서버가 실제로 이메일 소유를 확인하지 못한 상태(구서버 호환
 // fallback, 또는 pilot 모드에서 이메일 발송 인프라 부재로 OTP를 받을 방법이 없는 경우)를
 // "✅ 인증됨"이라고 표시하면 사용자를 오도한다. 이 경우 공통으로 아래 문구를 사용한다.
@@ -423,6 +561,7 @@ function selectAgency(sido,aid){
   S.agency={sido,id:a.id,name:a.name,isRegional:idx===0};
   saveAgencySelection();
   $('agencyMsg').innerHTML='<span class="good">소속 기관: '+esc(a.name)+'</span>';
+  loadKeychecks(); // 기관이 바뀌면 확인 기록 범위(기관+부서)도 바뀐다
   fetchJurisdiction();
 }
 function saveAgencySelection(){if(S.agency)localStorage.setItem(AGENCY_LS_KEY,JSON.stringify({sido:S.agency.sido,id:S.agency.id}))}
@@ -491,6 +630,11 @@ async function fetchJurisdiction(){
     const j=await r.json();
     const list=(j&&Array.isArray(j.restaurants))?j.restaurants:[];
     S.jurisList=list.slice().sort((a,b)=>String(a.restaurant_name||'').localeCompare(String(b.restaurant_name||''),'ko'));
+    // 등록 시각·공공데이터 대조 여부(신설 필드, 구서버는 없음)를 배지용으로 보관한다.
+    S.jurisList.forEach(x=>{
+      if(x&&x.restaurant_id&&(x.registered_at!=null||x.verified!=null))
+        S.regInfo.set(String(x.restaurant_id),{registered_at:x.registered_at,verified:x.verified});
+    });
     renderJurisList();
   }catch(e){jurisFallback();}
 }
@@ -568,7 +712,7 @@ function renderJurisList(){
     if(isEx){
       return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px;opacity:.55"><div style="min-width:0"><b>${esc(x.restaurant_name)}</b> <span class="pill" style="background:#fdecea;color:#c0392b">우리 기관 제외</span>${dist}</div><button type="button" data-a="unexclude" data-id="${esc(rid)}" style="flex:0 0 auto">제외 해제</button></div>`;
     }
-    return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><label style="display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;margin:0"><input type="checkbox" data-a="chk" data-id="${esc(rid)}" data-name="${esc(x.restaurant_name)}" data-addr="${esc(x.district||'')}" style="width:auto;min-height:auto;flex:0 0 auto"${isSel?' checked':''}><span style="min-width:0"><b>${esc(x.restaurant_name)}</b>${dupBadge}${dist}</span></label><button type="button" data-a="exclude" data-id="${esc(rid)}" style="flex:0 0 auto">제외</button></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><label style="display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;margin:0"><input type="checkbox" data-a="chk" data-id="${esc(rid)}" data-name="${esc(x.restaurant_name)}" data-addr="${esc(x.district||'')}" style="width:auto;min-height:auto;flex:0 0 auto"${isSel?' checked':''}><span style="min-width:0"><b>${esc(x.restaurant_name)}</b>${dupBadge}${regBadges(rid)}${dist}</span></label><button type="button" data-a="exclude" data-id="${esc(rid)}" style="flex:0 0 auto">제외</button></div>`;
   }).join('');
   $('jurisList').querySelectorAll('input[data-a="chk"]').forEach(cb=>cb.addEventListener('change',()=>{
     const id=cb.dataset.id;
@@ -585,6 +729,227 @@ function renderJurisList(){
     renderSelected();renderJurisList();validateAndRenderCsv();
   }));
 }
+
+// ── 2-1. 열쇠 지문 확인 (가게 선점·가로채기 방어) ──────────────────────────────
+// 명단은 '그 가게의 공개키'로만 열리게 잠근다. 그런데 공개키를 누가 등록했는지는 서버가 보증하지
+// 못한다(최초 등록은 선착순). 그래서 남의 가게 이름으로 먼저 등록해 두면 그 가게로 가는 명단을
+// 대신 받아 열 수 있다. 이를 막는 유일한 방법은 '사람이 다른 경로(전화)로 지문을 맞춰 보는 것'이다.
+//   지문 = SHA-256(공개키 SPKI 원문 바이트) → hex 소문자 → 앞 8자 → 대문자 4자씩 하이픈 (예: ABCD-EF12)
+//   음식점 앱 설정 화면에 같은 값이 표시된다.
+// 확인 결과는 (기관+부서, 가게) 단위로 서버에 저장돼, 같은 부서는 다시 묻지 않는다.
+async function fingerprintOf(spkiB64){
+  const h=await subtle.digest('SHA-256',unb64(spkiB64));
+  const hex=Array.from(new Uint8Array(h)).map(v=>v.toString(16).padStart(2,'0')).join('');
+  const s=hex.slice(0,8).toUpperCase();
+  return s.slice(0,4)+'-'+s.slice(4,8);
+}
+const DEPT_LS_KEY='agency-department';
+const KEYGATE_MSG='아래 가게는 아직 열쇠 지문을 확인하지 않았어요. 2-1단계에서 사장님과 통화해 지문을 맞춰 본 뒤 보내 주세요.';
+const keyInfoCache=new Map(); // restaurant_id → {pub,contact,fp} — 지문 조회용(전송 시에는 새로 받아 재검증)
+function kcScope(){return{institution:S.agency?S.agency.name:'',department:S.dept||''}}
+function kcHeaders(extra){const h=Object.assign({},extra||{});if(S.token)h['X-Agency-Token']=S.token;return h}
+// 로그인 직후·기관/부서 변경 시 호출. 이 부서가 이미 확인해 둔 가게 목록을 받아 둔다.
+async function loadKeychecks(){
+  S.keychecks=new Map();
+  // 서버는 institution·department가 모두 있어야 확인 기록을 저장·조회한다(PROTOCOL §4.8).
+  // 부서가 비어 있으면 조회 자체를 하지 않고, 화면에서 부서 입력을 먼저 요청한다.
+  if(!S.authed||!S.agency||!S.dept){renderKeycheck();revalidate();return}
+  const sc=kcScope();
+  try{
+    const r=await fetch(srv()+'/api/agency/keychecks?institution='+encodeURIComponent(sc.institution)+'&department='+encodeURIComponent(sc.department),{headers:kcHeaders()});
+    if(r.status===401){expireToken();return}
+    // 구서버(지문 확인 API 이전)에서는 이 기능 전체를 비활성화한다 — 확인할 방법이 없는데
+    // 전송을 막으면 담당자가 아무것도 못 하게 된다(서버 배포가 항상 먼저다).
+    if(r.status===404||r.status===501){S.kcUnsupported=true;renderKeycheck();revalidate();return}
+    if(!r.ok)throw new Error('status '+r.status);
+    const j=await r.json();
+    const list=(j&&Array.isArray(j.keychecks))?j.keychecks:(Array.isArray(j)?j:[]);
+    list.forEach(x=>{if(x&&x.restaurant_id)S.keychecks.set(String(x.restaurant_id),{fingerprint:String(x.fingerprint||''),checked_at:x.checked_at})});
+    S.kcUnsupported=false;
+  }catch(e){
+    // 네트워크 오류는 '확인 기록 없음'으로 남겨 둔다(안전한 쪽 = 다시 확인 요청).
+  }
+  renderKeycheck();revalidate();
+}
+// 선택된 가게들의 '현재 지문'을 서버에서 받아 온다(공개키 조회 = 레이트리밋 대상이라 페이싱).
+let kcSeq=0;
+async function refreshKeyInfo(){
+  const my=++kcSeq;
+  const ids=S.restaurants.map(r=>r.restaurant_id).filter(id=>!S.fps.has(id));
+  if(!ids.length){renderKeycheck();revalidate();return}
+  const pace=pacerFor(ids.length,ids.length);
+  S.kcBusy=true;renderKeycheck();
+  for(const id of ids){
+    if(my!==kcSeq)return; // 선택이 그 사이 또 바뀜 — 낡은 실행은 조용히 끝낸다
+    try{
+      const entry=await getPubKey(id,keyInfoCache,pace);
+      S.fps.set(id,entry.fp);S.fpErr.delete(id);
+    }catch(e){S.fpErr.set(id,e.message||'조회 실패')}
+    if(my===kcSeq)renderKeycheck();
+  }
+  if(my!==kcSeq)return;
+  S.kcBusy=false;renderKeycheck();revalidate();
+}
+let kcTimer=null;
+function scheduleKeyInfo(){if(kcTimer)clearTimeout(kcTimer);kcTimer=setTimeout(()=>{kcTimer=null;refreshKeyInfo()},120)}
+// 가게 하나의 상태: ok(확인됨) / need(확인 필요) / changed(지문이 바뀜 — 위험) / error(지문 못 읽음) / loading
+function kcStatusOf(rid){
+  const fp=S.fps.get(rid);
+  if(!fp)return S.fpErr.has(rid)?'error':'loading';
+  const c=S.keychecks.get(rid);
+  if(!c||!c.fingerprint)return 'need';
+  return c.fingerprint===fp?'ok':'changed';
+}
+// 전송 게이트: 선택한 가게가 전부 'ok'여야 보낼 수 있다.
+function keyCheckPending(){
+  if(S.kcUnsupported)return [];
+  if(!S.dept)return S.restaurants.slice(); // 부서를 적기 전에는 확인 자체가 불가능
+  return S.restaurants.filter(r=>kcStatusOf(r.restaurant_id)!=='ok');
+}
+function allKeyChecked(){return keyCheckPending().length===0}
+// 등록 정보 배지: 최근 7일 내 등록 / 공공데이터 미대조
+function daysSince(ts){
+  const n=Number(ts);
+  if(!n||!isFinite(n))return null;
+  const ms=n<1e12?n*1000:n; // 초 단위로 오는 서버도 관용
+  const d=Math.floor((Date.now()-ms)/86400000);
+  return d<0?0:d;
+}
+function regBadges(rid){
+  const info=S.regInfo.get(rid);
+  if(!info)return '';
+  let out='';
+  const d=daysSince(info.registered_at);
+  if(d!=null&&d<=7)out+=' <span class="pill" style="background:#fff4e5;color:#b7791f">신규 등록 '+(d===0?'오늘':d+'일 전')+'</span>';
+  if(info.verified===0||info.verified===false||info.verified==='0')out+=' <span class="pill" style="background:#fdecea;color:#c0392b">공공데이터 미대조</span>';
+  return out;
+}
+function renderKeycheck(){
+  const card=$('keycheckCard'),box=$('keycheckList');
+  if(!card||!box)return;
+  if(S.kcUnsupported||!S.authed||!S.restaurants.length){card.classList.add('hide');box.innerHTML='';return}
+  card.classList.remove('hide');
+  // 확인 기록은 (기관+부서) 단위로 저장된다 — 부서를 모르면 저장할 수 없으므로 먼저 요청한다.
+  if(!S.dept){
+    box.innerHTML='<div class="kc-card"><div><b>먼저 우리 부서(과) 이름을 적어 주세요.</b></div>'+
+      '<div class="meta" style="margin-top:6px">위 2단계의 <b>[우리 부서(과)]</b> 칸에 담당자 부서를 적으면(예: 총무과) 이 부서가 확인한 가게를 기억해, 다음부터는 다시 묻지 않습니다.</div>'+
+      '<div class="btns" style="margin-top:8px"><button type="button" data-a="kc-dept">부서 칸으로 이동</button></div></div>';
+    const b=box.querySelector('[data-a="kc-dept"]');
+    if(b)b.addEventListener('click',()=>{$('deptInput').scrollIntoView({block:'center'});$('deptInput').focus()});
+    return;
+  }
+  const done=[],pend=[];
+  S.restaurants.forEach(r=>{(kcStatusOf(r.restaurant_id)==='ok'?done:pend).push(r)});
+  let html='';
+  if(pend.length){
+    html+='<div class="meta" style="margin-bottom:4px">확인이 필요한 가게 <b>'+pend.length+'곳</b>'+(S.dept?' · 부서: <b>'+esc(S.dept)+'</b>':'')+'</div>';
+  }
+  pend.forEach(r=>{
+    const rid=r.restaurant_id,st=kcStatusOf(rid),fp=S.fps.get(rid)||'',msg=S.kcMsg.get(rid)||'';
+    const head='<div><b>'+esc(r.name)+'</b>'+regBadges(rid)+(r.addr?' <span class="meta">· '+esc(r.addr)+'</span>':'')+'</div>';
+    if(st==='loading'){
+      html+='<div class="kc-card">'+head+'<div class="meta" style="margin-top:6px">열쇠 지문을 불러오는 중…</div></div>';
+      return;
+    }
+    if(st==='error'){
+      html+='<div class="kc-card">'+head+
+        '<div class="bad" style="margin-top:6px;font-size:13px">지문을 불러오지 못했어요: '+esc(S.fpErr.get(rid)||'')+'</div>'+
+        '<div class="btns" style="margin-top:6px"><button type="button" data-a="kc-retry" data-id="'+esc(rid)+'">다시 시도</button></div></div>';
+      return;
+    }
+    if(st==='changed'){
+      const old=(S.keychecks.get(rid)||{}).fingerprint||'';
+      html+='<div class="kc-card kc-danger">'+head+
+        '<div class="bad" style="margin-top:6px;font-size:15px">⛔ 열쇠 지문이 전에 확인한 값과 달라요</div>'+
+        '<div style="font-size:13px;margin-top:4px">전에 확인한 지문 <span class="kc-old">'+esc(old)+'</span> → 지금 지문</div>'+
+        '<div class="kc-fp">'+esc(fp)+'</div>'+
+        '<div class="bad" style="font-size:13px">가게가 기기를 바꿨거나, 다른 사람이 가로챘을 수 있어요. <b>반드시 전화로 확인하세요.</b></div>'+
+        (msg?'<div class="warn" style="font-size:13px;margin-top:6px">'+esc(msg)+'</div>':'')+
+        '<label class="kc-check"><input type="checkbox" data-a="kc" data-id="'+esc(rid)+'"><span>사장님과 통화해 <b>새 지문</b>이 앱 설정 화면과 같은지 확인했습니다</span></label>'+
+        '</div>';
+      return;
+    }
+    html+='<div class="kc-card">'+head+
+      '<div class="kc-fp">'+esc(fp)+'</div>'+
+      '<div class="meta">사장님께 전화해 <b>앱 설정 → [자동 등록] 카드의 “우리 가게 열쇠 지문”</b>이 위 값과 같은지 확인해 주세요. 이름이 같은 다른 가게나, 가게인 척 등록한 사람에게 명단이 가는 것을 막는 절차입니다.</div>'+
+      (msg?'<div class="warn" style="font-size:13px;margin-top:6px">'+esc(msg)+'</div>':'')+
+      '<label class="kc-check"><input type="checkbox" data-a="kc" data-id="'+esc(rid)+'"><span><b>사장님과 통화해 확인했습니다</b></span></label>'+
+      '</div>';
+  });
+  if(done.length){
+    html+='<div style="margin-top:'+(pend.length?'10px':'0')+'">'+done.map(r=>
+      '<div class="kc-ok">✅ 확인 완료 · '+esc(r.name)+' <span class="kc-fpmini">'+esc(S.fps.get(r.restaurant_id)||'')+'</span></div>').join('')+
+      '<div class="meta">확인한 가게는 <b>이 부서에서는 다시 묻지 않습니다</b>(다른 부서는 처음에 한 번 확인합니다).</div></div>';
+  }
+  box.innerHTML=html;
+  box.querySelectorAll('input[data-a="kc"]').forEach(cb=>cb.addEventListener('change',()=>{
+    if(!cb.checked)return;
+    cb.disabled=true;
+    confirmKey(cb.dataset.id);
+  }));
+  box.querySelectorAll('button[data-a="kc-retry"]').forEach(b=>b.addEventListener('click',()=>{
+    S.fpErr.delete(b.dataset.id);renderKeycheck();refreshKeyInfo();
+  }));
+}
+// 체크 → 서버에 확인 기록 저장. 실패하면 확인된 것으로 치지 않는다(게이트 유지).
+async function confirmKey(rid){
+  const fp=S.fps.get(rid);
+  if(!fp||!S.dept||!S.agency)return; // 서버가 institution·department를 요구한다(§4.8)
+  const sc=kcScope();
+  const body={institution:sc.institution,department:sc.department,restaurant_id:rid,fingerprint:fp};
+  const post=b=>fetch(srv()+'/api/agency/keycheck',{method:'POST',headers:kcHeaders({'Content-Type':'application/json'}),body:JSON.stringify(b)});
+  S.kcMsg.delete(rid);
+  try{
+    let res=await post(body);
+    if(res.status===401){expireToken();return}
+    if(res.status===409){
+      let j={};try{j=await res.json()}catch{}
+      const cur=String(j.current||'');
+      if(cur&&cur!==fp){
+        // 우리가 화면에 띄운 지문이 이미 낡았다 — 그 사이 가게 키가 바뀐 것. 새 지문으로 다시 확인받는다.
+        S.fps.set(rid,cur);
+        S.kcMsg.set(rid,'확인하는 사이에 가게 열쇠가 바뀌었어요. 새 지문으로 다시 통화해 확인해 주세요.');
+        renderKeycheck();revalidate();return;
+      }
+      // 서버에 저장된 확인값과 다른 경우 — 담당자가 방금 통화로 확인했으므로 '변경 확인'으로 재요청한다.
+      res=await post(Object.assign({},body,{confirm_change:true}));
+      if(res.status===409){
+        S.kcMsg.set(rid,'이 가게의 열쇠가 예전 확인값과 달라 서버가 저장을 거부했어요. 사장님과 통화해 기기 변경 여부를 확인하고, 그래도 계속되면 contact@bapjangbu.com으로 알려 주세요.');
+        renderKeycheck();revalidate();return;
+      }
+    }
+    if(!res.ok){
+      let j={};try{j=await res.json()}catch{}
+      S.kcMsg.set(rid,'확인 기록을 저장하지 못했어요: '+submitErrMsg(j.error,res.status));
+      renderKeycheck();revalidate();return;
+    }
+    S.keychecks.set(rid,{fingerprint:fp,checked_at:Date.now()});
+    S.kcMsg.delete(rid);
+  }catch(e){
+    S.kcMsg.set(rid,'확인 기록을 저장하지 못했어요(네트워크). 잠시 후 다시 체크해 주세요.');
+  }
+  renderKeycheck();revalidate();
+}
+// 전송 직전 재검증(TOCTOU 차단): 실제 암호화에 쓰는 키의 지문이 확인값과 다르면 그 건은 보내지 않는다.
+function assertKeyConfirmed(g,fp){
+  if(S.kcUnsupported)return;
+  const c=S.keychecks.get(g.restaurant_id);
+  if(!c||c.fingerprint!==fp){
+    S.fps.set(g.restaurant_id,fp);
+    renderKeycheck();
+    throw new Error('열쇠 지문이 확인한 값과 달라요(지금 '+fp+'). 2-1단계에서 사장님과 통화해 다시 확인해 주세요.');
+  }
+}
+function applyDept(){
+  const v=($('deptInput').value||'').trim();
+  if(v===S.dept)return;
+  S.dept=v;
+  try{localStorage.setItem(DEPT_LS_KEY,S.dept)}catch(e){}
+  loadKeychecks(); // 부서가 바뀌면 확인 기록도 그 부서 것으로 다시 받는다
+}
+$('deptInput').addEventListener('change',applyDept);
+let deptTimer=null;
+$('deptInput').addEventListener('input',()=>{if(deptTimer)clearTimeout(deptTimer);deptTimer=setTimeout(applyDept,600)});
 
 // ── 2-B. 음식점 이름 검색 (보조 경로 — 이름 필수 + 지역(구·동) 텍스트로 결과 좁히기, 미등록 가게는 표시하지 않음) ──
 $('searchBtn').addEventListener('click',async()=>{
@@ -652,6 +1017,8 @@ function renderSelected(){
   const warn=dups.length?`<div class="bad" style="font-size:13px;margin-top:6px">⛔ 이름이 같은 음식점 ${dups.map(n=>'"'+esc(n)+'"').join(', ')}이(가) 함께 선택되어 있어요. ${esc(DUP_MSG)}</div>`:'';
   $('selected').innerHTML=head+(S.restaurants.length?S.restaurants.map((r,i)=>`<span class="pill" title="${esc(whereOf(r))}">${esc(r.name)}<button data-i="${i}">×</button></span>`).join(''):'<span class="meta">없음</span>')+warn;
   $('selected').querySelectorAll('button[data-i]').forEach(b=>b.addEventListener('click',()=>{S.restaurants.splice(+b.dataset.i,1);renderSelected();renderResults();renderJurisList();validateAndRenderCsv()}));
+  // 선택이 바뀔 때마다(모든 경로가 이 함수를 지난다) 열쇠 지문 카드를 갱신한다.
+  scheduleKeyInfo();
 }
 
 // ── 3. CSV 파싱·검증 (스펙 §2.1·§3.2) ──
@@ -873,7 +1240,7 @@ const COLLISION_MSG='같은 음식점·같은 부서명에 소속만 다른 동�
 function collisionErrors(){
   const byKey=new Map();
   [...buildGroups().values()].forEach(g=>{
-    const k=g.restaurant_id+' '+canonOf(g.items);
+    const k=g.restaurant_id+'\u0000'+canonOf(g.items);
     if(!byKey.has(k))byKey.set(k,[]);
     byKey.get(k).push(g);
   });
@@ -906,6 +1273,7 @@ function renderConfirm(){
 function computeStep(){
   if(!S.authed)return 1;
   if(!S.agency||!S.restaurants.length)return 2;
+  if(!allKeyChecked())return 2; // 열쇠 지문 확인은 2단계(가게 고르기)의 마무리 절차다
   if(!S.valid)return 3;
   if(!S.mode)return 4;
   return 5;
@@ -920,12 +1288,30 @@ function updateStepper(){
 }
 function revalidate(){
   const ok=!!(S.authed&&S.valid&&S.rows&&S.restaurants.length);
+  const pendingKeys=keyCheckPending();
+  const keyOk=pendingKeys.length===0;
   $('confirmCard').classList.toggle('hide',!ok);
   $('submitCard').classList.toggle('hide',!ok);
   if(ok)renderConfirm();
+  // 열쇠 지문이 확인되지 않은 가게가 하나라도 있으면 전송을 막는다(위협적이지 않게, 이유 한 줄).
+  const kg=$('keyGate');
+  if(kg)kg.remove();
+  if(ok&&!keyOk){
+    const div=document.createElement('div');
+    div.id='keyGate';
+    div.className='muted-box';
+    div.style.cssText='margin-bottom:8px;border-color:var(--warn);background:#fff4e5;color:#7a5209;font-size:13px';
+    div.innerHTML=(!S.dept
+      ?'<b>먼저 2단계 [우리 부서(과)] 칸에 부서 이름을 적고, 2-1단계에서 열쇠 지문을 확인해 주세요</b>'
+      :'<b>먼저 2-1단계에서 열쇠 지문을 확인해 주세요</b> — '+pendingKeys.map(r=>esc(r.name)).join(', '))+
+      '<div class="meta" style="margin-top:4px">사장님과 통화로 지문을 맞춰 봐야, 가게인 척 등록한 다른 사람에게 명단이 가지 않습니다.</div>';
+    $('submitCard').insertBefore(div,$('submitCard').firstChild);
+  }
   if(!ok&&!sending){S.mode=null;$('modeCards').querySelectorAll('.mode-card').forEach(x=>{x.classList.remove('sel');x.setAttribute('aria-pressed','false')});$('directPanel').innerHTML='';$('sendResult').innerHTML='';$('sendProgress').classList.add('hide');$('submitBtn').textContent='전송 방법을 선택하세요'}
   // 전송 중에는 어떤 이유로 revalidate가 불려도 전송 버튼을 되살리지 않는다(S6).
-  $('submitBtn').disabled=sending||!(ok&&S.mode);
+  $('submitBtn').disabled=sending||!(ok&&S.mode&&keyOk);
+  if(ok&&S.mode&&!keyOk)$('submitBtn').textContent='열쇠 지문 확인 후 보낼 수 있어요';
+  else if(ok&&S.mode)$('submitBtn').textContent=S.mode==='relay'?'동의 확인 후 바로 보내기':'동의 확인 후 직접 전달 준비';
   updateStepper();
 }
 
@@ -1088,7 +1474,9 @@ async function getPubKey(restaurant_id,cache,pace,onRetry){
     const pub=await importPub(j.public_key);
     // 구서버 호환: contact 필드가 없으면(undefined) null로 취급
     const contact=(j&&typeof j.contact==='object'&&j.contact)?j.contact:null;
-    entry={pub,contact};
+    // 지문은 '실제로 암호화에 쓰는 그 키'에서 계산한다 — 서버가 따로 알려 주는 값을 믿지 않는다.
+    const fp=await fingerprintOf(j.public_key);
+    entry={pub,contact,fp};
     cache.set(restaurant_id,entry);
   }
   return entry;
@@ -1179,6 +1567,8 @@ async function runRelay(list){
       try{
         // 암호화는 반드시 이 브라우저에서, 그 음식점의 RSA 공개키로만 수행한다(서버 재암호화 없음).
         const entry=await getPubKey(g.restaurant_id,relayPubCache,pace,onRetry);
+        // 지문 재검증: 확인한 뒤 키가 바뀌었다면(가게 기기 교체·가로채기) 이 건은 보내지 않는다.
+        assertKeyConfirmed(g,entry.fp);
         const blob=await encryptBlob(g.items,entry.pub);
         const bh=await batchHash(g.items);
         const total=g.items.reduce((s,i2)=>s+i2.amount,0);
@@ -1218,6 +1608,8 @@ async function doSubmitRelay(){
   if(!navigator.onLine){alert('인터넷 연결을 확인해 주세요.');return}
   // 최종 방어선: 동명 선택이 남아 있으면 어떤 명단도 보내지 않는다.
   if(dupSelectedNames().length){alert(DUP_MSG);return}
+  // 최종 방어선: 열쇠 지문이 확인되지 않은 가게가 있으면 보내지 않는다.
+  if(!allKeyChecked()){alert(KEYGATE_MSG+'\n\n· '+keyCheckPending().map(r=>r.name).join('\n· '));return}
   // 최종 방어선: batch_hash가 겹치는 그룹이 남아 있으면 한 건이 서버에서 조용히 사라진다.
   const collide=collisionErrors();
   if(collide.length){alert(collide.join('\n\n'));return}
@@ -1346,6 +1738,7 @@ async function doSubmitDirect(){
   if(sending)return; // 재진입 차단(S6) — 전송 중 직접전달 준비가 겹치면 카드가 중복 생성된다
   // 최종 방어선: 동명 선택이 남아 있으면 파일도 만들지 않는다.
   if(dupSelectedNames().length){alert(DUP_MSG);return}
+  if(!allKeyChecked()){alert(KEYGATE_MSG+'\n\n· '+keyCheckPending().map(r=>r.name).join('\n· '));return}
   // batch_hash가 겹치면 음식점 앱이 두 번째 파일을 "이미 등록한 명단(중복 전달)"로 막는다 — 미리 차단.
   const collide=collisionErrors();
   if(collide.length){alert(collide.join('\n\n'));return}
@@ -1379,6 +1772,7 @@ async function prepareDirect(){
     line.textContent='준비 중 '+idx+'/'+groups.length+' — '+g.restaurant_name+(g.department?' / '+g.department:'')+orgTagOf(g);
     try{
       const entry=await getPubKey(g.restaurant_id,pubCache,pace);
+      assertKeyConfirmed(g,entry.fp); // 지문 재검증(전송 직전) — 바뀌었으면 파일도 만들지 않는다
       const ciphertext=await encryptBlob(g.items,entry.pub);
       const bh=await batchHash(g.items);
       const total=g.items.reduce((s,i)=>s+i.amount,0);
@@ -1393,8 +1787,13 @@ async function prepareDirect(){
   log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.\n\n다음 할 일: 위 카드에서 파일 저장 또는 이메일·카톡·QR로 음식점에 전달한 뒤, 전달 사실을 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.'+
     (groups.length>1?'\n※ 파일·QR은 음식점(부서)별로 각각 만들어졌습니다. 카드마다 따로 전달하세요.':''));
 }
-function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+// 홑따옴표(&#39;)까지 반드시 이스케이프한다 — 이 파일은 속성값을 홑따옴표로 감싸는 곳이 있고,
+// 앞으로 생길 수도 있다. 빠뜨리면 가게 이름 등 외부 문자열이 속성을 탈출할 수 있다.
+function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 updateStepper();
+renderServerWarning(); // 기본값과 다른 중계 서버 주소가 쓰이면 상단에 붉은 배너
+try{S.dept=localStorage.getItem(DEPT_LS_KEY)||''}catch(e){S.dept=''}
+$('deptInput').value=S.dept;
 loadAgencyIndex(); // 소속 기관 목록(agency-index.json) 로드 + 마지막 선택 복원
 // 새로고침·뒤로가기로 돌아온 경우, 아직 살아 있는 인증 토큰이 있으면 1단계를 건너뛴다(B4).
 if(hasAgreedTerms())restoreToken();

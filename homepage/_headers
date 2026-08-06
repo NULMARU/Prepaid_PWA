@@ -1,0 +1,10 @@
+# Cloudflare Pages 보안 헤더 (프로젝트: bapjangbu-home / bapjangbu.com)
+# 외부 리소스 0건(인라인 CSS·JS, 이미지도 같은 오리진). 유일한 네트워크 호출은
+# 의견 폼 → 중계 서버 /api/feedback 뿐이라 connect-src에 그 오리진만 연다.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; connect-src 'self' https://prepaid-relay.sulsul-plus.workers.dev; frame-ancestors 'none'; upgrade-insecure-requests
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

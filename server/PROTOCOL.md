@@ -8,8 +8,13 @@
 - 전화번호는 담당자 경로(웹·서버·blob)에 **존재하지 않는다.**
 - 집계(`deposit_summary`)는 총액·인원수·해시만 보관한다(개인별 금액·이름 ❌).
 - **기관 담당자 이메일도 평문으로 저장하지 않는다.** `agency_otp`·`agency_token`의 `email` 컬럼에는
-  이메일의 **SHA-256 해시(64자 hex)** 만 들어가며(§4.4), `consent_log.agency_email_hash`도 같은 해시다.
+  이메일의 **해시(64자 hex)** 만 들어가며(§4.4), `consent_log.agency_email_hash`도 같은 해시다.
+  해시 방식은 `EMAIL_PEPPER`(wrangler secret)가 설정돼 있으면 **HMAC-SHA256(EMAIL_PEPPER, email)**,
+  없으면 기존 **SHA-256(email)**이다(§4.4 — 전환기에는 구 SHA-256 키도 조회 폴백으로 인식).
   평문 이메일은 OTP 발송(Resend) 호출에만 일시적으로 쓰이고 저장·로깅되지 않는다.
+- **전화번호는 자유 입력 창구로도 들어오지 못한다.** `POST /api/feedback`은 `message`·`contact`에
+  휴대전화번호 패턴(`01[0-9]-?\d{3,4}-?\d{4}`)이 있으면 저장하지 않고 `400 {error:'no_personal_info'}`
+  로 거부한다(§8.3 — 불변식 "전화번호는 어떤 서버 경로에도 실리지 않는다"의 마지막 방어선).
 
 ## 1. 키
 - 음식점 앱: `RSA-OAEP` 2048 / SHA-256 키페어. 공개키는 SPKI를 base64로 인코딩해 등록.
@@ -50,16 +55,16 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 
 | 메서드·경로 | 요청 | 응답 | 비고 |
 |---|---|---|---|
-| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?, district?}` | `{ok:true}` | 공개키 등록. 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1). 선택 필드 `district`(관할 지역, 공개 사업장 정보, ≤100자, 예 "서울특별시 광진구") 저장. **재등록(멱등·소유증명 경로 모두)에서 `district`가 오면 갱신**(레거시/미채움 등록분을 앱 재등록으로 채울 수 있게, §4.6) |
+| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?, district?}` | `{ok:true}` / 400 | 공개키 등록. **최초 등록은 공공데이터로 실존·상호를 대조**하고 어긋나면 `400 {error:'store_not_found'}`(§4.10). 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1). 선택 필드 `district`(관할 지역, 공개 사업장 정보, ≤100자, 예 "서울특별시 광진구") 저장. **재등록(멱등·소유증명 경로 모두)에서 `district`가 오면 갱신**(레거시/미채움 등록분을 앱 재등록으로 채울 수 있게, §4.6) |
 | `POST /api/challenge` | `{restaurant_id}` | `{challenge_ct}` / 404 | 소유 증명 챌린지 발급(§4.1) |
 | `POST /api/deregister` | `{restaurant_id, auth_token}` | `{ok:true}` / 401 | 음식점 주인 등록 해제(명단 받기 중단) → 공개키 삭제(연락처·원장 클라우드 백업도 함께 삭제, §4.2). 인증 필요 |
 | `POST /api/contact` | `{restaurant_id, auth_token, kakao_link, email}` | `{ok:true}` / 400/401/404 | 업무용 연락처 등록·수정·삭제(§4.5). 인증 필요 |
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. `contact`는 미등록 시 각 필드 `null`. IP당 분당 20회로 별도 레이트리밋(§6.3) |
-| `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` | 담당자 웹: '명단 받기 가능' 표시용 |
-| `GET /api/registered-list?sido=&sigungu=` | — | `{restaurants:[{restaurant_id,restaurant_name,district}]}` / 400 | 시도(+선택 시군구)의 등록 음식점 목록(§4.6). `sido` 필수(없으면 `400 {error:'sido_required'}`). **매칭은 정규화 후 정확 일치**(`district == "{sido} {sigungu}"` — 부분 일치 금지, §4.6). 공개 정보만(연락처 미포함), 레거시(district 없음) 제외, 이름 가나다 정렬. IP당 분당 20회 별도 레이트리밋(§6.3) |
+| `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` / 400 | 담당자 웹: '명단 받기 가능' 표시용. **한 번에 100개까지**(초과 시 `400 {error:'too_many_ids', max:100}` — 청킹은 클라이언트 몫) |
+| `GET /api/registered-list?sido=&sigungu=` | — | `{restaurants:[{restaurant_id,restaurant_name,district,registered_at,verified}]}` / 400 | 시도(+선택 시군구)의 등록 음식점 목록(§4.6). `sido` 필수(없으면 `400 {error:'sido_required'}`). **매칭은 정규화 후 정확 일치**(`district == "{sido} {sigungu}"` — 부분 일치 금지, §4.6). 공개 정보만(연락처 미포함), 레거시(district 없음) 제외, 이름 가나다 정렬. `registered_at`(등록 시각)·`verified`(0\|1, §4.10)는 담당자 웹의 "신규 등록"·"실존 확인" 배지용(개인정보 아님). IP당 분당 20회 별도 레이트리밋(§6.3) |
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | 신규 `{summary_id}` / 재제출 `{summary_id, deduped:true, status}` / 401 | 부서·음식점 단위 1건(§4.3). 동일 `(restaurant_id,batch_hash)` 재제출은 멱등(§4.7) |
-| `GET /api/inbox?restaurant_id=` | — | `[{summary_id, summary, ciphertext, status}]` | 음식점 앱 폴링(PENDING만, `encrypted_blob` JOIN — 암호문 없는 건은 제외) |
+| `GET /api/inbox?restaurant_id=&auth_token=` (또는 헤더 `X-Auth-Token`) | — | `[{summary_id, summary, ciphertext, status}]` / 401 | 음식점 앱 폴링(PENDING만, `encrypted_blob` JOIN — 암호문 없는 건은 제외). **소유 증명 필수**(§4.1의 1회용 `auth_token`, 없거나 무효면 `401 {error:'auth_required'}`). `summary`에 **`batch_hash`는 실리지 않는다**(§4.9) |
 | `GET /api/inbox-count?restaurant_id=` | — | `{"count":2}` / 400 | 알림 배지·경량 폴링용 **개수만**. `/api/inbox`와 동일 필터(PENDING + 72시간 이내 + `encrypted_blob` JOIN)를 COUNT로만 수행하고 요약 메타·암호문은 반환하지 않는다. `restaurant_id` 누락 시 `400 {error:'restaurant_id 필요'}`. **인증 없음** — 같은 id로 `/api/inbox`를 호출하면 이미 알 수 있는 값의 부분집합이라 새로 노출되는 정보가 0(남용 방어는 전역 레이트리밋 분당 60, §6.3) |
 | `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절. 상태 전이 성공 시 암호문(`encrypted_blob`) 즉시 파기(§6). 인증 필요 |
 | `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash}` | `{ok:true}` | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요 |
@@ -67,6 +72,8 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 | `POST /api/ledger-backup/delete` | `{restaurant_id, auth_token}` | `{ok:true}` / 401/404 | 백업 삭제(예: 기기를 되찾아 클라우드 백업이 더 이상 필요 없을 때). 인증 필요 |
 | `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?, sent?}` / 500 | 기관 이메일 OTP 발급(§4.4) |
 | `POST /api/agency/verify-otp` | `{email, otp}` | `{token}` / 401 | OTP 검증 → 24시간 기관 토큰 발급 |
+| `POST /api/agency/keycheck` | 헤더 `X-Agency-Token` + `{institution, department, restaurant_id, fingerprint}` | `{ok:true, fingerprint}` / 400/401/404/409 | 열쇠 지문 확인 기록(§4.8). 서버가 현재 공개키로 지문을 재계산해 **일치할 때만** 저장(upsert). 불일치 시 `409 {error:'fingerprint_mismatch', current}` |
+| `GET /api/agency/keychecks?institution=&department=` | 헤더 `X-Agency-Token` | `{keychecks:[{restaurant_id, fingerprint, checked_at}]}` / 400/401 | 그 **부서가** 확인해 둔 음식점 목록(§4.8). 다른 정보(인원·금액 등)는 절대 싣지 않는다 |
 | `GET /api/admin/stats` | 헤더 `X-Admin-Token` | `{restaurants, institutions_total, …, feedback[]}` / 401/503/429 | 비식별 집계 통계(관리자 전용, §8) |
 | `POST /api/feedback` | `{role, message, contact?}` | `{ok:true}` / 400/429 | 피드백 수신(§8.3) |
 
@@ -139,9 +146,33 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
     (다른 TLD로 이어짐)·`ac.kr.evil.com`은 모두 거부된다. 담당자 웹의 `AGENCY_EMAIL_RE`
     (`agency-web/index.html`)는 여기에 로컬파트 검사만 덧댄 **동일 규칙**이므로, 한쪽을
     바꾸면 반드시 다른 쪽도 함께 바꿀 것.
-  - **저장 키는 이메일의 SHA-256 해시**다. `agency_otp.email`·`agency_token.email` 컬럼(TEXT)에
+  - **저장 키는 이메일의 해시**다. `agency_otp.email`·`agency_token.email` 컬럼(TEXT)에
     해시 문자열을 넣어 재사용하므로 스키마 변경이 없다. 60초 재요청 스로틀·시도 횟수 증가·
     삭제 모두 해시 키 기준으로 동작하며, 서버 어디에도 평문 이메일이 남지 않는다(§0).
+    - **pepper(2026-08~)**: `env.EMAIL_PEPPER`(wrangler secret)가 설정돼 있으면 해시는
+      `HMAC-SHA256(EMAIL_PEPPER, email)`이다. 순수 SHA-256은 후보 공간이 좁아(허용 도메인 +
+      짧은 로컬파트) D1이 유출되면 무차별 대입으로 원본 주소를 역산할 수 있는데, 서버만 아는
+      비밀값을 섞으면 그 계산이 불가능해진다.
+    - **미설정이면 기존 SHA-256으로 그대로 동작**하므로 secret 등록 전에 배포해도 안전하다
+      (배포 순서 자유). 등록 후에도 **구 SHA-256 키로 저장된 행을 조회 폴백**으로 함께 찾으므로
+      전환 순간에 진행 중이던 인증이 깨지지 않는다(그 행은 검증 성공 시 삭제되고, 새 행은 항상
+      HMAC 키로 저장된다 — 최대 24시간 안에 구 키 행은 자연 소멸한다).
+  - **발송 남용 차단(2026-08~)**:
+    - **서버 자체 일일 예산**: `AUTH_MODE='prod'`에서 하루 발송량을 D1 카운터
+      (`stats_counter`의 `otp_sent_YYYY-MM-DD` — 비식별 집계, 수신자 정보 없음)로 세고,
+      `env.OTP_DAILY_BUDGET`(기본 80)을 넘으면 **Resend를 호출하지 않고**
+      `429 {error:'email_quota_exceeded'}`를 반환한다(Resend가 429를 준 경우와 같은 코드 —
+      담당자에게는 "오늘 한도 도달" 안내로 동일하게 보인다). Resend 무료 플랜의 "하루 100통"에
+      닿기 전에 우리 쪽에서 먼저 멈추기 위한 안전 여유값이다. 이 검사는 OTP 행을 만들기
+      **전**에 하므로 60초 스로틀을 소모하지 않고, 카운터는 **발송 성공분만** 증가한다.
+      D1 카운터라 isolate 분산과 무관한 전역 집계다.
+    - **IP당 저한도**: `POST /api/agency/request-otp`는 `CF-Connecting-IP`당 **시간당 5회**로
+      별도 제한한다(`429 {error:'rate_limited'}`). 이쪽은 per-isolate 메모리 Map이라 §6.3의
+      한계를 그대로 가진다(여러 isolate/IP로 분산하면 우회 가능) — 전역 차단은 위 D1 일일
+      예산과 Cloudflare 대시보드 Rate Limiting Rule이 담당한다.
+    - **후속 권장(이번 범위 밖)**: `request-otp`와 `/api/public-key`에 **Turnstile**을 붙이면
+      봇 기반 대량 요청을 근본적으로 줄일 수 있다. 위젯 발급이 Cloudflare 대시보드 작업이라
+      이번 변경에는 포함하지 않았다.
   - **발송 실패 시 스로틀을 소모하지 않는다**: OTP 행을 먼저 쓰고 발송하되, 발송이 실패하면
     (`email_send_failed`·`email_not_configured`) 방금 쓴 행을 삭제한다 — 남겨두면 60초 스로틀에
     걸려 담당자가 재시도조차 못 하는 상태가 된다. 발송에 성공한 뒤에는 스로틀이 정상 적용된다.
@@ -245,6 +276,81 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 상태 X"로 표시한다(이미 거절·만료된 명단을 다시 보냈다고 착각하지 않게). `deduped` 필드가 없는
 구서버 응답은 기존 동작(그냥 성공)으로 처리된다 — 하위 호환.
 
+### 4.8 열쇠 지문 확인 (가게 선점 방어)
+
+`restaurant_id`(LOCALDATA 관리번호)는 공개값이라, 나쁜 마음을 먹은 사람이 **남의 가게 id로 먼저
+공개키를 등록**해 담당자가 보낸 명단을 가로챌 수 있다(선점). §4.10의 공공데이터 실존·상호 대조가
+1차 방어지만, 상호까지 그대로 베끼면 통과한다. 최종 방어는 **사람이 육성으로 대조하는 열쇠 지문**이다.
+
+- **지문 정의(세 컴포넌트 공통, 절대 바꾸지 말 것)**:
+  `SHA-256(공개키 SPKI raw bytes)` → hex 소문자 → **앞 8자** → 대문자로 4자씩 하이픈 → `ABCD-EF12`.
+  음식점 앱은 설정 화면에 이 값을 크게 보여주고, 담당자 웹은 명단을 보내기 전에 같은 값을 계산해
+  화면에 띄운다. 담당자(서무)가 사장님께 **전화로 여덟 글자를 불러 대조**한다.
+- `POST /api/agency/keycheck`(X-Agency-Token 필수): 담당자가 "확인했다"를 체크하면 호출한다.
+  서버는 클라이언트가 보낸 `fingerprint`를 믿지 않고 **`public_key_registry`의 현재 공개키로 직접
+  재계산**해 대조한다. 일치하면 `(institution, department, restaurant_id)` 기준 upsert로 저장하고
+  `200 {ok:true, fingerprint}`. 불일치면 저장하지 않고 `409 {error:'fingerprint_mismatch', current}`
+  (`current`는 서버가 계산한 현재 지문 — 담당자 화면에 "지금 지문은 XXXX-YYYY입니다"로 안내).
+  형식이 `^[0-9A-F]{4}-[0-9A-F]{4}$`가 아니면 `400 {error:'invalid_fingerprint'}`(소문자 입력은
+  대문자로 정규화), 미등록 음식점은 `404 {error:'not_found'}`.
+- `GET /api/agency/keychecks?institution=&department=`(X-Agency-Token 필수): 그 부서가 확인해 둔
+  목록. 응답 항목은 **`restaurant_id`·`fingerprint`·`checked_at` 세 필드뿐**이며 인원·금액 등 다른
+  정보는 절대 싣지 않는다. `institution`·`department` 둘 다 필수(없으면 400).
+- **부서 단위 격리**: 같은 부서는 재확인이 필요 없지만, **같은 기관의 다른 부서**는 처음 보낼 때
+  다시 확인해야 한다(한 부서의 확인이 기관 전체의 신뢰로 번지지 않게). 기관 간에도 물론 격리된다.
+- **키가 바뀌면 확인은 무효가 된다**: 음식점이 소유 증명 후 다른 키로 재등록하면(기기 교체·탈취 모두
+  이 경로다) 지문이 달라져 이전 지문 제출은 `409`가 되고, 담당자 웹은 재확인을 요구해야 한다.
+- **보존**: `agency_keycheck`는 **TTL 정리 대상이 아니다**(장기 보관). 확인 이력을 지우면 담당자가
+  매번 다시 전화해야 하므로, 개인정보가 없는(조직정보·공개ID·지문·시각) 이 표만 예외로 유지한다.
+  음식점이 등록을 해제해도 행은 남지만, 재등록 시 지문이 바뀌면 위 규칙으로 자연히 무효화된다.
+
+### 4.9 `/api/inbox` 인증 · `batch_hash` 오라클 차단
+
+- **인증 필수(2026-08~)**: `GET /api/inbox`는 §4.1의 1회용 `auth_token`을 **쿼리(`?auth_token=`)
+  또는 헤더(`X-Auth-Token`)** 로 요구한다. 예전에는 `restaurant_id`만 알면(공개값이다) 누구나 그
+  음식점의 기관·부서·총액·인원과 암호문까지 받아갈 수 있었다 — 암호문은 개인키 없이 못 열지만
+  요약 메타 자체가 조직 정보이므로 인증 뒤로 옮겼다.
+  - ⚠️ **하위호환 주의**: 구버전 음식점 앱은 인증 없이 호출하므로 **서버를 먼저 배포하면 그 사이
+    구버전 앱의 수신함이 401로 일시 실패**한다(승인 전 단계라 데이터 손실은 없고, 앱을 새로
+    받으면 즉시 복구된다). 앱과 같은 릴리스로 나가는 것을 전제로 수용한 변경이다.
+  - `GET /api/inbox-count`는 **현행대로 무인증**이다 — 응답이 `{count}`뿐이라 새로 노출되는
+    정보가 0이기 때문이다. 이 엔드포인트에는 앞으로도 요약 메타를 절대 넣지 말 것.
+- **`batch_hash`는 응답에서 제거**: 서버가 보관 중인 `batch_hash`를 그대로 돌려주면, 명단 후보를
+  가진 자가 "이 배치가 맞나"를 서버에 물어볼 수 있는 확인 채널(오라클)이 된다. 따라서
+  `/api/inbox` 응답의 `summary`에는 `batch_hash`가 없다(서버 저장은 유지 — 멱등 판정용).
+- **수신 측 검증 규칙(계약)**: 음식점 앱은 **blob 내부(암호문을 연 평문)의 `batch_hash`** 로 변조를
+  검증한다. 담당자 웹은 평문 blob에 이 값을 함께 넣는다:
+  ```json
+  { "v":1, "batch_hash":"<hex>", "items":[ {"name":"…","dept":"…","amount":0}, … ] }
+  ```
+  `batch_hash` 계산식은 §3 그대로(`name|dept|amount` canonical) — **계산식은 불변이고, 실려 오는
+  자리만 요약에서 blob 안으로 옮긴 것**이다. 서버는 blob을 열지 못하므로 이 값을 알 수도, 바꿀
+  수도 없다(오라클이 성립하지 않는 이유). blob에 `batch_hash`가 없는 구버전 담당자 웹 전송분을
+  앱이 어떻게 처리할지(경고 후 진행 / 차단)는 앱·담당자 웹 릴리스 정책에서 정한다.
+
+### 4.10 가게 등록 강화 (공공데이터 실존·상호 대조)
+
+`POST /api/register-key`의 **최초 등록**(그 `restaurant_id`가 아직 없을 때)에는 공공데이터
+(data.go.kr 일반음식점 — `/api/restaurants`와 같은 소스, `env.searchRestaurants`/`defaultSearch`
+재사용)로 실존 여부와 상호를 대조한다.
+
+- 조회 키워드는 상호의 **첫 토큰**(공백·괄호 앞까지)으로 넓게 잡고, 대조는 **정규화 후 전체 이름
+  일치**로 판정한다. 정규화 = NFC + 모든 공백 제거 + 괄호류(`()[]{}（）［］｛｝`) 제거 — 앱이 보낸
+  `"진짜식당 (본점)"`과 공공데이터의 `"진짜식당(본점)"`이 같은 값으로 취급된다.
+- 판정 3분기:
+  - **일치** → 등록 200, `public_key_registry.verified = 1`.
+  - **불일치**(조회는 됐는데 그 id가 없거나 상호가 다름) → `400 {error:'store_not_found'}`. 공개키는
+    저장되지 않는다.
+  - **판정 불가**(공공 API 장애·`PUBLIC_API_KEY` 미설정·타임아웃, 또는 결과가 한 페이지 100건을
+    가득 채워 잘렸을 가능성) → **등록을 막지 않고** 200, `verified = 0`. **가용성 우선** —
+    공공 API가 죽었다고 새 가게가 서비스를 못 쓰게 되어서는 안 된다.
+- **재등록(멱등·소유 증명 경로)에서는 재대조하지 않는다** — 이미 그 가게의 개인키를 증명한
+  주체이므로 공공 API 상태에 등록 갱신이 좌우되지 않게 한다.
+- `verified`는 개인정보가 아니며 `/api/registered-list` 응답에 `registered_at`과 함께 실린다.
+  담당자 웹은 `verified=0`·최근 `registered_at`을 "실존 미확인"·"신규 등록" 배지로 표시해 §4.8의
+  지문 확인을 유도하는 데 쓴다. 마이그레이션 이전 등록분은 모두 `verified=0`이다(대조를 거치지
+  않았으므로 정확한 표기).
+
 ## 5. 상태 머신
 `deposit_summary.status`: `PENDING` →(approve)→ `APPROVED` / `REJECTED`, 또는
 `PENDING` →(72시간 미수령)→ `EXPIRED`.
@@ -259,9 +365,13 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 암호문(`encrypted_blob`)은 **음식점이 수령(승인/거절)하는 즉시 파기**되며, 수령하지 않은
 경우에도 **최대 72시간(3일) 후 자동 파기**된다. 개인을 식별할 수 없는 요약 정보
 (`deposit_summary`의 총액·인원수·해시·상태)만 처리 완료 후 30일간 보관 후 삭제된다.
-`consent_log`(기관·부서·연월·기관 이메일의 SHA-256 해시)와 `feedback`(자유 입력 본문)은 180일 후
-TTL cron이 삭제한다(§6.3 — 어느 테이블도 무기한 보관하지 않는다). 이메일 해시에 salt/pepper를 추가하는 것은 이번 범위 밖이며 향후 개선 제안으로만
-남긴다(무차별 대입으로 `.go.kr` 이메일 후보를 역산하는 것을 더 어렵게 하는 목적).
+`consent_log`(기관·부서·연월·기관 이메일 해시)와 `feedback`(자유 입력 본문)은 180일 후
+TTL cron이 삭제한다(§6.3). 이메일 해시의 pepper(HMAC)는 2026-08에 도입됐다(§4.4).
+
+**예외(장기 보관)**: `agency_keycheck`(§4.8 열쇠 지문 확인 이력)와 `public_key_registry`(등록 유지 중인
+공개키·관할·연락처)는 TTL 정리 대상이 아니다 — 전자는 지우면 담당자가 매번 다시 전화해야 하고,
+후자는 등록이 유지되는 동안 필요한 현재 상태다. 둘 다 개인정보를 담지 않는다(조직정보·공개ID·
+공개키·지문·시각).
 
 이와 별도로 담당자 웹에는 **무보관 모드("직접 전달")**가 존재한다 — 담당자가 암호화한 blob을
 서버로 전송하지 않고 파일·QR 등으로 음식점에 직접 전달하는 경로로, 이 경로에서는 명단(암호문
@@ -305,12 +415,33 @@ TTL cron이 삭제한다(§6.3 — 어느 테이블도 무기한 보관하지 �
   사용해 제한한다(초과 시 `429 {error:'rate_limited'}`). Cloudflare Workers는 요청마다 다른
   isolate로 라우팅될 수 있어 이 Map은 전역 카운터가 아니며 **완전한 보장이 아니다**. 운영에서는
   Cloudflare 대시보드의 Rate Limiting Rule(요청 기반, 전역 집계)을 **병행 적용**할 것을 권장한다.
+  - **엔드포인트별 강화 한도(각각 독립 카운터)**: `GET /api/public-key`·`GET /api/registered-list`·
+    `POST /api/challenge` = IP당 분당 20회, `GET /api/admin/stats` = 분당 10회,
+    `POST /api/feedback` = 분당 5회, `POST /api/agency/request-otp` = **시간당 5회**(§4.4).
+  - **미소비 챌린지 상한**: `POST /api/challenge`는 발급 전에 그 `restaurant_id`의 만료된
+    챌린지를 지우고, 그래도 미만료 챌린지가 **5개** 이상이면 `429 {error:'too_many_challenges'}`
+    로 거절한다. 정상 클라이언트는 발급 즉시 1회용으로 소비하므로 영향이 없고, 저장 남용
+    (무한 발급으로 `auth_challenge`를 부풀리기)만 막힌다.
   - **`GET /api/public-key`는 별도로 더 낮은 한도(IP당 분당 20회)를 추가 적용한다**(감사 항목
     3) — 이 엔드포인트는 업무용 연락처(카톡 링크·이메일)까지 노출하므로 대량 수집(크롤링)
     유인이 더 크다. 다만 이 역시 per-isolate 메모리 Map의 한계를 그대로 가지는 **베스트
     에포트일 뿐 완전한 방어가 아니다** — 공격자가 여러 IP/isolate로 분산하면 우회 가능하다.
     운영에서는 이 엔드포인트에 Cloudflare 대시보드 Rate Limiting Rule 또는 **Turnstile**을
     병행 적용할 것을 권장한다.
+
+### 6.4 응답 보안 헤더
+
+모든 API 응답(성공·오류·OPTIONS 프리플라이트 포함)에 아래 4개를 붙인다. `worker.js`의 응답 헬퍼
+한 곳(`SECURITY_HEADERS` + `json()`)에서 나오므로 엔드포인트별로 빠질 수 없다.
+
+| 헤더 | 값 | 이유 |
+|---|---|---|
+| `Cache-Control` | `no-store` | API 응답(수신함 요약 등)이 중간 캐시·브라우저 디스크에 남지 않게 |
+| `X-Content-Type-Options` | `nosniff` | JSON을 다른 타입으로 해석시키는 스니핑 공격 차단 |
+| `Referrer-Policy` | `no-referrer` | 쿼리(`restaurant_id`·`auth_token`)가 리퍼러로 외부에 새지 않게 |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | 평문 HTTP 다운그레이드 차단 |
+
+CORS 헤더와는 독립이므로 **CORS 동작(화이트리스트 echo / Origin 없으면 헤더 생략)은 그대로**다.
 
 ## 7. 컴플라이언스
 
@@ -342,6 +473,10 @@ TTL cron이 삭제한다(§6.3 — 어느 테이블도 무기한 보관하지 �
   `registrations`(신규 등록), `searches`(검색), `members_total`(집계 인원 누적),
   `amount_total`(집계 금액 누적).
 - `feedback(id, role, message, contact, created_at)` — 사용자 피드백(§8.3). 180일 후 TTL cron이 삭제(§6.3).
+- `stats_counter`의 `otp_sent_YYYY-MM-DD` — OTP 이메일 일일 발송 건수(§4.4의 예산 검사에 사용).
+  수신자 정보 없이 "그날 몇 통" 숫자만 남는 비식별 카운터다.
+- `agency_keycheck(institution, department, restaurant_id, fingerprint, checked_at)` — 열쇠 지문 확인
+  이력(§4.8). 조직정보·공개ID·공개키 지문·시각만 — 개인정보 없음. **TTL 정리 대상 아님(장기 보관).**
 
 증가 시점(성공 시에만):
 - `POST /api/submit` 성공: `seen_institution(institution)`·`seen_department(institution+department)`
@@ -385,5 +520,9 @@ TTL cron이 삭제한다(§6.3 — 어느 테이블도 무기한 보관하지 �
 - `role`: `'음식점'|'기관'|'직원'|'기타'` 화이트리스트(그 외 `400 {error:'invalid_role'}`).
 - `message`: 1~2000자 필수(범위 밖 `400 {error:'invalid_message'}`).
 - `contact`: 선택, 0~200자(초과 `400 {error:'invalid_contact'}`).
+- **전화번호 차단(불변식 4)**: `message`·`contact` 어느 쪽이든 휴대전화번호 패턴
+  (`01[0-9]-?\d{3,4}-?\d{4}`)이 있으면 **저장하지 않고** `400 {error:'no_personal_info'}`.
+  자유 입력은 사용자가 "연락처: 010-…"을 무심코 적기 가장 쉬운 창구라 서버에서 막는다.
+  날짜(`2026-08-01`) 등 다른 숫자는 통과한다.
 - 스팸 방지로 IP당 분당 5회 레이트리밋(`429`). 성공 시 `200 {ok:true}`.
 - **주의**: 자유 입력이므로 저장은 그대로 하되, 응답·서버 로그에 입력 내용을 반영하지 않는다.

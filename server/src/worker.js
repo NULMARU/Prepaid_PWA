@@ -11,7 +11,7 @@ function CORS(env, request) {
   const list = String((env && env.ALLOW_ORIGIN) || '*').split(',').map(s => s.trim()).filter(Boolean);
   const headers = {
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Agency-Token, X-Admin-Token'
+    'Access-Control-Allow-Headers': 'Content-Type, X-Agency-Token, X-Admin-Token, X-Auth-Token'
   };
   if (list.includes('*')) {
     headers['Access-Control-Allow-Origin'] = '*';
@@ -24,8 +24,18 @@ function CORS(env, request) {
   }
   return headers;
 }
+// 응답 보안 헤더(감사 H-5 서버 몫). 모든 API 응답에 공통 적용한다 — API 응답은 캐시 대상이
+// 아니므로 no-store로 중간 캐시·브라우저 캐시 보관을 막고(수신함 요약 등 민감 응답 잔존 방지),
+// MIME 스니핑·리퍼러 유출·평문 HTTP 다운그레이드를 함께 차단한다. CORS 헤더와는 독립이라
+// 기존 CORS 동작(화이트리스트 echo / Origin 없으면 헤더 생략)은 그대로다.
+const SECURITY_HEADERS = {
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'
+};
 const json = (env, request, body, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS(env, request) } });
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS, ...CORS(env, request) } });
 
 // 입력 길이 상한(방어적 검증). 초과 시 400.
 const MAX_STR = 200;            // 일반 문자열 필드(기관명·부서·연월·검색어·이메일 등)
@@ -33,6 +43,7 @@ const MAX_DISTRICT = 100;       // 관할 지역(공개 사업장 정보, 예 "�
 const MAX_PUBKEY = 8 * 1024;    // 공개키(SPKI base64)
 const MAX_CIPHERTEXT = 200 * 1024; // 암호 blob 직렬화(JSON.stringify) 바이트 근사
 const MAX_LEDGER_BLOB = 1024 * 1024; // 암호화 원장 백업 blob(base64 문자열) 상한 ~1MB
+const MAX_REGISTERED_IDS = 100;    // /api/registered?ids= 한 번에 조회 가능한 id 개수(초과 시 400 — 청킹은 클라이언트 몫)
 
 // 데이터 보존 최소화(PROTOCOL.md §6): 암호문은 수령(승인/거절) 즉시 파기, 미수령 시
 // 최대 72시간 후 자동 파기. 비식별 요약(총액·인원·해시)만 30일 보관 후 삭제.
@@ -65,6 +76,8 @@ const SQL_NORM_DISTRICT = "REPLACE(REPLACE(REPLACE(TRIM(district),'  ',' '),'  '
 // 업무용 연락처(선택): 오픈채팅 링크는 전화번호·개인 프로필 비노출 형식(open.kakao.com)만 허용.
 const KAKAO_LINK_RE = /^https:\/\/open\.kakao\.com\//;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// 휴대전화번호 패턴(불변식 4 방어용 — 자유 입력에 전화번호가 섞여 저장되는 것을 막는다).
+const PHONE_RE = /01[0-9]-?\d{3,4}-?\d{4}/;
 function validKakaoLink(v) { return typeof v === 'string' && v.length <= MAX_STR && KAKAO_LINK_RE.test(v); }
 function validEmailFormat(v) { return typeof v === 'string' && v.length <= MAX_STR && EMAIL_RE.test(v); }
 function validAmount(v) { const n = Number(v); return Number.isSafeInteger(n) && n >= 0 && n <= 1e13; }
@@ -85,13 +98,39 @@ async function sha256hex(str) {
   const h = await subtle.digest('SHA-256', encU.encode(str));
   return Array.from(new Uint8Array(h)).map(v => v.toString(16).padStart(2, '0')).join('');
 }
-// 저장된 기관 이메일 값이 이미 SHA-256 해시(64자 hex)인지 판별. 전환기(구 평문 행) 방어용.
+function hex(buf) { return Array.from(new Uint8Array(buf)).map(v => v.toString(16).padStart(2, '0')).join(''); }
+async function hmacSha256hex(key, msg) {
+  const k = await subtle.importKey('raw', encU.encode(String(key)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return hex(await subtle.sign('HMAC', k, encU.encode(String(msg))));
+}
+// 이메일 저장 키(F-09/M-8): pepper(secret)가 설정돼 있으면 HMAC-SHA256(EMAIL_PEPPER, email),
+// 없으면 기존과 동일한 SHA-256(email). 순수 SHA-256은 이메일 후보 공간이 좁아(기관 도메인 +
+// 짧은 로컬파트) 무차별 대입으로 역산될 수 있어 서버 비밀값을 섞는다. pepper 미설정 시 구
+// 동작을 그대로 유지하므로 "secret 등록 전 배포"도 안전하다(배포 순서 자유).
+async function emailKey(env, email) {
+  const pepper = env && env.EMAIL_PEPPER;
+  return pepper ? await hmacSha256hex(pepper, String(email)) : await sha256hex(String(email));
+}
+// 전환기 조회 폴백: pepper 도입 전에 SHA-256으로 저장된 행(agency_otp·agency_token, 최대 24시간
+// 내 자연 소멸)도 계속 찾을 수 있게 구 해시를 함께 시도한다. pepper 미설정이면 둘이 같은 값이라
+// 폴백은 자동으로 no-op이 된다.
+async function emailKeyLegacy(email) { return await sha256hex(String(email)); }
+// 저장된 기관 이메일 값이 이미 해시(64자 hex — SHA-256 또는 HMAC-SHA256)인지 판별. 전환기(구 평문 행) 방어용.
 const HEX64_RE = /^[0-9a-f]{64}$/;
 function isEmailHash(v) { return typeof v === 'string' && HEX64_RE.test(v); }
 // 이미 해시면 그대로, (구버전이 남긴) 평문이면 해싱해서 반환 — 평문이 하위 저장소로 흘러가지 않게 한다.
-async function normalizeEmailHash(v) {
+async function normalizeEmailHash(env, v) {
   if (v == null) return null;
-  return isEmailHash(v) ? v : await sha256hex(String(v));
+  return isEmailHash(v) ? v : await emailKey(env, String(v));
+}
+// 공개키 지문(열쇠 지문): SHA-256(공개키 SPKI raw bytes) → hex 소문자 → 앞 8자 → 대문자 4자씩
+// 하이픈("ABCD-EF12"). 담당자(서무)가 사장님과 전화로 육성 대조하는 값이므로 세 컴포넌트
+// (음식점 앱·담당자 웹·서버)가 반드시 같은 규칙으로 계산해야 한다(PROTOCOL §4.8).
+const FINGERPRINT_RE = /^[0-9A-F]{4}-[0-9A-F]{4}$/;
+async function fingerprintOfSpki(publicKeySpkiB64) {
+  const h = await subtle.digest('SHA-256', unb64(String(publicKeySpkiB64)));
+  const s = hex(h).slice(0, 8).toUpperCase();
+  return s.slice(0, 4) + '-' + s.slice(4, 8);
 }
 function randomB64(nBytes) {
   const b = new Uint8Array(nBytes);
@@ -184,12 +223,12 @@ function isAgencyEmail(email) {
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 60;
 const rateLimitMap = new Map();
-function checkRateLimitWith(map, request, max) {
+function checkRateLimitWith(map, request, max, windowMs = RATE_LIMIT_WINDOW_MS) {
   const ip = request.headers.get('CF-Connecting-IP');
   if (!ip) return true; // 헤더 없는 요청(로컬·하니스·서버간 호출)은 대상 밖
   const now = Date.now();
   const entry = map.get(ip);
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+  if (!entry || now - entry.windowStart > windowMs) {
     map.set(ip, { windowStart: now, count: 1 });
     return true;
   }
@@ -221,6 +260,37 @@ function checkAdminRateLimit(request) { return checkRateLimitWith(adminRateLimit
 const FEEDBACK_RATE_LIMIT_MAX = 5;
 const feedbackRateLimitMap = new Map();
 function checkFeedbackRateLimit(request) { return checkRateLimitWith(feedbackRateLimitMap, request, FEEDBACK_RATE_LIMIT_MAX); }
+
+// 소유 증명 챌린지 발급(/api/challenge)도 public-key와 동일한 강화 한도(IP당 분당 20회, 독립
+// 카운터). 챌린지는 RSA 암호화 1회 + D1 쓰기 1회라 무제한 호출은 비용·저장 남용 경로가 된다.
+const challengeRateLimitMap = new Map();
+function checkChallengeRateLimit(request) { return checkRateLimitWith(challengeRateLimitMap, request, PUBLIC_KEY_RATE_LIMIT_MAX); }
+// restaurant_id당 '미만료' 챌린지 상한. 정상 클라이언트는 발급 즉시 소비(1회용)하므로 동시에
+// 여러 건이 살아 있을 이유가 없다 — 미소비 챌린지 누적(저장 남용)을 막는 상한이며, 삽입 전에
+// 만료분을 먼저 지운다.
+const MAX_OPEN_CHALLENGES = 5;
+
+// OTP 발송 남용 차단(F-03).
+//  ① 서버 자체 일일 예산: D1 카운터(stats_counter의 otp_sent_YYYY-MM-DD)로 하루 발송량을 세고
+//     OTP_DAILY_BUDGET(기본 80)을 넘으면 Resend를 호출하지 않고 429 email_quota_exceeded.
+//     Resend 무료 플랜의 "하루 100통"에 닿기 전에 우리 쪽에서 먼저 멈추기 위한 안전 여유값이다.
+//     이 카운터는 D1에 있으므로 isolate 분산과 무관한 '전역' 집계다.
+//  ② IP당 저한도: 같은 IP에서 시간당 5회. 이쪽은 per-isolate 메모리 Map이라 전역 보장이 아니다
+//     (§6.3의 한계 그대로 — 여러 isolate/IP로 분산하면 우회 가능). 없는 것보다 낫다는 수준의
+//     방어이며, 전역 차단은 ①(D1 일일 예산)과 Cloudflare 대시보드 Rate Limiting Rule이 담당한다.
+const OTP_DAILY_BUDGET_DEFAULT = 80;
+const OTP_IP_RATE_LIMIT_MAX = 5;
+const OTP_IP_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1시간
+const otpRateLimitMap = new Map();
+function checkOtpIpRateLimit(request) {
+  return checkRateLimitWith(otpRateLimitMap, request, OTP_IP_RATE_LIMIT_MAX, OTP_IP_RATE_LIMIT_WINDOW_MS);
+}
+// 발송 예산 카운터 키(UTC 일자). stats_counter를 재사용하므로 스키마 변경이 없고, 값은
+// "그날 몇 통 보냈나"라는 비식별 집계뿐이다(수신자 정보 없음).
+function otpBudgetKey(now) {
+  const d = now || new Date();
+  return 'otp_sent_' + d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+}
 
 // 상수시간 문자열 비교(관리자 토큰 검증용 타이밍 공격 방어). 길이 정보는 노출될 수 있으나
 // 랜덤 시크릿에서는 실질 위험이 낮다. 내용 비교는 XOR 누적으로 조기 반환 없이 수행한다.
@@ -292,6 +362,53 @@ async function defaultSearch(env, region, q) {
     .filter(r => !kw || r.name.includes(kw));
 }
 
+// ── 가게 등록 강화(F-01): 공공데이터로 실존·이름 대조 ──
+// 사업장명 비교용 정규화: NFC + 모든 공백 제거 + 괄호류 제거(공공데이터의 "정식김밥(본점)"과
+// 앱이 보낸 "정식김밥 (본점)"이 같은 값으로 취급되게). 그 밖의 문자는 건드리지 않는다.
+function normalizeStoreName(v) {
+  return String(v == null ? '' : v).normalize('NFC').replace(/[\s()[\]{}（）［］｛｝]/g, '');
+}
+// 공공 API 검색 키워드: 상호의 첫 토큰(공백·괄호 앞까지)만 쓴다. 공공데이터는 부분 일치(LIKE)로
+// 찾으므로, 앱이 보낸 "진짜식당 (본점)"을 통째로 넣으면 저장값 "진짜식당(본점)"과 공백 차이만으로
+// 0건이 나온다 — 첫 토큰으로 넓게 찾고 대조는 정규화 후 전체 이름으로 한다.
+function storeSearchKeyword(name) {
+  const s = String(name == null ? '' : name).normalize('NFC').trim();
+  const head = s.split(/[\s()[\]{}（）［］｛｝]/).filter(Boolean)[0] || '';
+  return head.length >= 2 ? head : s;
+}
+// 반환값 3분기:
+//   'ok'       — 공공데이터에 그 restaurant_id가 있고 사업장명도 일치
+//   'mismatch' — 조회는 성공했는데 그 id가 없거나 이름이 다름 → 등록 거부(400 store_not_found)
+//   'unknown'  — 공공 API 장애·키 미설정·결과 잘림 등으로 판정 불가 → **등록을 막지 않고**
+//                verified=0으로 표시(가용성 우선 — 공공 API가 죽었다고 신규 가게가 못 쓰면 안 된다)
+// 배포된 실서버를 검사하는 라이브 스모크(harness/phase2.live.mjs)용 예약 접두사.
+// 실제 가게 id로 스모크를 돌리면 그 자체가 "가게 선점"이 되어버리므로, 진단용 id는
+// 실존 대조를 건너뛰되(verified=0) 담당자 목록(/api/registered-list)에서는 제외한다.
+// 공개 mgtNo 형식이 아니므로 이 접두사를 악용해도 가로챌 실제 가게가 없다.
+const DIAG_ID_PREFIX = '__diag_';
+const isDiagId = (id) => String(id == null ? '' : id).startsWith(DIAG_ID_PREFIX);
+
+async function verifyStoreIdentity(env, restaurant_id, restaurant_name) {
+  if (isDiagId(restaurant_id)) return 'unknown'; // 진단용 id — 등록 허용, verified=0
+  // 상호가 비어 있으면 대조 자체가 성립하지 않는다 — 조건 없는 전체 조회를 날리지 않고
+  // 곧바로 '판정 불가'로 둔다(등록은 허용하되 verified=0).
+  if (!String(restaurant_name == null ? '' : restaurant_name).trim()) return 'unknown';
+  const search = env.searchRestaurants || defaultSearch;
+  let list;
+  try {
+    list = await search(env, '', storeSearchKeyword(restaurant_name));
+  } catch (_) {
+    return 'unknown'; // 공공 API 장애·키 미설정·타임아웃 — 가용성 우선
+  }
+  if (!Array.isArray(list)) return 'unknown';
+  const row = list.find(x => x && String(x.restaurant_id) === String(restaurant_id));
+  if (row) return normalizeStoreName(row.name) === normalizeStoreName(restaurant_name) ? 'ok' : 'mismatch';
+  // 이름 검색 결과가 한 페이지(numOfRows=100)를 가득 채웠다면 뒤쪽에 잘렸을 수 있다 —
+  // 흔한 상호(예 "김밥천국")에서 정상 가게를 오탐 거부하지 않도록 판정 불가로 둔다.
+  if (list.length >= 100) return 'unknown';
+  return 'mismatch';
+}
+
 export async function handle(request, env, store) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -299,13 +416,19 @@ export async function handle(request, env, store) {
   // 비식별 집계 통계 증가(베스트 에포트): 실패해도 본 기능이 깨지지 않도록 삼켜서 처리하며,
   // 개인정보(직원명·개인금액·이메일)는 절대 기록·로깅하지 않는다(조직정보·공개ID·누적 카운터만).
   const bumpStats = async (fn) => { try { await fn(); } catch (_) { /* 집계 실패 무시(개인정보 로깅 금지) */ } };
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS(env, request) });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...SECURITY_HEADERS, ...CORS(env, request) } });
   if (!checkRateLimit(request)) return j({ error: 'rate_limited' }, 429);
   // 연락처 크롤링 완화(감사 항목 3): public-key 조회만 더 낮은 한도로 추가 제한.
   if (path === '/api/public-key' && request.method === 'GET' && !checkPublicKeyRateLimit(request))
     return j({ error: 'rate_limited' }, 429);
   // 등록 음식점 지역별 조회도 동일한 강화 한도(분당 20)로 별도 제한.
   if (path === '/api/registered-list' && request.method === 'GET' && !checkRegisteredListRateLimit(request))
+    return j({ error: 'rate_limited' }, 429);
+  // 소유 증명 챌린지 발급도 동일한 강화 한도(분당 20, 독립 카운터).
+  if (path === '/api/challenge' && request.method === 'POST' && !checkChallengeRateLimit(request))
+    return j({ error: 'rate_limited' }, 429);
+  // OTP 요청은 이메일 발송(외부 비용·수신자 괴롭힘)로 이어지므로 IP당 시간당 5회로 더 낮게 제한.
+  if (path === '/api/agency/request-otp' && request.method === 'POST' && !checkOtpIpRateLimit(request))
     return j({ error: 'rate_limited' }, 429);
 
   try {
@@ -338,7 +461,16 @@ export async function handle(request, env, store) {
         if (district) await store.setDistrict(restaurant_id, district);
         return j({ ok: true });
       }
-      await store.registerKey({ restaurant_id, restaurant_name, public_key, registered_at: Date.now(), district: district || null });
+      // 최초 등록(선점) 강화(F-01): 공공데이터로 실존·이름을 대조한다. 아무나 남의 가게
+      // restaurant_id를 먼저 등록해 담당자 전송을 가로채는 '가게 선점'의 1차 방어선이다
+      // (2차는 담당자-사장님 간 열쇠 지문 확인 §4.8). 공공 API가 답하지 않으면(장애·키 미설정)
+      // 등록을 막지 않고 verified=0으로 표시만 한다 — 가용성 우선.
+      const verdict = await verifyStoreIdentity(env, restaurant_id, restaurant_name);
+      if (verdict === 'mismatch') return j({ error: 'store_not_found' }, 400);
+      await store.registerKey({
+        restaurant_id, restaurant_name, public_key, registered_at: Date.now(),
+        district: district || null, verified: verdict === 'ok' ? 1 : 0
+      });
       // 비식별 집계: 신규 등록된 음식점 공개ID(LOCALDATA mgtNo — 공개값)만 기록, 누적 등록 카운터 +1.
       await bumpStats(async () => {
         await store.noteRestaurant(restaurant_id);
@@ -366,9 +498,15 @@ export async function handle(request, env, store) {
       if (tooLong(restaurant_id, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
       const row = await store.getPublicKey(restaurant_id);
       if (!row) return j({ error: '등록된 공개키 없음' }, 404);
+      // 저장 남용 방어: 삽입 전에 만료분을 먼저 지우고, 그래도 미만료 챌린지가 상한(5)에
+      // 차 있으면 새로 발급하지 않는다(정상 클라이언트는 발급 즉시 1회용으로 소비한다).
+      const nowChal = Date.now();
+      await store.deleteExpiredChallenges(restaurant_id, nowChal);
+      if (await store.countOpenChallenges(restaurant_id, nowChal) >= MAX_OPEN_CHALLENGES)
+        return j({ error: 'too_many_challenges' }, 429);
       const token_b64 = randomB64(32);
       const token_hash = await sha256hex(token_b64);
-      await store.createChallenge({ restaurant_id, token_hash, expires_at: Date.now() + 5 * 60 * 1000 });
+      await store.createChallenge({ restaurant_id, token_hash, expires_at: nowChal + 5 * 60 * 1000 });
       const challenge_ct = await encryptChallenge(row.public_key, token_b64);
       return j({ challenge_ct });
     }
@@ -411,6 +549,9 @@ export async function handle(request, env, store) {
     // 담당자 웹: 후보 음식점 중 '명단 받기 가능(등록된)' 목록만 반환.
     if (path === '/api/registered' && request.method === 'GET') {
       const ids = (url.searchParams.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean);
+      // D1의 IN (...) 바인딩 상한을 넘기면 500(internal)으로 터졌다 → 명확한 400으로 바꾼다(F-14).
+      // 담당자 웹은 후보 목록을 100개 이하로 잘라 여러 번 호출한다(청킹은 클라이언트 몫).
+      if (ids.length > MAX_REGISTERED_IDS) return j({ error: 'too_many_ids', max: MAX_REGISTERED_IDS }, 400);
       return j(await store.registeredAmong(ids));
     }
 
@@ -498,7 +639,7 @@ export async function handle(request, env, store) {
         // 어떤 경로로도 평문 이메일이 consent_log에 들어가지 않게 하는 마지막 방어선.
         await store.insertConsent({
           id: uuid(), institution: cInstitution, department: cDepartment, year_month: cYearMonth,
-          agency_email_hash: agencyRow ? await normalizeEmailHash(agencyRow.email_hash) : null,
+          agency_email_hash: agencyRow ? await normalizeEmailHash(env, agencyRow.email_hash) : null,
           consented_at: Date.now()
         });
       }
@@ -515,9 +656,16 @@ export async function handle(request, env, store) {
       return j({ summary_id });
     }
 
+    // 수신함 조회(F-02/M-5): 소유 증명 필수. 예전에는 restaurant_id만 알면 누구나 그 음식점의
+    // 기관·부서·총액·인원과 암호문까지 받아갈 수 있었다(restaurant_id는 공개값이다). 암호문은
+    // 개인키 없이 못 열지만 요약 메타 자체가 조직 정보라 인증 뒤로 옮긴다.
+    // auth_token은 쿼리(?auth_token=) 또는 헤더(X-Auth-Token)로 받는다(GET이라 body가 없음).
     if (path === '/api/inbox' && request.method === 'GET') {
       const id = url.searchParams.get('restaurant_id') || '';
       if (!id) return j({ error: 'restaurant_id 필요' }, 400);
+      const auth_token = url.searchParams.get('auth_token') || request.headers.get('X-Auth-Token') || '';
+      const authed = await verifyAuth(store, id, auth_token);
+      if (!authed) return j({ error: 'auth_required' }, 401);
       const items = await store.inbox(id);
       return j(items);
     }
@@ -613,14 +761,29 @@ export async function handle(request, env, store) {
       if (!validEmailFormat(email)) return j({ error: 'invalid_email' }, 400);
       if (!isAgencyEmail(email)) return j({ error: 'invalid_domain' }, 400);
       const now = Date.now();
-      // 저장 키는 이메일의 SHA-256 해시(평문 미저장, §0). 60초 재요청 스로틀도 해시 키 기준.
-      const email_hash = await sha256hex(email);
-      const existing = await store.getAgencyOtp(email_hash);
+      // 저장 키는 이메일 해시(평문 미저장, §0) — EMAIL_PEPPER가 있으면 HMAC, 없으면 SHA-256.
+      // 60초 재요청 스로틀도 해시 키 기준이며, 전환기에는 구 SHA-256 키 행도 함께 살핀다.
+      const email_hash = await emailKey(env, email);
+      const email_hash_legacy = await emailKeyLegacy(email);
+      const existing = await store.getAgencyOtp(email_hash)
+        || (email_hash_legacy !== email_hash ? await store.getAgencyOtp(email_hash_legacy) : null);
       if (existing && existing.created_at && now - existing.created_at < 60 * 1000)
         return j({ error: 'rate_limited' }, 429);
+      // 서버 자체 일일 발송 예산(F-03): Resend를 호출하기 전에 D1 카운터로 먼저 막는다.
+      // OTP 행을 만들기 '전'에 검사하므로 60초 스로틀을 소모하지 않는다(재시도 블랙홀 방지).
+      if (env.AUTH_MODE === 'prod') {
+        const budget = Number(env.OTP_DAILY_BUDGET != null ? env.OTP_DAILY_BUDGET : OTP_DAILY_BUDGET_DEFAULT);
+        let usedToday = 0;
+        try { usedToday = await store.getCounter(otpBudgetKey(new Date(now))); } catch (_) { usedToday = 0; }
+        if (Number.isFinite(budget) && usedToday >= budget)
+          return j({ error: 'email_quota_exceeded' }, 429);
+      }
       const otp = randomOtp6();
       const otp_hash = await sha256hex(otp);
       await store.upsertAgencyOtp({ email_hash, otp_hash, expires_at: now + 10 * 60 * 1000, attempts: 0, created_at: now });
+      // 전환기 정리: 구 SHA-256 키로 남아 있던 같은 이메일의 행은 지운다(같은 이메일에 두 행이
+      // 살아남아 스로틀·시도 횟수가 갈라지지 않게).
+      if (email_hash_legacy !== email_hash) await store.deleteAgencyOtp(email_hash_legacy);
       if (env.AUTH_MODE === 'dev') return j({ ok: true, dev_otp: otp });
       if (env.AUTH_MODE === 'prod') {
         // 발송에 실패하면 방금 쓴 OTP 행을 되돌린다 — 남겨두면 60초 스로틀에 걸려 담당자가
@@ -645,6 +808,8 @@ export async function handle(request, env, store) {
             return j({ error: 'email_quota_exceeded' }, 429);
           return j({ error: 'email_send_failed' }, 500);
         }
+        // 발송 성공분만 일일 예산 카운터에 반영(실패는 Resend 한도를 소모하지 않으므로 세지 않는다).
+        await bumpStats(async () => { await store.incrCounter(otpBudgetKey(new Date(now)), 1); });
         return j({ ok: true, sent: true });
       }
       // pilot(및 그 외 값): 발송 인프라 미가동 — 형식만 확인.
@@ -657,22 +822,67 @@ export async function handle(request, env, store) {
       const otp = String(b.otp || '');
       if (!email || !otp) return j({ error: 'email·otp 필요' }, 400);
       if (tooLong(email, MAX_STR) || tooLong(otp, 20)) return j({ error: '입력 길이 초과' }, 400);
-      // 조회·삭제 모두 해시 키 기준(평문 미저장, §0).
-      const email_hash = await sha256hex(email);
-      const row = await store.getAgencyOtp(email_hash);
+      // 조회·삭제 모두 해시 키 기준(평문 미저장, §0). EMAIL_PEPPER 도입 전에 저장된 구
+      // SHA-256 키 행도 찾아 처리한다(전환기 폴백 — 그 행의 키로 시도 증가·삭제를 수행).
+      const email_hash = await emailKey(env, email);
+      const email_hash_legacy = await emailKeyLegacy(email);
+      let lookup_key = email_hash;
+      let row = await store.getAgencyOtp(email_hash);
+      if (!row && email_hash_legacy !== email_hash) {
+        row = await store.getAgencyOtp(email_hash_legacy);
+        if (row) lookup_key = email_hash_legacy;
+      }
       if (!row || row.expires_at < Date.now()) return j({ error: 'invalid_otp' }, 401);
       if (row.attempts >= 5) return j({ error: 'too_many_attempts' }, 429);
       const otp_hash = await sha256hex(otp);
       if (otp_hash !== row.otp_hash) {
-        await store.incrementAgencyOtpAttempts(email_hash);
+        await store.incrementAgencyOtpAttempts(lookup_key);
         return j({ error: 'invalid_otp' }, 401);
       }
-      await store.deleteAgencyOtp(email_hash);
+      await store.deleteAgencyOtp(lookup_key);
       const token = randomB64(32);
       const token_hash = await sha256hex(token);
-      // 토큰 행에도 이메일 해시만 저장한다(consent_log 기록에 그대로 재사용).
+      // 토큰 행에는 항상 '현재 방식'의 이메일 해시를 저장한다(consent_log 기록에 그대로 재사용).
       await store.createAgencyToken({ token_hash, email_hash, expires_at: Date.now() + 24 * 60 * 60 * 1000 });
       return j({ token });
+    }
+
+    // ── 열쇠 지문 확인 기록 (§4.8, 가게 선점 방어의 핵심) ──
+    // 담당자(서무)가 사장님과 통화로 공개키 지문을 육성 대조하고 "확인했다"를 체크하면 그 사실을
+    // 기관+부서 단위로 기록한다. 같은 부서는 재확인 불필요, 다른 부서는 처음에 다시 확인해야 한다
+    // (부서별 독립 확인 — 한 부서의 확인이 기관 전체의 신뢰로 번지지 않게).
+    // 서버는 '지문 계산'을 클라이언트에 맡기지 않고 등록된 공개키로 직접 재계산해 대조한다 —
+    // 그래야 "확인했다"는 기록이 실제로 그 시점의 공개키를 가리킨다는 보증이 생긴다.
+    if (path === '/api/agency/keycheck' && request.method === 'POST') {
+      const agencyRow = await verifyAgencyToken(store, request.headers.get('X-Agency-Token') || '');
+      if (!agencyRow) return j({ error: 'agency_auth_required' }, 401);
+      const b = await request.json();
+      const institution = String(b.institution || ''), department = String(b.department || '');
+      const restaurant_id = String(b.restaurant_id || ''), fingerprint = String(b.fingerprint || '').toUpperCase();
+      if (!institution || !department || !restaurant_id || !fingerprint)
+        return j({ error: 'institution·department·restaurant_id·fingerprint 필요' }, 400);
+      if ([institution, department, restaurant_id, fingerprint].some(v => tooLong(v, MAX_STR)))
+        return j({ error: '입력 길이 초과' }, 400);
+      if (!FINGERPRINT_RE.test(fingerprint)) return j({ error: 'invalid_fingerprint' }, 400);
+      const row = await store.getPublicKey(restaurant_id);
+      if (!row) return j({ error: 'not_found' }, 404);
+      const current = await fingerprintOfSpki(row.public_key);
+      if (current !== fingerprint) return j({ error: 'fingerprint_mismatch', current }, 409);
+      await store.upsertKeycheck({ institution, department, restaurant_id, fingerprint: current, checked_at: Date.now() });
+      return j({ ok: true, fingerprint: current });
+    }
+
+    // 그 부서가 이미 확인해 둔 음식점 목록(재확인 안내를 끄기 위한 조회). 응답에는
+    // restaurant_id·fingerprint·checked_at만 담는다 — 인원·금액 등 다른 정보는 절대 싣지 않는다.
+    if (path === '/api/agency/keychecks' && request.method === 'GET') {
+      const agencyRow = await verifyAgencyToken(store, request.headers.get('X-Agency-Token') || '');
+      if (!agencyRow) return j({ error: 'agency_auth_required' }, 401);
+      const institution = String(url.searchParams.get('institution') || '');
+      const department = String(url.searchParams.get('department') || '');
+      if (!institution || !department) return j({ error: 'institution·department 필요' }, 400);
+      if (tooLong(institution, MAX_STR) || tooLong(department, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      const keychecks = await store.listKeychecks(institution, department);
+      return j({ keychecks });
     }
 
     // ── 관리자 통계 API (비밀번호 보호, 비식별 집계만 노출) ──
@@ -698,13 +908,18 @@ export async function handle(request, env, store) {
       if (!['음식점', '기관', '직원', '기타'].includes(role)) return j({ error: 'invalid_role' }, 400);
       if (message.length < 1 || message.length > 2000) return j({ error: 'invalid_message' }, 400);
       if (contact.length > 200) return j({ error: 'invalid_contact' }, 400);
+      // 불변식 4 보호: 전화번호는 어떤 서버 경로에도 실리지 않는다. 자유 입력 창구인 피드백은
+      // 사용자가 "연락처: 010-…"처럼 무심코 적기 쉬운 유일한 구멍이라 서버에서 저장 전에 막는다.
+      if (PHONE_RE.test(message) || PHONE_RE.test(contact)) return j({ error: 'no_personal_info' }, 400);
       await store.insertFeedback({ id: uuid(), role, message, contact: contact || null, created_at: Date.now() });
       return j({ ok: true });
     }
 
     return j({ error: 'not found' }, 404);
   } catch (e) {
-    console.error(e);
+    // 예외 객체 전체를 찍으면 스택·요청 본문 조각(개인정보 포함 가능)이 로그로 흘러갈 수 있다 —
+    // 메시지만 남긴다(F-16).
+    console.error(e && e.message);
     return json(env, request, { error: 'internal' }, 500);
   }
 }
@@ -715,8 +930,8 @@ export function makeD1Store(DB) {
     async registerKey(r) {
       // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id는 handle()에서 사전 차단하므로
       // 여기서는 신규 삽입만 수행(다른 키로의 재등록은 updateKey를 통해서만 가능).
-      await DB.prepare('INSERT INTO public_key_registry (restaurant_id,restaurant_name,public_key,registered_at,district) VALUES (?,?,?,?,?)')
-        .bind(r.restaurant_id, r.restaurant_name, r.public_key, r.registered_at, r.district != null ? r.district : null).run();
+      await DB.prepare('INSERT INTO public_key_registry (restaurant_id,restaurant_name,public_key,registered_at,district,verified) VALUES (?,?,?,?,?,?)')
+        .bind(r.restaurant_id, r.restaurant_name, r.public_key, r.registered_at, r.district != null ? r.district : null, r.verified ? 1 : 0).run();
     },
     // 관할 지역(공개 사업장 정보) 갱신. 재등록 경로에서 district가 오면 호출(§ 등록 목록).
     async setDistrict(restaurant_id, district) {
@@ -751,7 +966,7 @@ export function makeD1Store(DB) {
     // NULL district(레거시)는 제외. 이름 가나다 정렬(BINARY=한글 순서).
     // 정규화 식(SQL_NORM_DISTRICT)은 인덱스를 타지 못하지만 등록 음식점 테이블은 소규모라 무시 가능.
     async registeredByDistrict(sido, sigungu) {
-      let sql = 'SELECT restaurant_id, restaurant_name, district FROM public_key_registry WHERE district IS NOT NULL AND ';
+      let sql = "SELECT restaurant_id, restaurant_name, district, registered_at, verified FROM public_key_registry WHERE district IS NOT NULL AND restaurant_id NOT LIKE '__diag\\_%' ESCAPE '\\' AND ";
       const params = [];
       if (sigungu) {
         sql += SQL_NORM_DISTRICT + ' = ?';
@@ -762,7 +977,11 @@ export function makeD1Store(DB) {
       }
       sql += ' ORDER BY restaurant_name';
       const r = await DB.prepare(sql).bind(...params).all();
-      return (r.results || []).map(x => ({ restaurant_id: x.restaurant_id, restaurant_name: x.restaurant_name, district: x.district }));
+      // registered_at·verified는 담당자 웹의 "신규 등록" 배지·"실존 확인" 표시용(둘 다 개인정보 아님).
+      return (r.results || []).map(x => ({
+        restaurant_id: x.restaurant_id, restaurant_name: x.restaurant_name, district: x.district,
+        registered_at: x.registered_at, verified: x.verified ? 1 : 0
+      }));
     },
     async insertSummary(s) {
       await DB.prepare('INSERT INTO deposit_summary (id,institution,department,restaurant_id,restaurant_name,year_month,total_amount,member_count,batch_hash,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
@@ -788,10 +1007,13 @@ export function makeD1Store(DB) {
       // 이중 방어(§6): cron이 하루 1회뿐이므로 status='PENDING'이어도 72시간 지난 항목은
       // 쿼리 조건(created_at)으로 직접 걸러낸다(cron이 아직 EXPIRED로 전이시키기 전이어도 안전).
       const cutoff = Date.now() - PENDING_TTL_MS;
-      const r = await DB.prepare("SELECT s.id as summary_id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.batch_hash, s.status, b.ciphertext FROM deposit_summary s JOIN encrypted_blob b ON b.summary_id=s.id WHERE s.restaurant_id=? AND s.status='PENDING' AND s.created_at>? ORDER BY s.created_at").bind(restaurant_id, cutoff).all();
+      // batch_hash는 응답에 싣지 않는다(오라클 차단, §4.9) — 서버가 가진 값을 그대로 돌려주면
+      // 명단을 아는 자가 "이 배치가 맞나"를 서버에 물어볼 수 있는 확인 채널이 된다. 수신 측
+      // 검증은 blob 내부(암호문 평문)의 batch_hash로 수행한다.
+      const r = await DB.prepare("SELECT s.id as summary_id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.status, b.ciphertext FROM deposit_summary s JOIN encrypted_blob b ON b.summary_id=s.id WHERE s.restaurant_id=? AND s.status='PENDING' AND s.created_at>? ORDER BY s.created_at").bind(restaurant_id, cutoff).all();
       return (r.results || []).map(row => ({
         summary_id: row.summary_id,
-        summary: { institution: row.institution, department: row.department, restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, year_month: row.year_month, total_amount: row.total_amount, member_count: row.member_count, batch_hash: row.batch_hash },
+        summary: { institution: row.institution, department: row.department, restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, year_month: row.year_month, total_amount: row.total_amount, member_count: row.member_count },
         ciphertext: JSON.parse(row.ciphertext), status: row.status
       }));
     },
@@ -826,6 +1048,14 @@ export function makeD1Store(DB) {
       const r = await DB.prepare('DELETE FROM auth_challenge WHERE restaurant_id=? AND token_hash=? AND expires_at>?')
         .bind(restaurant_id, token_hash, now).run();
       return !!(r && r.meta && r.meta.changes > 0);
+    },
+    // 발급 전 정리·상한 검사(저장 남용 방어). cron(하루 1회)만으로는 만료분이 오래 남는다.
+    async deleteExpiredChallenges(restaurant_id, now) {
+      await DB.prepare('DELETE FROM auth_challenge WHERE restaurant_id=? AND expires_at<=?').bind(restaurant_id, now).run();
+    },
+    async countOpenChallenges(restaurant_id, now) {
+      const r = await DB.prepare('SELECT COUNT(*) c FROM auth_challenge WHERE restaurant_id=? AND expires_at>?').bind(restaurant_id, now).first();
+      return (r && r.c) || 0;
     },
     // ── 암호화 원장 백업 ──
     async upsertLedgerBackup(b) {
@@ -862,6 +1092,16 @@ export function makeD1Store(DB) {
     async getAgencyToken(token_hash) {
       return await DB.prepare('SELECT email AS email_hash, expires_at FROM agency_token WHERE token_hash=?').bind(token_hash).first();
     },
+    // ── 열쇠 지문 확인 기록(§4.8) ── 기관+부서+음식점 단위 1행(upsert). 장기 보관(정리 대상 아님).
+    async upsertKeycheck(k) {
+      await DB.prepare('INSERT INTO agency_keycheck (institution,department,restaurant_id,fingerprint,checked_at) VALUES (?,?,?,?,?) ON CONFLICT(institution,department,restaurant_id) DO UPDATE SET fingerprint=excluded.fingerprint, checked_at=excluded.checked_at')
+        .bind(k.institution, k.department, k.restaurant_id, k.fingerprint, k.checked_at).run();
+    },
+    async listKeychecks(institution, department) {
+      const r = await DB.prepare('SELECT restaurant_id, fingerprint, checked_at FROM agency_keycheck WHERE institution=? AND department=? ORDER BY checked_at DESC')
+        .bind(institution, department).all();
+      return (r.results || []).map(x => ({ restaurant_id: x.restaurant_id, fingerprint: x.fingerprint, checked_at: x.checked_at }));
+    },
     // ── 비식별 집계 통계(조직정보·공개ID·누적 카운터·피드백만 — 개인정보 없음) ──
     async noteInstitution(name) { await DB.prepare('INSERT OR IGNORE INTO seen_institution (name) VALUES (?)').bind(name).run(); },
     async noteDepartment(key) { await DB.prepare('INSERT OR IGNORE INTO seen_department (key) VALUES (?)').bind(key).run(); },
@@ -869,6 +1109,11 @@ export function makeD1Store(DB) {
     async incrCounter(name, by) {
       await DB.prepare('INSERT INTO stats_counter (name,count) VALUES (?,?) ON CONFLICT(name) DO UPDATE SET count=count+?')
         .bind(name, by, by).run();
+    },
+    // 단일 카운터 조회(OTP 일일 발송 예산 검사용 — 전역 집계라 isolate 분산과 무관).
+    async getCounter(name) {
+      const r = await DB.prepare('SELECT count FROM stats_counter WHERE name=?').bind(name).first();
+      return (r && r.count) || 0;
     },
     async insertFeedback(f) {
       await DB.prepare('INSERT INTO feedback (id,role,message,contact,created_at) VALUES (?,?,?,?,?)')
@@ -951,14 +1196,15 @@ export default {
 export function makeMemoryStore() {
   const keys = new Map(), summaries = [], blobs = [], consents = [];
   const challenges = [], ledgerBackups = new Map(), agencyOtps = new Map(), agencyTokens = new Map();
+  const keychecks = new Map(); // key: institution department restaurant_id
   // 비식별 집계 통계(하니스용 — D1과 동등 구조): 조직정보·공개ID 집합, 누적 카운터, 피드백.
   const seenInstitutions = new Set(), seenDepartments = new Set(), seenRestaurants = new Set();
   const counters = new Map(), feedbacks = [];
   return {
-    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, agencyOtps, agencyTokens, seenInstitutions, seenDepartments, seenRestaurants, counters, feedbacks }),
+    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, agencyOtps, agencyTokens, keychecks, seenInstitutions, seenDepartments, seenRestaurants, counters, feedbacks }),
     // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id는 handle()에서 사전 차단하므로
     // 여기서는 신규 삽입만 수행(다른 키로의 재등록은 updateKey를 통해서만 가능).
-    async registerKey(r) { keys.set(r.restaurant_id, r); },
+    async registerKey(r) { keys.set(r.restaurant_id, { ...r, verified: r.verified ? 1 : 0 }); },
     // D1의 updateKey(UPDATE ... SET restaurant_name=,public_key=,registered_at= WHERE ...)는
     // contact_kakao/contact_email 컬럼을 건드리지 않아 보존된다. 메모리 store도 전체 치환이
     // 아닌 병합으로 동일하게 동작시켜야 한다(연락처가 키 재등록 시 조용히 사라지면 안 됨).
@@ -975,12 +1221,16 @@ export function makeMemoryStore() {
       const out = [];
       const want = sigungu ? sido + ' ' + sigungu : '';
       for (const row of keys.values()) {
+        if (isDiagId(row.restaurant_id)) continue; // 진단용 id는 담당자 목록에 노출하지 않는다
         const d = row.district;
         if (typeof d !== 'string' || !d) continue;
         const nd = normalizeDistrict(d);
         if (want) { if (nd !== want) continue; }
         else if (nd !== sido && !nd.startsWith(sido + ' ')) continue;
-        out.push({ restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, district: d });
+        out.push({
+          restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, district: d,
+          registered_at: row.registered_at, verified: row.verified ? 1 : 0
+        });
       }
       out.sort((a, b) => String(a.restaurant_name || '').localeCompare(String(b.restaurant_name || ''), 'ko'));
       return out;
@@ -1017,7 +1267,8 @@ export function makeMemoryStore() {
         if (s.restaurant_id !== restaurant_id || s.status !== 'PENDING' || !(s.created_at > cutoff)) continue;
         const b = blobs.find(x => x.summary_id === s.id);
         if (!b) continue; // D1의 JOIN과 동일 — blob이 없으면 제외
-        out.push({ summary_id: s.id, summary: { institution: s.institution, department: s.department, restaurant_id: s.restaurant_id, restaurant_name: s.restaurant_name, year_month: s.year_month, total_amount: s.total_amount, member_count: s.member_count, batch_hash: s.batch_hash }, ciphertext: JSON.parse(b.ciphertext), status: s.status });
+        // D1과 동일하게 batch_hash는 응답에서 제외한다(오라클 차단, §4.9).
+        out.push({ summary_id: s.id, summary: { institution: s.institution, department: s.department, restaurant_id: s.restaurant_id, restaurant_name: s.restaurant_name, year_month: s.year_month, total_amount: s.total_amount, member_count: s.member_count }, ciphertext: JSON.parse(b.ciphertext), status: s.status });
       }
       return out;
     },
@@ -1049,6 +1300,14 @@ export function makeMemoryStore() {
       challenges.splice(idx, 1);
       return true;
     },
+    // 발급 전 정리·상한 검사(D1과 동등).
+    async deleteExpiredChallenges(restaurant_id, now) {
+      for (let i = challenges.length - 1; i >= 0; i--)
+        if (challenges[i].restaurant_id === restaurant_id && challenges[i].expires_at <= now) challenges.splice(i, 1);
+    },
+    async countOpenChallenges(restaurant_id, now) {
+      return challenges.filter(c => c.restaurant_id === restaurant_id && c.expires_at > now).length;
+    },
     // ── 암호화 원장 백업 ──
     async upsertLedgerBackup(b) { ledgerBackups.set(b.restaurant_id, b); },
     async getLedgerBackup(restaurant_id) { return ledgerBackups.get(restaurant_id) || null; },
@@ -1060,11 +1319,22 @@ export function makeMemoryStore() {
     async deleteAgencyOtp(emailHash) { agencyOtps.delete(emailHash); },
     async createAgencyToken(t) { agencyTokens.set(t.token_hash, t); },
     async getAgencyToken(token_hash) { return agencyTokens.get(token_hash) || null; },
+    // ── 열쇠 지문 확인 기록(§4.8) — D1의 PRIMARY KEY(institution,department,restaurant_id)와 동등 ──
+    async upsertKeycheck(k) {
+      keychecks.set(k.institution + ' ' + k.department + ' ' + k.restaurant_id, { ...k });
+    },
+    async listKeychecks(institution, department) {
+      return [...keychecks.values()]
+        .filter(k => k.institution === institution && k.department === department)
+        .sort((a, b) => b.checked_at - a.checked_at)
+        .map(k => ({ restaurant_id: k.restaurant_id, fingerprint: k.fingerprint, checked_at: k.checked_at }));
+    },
     // ── 비식별 집계 통계(조직정보·공개ID·누적 카운터·피드백만 — 개인정보 없음) ──
     async noteInstitution(name) { seenInstitutions.add(name); },
     async noteDepartment(key) { seenDepartments.add(key); },
     async noteRestaurant(restaurant_id) { seenRestaurants.add(restaurant_id); },
     async incrCounter(name, by) { counters.set(name, (counters.get(name) || 0) + by); },
+    async getCounter(name) { return counters.get(name) || 0; },
     async insertFeedback(f) { feedbacks.push({ ...f }); },
     async getStats(currentYM) {
       const feedback = feedbacks.slice().sort((a, b) => b.created_at - a.created_at).slice(0, 50)

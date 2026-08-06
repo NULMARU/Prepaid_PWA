@@ -1,0 +1,13 @@
+# Cloudflare Pages 보안 헤더 (프로젝트: prepaid-agency / agency.bapjangbu.com)
+# ⚠️ connect-src에는 이 웹이 실제로 부르는 곳만 넣는다:
+#    · 중계 서버(prepaid-relay…workers.dev) — OTP·검색·공개키·제출·지문확인
+#    · app.bapjangbu.com — 기관 목록(agency-index.json) 정적 파일
+#    빼면 2단계 기관 목록이 통째로 로드되지 않는다(로컬 CSP 테스트로 확인함).
+# 인라인 <script>/<style> 단일 파일 구조라 'unsafe-inline'이 필요하다(외부 리소스는 0건).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; connect-src 'self' https://prepaid-relay.sulsul-plus.workers.dev https://app.bapjangbu.com; frame-ancestors 'none'; upgrade-insecure-requests
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

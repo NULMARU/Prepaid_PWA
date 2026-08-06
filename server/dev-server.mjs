@@ -17,7 +17,8 @@ if (!env.PUBLIC_API_KEY) {
   env.searchRestaurants = async (_e, region, q) =>
     [{ restaurant_id: 'MGT-0001', name: '정식김밥', address: '서울 강남구 1', status: '영업/정상' },
      { restaurant_id: 'MGT-0002', name: '한밭식당', address: '서울 강남구 2', status: '영업/정상' }]
-      .filter(r => region && (!q || r.name.includes(q)));
+      // 이름 단독 검색도 결과가 나와야 한다 — register-key의 실존·상호 대조가 이 경로를 쓴다.
+      .filter(r => !q || r.name.includes(q));
 }
 
 const server = http.createServer(async (req, res) => {

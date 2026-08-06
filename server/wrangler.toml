@@ -25,6 +25,10 @@ AUTH_MODE = "prod"
 # (2026-07, .go.kr 실주소로 발송·검증 정상). 담당자 웹은 OTP verify 후 발급받은 토큰을
 # X-Agency-Token 헤더에 첨부하므로 정상 사용자는 영향 없음. 직접전달 모드는 서버 미경유라 무관.
 REQUIRE_AGENCY_AUTH = "1"
+# OTP 이메일 하루 발송 상한(서버 자체 예산, D1 카운터 stats_counter.otp_sent_YYYY-MM-DD 기준).
+# 초과하면 Resend를 호출하지 않고 429 {error:'email_quota_exceeded'}로 응답한다. Resend 무료
+# 플랜의 "하루 100통"에 닿기 전에 우리 쪽에서 먼저 멈추기 위한 안전 여유값(기본 80).
+OTP_DAILY_BUDGET = "80"
 
 # D1 바인딩. 아래 database_id는 `wrangler d1 create prepaid-relay` 후 출력값으로 교체.
 [[d1_databases]]
@@ -49,3 +53,10 @@ crons = ["17 18 * * *"]
 # 관리자 통계 API(/api/admin/stats, X-Admin-Token 헤더) 보호용 시크릿. 미설정이면 해당
 # 엔드포인트는 503 admin_not_configured로 잠긴다(기능 비활성). 값은 이 파일에 두지 말 것:
 #   wrangler secret put ADMIN_TOKEN
+
+# 기관 담당자 이메일 해시용 pepper(서버 비밀값). 설정되면 저장 키가
+# HMAC-SHA256(EMAIL_PEPPER, email)로 바뀌어, D1이 유출돼도 ".go.kr 이메일 후보 무차별 대입"으로
+# 원본 주소를 역산할 수 없다. **미설정이면 기존 SHA-256으로 그대로 동작**하므로 배포 순서와
+# 무관하게 안전하고, 등록 후에는 구 SHA-256 해시 행도 조회 폴백으로 계속 인식한다(최대 24시간
+# 내 자연 소멸). 값은 이 파일에 두지 말 것(프롬프트에 입력):
+#   wrangler secret put EMAIL_PEPPER
