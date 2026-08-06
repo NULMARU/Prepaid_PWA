@@ -106,7 +106,10 @@ tr.err{background:#fdecea}
 <div id="authStep2" class="hide" style="margin-top:8px">
 <label for="otp" class="sr-only">인증번호 6자리</label>
 <div class="row"><input id="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="인증번호 6자리"><button class="btn-primary" id="otpBtn" style="flex:0 0 100px">확인</button></div>
-<button type="button" id="resendBtn" style="min-height:auto;border:none;background:none;color:var(--primary);padding:4px 0 0;font-weight:600;text-decoration:underline">인증번호 재요청</button>
+<div class="row" style="gap:14px;margin-top:2px">
+<button type="button" id="resendBtn" style="min-height:auto;border:none;background:none;color:var(--primary);padding:4px 0 0;font-weight:600;text-decoration:underline;flex:0 0 auto">인증번호 재요청</button>
+<button type="button" id="authEditBtn" style="min-height:auto;border:none;background:none;color:var(--primary);padding:4px 0 0;font-weight:600;text-decoration:underline;flex:0 0 auto">주소 고쳐 다시 받기</button>
+</div>
 </div>
 <div class="meta" id="authMsg">공공기관 이메일(<b>go.kr · korea.kr</b>)이 주 대상이며, 복지관·공단 등 공공성 기관(<b>or.kr</b>)과 학교(<b>ac.kr</b>) 이메일도 사용할 수 있습니다.</div>
 <div class="meta" style="margin-top:6px">※ 무료로 운영되는 서비스라 <b>이용이 몰리는 날에는 인증번호 이메일 발송이 하루 한도에 걸릴 수 있습니다.</b> 그때는 잠시 후 다시 시도하시고, 계속 안 되면 다음 날 다시 시도해 주십시오.</div>
@@ -491,7 +494,11 @@ async function requestOtp(){
       S.otpMode='server';
       $('authStep2').classList.remove('hide');
       $('otp').value='';
-      $('authMsg').innerHTML='이메일로 받은 6자리 인증번호를 입력하세요 · '+esc(e);
+      // 보낸 주소를 크게 되짚어 준다 — 오타를 적으면 메일은 조용히 사라지고(반송은 발신자에게만 남는다)
+      //   담당자는 오지 않을 메일을 무한정 기다리게 된다. 실제 필드테스트에서 겪은 경로다.
+      //   그래서 ①주소 확인 ②스팸·격리함 ③주소 고쳐 다시 받기까지 이 화면에서 끝나게 한다.
+      $('authMsg').innerHTML='<b>'+esc(e)+'</b> 으로 인증번호를 보냈어요. 받은 <b>6자리 숫자</b>를 입력하세요.'
+        +'<br>메일이 안 오면 ① <b>위 주소가 정확한지</b> 확인하고(오타면 아래 [주소 고쳐 다시 받기]) ② <b>스팸함·격리함</b>도 확인해 주세요.';
       $('otp').focus();
     }else{
       // sent===false(파일럿) 또는 필드 부재(구서버 호환): 이메일 발송 인프라가 아직 없어
@@ -519,9 +526,20 @@ async function verifyOtp(){
   }catch(err){$('authMsg').innerHTML='<span class="bad">확인 실패: '+esc(err.message)+'</span>'}
   finally{$('otpBtn').disabled=false}
 }
+// 주소를 잘못 적었을 때 되돌아가는 길. 1단계로 되돌리되 적었던 주소는 남겨 두고 전체 선택해 둔다
+//   (지우고 다시 치는 것이 아니라 바로 덮어쓰면 되게). 입력해 둔 인증번호는 다른 주소의 것이므로 버린다.
+function editAuthEmail(){
+  $('authStep2').classList.add('hide');
+  $('authStep1').classList.remove('hide');
+  if($('otp'))$('otp').value='';
+  $('authMsg').innerHTML='받으실 이메일 주소를 고친 뒤 <b>[인증번호 받기]</b>를 다시 눌러 주세요.';
+  const el=$('email');
+  if(el){el.focus();try{el.select()}catch(e){}}
+}
 $('authBtn').addEventListener('click',requestOtp);
 $('otpBtn').addEventListener('click',verifyOtp);
 $('resendBtn').addEventListener('click',requestOtp);
+$('authEditBtn').addEventListener('click',editAuthEmail);
 
 // ── 2-A. 소속 기관 선택 (agency-index.json) → 관할 등록 음식점 자동 목록 ──
 const AGENCY_INDEX_URL='https://app.bapjangbu.com/agency-index.json';
