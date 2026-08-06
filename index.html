@@ -528,7 +528,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.31',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.32',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -745,7 +745,7 @@ return{meta,order}}
 // ⚠️ 새 meta 키를 만들면 여기에 반드시 등록할 것 — 등록하지 않으면 저장은 되어도 복원·재시작 후 사라진다.
 const META_KEYS=['lastBackupAt','orgName','shopName','shopAddr','shopTel','departments','setupComplete','welcomeSeen','termsAgreedAt',
 'relayServer','relayStoreName','relayRegisteredAt','restaurantId','storeAddr','storeRegisterPending','districtSyncedAt',
-'contactKakaoLink','contactEmail','receivedBatchHashes','autoCloudBackup','lastCloudBackupAt','lastMonthlyBackup','myKeyBackedUpAt',
+'contactKakaoLink','contactEmail','receivedBatchHashes','receivedBatchLog','autoCloudBackup','lastCloudBackupAt','lastMonthlyBackup','myKeyBackedUpAt',
 'pubKey','keyCreatedAt','chainTip','txCount',
 // 보안 민감 키(아래 META_DEVICE_KEYS)도 목록에는 있어야 한다 — 이 기기의 저장소를 다시 읽을 때 필요하다.
 'pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped'];
@@ -761,6 +761,7 @@ META_KEYS.forEach(k=>{if(Object.prototype.hasOwnProperty.call(src,k))out[k]=src[
 // 배열이어야 하는 항목은 형태까지 강제한다(문자열·객체가 들어오면 렌더가 깨진다).
 if(!Array.isArray(out.departments))out.departments=[...DEFAULT_DEPTS];
 if(out.receivedBatchHashes!==undefined&&!Array.isArray(out.receivedBatchHashes))out.receivedBatchHashes=[];
+if(out.receivedBatchLog!==undefined&&!Array.isArray(out.receivedBatchLog))out.receivedBatchLog=[];
 return out}
 function norm(d){const __n={employees:(Array.isArray(d.employees)?d.employees:[]).map(e=>({id:e.id||uid(),org:str(e.org),orgKind:str(e.orgKind),dept:str(e.dept),name:str(e.name),note:str(e.note),isDeleted:!!e.isDeleted,phone:typeof e.phone==='string'?e.phone:'',phoneConsent:!!e.phoneConsent,yearMonth:str(e.yearMonth),createdAt:numTime(e.createdAt),updatedAt:numTime(e.updatedAt)})),transactions:(Array.isArray(d.transactions)?d.transactions:[]).map(t=>({id:t.id||uid(),employeeId:t.employeeId||'',type:t.type||'use',amount:num(t.amount),beforeBalance:num(t.beforeBalance),afterBalance:num(t.afterBalance),reason:str(t.reason),note:str(t.note),targetTransactionId:t.targetTransactionId||null,signatureData:sigD(t.signatureData),signatureHash:str(t.signatureHash),hv:num(t.hv),txHash:str(t.txHash),prevHash:str(t.prevHash),createdAt:numTime(t.createdAt)})),meta:normMeta(d.meta)};seedTxClock(__n.transactions);return __n}
 
@@ -1199,19 +1200,64 @@ async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결
 async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}setBusy('신청을 불러오는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid),{headers:{'X-Auth-Token':authToken}});const items=await r.json();clearBusy();if(r.status===401){toast('가게 확인에 실패했어요. 설정에서 우리 가게 등록 상태를 확인해 주세요.');return}if(!Array.isArray(items))throw new Error(items.error||'수신 오류');state.inboxCount=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
 // 처리 도중 뒤로가기(popstate)로 모달이 닫혀도 TypeError 없이 끝나도록 진입 시 모달을 지역 변수로 캡처한다(A6).
 async function relayReject(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)} 신청을 거절할까요? (열어보지 않고 폐기)`))return;setBusy('처리 중입니다.');try{const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'REJECTED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();toast('거절했습니다.')}catch(e){console.error(e);clearBusy();toast('처리 오류: '+(e.message||''))}}
-async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)}\n${item.summary.restaurant_name||''}\n총액 ${money(item.summary.total_amount)} · ${item.summary.member_count}명\n\n통장 입금을 확인하셨으면 승인하세요.`))return;setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const chk=await verifyBatchAgainstSummary(plain,item.summary,item.summary&&item.summary.batch_hash,false);if(!chk.ok){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+chk.detail+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);const t=now(),ym=str(item.summary.year_month),groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();for(const it of plain.items){/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const amt=num(it.amount);const exist=activeByKey.get(empMatchKey(rec));publicOrgPatchesForLabel(rec,patchedIds).forEach(pt=>patches.push(pt));if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'공공기관 신청 승인 추가 충전',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}const eid=uid();emps.push({id:eid,org:rec.org,orgKind:'public',dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'공공기관 신청 승인',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}await repo.apply({employees:emps.concat(patches),transactions:txs});emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'APPROVED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}}
+// beta.32: 확인창을 "입금 대조" 중심으로 재편(사용자 원칙 — 최종 방어선은 통장). 먼저 열어 본 뒤
+//   입금자명·총액·이름 단위 반영 내역(충전은 잔액 변화)·중복 여부까지 한 창에서 보여주고 승인받는다.
+//   부서 하나를 여러 팀·개인이 나눠 입금하는 현장이 흔해, "기존 충전 N명" 요약만으로는 동명이인
+//   합쳐짐·이중 등록을 사장님이 알아챌 수 없었다.
+async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const chk=await verifyBatchAgainstSummary(plain,item.summary,item.summary&&item.summary.batch_hash,false);if(!chk.ok){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+chk.detail+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);
+const bh=str(chk.hash)||await batchHashOf(plain.items);
+const groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);
+const activeByKey=activeEmployeeIndex();
+const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));return{it,rec,amt:num(it.amount),exist,before:exist?balanceOf(exist.id):0}});
+clearBusy();
+if(!window.confirm(batchReviewText({label:groupDept,ym:str(item.summary.year_month),direct:false,payers:batchPayers(plain.items),total:num(item.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(bh)}))){render();return}
+setBusy('장부에 올리는 중입니다.');
+const t=now(),ym=str(item.summary.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);let topupCount=0;const patchedIds=new Set();
+for(const p of plan){/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
+const txNote=noteLabel+(str(p.it.payer)?' · 입금 '+str(p.it.payer):'');
+publicOrgPatchesForLabel(p.rec,patchedIds).forEach(pt=>patches.push(pt));
+if(p.exist){topupCount++;if(p.amt>0){const before=balanceOf(p.exist.id);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'공공기관 신청 승인 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
+const eid=uid();emps.push({id:eid,org:p.rec.org,orgKind:'public',dept:p.rec.dept,name:p.rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
+if(p.amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:p.amt,beforeBalance:0,afterBalance:p.amt,reason:'공공기관 신청 승인',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}
+await repo.apply({employees:emps.concat(patches),transactions:txs});emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);await markBatchReceived(bh);const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'APPROVED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}}
 // ── 직접 전달(파일·QR) 수신 — 서버를 거치지 않고 기관이 건넨 암호문을 그 자리에서 열어 장부에 등록 ──
 // 계약(고정): {v:1, type:'direct-transfer', restaurant_id, restaurant_name, institution, department, year_month, summary:{total_amount, member_count, batch_hash}, ciphertext:{alg,encKey,iv,ct}}
 function directTransferBatchHashes(){return Array.isArray(state.data.meta.receivedBatchHashes)?state.data.meta.receivedBatchHashes:[]}
 async function markDirectTransferBatch(bh){if(!bh)return;const list=directTransferBatchHashes();if(list.includes(bh))return;const next=[...list,bh].slice(-300);state.data.meta.receivedBatchHashes=next;await repo.apply({meta:{receivedBatchHashes:next}})}
+// ── 받은 명단 기록(beta.32) — 서버 승인·직접 전달 **공통** ──────────────────────
+// 원칙(사용자 확정): 중복의 최종 판별자는 앱이 아니라 **사장님의 통장**이다 — "실제 입금 1건 ↔ 명단 1건".
+//   그래서 같은 명단이 다시 오면 앱은 막지 않고, "언제 이미 올렸는지"를 보여주며 입금을 한 번 더
+//   확인하게 한다(팀·개인별로 같은 내용의 입금이 진짜 두 번 있을 수 있다 — 하드 차단은 오답).
+//   예전 직접 전달의 무조건 차단은 "다음 달 동일 명단(같은 이름·금액)"까지 막던 결함이기도 했다.
+//   기록은 시각을 함께 남기고({h,at}), 구 키(receivedBatchHashes)도 병행 유지한다(다운그레이드 호환).
+function receivedBatchLog(){const v=state.data.meta.receivedBatchLog;return Array.isArray(v)?v:[]}
+// 이 명단을 이미 올린 시각. 0=처음 보는 명단, 1=이전 버전에서 올림(시각 기록 없음), 그 외=epoch ms.
+function receivedBatchAt(bh){if(!bh)return 0;const row=receivedBatchLog().find(x=>x&&x.h===bh);if(row)return num(row.at)||1;return directTransferBatchHashes().includes(bh)?1:0}
+async function markBatchReceived(bh){if(!bh)return;const list=receivedBatchLog().filter(x=>x&&x.h!==bh);const next=[...list,{h:bh,at:now()}].slice(-300);state.data.meta.receivedBatchLog=next;await repo.apply({meta:{receivedBatchLog:next}});await markDirectTransferBatch(bh)}
+// 명단에 실려 온 입금자명(담당자 웹 CSV '입금자명' 열, items[].payer — 선택 필드) 목록.
+function batchPayers(items){return [...new Set((items||[]).map(it=>str(it&&it.payer)).filter(Boolean))]}
+// 승인·직접 전달 공용 검토 확인창 본문. 사장님이 통장과 대조할 것(입금자명·총액)을 맨 위에,
+//   이름 단위 반영 내역(충전은 잔액 변화까지)을 그 아래에, 중복 경고는 그 다음에 배치한다.
+function batchReviewText(o){
+const L=[];
+L.push(o.label+(o.ym?` (${o.ym})`:'')+(o.direct?' · 직접 전달':''));
+L.push(`입금자명: ${o.payers.length?o.payers.slice(0,3).join(', ')+(o.payers.length>3?` 외 ${o.payers.length-3}명`:''):'(명단에 없음)'}`);
+L.push(`입금 확인 금액: ${money(o.total)} · ${o.count}명`);
+const tops=o.plan.filter(p=>p.exist),news=o.plan.filter(p=>!p.exist);
+if(tops.length){L.push('');L.push(`이미 있는 직원 충전 ${tops.length}명 — 잔액에 더해져요`);tops.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.before)} → ${money(p.before+p.amt)}`));if(tops.length>8)L.push(`· 외 ${tops.length-8}명`)}
+if(news.length){L.push('');L.push(`새 직원 등록 ${news.length}명`);news.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.amt)}`));if(news.length>8)L.push(`· 외 ${news.length-8}명`)}
+if(o.dupAt){L.push('');L.push(`⚠️ 이 명단은 ${o.dupAt>1?dt(o.dupAt):'이전'}에 이미 장부에 올린 명단과 이름·금액까지 완전히 같아요.`);L.push('같은 입금 건을 두 번 올리는 실수일 수 있어요. 이 총액이 통장에 별도로 한 번 더 입금된 경우에만 계속하세요.')}
+L.push('');
+L.push(`통장에서 위 금액 ${money(o.total)}이 실제 입금됐는지(입금자명까지) 확인하셨으면 [확인]을 누르세요.`);
+return L.join('\n')}
 async function processDirectTransfer(parsed){
 if(!parsed||typeof parsed!=='object'||parsed.type!=='direct-transfer'||!parsed.ciphertext||!parsed.summary){toast('이 파일(또는 QR 코드)은 선입금대장 전달 형식이 아닙니다.');return}
 const rid=str(state.data.meta.restaurantId);
 if(!rid){toast('먼저 우리 가게를 등록하세요.');return}
 if(str(parsed.restaurant_id)!==rid){window.alert('이 파일은 다른 가게용입니다.\n우리 가게 앞으로 온 전달인지 담당자에게 확인해 주세요.');return}
 const batchHash=str(parsed.summary.batch_hash);
-if(batchHash&&directTransferBatchHashes().includes(batchHash)){window.alert('이미 등록한 명단입니다. (중복 전달)\n다시 등록할 필요가 없습니다.');return}
-if(!window.confirm(`${str(parsed.institution)} · ${str(parsed.department)}\n총액 ${money(parsed.summary.total_amount)} · ${num(parsed.summary.member_count)}명\n\n통장 입금을 확인하셨으면 등록하세요. (직접 전달 — 서버를 거치지 않습니다)`))return;
+// beta.32: 중복은 하드 차단하지 않는다 — "언제 이미 올렸는지"를 검토 확인창에 실어 사장님이
+//   통장(실제 입금 1건 ↔ 명단 1건)으로 판정한다. 무조건 차단은 다음 달 동일 명단(같은 이름·금액)까지 막았다.
 setBusy('열어보는 중입니다.');
 try{
 const plain=await decryptBlob(parsed.ciphertext);
@@ -1219,26 +1265,29 @@ if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');
 const chk=await verifyBatchAgainstSummary(plain,parsed.summary,batchHash,true);
 if(!chk.ok){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+chk.detail+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}
 assignDuplicateSuffix(plain.items);
-const t=now(),ym=str(parsed.year_month),groupDept=combinedDeptLabel(parsed.institution,parsed.department);let tip=chainTip();const emps=[],txs=[],patches=[];
-const noteLabel=str(parsed.institution)+' '+str(parsed.department);
+const groupDept=combinedDeptLabel(parsed.institution,parsed.department);
 // 승인(relayApprove)과 같은 규칙: 이미 있는 활성 직원은 새 카드 대신 충전한다(다음 달 재전달 시 동명 카드 누적 방지).
-const activeByKey=activeEmployeeIndex();let topupCount=0;const patchedIds=new Set();
-for(const it of plain.items){
+const activeByKey=activeEmployeeIndex();
+const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(parsed.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));return{it,rec,amt:num(it.amount),exist,before:exist?balanceOf(exist.id):0}});
+clearBusy();
+if(!window.confirm(batchReviewText({label:groupDept,ym:str(parsed.year_month),direct:true,payers:batchPayers(plain.items),total:num(parsed.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(batchHash)}))){render();return}
+setBusy('장부에 올리는 중입니다.');
+const t=now(),ym=str(parsed.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];
+const noteLabel=str(parsed.institution)+' '+str(parsed.department);
+let topupCount=0;const patchedIds=new Set();
+for(const p of plan){
 /* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
-const rec={org:str(it.org)||str(parsed.institution),dept:str(it.dept),name:str(it.name)};
-const amt=num(it.amount);
-const exist=activeByKey.get(empMatchKey(rec));
+const txNote=noteLabel+(str(p.it.payer)?' · 입금 '+str(p.it.payer):'');
 // 승인과 동일: 같은 결합 라벨을 쓰는 활성 직원 전체를 함께 백필한다(명단에 빠진 동료가 다른 그룹으로 갈라지지 않게).
-publicOrgPatchesForLabel(rec,patchedIds).forEach(pt=>patches.push(pt));
-if(exist){topupCount++;if(amt>0){const before=balanceOf(exist.id);const tx=await makeTx({employeeId:exist.id,type:'topup',amount:amt,beforeBalance:before,afterBalance:before+amt,reason:'직접 전달 추가 충전',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
+publicOrgPatchesForLabel(p.rec,patchedIds).forEach(pt=>patches.push(pt));
+if(p.exist){topupCount++;if(p.amt>0){const before=balanceOf(p.exist.id);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'직접 전달 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
 const eid=uid();
-emps.push({id:eid,org:rec.org,orgKind:'public',dept:rec.dept,name:rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
-if(amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:amt,beforeBalance:0,afterBalance:amt,reason:'직접 전달 등록',note:noteLabel,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}
+emps.push({id:eid,org:p.rec.org,orgKind:'public',dept:p.rec.dept,name:p.rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
+if(p.amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:p.amt,beforeBalance:0,afterBalance:p.amt,reason:'직접 전달 등록',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}
 }
-if(topupCount){clearBusy();if(!window.confirm(`${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명\n\n이미 등록된 직원은 새로 만들지 않고 금액을 더해요. 계속할까요?`)){render();return}setBusy('장부에 올리는 중입니다.')}
 await repo.apply({employees:emps.concat(patches),transactions:txs});
 emps.forEach(upsertEmp);patches.forEach(upsertEmp);txs.forEach(upsertTx);
-await markDirectTransferBatch(batchHash);
+await markBatchReceived(batchHash);
 clearBusy();render();
 const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);
 window.alert(`✅ 등록 완료 (직접 전달)\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);

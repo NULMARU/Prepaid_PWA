@@ -166,6 +166,7 @@ tr.err{background:#fdecea}
 <h2>3단계 · 명단 만들기</h2>
 <div class="step-help">아래에 직원명·선금 금액이 담긴 명단 CSV(엑셀 저장 파일)를 올려 주세요. 형식은 자동으로 확인됩니다. 실제 돈은 음식점 계좌로 따로 이체하시고, 여기서는 명단만 보냅니다.</div>
 <div class="meta">항목(순서 고정): 음식점명, <b>소속</b>, 부서명, 직원명, 선금금액, 입금자명 · <b>소속은 선택 항목</b>이라 비워 두셔도 됩니다(비우면 2단계에서 고른 기관이 자동으로 들어갑니다). 산하기관·협력업체처럼 소속이 여러 곳이면 행마다 다르게 적어 주세요 — 소속·부서별로 나뉘어 전달됩니다 · 소속 열이 없는 예전 양식(음식점명, 부서명, 직원명, 선금금액, 입금자명)도 그대로 올리실 수 있습니다 · 엑셀에서 그냥 'CSV로 저장'한 파일도 그대로 올리시면 됩니다(인코딩 자동 인식).</div>
+<div class="meta" style="margin-top:6px">💡 <b>입금자명은 실제로 이체한 사람 이름</b>을 적어 주세요 — 음식점 사장님이 <b>통장 입금 내역과 명단을 대조하는 기준</b>이 됩니다. 한 부서에서 <b>팀·개인별로 나눠 입금·전송</b>한다면 부서명에 팀까지 적어 주세요(예: "홍보과 1팀") — 명단과 입금을 팀 단위로 정확히 맞춰볼 수 있고, 다른 팀 전송과 겹치거나 같은 직원의 잔액이 한데 섞이는 일도 막을 수 있습니다.</div>
 <button id="csvTemplateBtn" type="button" style="margin-top:8px">CSV 양식 다운로드</button>
 <label for="csv" class="sr-only">CSV 파일 선택</label>
 <input type="file" id="csv" accept=".csv" style="padding-top:8px">
@@ -1245,7 +1246,9 @@ function buildGroups(){
     const org=normName(r.org)||defaultOrg;
     const k=rid+'|'+org+'|'+r.dept;
     if(!groups.has(k))groups.set(k,{restaurant_id:rid,restaurant_name:r.rest,institution:org,department:r.dept,items:[]});
-    groups.get(k).items.push({name:r.name,dept:r.dept,amount:r.amount,org});
+    // payer(입금자명): 사장님이 통장 입금과 명단을 1:1로 대조하는 기준값. 암호문 안(items)에만 실리고
+    // 서버 summary(평문)에는 싣지 않는다(개인 이름 = PII, 불변식 §0). batch_hash(name|dept|amount)도 불변.
+    groups.get(k).items.push({name:r.name,dept:r.dept,amount:r.amount,org,payer:normName(r.payer)});
   });
   return groups;
 }
@@ -1274,18 +1277,20 @@ function renderConfirm(){
   // 소속이 여러 개면 표에 '소속' 열을 추가해 그룹이 어떻게 나뉘었는지 그대로 보이게 한다.
   const orgs=[...new Set(groups.map(g=>g.institution||''))];
   const multiOrg=orgs.length>1;
+  // 입금자명: 음식점 사장님이 이 그룹의 합계를 통장 입금과 대조할 때 쓰는 기준값 — 그룹별로 그대로 보여준다.
+  const payersOf=g=>{const s=[...new Set(g.items.map(i=>i.payer).filter(Boolean))];return s.length?esc(s.slice(0,2).join(', '))+(s.length>2?' 외 '+(s.length-2)+'명':''):'—'};
   const rows=groups.map(g=>{
     const amt=g.items.reduce((a,i)=>a+i.amount,0);
-    return `<tr><td>${esc(g.restaurant_name)}</td>${multiOrg?`<td>${esc(g.institution||'(미지정)')}</td>`:''}<td>${esc(g.department)}</td><td>${g.items.length}명</td><td><b>${amt.toLocaleString()}원</b></td></tr>`;
+    return `<tr><td>${esc(g.restaurant_name)}</td>${multiOrg?`<td>${esc(g.institution||'(미지정)')}</td>`:''}<td>${esc(g.department)}</td><td>${g.items.length}명</td><td><b>${amt.toLocaleString()}원</b></td><td>${payersOf(g)}</td></tr>`;
   }).join('');
   const head=multiOrg
     ?'<div class="meta" style="margin-bottom:6px">소속 '+orgs.length+'곳: <b style="color:var(--text)">'+orgs.map(o=>esc(o||'(미지정)')).join(', ')+'</b> — 소속·부서별로 나뉘어 따로 전달됩니다.</div>'
     :(S.agency?'<div class="meta" style="margin-bottom:6px">소속 기관: <b style="color:var(--text)">'+esc(orgs[0]||S.agency.name)+'</b></div>':'');
   $('confirmBox').innerHTML=head+
-    '<table><thead><tr><th>음식점</th>'+(multiOrg?'<th>소속</th>':'')+'<th>부서</th><th>인원</th><th>선금 합계</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<table><thead><tr><th>음식점</th>'+(multiOrg?'<th>소속</th>':'')+'<th>부서</th><th>인원</th><th>선금 합계</th><th>입금자명</th></tr></thead><tbody>'+rows+'</tbody></table>'+
     '<div style="margin-top:10px;padding:10px 12px;background:#eef2ff;border:1px solid var(--primary);border-radius:8px">'+
     '<div style="font-weight:700;font-size:14px">총 합계 '+totalAmount.toLocaleString()+'원 <span style="font-weight:400;color:var(--muted);font-size:12px">(음식점 '+new Set(groups.map(g=>g.restaurant_id)).size+'곳 · '+(multiOrg?'소속·부서 조합 ':'부서 조합 ')+groups.length+'건 · '+totalPeople+'명)</span></div>'+
-    '<div class="meta" style="margin-top:4px">음식점 계좌로 이체하실 금액과 같은지 확인하세요. 돈은 계좌로 직접 이체하고, 이 웹은 명단만 전달합니다.</div>'+
+    '<div class="meta" style="margin-top:4px">음식점 계좌로 이체하실 금액과 같은지 확인하세요. 돈은 계좌로 직접 이체하고, 이 웹은 명단만 전달합니다.<br>음식점 사장님은 <b>줄마다 "입금자명 ↔ 실제 입금 1건 ↔ 합계 금액"</b>을 통장과 대조한 뒤 장부에 올립니다 — 입금자명과 이체 금액이 명단과 정확히 맞아야 승인이 빨라집니다.</div>'+
     '</div>';
 }
 function computeStep(){
@@ -1520,7 +1525,9 @@ function dedupInfo(row){
   if(!row.ok||!row.dedup)return null;
   if(row.dedup==='APPROVED')return{cls:'warn',attention:true,text:'ℹ️ 음식점이 이미 승인한 명단이에요(재전송되지 않음)'};
   if(row.dedup==='REJECTED')return{cls:'bad',attention:true,text:'⚠️ 음식점이 거절했던 명단이에요(재전송되지 않음). 내용을 확인해 명단·금액이 바뀌면 새로 전송돼요'};
-  return{cls:'good',attention:false,text:'✅ 보냄(이미 대기 중 — 중복 없음)'};
+  // PENDING dedupe: 예전 문구 "중복 없음"은 오답 — 같은 내용의 명단을 **다른 담당자(또는 이전 전송)**가
+  // 이미 접수해 둔 것일 수 있고, 이번 건은 새로 접수되지 않았다. 별도 입금 건이라면 구분해 다시 보내야 한다.
+  return{cls:'warn',attention:true,text:'⚠️ 같은 내용의 명단이 이미 접수되어 대기 중이에요 — 이번 건은 새로 접수되지 않았어요. 같은 부서의 다른 담당자(또는 이전 전송)가 보낸 것일 수 있어요. 이번 입금이 별도 건이면 부서명에 팀을 붙여(예: 홍보과 1팀) 구분해 다시 보내주세요.'};
 }
 function renderRelayResults(final){
   const rows=[...relayResults.values()];

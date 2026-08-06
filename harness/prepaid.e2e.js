@@ -1939,7 +1939,8 @@ async function main() {
       const enc = new TextEncoder();
       const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
       const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
-      const items = [{ name: '공공직원', dept: '세무과', amount: 30000 }];
+      // payer(입금자명, beta.32): 선택 필드 — batch_hash canonical(name|dept|amount)에 절대 불포함.
+      const items = [{ name: '공공직원', dept: '세무과', amount: 30000, payer: '김서무' }];
       const h = async t => { const d = await crypto.subtle.digest('SHA-256', enc.encode(String(t))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
       const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
       const aesRaw = crypto.getRandomValues(new Uint8Array(32));
@@ -1955,15 +1956,37 @@ async function main() {
         ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
       });
     }, { pubKey: regMeta.pubKey, rid: regMeta.restaurantId });
+    const dialogsBeforeDt = dialogs.length;
     await page.locator('#directTransferFile').setInputFiles({ name: 'transfer.json', mimeType: 'application/json', buffer: Buffer.from(dtJson, 'utf8') });
     await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
     await page.waitForTimeout(400);
+    // beta.32 검토 확인창(입금 대조): 입금자명·입금 확인 금액·이름 단위 내역이 한 창에 있어야 한다.
+    const dtReview = dialogs.slice(dialogsBeforeDt).find(d => d.type === 'confirm' && d.message.includes('입금 확인 금액'));
+    await assert(Boolean(dtReview), 'the direct-transfer flow must show the deposit-verification review confirm');
+    await assert(dtReview.message.includes('입금자명: 김서무'), 'the review confirm must show the payer name from the roster (통장 대조 기준)');
+    await assert(dtReview.message.includes('30,000') && dtReview.message.includes('공공직원'), 'the review confirm must itemize names and the total to verify against the bank account');
     const orgDb = await readDb(page);
     const empRelay = orgDb.employees.find(e => e.name === '공공직원');
     await assert(Boolean(empRelay), 'a direct-transfer batch should create the employee');
     await assert(empRelay.org === '강남구청', 'the institution must be stored in the new org field, not merged into dept');
     await assert(empRelay.dept === '세무과', 'the department must be stored on its own (no "기관명 부서명" concatenation)');
     await assert(empRelay.orgKind === 'public', 'a direct-transfer (institution) employee must be flagged orgKind=public for home grouping');
+    const payerTx = orgDb.transactions.find(tx => tx.employeeId === empRelay.id && tx.type === 'open');
+    await assert(Boolean(payerTx) && payerTx.note.includes('입금 김서무'), `the transaction note must carry the payer for audit (got ${JSON.stringify(payerTx && payerTx.note)})`);
+
+    // ── 중복 명단 경고(beta.32) — 하드 차단이 아니라 "언제 올렸는지"를 실은 경고 + 사장님 판단 ──
+    //   같은 파일을 다시 열면: ①경고 문구가 뜨고 ②[취소]하면 아무것도 변하지 않아야 한다.
+    confirmAnswer = false;
+    const dialogsBeforeDup = dialogs.length;
+    const txCountBeforeDup = orgDb.transactions.length;
+    await page.locator('#directTransferFile').setInputFiles({ name: 'transfer-again.json', mimeType: 'application/json', buffer: Buffer.from(dtJson, 'utf8') });
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    confirmAnswer = true;
+    const dupReview = dialogs.slice(dialogsBeforeDup).find(d => d.type === 'confirm' && d.message.includes('완전히 같아요'));
+    await assert(Boolean(dupReview), 're-opening the same transfer must warn that this roster was already registered (dated duplicate warning)');
+    await assert(dupReview.message.includes('별도로 한 번 더 입금된 경우에만'), 'the duplicate warning must tell the owner to decide by the bank account (사용자 원칙)');
+    await assert((await readDb(page)).transactions.length === txCountBeforeDup, 'declining the duplicate warning must leave the ledger untouched');
 
     // 레거시(합성 dept, org 없음) 직원을 심어 표시 결과가 신규 저장 방식과 동일함을 확인한다.
     await page.evaluate(({ t }) => new Promise((resolve, reject) => {
@@ -2150,9 +2173,15 @@ async function main() {
     await openSettingsCard(page, 'enroll-auto');// beta.29: 신청 확인 버튼은 접힌 자동 등록 카드 안에 있다
     await page.locator('[data-a="relay-inbox"]').first().click();
     await page.waitForSelector('[data-a="relay-approve"]', { timeout: 8000 });
+    const dialogsBeforeApprove = dialogs.length;
     await page.locator('[data-a="relay-approve"]').click();
     await page.waitForSelector('[data-a="relay-approve"]', { state: 'detached', timeout: 15000 });
     await page.waitForTimeout(500);
+    // beta.32: 서버 승인도 같은 "입금 대조" 검토 확인창을 쓴다 — 충전 대상은 잔액 변화(현재 → 이후)까지 보인다.
+    const apReview = dialogs.slice(dialogsBeforeApprove).find(d => d.type === 'confirm' && d.message.includes('입금 확인 금액'));
+    await assert(Boolean(apReview), 'the server-approve flow must show the deposit-verification review confirm');
+    await assert(apReview.message.includes('이미 있는 직원 충전') && apReview.message.includes('공공직원: 30,000원 → 50,000원'),
+      `the review confirm must show the balance change per topped-up employee (got ${JSON.stringify(apReview && apReview.message)})`);
     const afterApprove = await readDb(page);
     await assert(afterApprove.employees.filter(e => e.name === '공공직원').length === 1, 're-approving the same roster must top up the existing employee instead of stacking a duplicate card');
     await assert(afterApprove.employees.filter(e => !e.isDeleted).length === activeBefore, 'the active employee card count must not change when a known roster is approved again');
@@ -2163,6 +2192,39 @@ async function main() {
     await assert(relayBalance === 50000, `the topped-up employee balance should be 30000 + 20000, got ${relayBalance}`);
     await page.locator('.modal-actions [data-a="close-modal"]').click();
     await page.waitForTimeout(100);
+
+    // ── 교차 경로 중복(beta.32) — 서버 승인으로 이미 올린 명단을 직접 전달 파일로 다시 열면 경고가 떠야 한다 ──
+    //   여러 담당자가 "앱으로도 보내고 파일로도 건네는" 혼용에서 잔액이 두 배로 잡히던 구멍(검토 항목 2).
+    const crossJson = await page.evaluate(async ({ pubKey, rid }) => {
+      const enc2 = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const items = [{ name: '공공직원', dept: '세무과', amount: 20000 }];// (h)에서 서버 승인한 명단과 동일
+      const h2 = async t => { const d2 = await crypto.subtle.digest('SHA-256', enc2.encode(String(t))); return Array.from(new Uint8Array(d2)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      const batch_hash = await h2(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+      const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+      const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc2.encode(JSON.stringify({ items })));
+      const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+      const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
+      return JSON.stringify({
+        v: 1, type: 'direct-transfer', restaurant_id: rid, restaurant_name: 'Harness Shop',
+        institution: '강남구청', department: '세무과', year_month: '2026-08',
+        summary: { total_amount: 20000, member_count: 1, batch_hash },
+        ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
+      });
+    }, { pubKey: relayMeta.pubKey, rid: (await readDb(page)).meta.find(r => r.key === 'restaurantId').value });
+    confirmAnswer = false;
+    const dialogsBeforeCross = dialogs.length;
+    const txCountBeforeCross = afterApprove.transactions.length;
+    await page.locator('#directTransferFile').setInputFiles({ name: 'cross-dup.json', mimeType: 'application/json', buffer: Buffer.from(crossJson, 'utf8') });
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    confirmAnswer = true;
+    const crossReview = dialogs.slice(dialogsBeforeCross).find(d => d.type === 'confirm' && d.message.includes('완전히 같아요'));
+    await assert(Boolean(crossReview), 'a direct-transfer of a roster already approved via the server must raise the duplicate warning (cross-mode)');
+    await assert((await readDb(page)).transactions.length === txCountBeforeCross, 'declining the cross-mode duplicate must leave the ledger untouched');
 
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.waitForSelector('[data-a="quick-find-emp"]');

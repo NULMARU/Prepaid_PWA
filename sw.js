@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.31';
+const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.32';
 const ASSETS = [
   './',
   './index.html',
