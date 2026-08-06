@@ -30,7 +30,11 @@ curl -s -X POST "$RELAY/api/submit" -H "Content-Type: application/json" -d '{"su
 echo; echo "[3] 3개 앱 접속"
 V=$(curl -s "$APP" | grep -oE "beta\.[0-9]+" | head -1); test -n "$V"; ok $? "음식점 앱 (${V:-?})"
 test "$(curl -s -o /dev/null -w '%{http_code}' "$PAGES/")" = "200"; ok $? "담당자 웹 (200)"
-test "$(curl -s -o /dev/null -w '%{http_code}' "$RELAY/api/restaurants?q=x")" = "200"; ok $? "중계 서버 (200)"
+# 중계 서버 접속 확인 — 앞선 라이브 하니스가 짧은 시간에 요청을 몰아 분당 레이트리밋(60)에
+# 걸릴 수 있다. 서버가 살아 있는지 보는 검사이므로 한 번 실패하면 잠깐 쉬고 재시도한다.
+RC=$(curl -s -o /dev/null -w '%{http_code}' "$RELAY/api/restaurants?q=x")
+if [ "$RC" != "200" ]; then sleep 45; RC=$(curl -s -o /dev/null -w '%{http_code}' "$RELAY/api/restaurants?q=x"); fi
+test "$RC" = "200"; ok $? "중계 서버 (200)"
 
 echo; echo "=================================================="
 echo " 결과: $pass 통과 / $fail 실패"
