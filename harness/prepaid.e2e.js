@@ -246,8 +246,10 @@ async function runSearchOnboarding(browser, url, cors) {
     await assert(await count(page, '#setupStoreName') === 0, 'the welcome screen must come BEFORE step 1/3 (the store search form must not be on it)');
     await assert(await count(page, '.setup-step') === 0, 'the welcome screen must not carry a step number (1/3·2/3·3/3 numbering stays a 3-step count)');
     const welcomeText = await page.locator('.setup-welcome').innerText();
-    await assert(welcomeText.includes('돈을 받거나 보내지 않아요') && welcomeText.includes('가게 은행 계좌로 직접 입금'),
-      `the welcome screen must carry the "the app never handles money" reassurance (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
+    // beta.33: 결제 수단은 카드가 대부분이라 "통장 입금"으로 못 박지 않는다 — 중립 표현("결제(카드·계좌이체)")이어야 한다.
+    await assert(welcomeText.includes('돈을 받거나 보내지 않아요') && welcomeText.includes('선금 결제(카드·계좌이체)') && welcomeText.includes('앱 밖에서 직접'),
+      `the welcome screen must carry the "the app never handles money" reassurance in payment-neutral wording (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
+    await assert(!/통장|은행 계좌/.test(welcomeText), `the welcome screen must not name the bank account as the only way money arrives (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
     await assert(/무료/.test(welcomeText), 'the welcome screen must say the service is free');
     await assert(await count(page, '.setup-welcome button') === 1, 'the welcome screen must offer exactly one button ([시작하기])');
     await page.locator('[data-a="setup-welcome-start"]').click();
@@ -1201,7 +1203,7 @@ async function main() {
     await openSettingsCard(page, 'enroll-auto');
     const settingsText = await page.locator('.app').innerText();
     await assert(!/구청 선금|선금 받기|직원개별등록/.test(settingsText), 'the retired wording (구청 선금 / 선금 받기 / 직원개별등록) must be gone from settings');
-    await assert(settingsText.includes('가게 은행 계좌로 따로 입금'), 'the auto-enrollment card must state that money is deposited to the bank account, not the app');
+    await assert(settingsText.includes('앱 밖에서 따로 결제(카드·계좌이체)'), 'the auto-enrollment card must state that the money is paid outside the app (card or bank transfer), not through it');
     await page.locator('#quickAddDept').fill('Dept Q');
     await page.locator('#quickAddName').fill('User Q');
     await page.locator('#quickAddOpen').fill('12000');
@@ -1960,11 +1962,24 @@ async function main() {
     await page.locator('#directTransferFile').setInputFiles({ name: 'transfer.json', mimeType: 'application/json', buffer: Buffer.from(dtJson, 'utf8') });
     await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
     await page.waitForTimeout(400);
-    // beta.32 검토 확인창(입금 대조): 입금자명·입금 확인 금액·이름 단위 내역이 한 창에 있어야 한다.
-    const dtReview = dialogs.slice(dialogsBeforeDt).find(d => d.type === 'confirm' && d.message.includes('입금 확인 금액'));
-    await assert(Boolean(dtReview), 'the direct-transfer flow must show the deposit-verification review confirm');
-    await assert(dtReview.message.includes('입금자명: 김서무'), 'the review confirm must show the payer name from the roster (통장 대조 기준)');
-    await assert(dtReview.message.includes('30,000') && dtReview.message.includes('공공직원'), 'the review confirm must itemize names and the total to verify against the bank account');
+    // beta.33 검토 확인창(결제 대조): 맨 위 3줄(받으실 금액·기관/부서·결제자)과 이름 단위 내역이 한 창에 있어야 한다.
+    const dtReview = dialogs.slice(dialogsBeforeDt).find(d => d.type === 'confirm' && d.message.includes('받으실 금액'));
+    await assert(Boolean(dtReview), 'the direct-transfer flow must show the payment-verification review confirm');
+    await assert(/^받으실 금액 30,000원 · 1명\n기관·부서: .*강남구청/.test(dtReview.message),
+      `the review confirm must open with 받으실 금액 then 기관·부서 (got ${JSON.stringify(dtReview.message.slice(0, 120))})`);
+    await assert(dtReview.message.includes('결제자·입금자명: 김서무'), 'the review confirm must show the payer name from the roster (결제 대조 기준)');
+    await assert(dtReview.message.includes('30,000') && dtReview.message.includes('공공직원'), 'the review confirm must itemize names and the total to verify against the payment record');
+    // 직접 전달은 서버 인증을 거치지 않으므로 도메인은 "확인 불가"여야 한다(F-04).
+    await assert(dtReview.message.includes('인증 도메인: 확인 불가(직접 전달 등)'),
+      `a direct transfer carries no authenticated domain, so the review must say 확인 불가 (got ${JSON.stringify(dtReview.message)})`);
+    await assert(dtReview.message.includes('기관명은 담당자가 직접 적는 값이라'), 'the review must warn that the institution name is self-declared and must be read together with the authenticated domain');
+    // 결제구분(payMethod)이 없는 명단이므로 카드·계좌이체 확인처를 둘 다 안내해야 한다.
+    await assert(dtReview.message.includes('실제로 받으셨는지 확인하셨으면') && dtReview.message.includes('(카드결제면 매출전표·POS 정산 내역, 계좌이체면 통장 입금 내역)'),
+      `without 결제구분 the confirm sentence must name both payment records (got ${JSON.stringify(dtReview.message)})`);
+    await assert(!dtReview.message.includes('결제 방식:'), 'a roster without 결제구분 must not claim a payment method');
+    // 아직 결제를 못 받은 사장님의 출구(취소)를 명시해야 한다 — 직접 전달은 받은 파일로 다시 열 수 있다.
+    await assert(dtReview.message.includes('아직 결제를 못 받으셨으면 [취소]') && dtReview.message.includes('받은 파일(또는 QR)로 나중에 다시 열 수 있어요'),
+      `the direct-transfer review must offer the "not paid yet → cancel" exit (got ${JSON.stringify(dtReview.message)})`);
     const orgDb = await readDb(page);
     const empRelay = orgDb.employees.find(e => e.name === '공공직원');
     await assert(Boolean(empRelay), 'a direct-transfer batch should create the employee');
@@ -1972,7 +1987,7 @@ async function main() {
     await assert(empRelay.dept === '세무과', 'the department must be stored on its own (no "기관명 부서명" concatenation)');
     await assert(empRelay.orgKind === 'public', 'a direct-transfer (institution) employee must be flagged orgKind=public for home grouping');
     const payerTx = orgDb.transactions.find(tx => tx.employeeId === empRelay.id && tx.type === 'open');
-    await assert(Boolean(payerTx) && payerTx.note.includes('입금 김서무'), `the transaction note must carry the payer for audit (got ${JSON.stringify(payerTx && payerTx.note)})`);
+    await assert(Boolean(payerTx) && payerTx.note.includes('· 결제 김서무'), `the transaction note must carry the payer for audit under the payment-neutral prefix (got ${JSON.stringify(payerTx && payerTx.note)})`);
 
     // ── 중복 명단 경고(beta.32) — 하드 차단이 아니라 "언제 올렸는지"를 실은 경고 + 사장님 판단 ──
     //   같은 파일을 다시 열면: ①경고 문구가 뜨고 ②[취소]하면 아무것도 변하지 않아야 한다.
@@ -1985,8 +2000,55 @@ async function main() {
     confirmAnswer = true;
     const dupReview = dialogs.slice(dialogsBeforeDup).find(d => d.type === 'confirm' && d.message.includes('완전히 같아요'));
     await assert(Boolean(dupReview), 're-opening the same transfer must warn that this roster was already registered (dated duplicate warning)');
-    await assert(dupReview.message.includes('별도로 한 번 더 입금된 경우에만'), 'the duplicate warning must tell the owner to decide by the bank account (사용자 원칙)');
+    await assert(dupReview.message.includes('별도로 한 번 더 받으신 경우에만(카드 전표·입금 내역 확인)'), 'the duplicate warning must tell the owner to decide by the actual payment received, card or transfer (사용자 원칙)');
     await assert((await readDb(page)).transactions.length === txCountBeforeDup, 'declining the duplicate warning must leave the ledger untouched');
+
+    // ── 결제구분(payMethod, beta.33) — 명단에 실려 오면 그 수단에 맞는 확인처만 안내한다 ──
+    //   담당자 웹 CSV의 선택 열 '결제구분'(카드/계좌이체/공백)이 items[].payMethod로 실려 온다.
+    //   batch_hash canonical(name|dept|amount)에는 들어가지 않으므로, 값이 있어도 확인값 검증은 그대로 통과해야 한다.
+    const makePayMethodTransfer = (payMethod, name, amount) => page.evaluate(async ({ pubKey, rid, payMethod, name, amount }) => {
+      const enc = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const items = [{ name, dept: '세무과', amount, payMethod }];
+      const h = async t => { const d = await crypto.subtle.digest('SHA-256', enc.encode(String(t))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+      const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+      const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify({ items })));
+      const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+      const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
+      return JSON.stringify({
+        v: 1, type: 'direct-transfer', restaurant_id: rid, restaurant_name: 'Harness Shop',
+        institution: '강남구청', department: '세무과', year_month: '2026-07',
+        summary: { total_amount: amount, member_count: 1, batch_hash },
+        ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
+      });
+    }, { pubKey: regMeta.pubKey, rid: regMeta.restaurantId, payMethod, name, amount });
+    confirmAnswer = false;// 문구만 확인하고 전부 취소한다 — 장부는 그대로여야 한다.
+    for (const c of [
+      { pm: '카드', label: '카드결제', expect: '(카드 매출전표·POS 정산 내역)', forbid: '통장 입금 내역', name: '카드결제직원', amount: 11000 },
+      { pm: '계좌이체', label: '계좌이체', expect: '(통장 입금 내역)', forbid: '매출전표', name: '이체결제직원', amount: 12000 }
+    ]) {
+      const json = await makePayMethodTransfer(c.pm, c.name, c.amount);
+      const before = dialogs.length;
+      const txBefore = (await readDb(page)).transactions.length;
+      await page.locator('#directTransferFile').setInputFiles({ name: 'pay-method.json', mimeType: 'application/json', buffer: Buffer.from(json, 'utf8') });
+      await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+      await page.waitForTimeout(300);
+      const rv = dialogs.slice(before).find(d => d.type === 'confirm' && d.message.includes('받으실 금액'));
+      await assert(Boolean(rv), `a roster carrying 결제구분=${c.pm} must still open the review confirm (batch_hash unaffected by the optional field)`);
+      await assert(rv.message.includes(`결제 방식: ${c.label} (명단에 표기됨)`), `the review must state the declared payment method (got ${JSON.stringify(rv.message)})`);
+      await assert(rv.message.includes(c.expect) && !rv.message.includes(c.forbid),
+        `결제구분=${c.pm} must point at that record only (got ${JSON.stringify(rv.message)})`);
+      await assert((await readDb(page)).transactions.length === txBefore, 'cancelling the 결제구분 review must leave the ledger untouched');
+    }
+    // 카드결제면 입금자명이 비어 있는 것이 정상 — 그 사실을 폴백 문구로 알려야 한다.
+    const cardReview = dialogs.filter(d => d.type === 'confirm' && d.message.includes('결제 방식: 카드결제')).pop();
+    await assert(cardReview.message.includes('결제자·입금자명: (명단에 없음 — 카드결제면 비어 있을 수 있어요)'),
+      `an empty payer must be explained as normal for card payments (got ${JSON.stringify(cardReview.message)})`);
+    confirmAnswer = true;
 
     // 레거시(합성 dept, org 없음) 직원을 심어 표시 결과가 신규 저장 방식과 동일함을 확인한다.
     await page.evaluate(({ t }) => new Promise((resolve, reject) => {
@@ -2134,7 +2196,9 @@ async function main() {
 
     // (h) 같은 명단을 다음 달에 다시 승인(자동 등록 수신함) → 새 직원이 아니라 기존 직원 충전, 카드 수 불변.
     const relayMeta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
-    await page.evaluate(async ({ pubKey }) => {
+    const sentAtFixture = Date.UTC(2026, 7, 3, 4, 5, 0);// 명단 전송 시각(고정) — 확인창 표기와 대조한다.
+    await page.evaluate(async ({ pubKey, sentAtFixture }) => {
+      window.__sentAtFixture = sentAtFixture;
       const enc = new TextEncoder();
       const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
       const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
@@ -2150,7 +2214,8 @@ async function main() {
       const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
       const inboxItem = {
         summary_id: 'sum-next-month',
-        summary: { restaurant_name: 'Harness Shop', institution: '강남구청', department: '세무과', year_month: '2026-08', total_amount: 20000, member_count: 1, batch_hash },
+        // agency_domain(F-04): 서버가 담당자 이메일 OTP 토큰에서만 읽어 싣는 값. created_at은 명단 전송 시각.
+        summary: { restaurant_name: 'Harness Shop', institution: '강남구청', department: '세무과', year_month: '2026-08', total_amount: 20000, member_count: 1, batch_hash, agency_domain: 'gangnam.go.kr', created_at: window.__sentAtFixture },
         ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
       };
       window.__approveCalls = [];
@@ -2167,21 +2232,45 @@ async function main() {
         if (url.includes('/api/ledger-backup')) return new Response('{"ok":true,"updated_at":"2026-08-01T00:00:00Z"}', { status: 200, headers: { 'Content-Type': 'application/json' } });
         return orig(u, o);
       };
-    }, { pubKey: relayMeta.pubKey });
+    }, { pubKey: relayMeta.pubKey, sentAtFixture });
     const beforeApprove = await readDb(page);
     const activeBefore = beforeApprove.employees.filter(e => !e.isDeleted).length;
     await openSettingsCard(page, 'enroll-auto');// beta.29: 신청 확인 버튼은 접힌 자동 등록 카드 안에 있다
     await page.locator('[data-a="relay-inbox"]').first().click();
     await page.waitForSelector('[data-a="relay-approve"]', { timeout: 8000 });
+    // beta.33: 수신함 카드 자체가 인증 도메인·전송 시각을 보여주고, 승인 버튼은 "결제 확인 후 승인"이다.
+    const inboxModalText = await page.locator('.modal').innerText();
+    await assert(inboxModalText.includes('인증 도메인: gangnam.go.kr'), `the inbox card must show the authenticated agency domain (got ${JSON.stringify(inboxModalText)})`);
+    await assert(inboxModalText.includes('명단 전송'), 'the inbox card must show when the roster was sent');
+    await assert(inboxModalText.includes('결제 확인 후 승인') && !inboxModalText.includes('통장 확인 후 승인'),
+      `the approve button must read 결제 확인 후 승인 (got ${JSON.stringify(inboxModalText)})`);
+    await assert(inboxModalText.includes('결제 내역(카드 매출전표·통장 입금)과 금액을 대조한 뒤 승인하세요') && inboxModalText.includes('기관명은 담당자가 직접 적는 값이라'),
+      `the inbox help must ask for a payment-record match and warn that the institution name is self-declared (got ${JSON.stringify(inboxModalText)})`);
+    // 출구 안내가 사실인지 못 박는다 — [취소]하면 서버로 승인/거절 호출이 나가지 않아 신청은 PENDING으로 남는다.
+    confirmAnswer = false;
+    const txBeforeCancel = (await readDb(page)).transactions.length;
+    await page.locator('[data-a="relay-approve"]').click();
+    await page.waitForTimeout(500);
+    await assert((await page.evaluate(() => window.__approveCalls.length)) === 0, 'cancelling the review must not call /api/approve — the request must stay PENDING so the owner can reopen it');
+    await assert((await readDb(page)).transactions.length === txBeforeCancel, 'cancelling the review must leave the ledger untouched');
+    confirmAnswer = true;
     const dialogsBeforeApprove = dialogs.length;
     await page.locator('[data-a="relay-approve"]').click();
     await page.waitForSelector('[data-a="relay-approve"]', { state: 'detached', timeout: 15000 });
     await page.waitForTimeout(500);
-    // beta.32: 서버 승인도 같은 "입금 대조" 검토 확인창을 쓴다 — 충전 대상은 잔액 변화(현재 → 이후)까지 보인다.
-    const apReview = dialogs.slice(dialogsBeforeApprove).find(d => d.type === 'confirm' && d.message.includes('입금 확인 금액'));
-    await assert(Boolean(apReview), 'the server-approve flow must show the deposit-verification review confirm');
+    // beta.33: 서버 승인도 같은 "결제 대조" 검토 확인창을 쓴다 — 충전 대상은 잔액 변화(현재 → 이후)까지 보인다.
+    const apReview = dialogs.slice(dialogsBeforeApprove).find(d => d.type === 'confirm' && d.message.includes('받으실 금액'));
+    await assert(Boolean(apReview), 'the server-approve flow must show the payment-verification review confirm');
     await assert(apReview.message.includes('이미 있는 직원 충전') && apReview.message.includes('공공직원: 30,000원 → 50,000원'),
       `the review confirm must show the balance change per topped-up employee (got ${JSON.stringify(apReview && apReview.message)})`);
+    // F-04: 인증된 이메일 도메인이 있으면 그대로 보여야 한다(기관명은 자칭 값이라 사칭이 가능하다).
+    await assert(apReview.message.includes('인증 도메인: gangnam.go.kr'), `the approve review must show the authenticated agency domain (got ${JSON.stringify(apReview.message)})`);
+    // 명단 전송 시각 — 사장님이 그 날짜의 매출전표·통장 내역에서 결제 건을 찾을 수 있어야 한다.
+    const sentStamp = (() => { const d = new Date(sentAtFixture), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; })();
+    await assert(apReview.message.includes(`명단 전송 시각: ${sentStamp}`), `the approve review must show when the roster was sent (expected ${sentStamp}, got ${JSON.stringify(apReview.message)})`);
+    // 아직 결제를 못 받았으면 [취소] — 취소해도 서버 신청은 PENDING으로 남아 3일 안에 다시 열 수 있다.
+    await assert(apReview.message.includes('아직 결제를 못 받으셨으면 [취소]') && apReview.message.includes('신청은 그대로 남아 나중에 다시 열 수 있어요(3일 이내)'),
+      `the approve review must offer the "not paid yet → cancel" exit (got ${JSON.stringify(apReview.message)})`);
     const afterApprove = await readDb(page);
     await assert(afterApprove.employees.filter(e => e.name === '공공직원').length === 1, 're-approving the same roster must top up the existing employee instead of stacking a duplicate card');
     await assert(afterApprove.employees.filter(e => !e.isDeleted).length === activeBefore, 'the active employee card count must not change when a known roster is approved again');

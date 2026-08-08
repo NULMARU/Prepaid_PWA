@@ -212,6 +212,20 @@ function isAgencyEmail(email) {
   const domain = e.slice(at + 1);
   return AGENCY_EMAIL_DOMAIN_RE.test(domain);
 }
+// 인증 도메인 전달(F-04): 인증에 성공한 기관 이메일의 **도메인 부분만** 뽑아 소문자로 정규화한다.
+// 로컬파트(사람을 가리키는 부분)는 절대 담지 않으므로 개인정보가 아니다 — "gwangjin.go.kr"처럼
+// 어느 조직의 메일 계정으로 인증했는지만 남는다(PROTOCOL §4.11).
+// 입력이 이미 도메인만인 경우(토큰 행에서 다시 읽을 때)도 그대로 통과시키며, '@'가 섞여 들어오면
+// 마지막 '@' 뒤만 취해 로컬파트가 하위 저장소로 새어나가지 않게 막는다(마지막 방어선).
+// 도메인 모양이 아니면 null(구버전 토큰·손상 값 → 앱은 "확인 불가"로 표시).
+const DOMAIN_SHAPE_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/;
+function emailDomainOf(v) {
+  const e = String(v == null ? '' : v).trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  const d = (at >= 0 ? e.slice(at + 1) : e).trim();
+  if (!d || d.length > MAX_STR) return null;
+  return DOMAIN_SHAPE_RE.test(d) ? d : null;
+}
 
 // ── 레이트 리밋(베스트 에포트) ──
 // Cloudflare Workers Rate Limiting 바인딩은 wrangler.toml에서 `[[unsafe.bindings]]
@@ -608,6 +622,13 @@ export async function handle(request, env, store) {
       let agencyRow = null;
       if (agencyToken) agencyRow = await verifyAgencyToken(store, agencyToken);
       if (env.REQUIRE_AGENCY_AUTH === '1' && !agencyRow) return j({ error: 'agency_auth_required' }, 401);
+      // 인증 도메인 전달(F-04, §4.11): 서버는 기관명(institution)이 참인지 검증할 수단이 없다
+      // — 담당자가 직접 적는 자칭 값이기 때문이다. 반면 '어느 도메인 메일로 OTP 인증을 통과했는가'는
+      // 서버가 실제로 확인한 사실이므로, 그 도메인을 요약에 함께 실어 음식점 앱이 사장님에게
+      // 보여주게 한다(눈으로 대조 — "○○구청"인데 도메인이 대학교면 이상하다).
+      // 값의 출처는 **토큰 행뿐**이다. 클라이언트가 body에 넣어 보낸 값은 절대 쓰지 않는다(자칭 방지).
+      // 토큰이 없거나(REQUIRE_AGENCY_AUTH=0·pilot 등) 구버전 토큰이면 null → 앱이 "확인 불가"로 표시.
+      const agency_domain = agencyRow ? emailDomainOf(agencyRow.email_domain) : null;
 
       // 중복 제출 방지(멱등): 동일 (restaurant_id, batch_hash) 조합이 이미 있으면 새로 만들지 않고 기존 id 반환.
       // 이때 deduped:true와 기존 건의 status를 함께 돌려준다 — UNIQUE 인덱스 구조상 재제출로 새 행이
@@ -622,7 +643,7 @@ export async function handle(request, env, store) {
       await store.insertSummary({
         id: summary_id,
         institution, department, restaurant_id, restaurant_name, year_month,
-        total_amount, member_count,
+        total_amount, member_count, agency_domain,
         batch_hash, status: 'PENDING', created_at: Date.now()
       });
       await store.insertBlob({
@@ -843,7 +864,13 @@ export async function handle(request, env, store) {
       const token = randomB64(32);
       const token_hash = await sha256hex(token);
       // 토큰 행에는 항상 '현재 방식'의 이메일 해시를 저장한다(consent_log 기록에 그대로 재사용).
-      await store.createAgencyToken({ token_hash, email_hash, expires_at: Date.now() + 24 * 60 * 60 * 1000 });
+      // 여기에 더해 인증에 성공한 이메일의 **도메인 부분만** 함께 남긴다(F-04, §4.11) — 로컬파트는
+      // 저장하지 않는다(개인정보 최소화: 저장되는 것은 "gwangjin.go.kr" 같은 조직 도메인뿐).
+      // 이 값은 /api/submit이 요약에 실어 음식점 앱까지 전달하며, 사장님이 기관명과 대조한다.
+      // 도메인은 verify-otp를 실제로 통과한 경우에만 생긴다 — pilot 모드처럼 OTP 검증 단계를
+      // 건너뛰는 경로에는 토큰 자체가 없으므로 전달되는 도메인도 없다(null).
+      const email_domain = emailDomainOf(email);
+      await store.createAgencyToken({ token_hash, email_hash, email_domain, expires_at: Date.now() + 24 * 60 * 60 * 1000 });
       return j({ token });
     }
 
@@ -984,8 +1011,10 @@ export function makeD1Store(DB) {
       }));
     },
     async insertSummary(s) {
-      await DB.prepare('INSERT INTO deposit_summary (id,institution,department,restaurant_id,restaurant_name,year_month,total_amount,member_count,batch_hash,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-        .bind(s.id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.batch_hash, s.status, s.created_at).run();
+      // agency_domain: 인증된 기관 이메일의 도메인(로컬파트 없음 — 개인정보 아님, §4.11).
+      // 미인증·구버전 토큰이면 null(컬럼은 2026-08 마이그레이션으로 추가됨).
+      await DB.prepare('INSERT INTO deposit_summary (id,institution,department,restaurant_id,restaurant_name,year_month,total_amount,member_count,batch_hash,status,created_at,agency_domain) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(s.id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.batch_hash, s.status, s.created_at, s.agency_domain != null ? s.agency_domain : null).run();
     },
     async insertBlob(b) {
       await DB.prepare('INSERT INTO encrypted_blob (id,summary_id,restaurant_id,ciphertext,delivered,created_at) VALUES (?,?,?,?,?,?)')
@@ -1010,10 +1039,13 @@ export function makeD1Store(DB) {
       // batch_hash는 응답에 싣지 않는다(오라클 차단, §4.9) — 서버가 가진 값을 그대로 돌려주면
       // 명단을 아는 자가 "이 배치가 맞나"를 서버에 물어볼 수 있는 확인 채널이 된다. 수신 측
       // 검증은 blob 내부(암호문 평문)의 batch_hash로 수행한다.
-      const r = await DB.prepare("SELECT s.id as summary_id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.status, b.ciphertext FROM deposit_summary s JOIN encrypted_blob b ON b.summary_id=s.id WHERE s.restaurant_id=? AND s.status='PENDING' AND s.created_at>? ORDER BY s.created_at").bind(restaurant_id, cutoff).all();
+      // agency_domain은 실어 보낸다(§4.11): 기관명은 담당자 자칭이라 서버가 검증할 수 없고,
+      // 검증 가능한 유일한 단서가 '인증된 이메일 도메인'이므로 음식점 앱이 함께 표시해 대조하게 한다.
+      // 구버전 토큰·마이그레이션 이전 행은 null 그대로 나간다(앱이 "확인 불가"로 표시).
+      const r = await DB.prepare("SELECT s.id as summary_id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.agency_domain, s.created_at, s.status, b.ciphertext FROM deposit_summary s JOIN encrypted_blob b ON b.summary_id=s.id WHERE s.restaurant_id=? AND s.status='PENDING' AND s.created_at>? ORDER BY s.created_at").bind(restaurant_id, cutoff).all();
       return (r.results || []).map(row => ({
         summary_id: row.summary_id,
-        summary: { institution: row.institution, department: row.department, restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, year_month: row.year_month, total_amount: row.total_amount, member_count: row.member_count },
+        summary: { institution: row.institution, department: row.department, restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, year_month: row.year_month, total_amount: row.total_amount, member_count: row.member_count, agency_domain: row.agency_domain != null ? row.agency_domain : null, created_at: row.created_at },
         ciphertext: JSON.parse(row.ciphertext), status: row.status
       }));
     },
@@ -1086,11 +1118,14 @@ export function makeD1Store(DB) {
       await DB.prepare('DELETE FROM agency_otp WHERE email=?').bind(emailHash).run();
     },
     async createAgencyToken(t) {
-      await DB.prepare('INSERT INTO agency_token (token_hash,email,expires_at) VALUES (?,?,?)')
-        .bind(t.token_hash, t.email_hash, t.expires_at).run();
+      // email 컬럼 = 이메일 해시(평문 미저장), email_domain 컬럼 = 도메인 부분만(로컬파트 없음, §4.11).
+      // 도메인은 해시하지 않는다 — 음식점 앱에 사람이 읽는 형태로 전달해야 대조가 가능하고,
+      // 로컬파트가 없으므로 개인을 식별하지 않는다(§0 불변식 유지).
+      await DB.prepare('INSERT INTO agency_token (token_hash,email,expires_at,email_domain) VALUES (?,?,?,?)')
+        .bind(t.token_hash, t.email_hash, t.expires_at, t.email_domain != null ? t.email_domain : null).run();
     },
     async getAgencyToken(token_hash) {
-      return await DB.prepare('SELECT email AS email_hash, expires_at FROM agency_token WHERE token_hash=?').bind(token_hash).first();
+      return await DB.prepare('SELECT email AS email_hash, email_domain, expires_at FROM agency_token WHERE token_hash=?').bind(token_hash).first();
     },
     // ── 열쇠 지문 확인 기록(§4.8) ── 기관+부서+음식점 단위 1행(upsert). 장기 보관(정리 대상 아님).
     async upsertKeycheck(k) {
@@ -1244,7 +1279,8 @@ export function makeMemoryStore() {
       row.contact_email = contact.email;
       return true;
     },
-    async insertSummary(s) { summaries.push(s); },
+    // D1과 동등: agency_domain 미지정(구버전 호출)은 null로 정규화해 저장한다(§4.11).
+    async insertSummary(s) { summaries.push({ ...s, agency_domain: s.agency_domain != null ? s.agency_domain : null }); },
     async insertBlob(b) { blobs.push(b); },
     async insertConsent(c) { consents.push(c); },
     // D1과 동등: 멱등 응답에 실을 status도 함께 반환.
@@ -1267,8 +1303,8 @@ export function makeMemoryStore() {
         if (s.restaurant_id !== restaurant_id || s.status !== 'PENDING' || !(s.created_at > cutoff)) continue;
         const b = blobs.find(x => x.summary_id === s.id);
         if (!b) continue; // D1의 JOIN과 동일 — blob이 없으면 제외
-        // D1과 동일하게 batch_hash는 응답에서 제외한다(오라클 차단, §4.9).
-        out.push({ summary_id: s.id, summary: { institution: s.institution, department: s.department, restaurant_id: s.restaurant_id, restaurant_name: s.restaurant_name, year_month: s.year_month, total_amount: s.total_amount, member_count: s.member_count }, ciphertext: JSON.parse(b.ciphertext), status: s.status });
+        // D1과 동일하게 batch_hash는 응답에서 제외하고(오라클 차단, §4.9), agency_domain은 포함한다(§4.11).
+        out.push({ summary_id: s.id, summary: { institution: s.institution, department: s.department, restaurant_id: s.restaurant_id, restaurant_name: s.restaurant_name, year_month: s.year_month, total_amount: s.total_amount, member_count: s.member_count, agency_domain: s.agency_domain != null ? s.agency_domain : null, created_at: s.created_at }, ciphertext: JSON.parse(b.ciphertext), status: s.status });
       }
       return out;
     },
@@ -1317,7 +1353,8 @@ export function makeMemoryStore() {
     async upsertAgencyOtp(o) { agencyOtps.set(o.email_hash, o); },
     async incrementAgencyOtpAttempts(emailHash) { const o = agencyOtps.get(emailHash); if (o) o.attempts++; },
     async deleteAgencyOtp(emailHash) { agencyOtps.delete(emailHash); },
-    async createAgencyToken(t) { agencyTokens.set(t.token_hash, t); },
+    // D1과 동등: email_domain 미지정(구버전 토큰)은 null로 정규화(§4.11 — 하위호환 경로).
+    async createAgencyToken(t) { agencyTokens.set(t.token_hash, { ...t, email_domain: t.email_domain != null ? t.email_domain : null }); },
     async getAgencyToken(token_hash) { return agencyTokens.get(token_hash) || null; },
     // ── 열쇠 지문 확인 기록(§4.8) — D1의 PRIMARY KEY(institution,department,restaurant_id)와 동등 ──
     async upsertKeycheck(k) {

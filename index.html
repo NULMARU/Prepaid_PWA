@@ -528,7 +528,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.32',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.33',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -999,7 +999,7 @@ try{location.href=href}catch(e){console.error('sms nav',e)}
 toast('문자 앱이 열리면 보내기를 눌러 주세요.');
 }
 // ── 금액 대조(reconcile) ──────────────────────────────────────────────────────
-// 예전 대조식은 (입금+조정+취소) === (사용 + 잔액합)이었다. 그런데 '잔액합'은 바로 그 거래 목록을
+// 예전 대조식은 (선금등록·충전+조정+취소) === (사용 + 잔액합)이었다. 그런데 '잔액합'은 바로 그 거래 목록을
 //   같은 규칙으로 다시 더한 값이다 — 좌변과 우변이 같은 계산의 이항일 뿐인 **항등식**이라
 //   언제나 참이었다(유형 변조·꼬리 삭제·가짜 충전 삽입 어느 것도 잡지 못함, recon.mjs로 실증).
 // 이제 대조 상대는 거래가 **스스로 적어 둔 전후 잔액**이다. 두 가지를 전건 검사한다.
@@ -1058,7 +1058,7 @@ async function batchHashOf(items){return hash(items.map(i=>i.name+'|'+i.dept+'|'
 // 서버 응답에서 batch_hash가 사라졌다(§4.9 오라클 차단 — 서버가 가진 확인값을 그대로 돌려주면
 //   명단을 아는 자가 "이 배치가 맞나"를 서버에 물어보는 채널이 된다). 그래서 확인값은
 //   ① 암호문 **안**(blob 평문)의 batch_hash → ② 파일·구서버가 밖에 실어 준 batch_hash 순으로 쓴다.
-// ③ 총액·인원 대조는 **언제나** 한다. 승인 확인창에 뜬 "총액 N원 · M명"은 사장님이 통장과 맞춰 본
+// ③ 총액·인원 대조는 **언제나** 한다. 승인 확인창에 뜬 "받으실 금액 N원 · M명"은 사장님이 결제 내역과 맞춰 본
 //   바로 그 숫자다 — 그 숫자와 실제 암호문 내용이 어긋나면 등록을 막아야 한다(서버가 요약만
 //   바꿔치기해 사장님을 속이는 경로를 여기서 끊는다).
 async function verifyBatchAgainstSummary(plain,summary,outerHash,requireHash){
@@ -1200,9 +1200,10 @@ async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결
 async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}setBusy('신청을 불러오는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid),{headers:{'X-Auth-Token':authToken}});const items=await r.json();clearBusy();if(r.status===401){toast('가게 확인에 실패했어요. 설정에서 우리 가게 등록 상태를 확인해 주세요.');return}if(!Array.isArray(items))throw new Error(items.error||'수신 오류');state.inboxCount=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
 // 처리 도중 뒤로가기(popstate)로 모달이 닫혀도 TypeError 없이 끝나도록 진입 시 모달을 지역 변수로 캡처한다(A6).
 async function relayReject(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)} 신청을 거절할까요? (열어보지 않고 폐기)`))return;setBusy('처리 중입니다.');try{const authToken=await relayAuthToken();await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'REJECTED',restaurant_id:rid,auth_token:authToken})});if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);state.inboxCount=modal.items.length}clearBusy();render();refreshInboxCount();toast('거절했습니다.')}catch(e){console.error(e);clearBusy();toast('처리 오류: '+(e.message||''))}}
-// beta.32: 확인창을 "입금 대조" 중심으로 재편(사용자 원칙 — 최종 방어선은 통장). 먼저 열어 본 뒤
-//   입금자명·총액·이름 단위 반영 내역(충전은 잔액 변화)·중복 여부까지 한 창에서 보여주고 승인받는다.
-//   부서 하나를 여러 팀·개인이 나눠 입금하는 현장이 흔해, "기존 충전 N명" 요약만으로는 동명이인
+// beta.33: 확인창을 "결제 대조" 중심으로 재편(사용자 원칙 — 최종 방어선은 사장님이 확인한 결제 내역).
+//   결제 수단은 카드가 대부분이고 계좌이체도 있어, 통장만 요구하면 카드 건의 근거를 못 찾는다.
+//   먼저 열어 본 뒤 금액·기관·결제자·인증 도메인·전송 시각·이름 단위 반영 내역·중복 여부를 한 창에서 보여준다.
+//   부서 하나를 여러 팀·개인이 나눠 결제하는 현장이 흔해, "기존 충전 N명" 요약만으로는 동명이인
 //   합쳐짐·이중 등록을 사장님이 알아챌 수 없었다.
 async function relayApprove(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;if(!item.ciphertext){toast('암호문이 없습니다.');return}setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const chk=await verifyBatchAgainstSummary(plain,item.summary,item.summary&&item.summary.batch_hash,false);if(!chk.ok){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+chk.detail+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);
 const bh=str(chk.hash)||await batchHashOf(plain.items);
@@ -1210,11 +1211,11 @@ const groupDept=combinedDeptLabel(item.summary.institution,item.summary.departme
 const activeByKey=activeEmployeeIndex();
 const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));return{it,rec,amt:num(it.amount),exist,before:exist?balanceOf(exist.id):0}});
 clearBusy();
-if(!window.confirm(batchReviewText({label:groupDept,ym:str(item.summary.year_month),direct:false,payers:batchPayers(plain.items),total:num(item.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(bh)}))){render();return}
+if(!window.confirm(batchReviewText({label:groupDept,ym:str(item.summary.year_month),direct:false,payers:batchPayers(plain.items),payMethod:batchPayMethod(plain.items),domain:item.summary.agency_domain,sentAt:batchSentAt(item,item.summary),total:num(item.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(bh)}))){render();return}
 setBusy('장부에 올리는 중입니다.');
 const t=now(),ym=str(item.summary.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);let topupCount=0;const patchedIds=new Set();
 for(const p of plan){/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
-const txNote=noteLabel+(str(p.it.payer)?' · 입금 '+str(p.it.payer):'');
+const txNote=noteLabel+(str(p.it.payer)?' · 결제 '+str(p.it.payer):'');
 publicOrgPatchesForLabel(p.rec,patchedIds).forEach(pt=>patches.push(pt));
 if(p.exist){topupCount++;if(p.amt>0){const before=balanceOf(p.exist.id);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'공공기관 신청 승인 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
 const eid=uid();emps.push({id:eid,org:p.rec.org,orgKind:'public',dept:p.rec.dept,name:p.rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
@@ -1225,30 +1226,54 @@ await repo.apply({employees:emps.concat(patches),transactions:txs});emps.forEach
 function directTransferBatchHashes(){return Array.isArray(state.data.meta.receivedBatchHashes)?state.data.meta.receivedBatchHashes:[]}
 async function markDirectTransferBatch(bh){if(!bh)return;const list=directTransferBatchHashes();if(list.includes(bh))return;const next=[...list,bh].slice(-300);state.data.meta.receivedBatchHashes=next;await repo.apply({meta:{receivedBatchHashes:next}})}
 // ── 받은 명단 기록(beta.32) — 서버 승인·직접 전달 **공통** ──────────────────────
-// 원칙(사용자 확정): 중복의 최종 판별자는 앱이 아니라 **사장님의 통장**이다 — "실제 입금 1건 ↔ 명단 1건".
-//   그래서 같은 명단이 다시 오면 앱은 막지 않고, "언제 이미 올렸는지"를 보여주며 입금을 한 번 더
-//   확인하게 한다(팀·개인별로 같은 내용의 입금이 진짜 두 번 있을 수 있다 — 하드 차단은 오답).
+// 원칙(사용자 확정): 중복의 최종 판별자는 앱이 아니라 **사장님이 실제로 받은 결제**다 — "결제 1건 ↔ 명단 1건".
+//   그래서 같은 명단이 다시 오면 앱은 막지 않고, "언제 이미 올렸는지"를 보여주며 결제를 한 번 더
+//   확인하게 한다(팀·개인별로 같은 내용의 결제가 진짜 두 번 있을 수 있다 — 하드 차단은 오답).
 //   예전 직접 전달의 무조건 차단은 "다음 달 동일 명단(같은 이름·금액)"까지 막던 결함이기도 했다.
 //   기록은 시각을 함께 남기고({h,at}), 구 키(receivedBatchHashes)도 병행 유지한다(다운그레이드 호환).
 function receivedBatchLog(){const v=state.data.meta.receivedBatchLog;return Array.isArray(v)?v:[]}
 // 이 명단을 이미 올린 시각. 0=처음 보는 명단, 1=이전 버전에서 올림(시각 기록 없음), 그 외=epoch ms.
 function receivedBatchAt(bh){if(!bh)return 0;const row=receivedBatchLog().find(x=>x&&x.h===bh);if(row)return num(row.at)||1;return directTransferBatchHashes().includes(bh)?1:0}
 async function markBatchReceived(bh){if(!bh)return;const list=receivedBatchLog().filter(x=>x&&x.h!==bh);const next=[...list,{h:bh,at:now()}].slice(-300);state.data.meta.receivedBatchLog=next;await repo.apply({meta:{receivedBatchLog:next}});await markDirectTransferBatch(bh)}
-// 명단에 실려 온 입금자명(담당자 웹 CSV '입금자명' 열, items[].payer — 선택 필드) 목록.
+// 명단에 실려 온 결제자·입금자명(담당자 웹 CSV '입금자명' 열, items[].payer — 선택 필드) 목록.
+//   카드결제면 비어 있는 것이 정상이다(전표에 개인 이름이 남지 않는 경우가 많다).
 function batchPayers(items){return [...new Set((items||[]).map(it=>str(it&&it.payer)).filter(Boolean))]}
-// 승인·직접 전달 공용 검토 확인창 본문. 사장님이 통장과 대조할 것(입금자명·총액)을 맨 위에,
-//   이름 단위 반영 내역(충전은 잔액 변화까지)을 그 아래에, 중복 경고는 그 다음에 배치한다.
+// 결제구분(담당자 웹 CSV '결제구분' 선택 열, items[].payMethod — 선택 필드). 값은 '카드'·'계좌이체'.
+//   batch_hash canonical(name|dept|amount)에는 들어가지 않는다 — 없어도(구버전 명단) 안전해야 한다.
+//   한 명단 안에서 값이 섞여 있거나 비어 있으면 ''(=둘 다 병기)로 본다.
+function batchPayMethod(items){const set=new Set((items||[]).map(it=>str(it&&it.payMethod)));if(set.size!==1)return '';const v=[...set][0];return (v==='카드'||v==='계좌이체')?v:''}
+// 명단이 전송된 시각(사장님이 그 날짜 매출전표·통장 내역에서 결제 건을 찾을 수 있게 한다).
+//   서버 계약상 있을 수도, 없을 수도 있는 값이라 후보 키를 넓게 받고 초 단위도 ms로 맞춘다. 없으면 0.
+function batchSentAt(){for(const src of arguments){if(!src||typeof src!=='object')continue;for(const k of ['sent_at','created_at','submitted_at','createdAt','exported_at','exportedAt']){const n=num(src[k]);if(n>0)return n<1e11?n*1000:n}}return 0}
+// 인증 도메인(서버가 담당자 이메일 OTP 토큰에서만 읽어 기록하는 값 — /api/inbox summary.agency_domain).
+//   기관명은 담당자가 자유 입력하는 자칭 값이라 사칭이 가능하다. null=구버전 토큰·직접 전달 = "확인 불가".
+function domainLine(domain){const d=str(domain);return `인증 도메인: ${d||'확인 불가(직접 전달 등)'}`}
+// 승인·직접 전달 공용 검토 확인창 본문. 사장님이 결제 내역과 대조할 것(금액·기관·결제자)을 맨 위 3줄에,
+//   그 아래 인증 도메인·전송 시각, 이름 단위 반영 내역(충전은 잔액 변화까지), 중복 경고, 확정 문장 순으로 놓는다.
+// 표현은 중립("결제(카드·계좌이체)")으로 통일한다 — 담당자는 명단 하나로 여러 가게에 보내지만 돈은
+//   가게마다 따로 결제하며, 그 수단은 카드가 대부분이다. "통장 입금"만을 확인 수단으로 요구하면
+//   카드 정산금(합산·수수료 차감·며칠 뒤 입금) 때문에 사장님이 승인 근거를 영원히 못 찾는다.
 function batchReviewText(o){
 const L=[];
-L.push(o.label+(o.ym?` (${o.ym})`:'')+(o.direct?' · 직접 전달':''));
-L.push(`입금자명: ${o.payers.length?o.payers.slice(0,3).join(', ')+(o.payers.length>3?` 외 ${o.payers.length-3}명`:''):'(명단에 없음)'}`);
-L.push(`입금 확인 금액: ${money(o.total)} · ${o.count}명`);
+const pm=str(o.payMethod);
+L.push(`받으실 금액 ${money(o.total)} · ${o.count}명`);
+L.push(`기관·부서: ${o.label}${o.ym?` (${o.ym})`:''}${o.direct?' · 직접 전달':''}`);
+const payerHint=pm==='카드'?'(카드결제)':pm==='계좌이체'?'(계좌이체)':'(계좌이체 시)';
+L.push(`결제자·입금자명: ${o.payers.length?o.payers.slice(0,3).join(', ')+(o.payers.length>3?` 외 ${o.payers.length-3}명`:''):'(명단에 없음 — 카드결제면 비어 있을 수 있어요)'} ${payerHint}`);
+L.push(domainLine(o.domain));
+L.push('기관명은 담당자가 직접 적는 값이라, 인증된 이메일 도메인과 함께 보고 판단하세요.');
+L.push(`명단 전송 시각: ${o.sentAt?dt(o.sentAt):'확인 불가'}`);
+if(pm)L.push(`결제 방식: ${pm==='카드'?'카드결제':'계좌이체'} (명단에 표기됨)`);
 const tops=o.plan.filter(p=>p.exist),news=o.plan.filter(p=>!p.exist);
 if(tops.length){L.push('');L.push(`이미 있는 직원 충전 ${tops.length}명 — 잔액에 더해져요`);tops.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.before)} → ${money(p.before+p.amt)}`));if(tops.length>8)L.push(`· 외 ${tops.length-8}명`)}
 if(news.length){L.push('');L.push(`새 직원 등록 ${news.length}명`);news.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.amt)}`));if(news.length>8)L.push(`· 외 ${news.length-8}명`)}
-if(o.dupAt){L.push('');L.push(`⚠️ 이 명단은 ${o.dupAt>1?dt(o.dupAt):'이전'}에 이미 장부에 올린 명단과 이름·금액까지 완전히 같아요.`);L.push('같은 입금 건을 두 번 올리는 실수일 수 있어요. 이 총액이 통장에 별도로 한 번 더 입금된 경우에만 계속하세요.')}
+if(o.dupAt){L.push('');L.push(`⚠️ 이 명단은 ${o.dupAt>1?dt(o.dupAt):'이전'}에 이미 장부에 올린 명단과 이름·금액까지 완전히 같아요.`);L.push('같은 결제 건을 두 번 올리는 실수일 수 있어요. 이 총액을 별도로 한 번 더 받으신 경우에만(카드 전표·입금 내역 확인) 계속하세요.')}
 L.push('');
-L.push(`통장에서 위 금액 ${money(o.total)}이 실제 입금됐는지(입금자명까지) 확인하셨으면 [확인]을 누르세요.`);
+// 결제구분이 실려 오면 그 수단에 맞는 확인처만 안내하고, 없으면 둘 다 병기한다.
+const where=pm==='카드'?'(카드 매출전표·POS 정산 내역)':pm==='계좌이체'?'(통장 입금 내역)':'(카드결제면 매출전표·POS 정산 내역, 계좌이체면 통장 입금 내역)';
+L.push(`위 금액 ${money(o.total)}을 실제로 받으셨는지 확인하셨으면 [확인]을 누르세요. ${where}`);
+// 출구 안내 — 아직 결제를 못 받았으면 취소가 정답이다(취소해도 서버 신청은 PENDING 그대로 남는다).
+L.push(o.direct?'아직 결제를 못 받으셨으면 [취소] — 받은 파일(또는 QR)로 나중에 다시 열 수 있어요.':'아직 결제를 못 받으셨으면 [취소] — 신청은 그대로 남아 나중에 다시 열 수 있어요(3일 이내).');
 return L.join('\n')}
 async function processDirectTransfer(parsed){
 if(!parsed||typeof parsed!=='object'||parsed.type!=='direct-transfer'||!parsed.ciphertext||!parsed.summary){toast('이 파일(또는 QR 코드)은 선입금대장 전달 형식이 아닙니다.');return}
@@ -1257,7 +1282,7 @@ if(!rid){toast('먼저 우리 가게를 등록하세요.');return}
 if(str(parsed.restaurant_id)!==rid){window.alert('이 파일은 다른 가게용입니다.\n우리 가게 앞으로 온 전달인지 담당자에게 확인해 주세요.');return}
 const batchHash=str(parsed.summary.batch_hash);
 // beta.32: 중복은 하드 차단하지 않는다 — "언제 이미 올렸는지"를 검토 확인창에 실어 사장님이
-//   통장(실제 입금 1건 ↔ 명단 1건)으로 판정한다. 무조건 차단은 다음 달 동일 명단(같은 이름·금액)까지 막았다.
+//   실제 받은 결제(결제 1건 ↔ 명단 1건)로 판정한다. 무조건 차단은 다음 달 동일 명단(같은 이름·금액)까지 막았다.
 setBusy('열어보는 중입니다.');
 try{
 const plain=await decryptBlob(parsed.ciphertext);
@@ -1270,14 +1295,14 @@ const groupDept=combinedDeptLabel(parsed.institution,parsed.department);
 const activeByKey=activeEmployeeIndex();
 const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(parsed.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));return{it,rec,amt:num(it.amount),exist,before:exist?balanceOf(exist.id):0}});
 clearBusy();
-if(!window.confirm(batchReviewText({label:groupDept,ym:str(parsed.year_month),direct:true,payers:batchPayers(plain.items),total:num(parsed.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(batchHash)}))){render();return}
+if(!window.confirm(batchReviewText({label:groupDept,ym:str(parsed.year_month),direct:true,payers:batchPayers(plain.items),payMethod:batchPayMethod(plain.items),domain:parsed.summary.agency_domain,sentAt:batchSentAt(parsed,parsed.summary),total:num(parsed.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(batchHash)}))){render();return}
 setBusy('장부에 올리는 중입니다.');
 const t=now(),ym=str(parsed.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];
 const noteLabel=str(parsed.institution)+' '+str(parsed.department);
 let topupCount=0;const patchedIds=new Set();
 for(const p of plan){
 /* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
-const txNote=noteLabel+(str(p.it.payer)?' · 입금 '+str(p.it.payer):'');
+const txNote=noteLabel+(str(p.it.payer)?' · 결제 '+str(p.it.payer):'');
 // 승인과 동일: 같은 결합 라벨을 쓰는 활성 직원 전체를 함께 백필한다(명단에 빠진 동료가 다른 그룹으로 갈라지지 않게).
 publicOrgPatchesForLabel(p.rec,patchedIds).forEach(pt=>patches.push(pt));
 if(p.exist){topupCount++;if(p.amt>0){const before=balanceOf(p.exist.id);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'직접 전달 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
@@ -1846,7 +1871,7 @@ return '<div class="setup"><div class="setup-welcome">'
 +'<div>② 담당자(서무)가 <b>직원 명단</b>을 보내면 앱이 장부에 올려 드려요.</div>'
 +'<div>③ 손님이 밥을 먹으면 <b>서명 한 번</b>으로 잔액이 줄어요 — 종이 장부는 필요 없어요.</div>'
 +'</div>'
-+'<div class="setup-welcome-safe">이 앱은 돈을 받거나 보내지 않아요 — 선금은 가게 은행 계좌로 직접 입금돼요.</div>'
++'<div class="setup-welcome-safe">이 앱은 돈을 받거나 보내지 않아요 — 선금 결제(카드·계좌이체)는 기관과 우리 가게가 앱 밖에서 직접 해요.</div>'
 +'<div class="setup-welcome-free">완전 무료예요 · 광고도 없어요</div>'
 +'</div>'
 +'<button class="btn-primary" data-a="setup-welcome-start" style="width:100%;min-height:60px;font-size:18px;font-weight:800;margin-top:18px">시작하기</button>'
@@ -2156,7 +2181,7 @@ const sigBtn=preSign?'':'<button class="btn" data-a="clear-sign">서명 지우�
 return `<div class="modal-back"><div class="modal"><h2>사용 등록</h2><p class="help">${preAmount>0?'손님이 보낸 요청이에요. 금액과 서명을 확인한 뒤 저장하세요 (금액을 고치면 서명을 다시 받습니다).':'금액을 입력한 뒤 서명을 받고 저장하세요.'}</p>${resignWarn}<div class="receipt"><div class="receipt-row"><span>직원</span><strong>${esc(e.name)}</strong></div><div class="receipt-row"><span>소속·부서</span><strong>${esc(orgDeptLabel(e)||'부서 없음')}</strong></div><div class="receipt-row"><span>현재 잔액</span><strong style="font-size:24px;color:var(--primary)">${money(e.balance)}</strong></div>${reqNote}</div><div class="form"><div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-use" data-amount="9000">9,000원</button><button data-a="fill-use" data-amount="18000">18,000원</button><button data-a="fill-use" data-amount="27000">27,000원</button></div></div>${field('useAmount','사용 금액',amtVal,'금액을 입력하세요','number','data-modal-focus')}${field('useNote','비고 (점심/저녁/특식 등)',noteVal,'선택 입력')}${smsBox}${sigField}</div><div class="modal-actions">${sigBtn}<button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-use">서명 후 저장</button></div></div></div>`}
 if(state.modal.type==='signature'){const t=state.data.transactions.find(v=>v.id===state.modal.id);if(!t)return '';const sigSrc=sigD(t.signatureData);if(!sigSrc)return '';const e=state.data.employees.find(v=>v.id===t.employeeId);return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>서명 확인</h2><p class="help">${esc(e?e.name:'알 수 없음')} · ${dt(t.createdAt)} · ${money(t.amount)}</p><img src="${esc(sigSrc)}" style="max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff" alt="서명"><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 if(state.modal.type==='store-search'){const results=state.modal.results||[];const emptyMsg=state.modal.regionFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':'검색 결과가 없습니다. 가게 이름을 바꿔보세요.';const list=results.length?results.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">${esc(x.name)}</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.address||'')}</div></div><button class="btn-primary small" data-a="relay-pick-store" data-id="${esc(x.restaurant_id)}" data-name="${esc(x.name)}" data-addr="${esc(x.address||'')}" style="flex-shrink:0">이 가게</button></div>`).join(''):(state.modal.searched?`<div class="empty">${esc(emptyMsg)}</div>`:'');return `<div class="modal-back"><div class="modal"><h2>우리 가게 찾기</h2><p class="help">가게 이름으로 검색해 우리 가게를 선택하세요. 한 번만 등록하면 됩니다.</p><div class="form"><div class="field"><label>가게 이름</label><input id="storeName" placeholder="예: 정식김밥" value="${esc(state.modal.q||'')}"></div><div class="field"><label>지역(선택) — 예: 광진구 구의동</label><input id="storeRegion" placeholder="예: 광진구 구의동" value="${esc(state.modal.region||'')}"></div></div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button><button class="btn-primary" data-a="relay-search-stores">${state.modal.searching?'검색 중…':'검색'}</button></div>${list?`<div style="margin-top:12px">${list}</div>`:''}</div></div>`}
-if(state.modal.type==='inbox'){const items=state.modal.items||[];const body=items.length?items.map(it=>`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px"><div style="font-weight:700">${esc(combinedDeptLabel(it.summary.institution,it.summary.department))}</div><div class="meta">${esc(it.summary.restaurant_name||'')} · ${esc(it.summary.year_month||'')}</div><div style="margin:6px 0">총액 <b>${money(it.summary.total_amount)}</b> · ${num(it.summary.member_count)}명 <span class="meta">(승인 전에는 이름이 보이지 않습니다)</span></div><div style="display:flex;gap:8px"><button class="btn-primary" data-a="relay-approve" data-sid="${esc(it.summary_id)}">통장 확인 후 승인</button><button class="btn-danger" data-a="relay-reject" data-sid="${esc(it.summary_id)}">거절</button></div></div>`).join(''):'<div class="empty">대기 중인 신청이 없습니다.<br>공공기관에서 신청을 보내면 여기에 나타나요.</div>';return `<div class="modal-back"><div class="modal"><h2>공공기관 명단 신청 수신함</h2><p class="help">통장에서 입금자명·금액을 대조한 뒤 승인하세요. 승인 시에만 명단이 열립니다.</p>${body}<div class="modal-actions"><button class="btn" data-a="relay-inbox">새로고침</button><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
+if(state.modal.type==='inbox'){const items=state.modal.items||[];const body=items.length?items.map(it=>{const sentAt=batchSentAt(it,it.summary);return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px"><div style="font-weight:700">${esc(combinedDeptLabel(it.summary.institution,it.summary.department))}</div><div class="meta">${esc(it.summary.restaurant_name||'')} · ${esc(it.summary.year_month||'')}</div><div class="meta">${esc(domainLine(it.summary.agency_domain))}${sentAt?' · 명단 전송 '+esc(dt(sentAt)):''}</div><div style="margin:6px 0">총액 <b>${money(it.summary.total_amount)}</b> · ${num(it.summary.member_count)}명 <span class="meta">(승인 전에는 이름이 보이지 않습니다)</span></div><div style="display:flex;gap:8px"><button class="btn-primary" data-a="relay-approve" data-sid="${esc(it.summary_id)}">결제 확인 후 승인</button><button class="btn-danger" data-a="relay-reject" data-sid="${esc(it.summary_id)}">거절</button></div></div>`}).join(''):'<div class="empty">대기 중인 신청이 없습니다.<br>공공기관에서 신청을 보내면 여기에 나타나요.</div>';return `<div class="modal-back"><div class="modal"><h2>공공기관 명단 신청 수신함</h2><p class="help">결제 내역(카드 매출전표·통장 입금)과 금액을 대조한 뒤 승인하세요. 승인 시에만 명단이 열립니다.<br>기관명은 담당자가 직접 적는 값이라, 인증된 이메일 도메인과 함께 보고 판단하세요.</p>${body}<div class="modal-actions"><button class="btn" data-a="relay-inbox">새로고침</button><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 if(state.modal.type==='qr-scan'){return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>QR(사각 코드)로 받기</h2><p class="help">담당자가 보여주는 QR(사각 코드)를 카메라로 비춰주세요. 서버를 거치지 않고 바로 등록돼요.</p><video id="qrVideo" autoplay playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover"></video><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button></div></div></div>`}
 if(state.modal.type==='csv'){const rows=state.modal.rows||[];const dupWarn=state.modal.dupWarn||0;const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''} — 등록 가능</div>`;const hasOrg=rows.some(r=>str(r.org));const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th>${hasOrg?'<th>소속</th>':''}<th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td>${hasOrg?`<td>${esc(r.org||'')}</td>`:''}<td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error?esc(r.error):(r.mode==='topup'?'🔄 추가 충전':'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>엑셀 명단(CSV) 불러오기</h2><p class="help">엑셀에서 저장한 CSV 파일을 불러와요. 첫 줄(제목 줄)에 부서, 이름, 금액 칸이 있어야 해요. <b>소속</b> 칸이 있으면 함께 읽어요(선택).<br>이미 등록된 직원은 금액이 추가로 충전돼요.</p>${sm}${dupWarn?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">⚠️ 동명이인 ${dupWarn}건 감지 — 구분 마커(·2, ·3 …)를 자동 부여했습니다. 표에서 확인하세요.</div>`:''}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">등록하기</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
 if(state.modal.type==='receipt'){return receiptCardHtml(d)}
@@ -2906,7 +2931,7 @@ function verifyResultHtml(){const v=state.verifyResult;if(!v)return '';const okA
 const chainLine=v.chain.broken.length?('❌ '+v.chain.broken.length+'건 이상'):(v.chain.legacy?'⚠️ 구 형식 — 재검증 불가':'✅ 정상');
 const brokenList=v.chain.broken.length?`<div class="meta" style="color:var(--danger)">${esc(v.chain.broken.slice(0,5).map(b=>b.id+' — '+b.reason).join(' / '))}</div>`:'';
 const recList=(v.reconcileIssues&&v.reconcileIssues.length)?`<div class="meta" style="color:var(--danger)">${esc(v.reconcileIssues.slice(0,5).join(' / '))}</div>`:'';
-const detail=`<div class="meta">해시 체인: ${chainLine} (검증 ${v.chain.checked}건${v.chain.legacy?', 구 형식 '+v.chain.legacy+'건':''})</div>${brokenList}<div class="meta">입금합계(선금/충전): ${money(v.deposits)}</div><div class="meta">조정합계: ${money(v.adjustments)} · 취소환급: ${money(v.voids)}</div><div class="meta">사용합계: ${money(v.uses)} · 잔액합계: ${money(v.balanceSum)}</div><div class="meta" style="font-weight:700;color:${v.reconcile?'var(--success)':'var(--danger)'}">대조: ${v.reconcile?'✅ 일치':'❌ 불일치'}</div>${recList}`;return `<div class="stack" style="margin-top:10px"><div class="meta" style="font-weight:700;font-size:14px;color:${okAll?'var(--success)':'var(--danger)'}">${simple}</div><details><summary style="cursor:pointer;font-size:12px;color:var(--muted)">기술 상세 (해시체인·합계 검증)</summary><div class="stack" style="margin-top:6px">${detail}</div></details></div>`}
+const detail=`<div class="meta">해시 체인: ${chainLine} (검증 ${v.chain.checked}건${v.chain.legacy?', 구 형식 '+v.chain.legacy+'건':''})</div>${brokenList}<div class="meta">선금 합계(등록/충전): ${money(v.deposits)}</div><div class="meta">조정합계: ${money(v.adjustments)} · 취소환급: ${money(v.voids)}</div><div class="meta">사용합계: ${money(v.uses)} · 잔액합계: ${money(v.balanceSum)}</div><div class="meta" style="font-weight:700;color:${v.reconcile?'var(--success)':'var(--danger)'}">대조: ${v.reconcile?'✅ 일치':'❌ 불일치'}</div>${recList}`;return `<div class="stack" style="margin-top:10px"><div class="meta" style="font-weight:700;font-size:14px;color:${okAll?'var(--success)':'var(--danger)'}">${simple}</div><details><summary style="cursor:pointer;font-size:12px;color:var(--muted)">기술 상세 (해시체인·합계 검증)</summary><div class="stack" style="margin-top:6px">${detail}</div></details></div>`}
 
 // ── 설정 카드 접기(beta.27) ──────────────────────────────────────────────
 // 설정 화면은 폰에서 7화면 스크롤이었다. 매일 쓰는 카드만 펼쳐 두고 나머지는 접는다.
@@ -2936,7 +2961,7 @@ const deptTags=depts.map((v,i)=>`<span class="dept-tag">${esc(v)}<button data-a=
 const shopExtra=[state.data.meta.shopAddr?`주소: ${esc(state.data.meta.shopAddr)}`:'',state.data.meta.shopTel?`전화: ${esc(state.data.meta.shopTel)}`:''].filter(Boolean).map(v=>`<div class="meta">${v}</div>`).join('');
 // ── 그룹 1(맨 위): 직원 선금대장 등록 = [자동 등록](공공기관 명단 받기) + [수동 등록](직접 입력) ──
 // 돈에 대한 오해를 막는 고정 문구 — 이 앱은 자금을 수수·보관하지 않는다(절대 불변식 1).
-const moneyNotice=`<div class="notice-money">선금(돈)은 앱이 아니라 <b>가게 은행 계좌로 따로 입금</b>돼요. 앱이 받는 것은 암호화된 <b>직원 명단</b>뿐이에요.</div>`;
+const moneyNotice=`<div class="notice-money">선금(돈)은 앱이 아니라 <b>앱 밖에서 따로 결제(카드·계좌이체)</b>돼요. 앱이 받는 것은 암호화된 <b>직원 명단</b>뿐이에요.</div>`;
 const inboxN=num(state.inboxCount);
 const inboxBadge=(relayRegistered()&&inboxN>0)?`<span class="badge-count">${inboxN}</span>`:'';
 // 관할 지역(district) — 담당자 웹의 '관할 음식점' 목록은 이 값에만 의존한다. 비면 목록에 아예 뜨지 않는다.
@@ -3060,7 +3085,7 @@ ${webauthnCardHtml()}`)
 </div>`;
 // ── 그룹 4(맨 아래): 앱 정보·법적 안내 ──
 const infoGroup=foldCard('info','앱 정보',`v${APP_VERSION} · 저장 위치: 이 기기 · 약관·개인정보처리방침`,`<div class="stack"><div class="meta">저장 위치: 이 기기</div><div class="meta">마지막 백업: ${esc(state.data.meta.lastBackupAt?dt(state.data.meta.lastBackupAt):'없음')}</div><div class="meta">직원 수: ${d.active.length}명 (숨김 포함 ${d.employees.length}명)</div><div class="meta">거래 수: ${state.data.transactions.length}건</div><div class="meta">앱 버전: v${APP_VERSION}</div>
-<div class="meta" style="line-height:1.6">이 앱은 결제·이체·정산 기능이 없으며 자금을 보관하지 않습니다. 선금은 공공기관·회사 등과 음식점 간 직접 거래이며, 이 앱은 장부 기록 도구입니다. 선금 기록은 등록된 해당 음식점 1곳에서만 사용됩니다. 장부 데이터는 이 기기에 저장되며, 클라우드 백업은 암호화되어 서버도 내용을 볼 수 없습니다. 선입금의 발행·차감·잔액 관리의 주체와 책임은 각 음식점에 있습니다.</div>
+<div class="meta" style="line-height:1.6">이 앱에는 결제·정산 기능이 없고, 운영자는 자금을 받거나 보관하지 않습니다. 선금 결제(카드·계좌이체)는 기관과 음식점이 앱 밖에서 직접 진행하며, 이 앱은 장부 기록 도구입니다. 선금 기록은 등록된 해당 음식점 1곳에서만 사용됩니다. 장부 데이터는 이 기기에 저장되며, 클라우드 백업은 암호화되어 서버도 내용을 볼 수 없습니다. 선입금의 발행·차감·잔액 관리의 주체와 책임은 각 음식점에 있습니다.</div>
 <div class="meta">데이터 출처: 음식점 검색 — 행정안전부 LOCALDATA 공공데이터</div>
 <div class="meta" style="margin-top:8px">본 서비스는 무상으로 제공되며, 백업하지 않은 데이터의 복구와 서비스 중단·오류로 인한 손해를 보장하지 않습니다. 자세한 내용은 이용약관 제6조를 확인해 주세요.</div>
 <div class="meta" style="font-size:11px">관련 문서: <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> · <a href="https://app.bapjangbu.com/docs/terms.html" target="_blank" rel="noopener">이용약관</a></div>

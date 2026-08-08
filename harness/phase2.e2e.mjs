@@ -524,6 +524,114 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
   r = await call(store, env, 'POST', '/api/submit', { summary: { restaurant_id: 'MGT-0007', total_amount: 100, member_count: 1, batch_hash: 'h-agency-off' }, blob: { ciphertext: badCipher } });
   ok(r.status === 200, 'submit: REQUIRE_AGENCY_AUTH=0(기본값)이면 토큰 없이도 여전히 통과');
 
+  // ── 15c) 인증 도메인 전달(F-04, PROTOCOL §4.11) ──
+  // 기관명(institution)은 담당자 자칭이라 서버가 검증할 수 없다. 검증 가능한 것은 '어느 도메인
+  // 메일로 OTP 인증을 통과했는가'뿐이므로, 그 도메인을 요약에 실어 음식점 앱까지 전달해
+  // 사장님이 눈으로 대조하게 한다. 로컬파트(사람 식별부)는 어디에도 저장되지 않는다.
+  const agencyTokenFor = async (email) => {
+    const q = await call(store, env, 'POST', '/api/agency/request-otp', { email });
+    const qj = await q.json();
+    const v = await call(store, env, 'POST', '/api/agency/verify-otp', { email, otp: qj.dev_otp });
+    return (await v.json()).token;
+  };
+  const EMAIL_GU = 'somu-alpha@gwangjin.go.kr';   // 구청 담당자(정상 케이스)
+  const EMAIL_AC = 'kyomu-beta@univ.ac.kr';       // 대학 메일(허용 도메인 — 구청 명의 사칭 시도 케이스)
+  const EMAIL_MIX = 'Somu-Gamma@GwangJin.GO.KR';  // 대소문자 혼용(정규화 확인)
+  const tokGu = await agencyTokenFor(EMAIL_GU);
+  const tokAc = await agencyTokenFor(EMAIL_AC);
+  const tokMix = await agencyTokenFor(EMAIL_MIX);
+  const dumpTok = store._dump();
+  const tokRowGu = dumpTok.agencyTokens.get(await sha256hex(tokGu));
+  const tokRowAc = dumpTok.agencyTokens.get(await sha256hex(tokAc));
+  const tokRowMix = dumpTok.agencyTokens.get(await sha256hex(tokMix));
+  ok(!!tokRowGu && tokRowGu.email_domain === 'gwangjin.go.kr' && !!tokRowAc && tokRowAc.email_domain === 'univ.ac.kr',
+    '도메인 전달: verify-otp 성공 시 agency_token에 인증 이메일의 도메인이 저장됨');
+  ok(!!tokRowMix && tokRowMix.email_domain === 'gwangjin.go.kr',
+    '도메인 전달: 대소문자 혼용 이메일도 도메인은 소문자로 정규화되어 저장');
+  ok([tokRowGu, tokRowAc, tokRowMix].every(t => {
+    const s = JSON.stringify(t);
+    return !s.includes('@') && !s.includes('somu-alpha') && !s.includes('kyomu-beta')
+      && !s.toLowerCase().includes('somu-gamma');
+  }), '도메인 전달: 토큰 행에 로컬파트(사람 식별부)·평문 이메일이 전혀 저장되지 않음(도메인만)');
+
+  // 제출→수신함 전 구간(실제 RSA 암호문)으로 도메인이 앱까지 전달되는지 확인.
+  const RID_DOM = 'MGT-DOM1';
+  const kpDom = await genKeyPair();
+  const spkiDom = b64(await subtle.exportKey('spki', kpDom.publicKey));
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID_DOM, restaurant_name: '도메인식당', public_key: spkiDom });
+  ok(r.status === 200, '도메인 전달: 테스트용 음식점 공개키 등록 200');
+  const pubDom = await subtle.importKey('spki', unb64(spkiDom), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+
+  const itemsDom = [{ name: '김서무', dept: '총무과', amount: 90000 }, { name: '이주사', dept: '총무과', amount: 60000 }];
+  const bhDom = await batchHash(itemsDom);
+  r = await callH(store, envRequireAgency, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 광진구', department: '총무과', restaurant_id: RID_DOM, restaurant_name: '도메인식당', year_month: '2026-08', total_amount: 150000, member_count: 2, batch_hash: bhDom },
+    blob: { restaurant_id: RID_DOM, ciphertext: await encryptBlob(itemsDom, pubDom) }
+  }, { 'X-Agency-Token': tokGu });
+  const sjDom = await r.json();
+  ok(r.status === 200 && !!sjDom.summary_id, '도메인 전달: 인증 토큰으로 제출 200');
+  ok((store._dump().summaries.find(s => s.id === sjDom.summary_id) || {}).agency_domain === 'gwangjin.go.kr',
+    '도메인 전달: deposit_summary.agency_domain에 토큰의 인증 도메인이 기록됨');
+
+  // 다른 도메인 토큰으로 '같은 기관명'을 사칭해 제출 + body에 agency_domain 위조값까지 실어 보냄.
+  // 서버는 body 값을 무시하고 토큰의 도메인만 기록해야 한다.
+  const itemsDom2 = [{ name: '박대학', dept: '총무과', amount: 30000 }];
+  const bhDom2 = await batchHash(itemsDom2);
+  r = await callH(store, envRequireAgency, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 광진구', department: '총무과', agency_domain: 'gwangjin.go.kr', restaurant_id: RID_DOM, restaurant_name: '도메인식당', year_month: '2026-08', total_amount: 30000, member_count: 1, batch_hash: bhDom2 },
+    blob: { restaurant_id: RID_DOM, ciphertext: await encryptBlob(itemsDom2, pubDom) }
+  }, { 'X-Agency-Token': tokAc });
+  const sjDom2 = await r.json();
+  ok(r.status === 200 && (store._dump().summaries.find(s => s.id === sjDom2.summary_id) || {}).agency_domain === 'univ.ac.kr',
+    '도메인 전달: 서로 다른 도메인 토큰의 제출이 각각 정확히 기록됨(body의 agency_domain 위조값은 무시)');
+
+  // 하위호환: 마이그레이션 이전에 발급된 구버전 토큰(email_domain 없음)으로 제출해도 안전하게 통과하고
+  // agency_domain은 null이어야 한다(앱이 "확인 불가"로 표시).
+  const LEGACY_AGENCY_TOKEN = 'legacy-agency-token-without-domain';
+  await store.createAgencyToken({
+    token_hash: await sha256hex(LEGACY_AGENCY_TOKEN),
+    email_hash: await sha256hex('old-officer@seoul.go.kr'),
+    expires_at: Date.now() + 60 * 60 * 1000
+  });
+  const itemsDom3 = [{ name: '최구버전', dept: '총무과', amount: 10000 }];
+  r = await callH(store, envRequireAgency, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 광진구', department: '총무과', restaurant_id: RID_DOM, restaurant_name: '도메인식당', year_month: '2026-08', total_amount: 10000, member_count: 1, batch_hash: await batchHash(itemsDom3) },
+    blob: { restaurant_id: RID_DOM, ciphertext: await encryptBlob(itemsDom3, pubDom) }
+  }, { 'X-Agency-Token': LEGACY_AGENCY_TOKEN });
+  const sjDom3 = await r.json();
+  ok(r.status === 200 && (store._dump().summaries.find(s => s.id === sjDom3.summary_id) || {}).agency_domain === null,
+    '도메인 전달: 구버전 토큰(도메인 없음)으로 제출해도 200이며 agency_domain은 null(안전 처리)');
+  ok((store._dump().summaries.find(s => s.batch_hash === 'h-agency-off') || {}).agency_domain === null,
+    '도메인 전달: 토큰 없이(REQUIRE_AGENCY_AUTH=0) 제출된 건도 agency_domain은 null');
+
+  // 수신함 응답에 도메인이 실려 음식점 앱까지 도달하는지 + null이 키째 사라지지 않는지 확인.
+  r = await inboxOf(store, env, RID_DOM, kpDom.privateKey);
+  const inboxDom = await r.json();
+  const findDom = (id) => inboxDom.find(x => x.summary_id === id);
+  ok(inboxDom.length === 3 && inboxDom.every(x => 'agency_domain' in x.summary),
+    '도메인 전달: /api/inbox 응답 summary에 agency_domain 필드가 항상 존재(null이어도 키 유지)');
+  ok((findDom(sjDom.summary_id) || {}).summary.agency_domain === 'gwangjin.go.kr'
+    && (findDom(sjDom2.summary_id) || {}).summary.agency_domain === 'univ.ac.kr'
+    && (findDom(sjDom3.summary_id) || {}).summary.agency_domain === null,
+    '도메인 전달: 수신함이 각 건의 인증 도메인을 정확히 전달(구버전 건은 null)');
+  ok(inboxDom.every(x => !('batch_hash' in x.summary)),
+    '도메인 전달: summary 필드 추가 후에도 batch_hash는 여전히 응답에 없음(오라클 차단 유지)');
+  // batch_hash canonical 불변(name|dept|amount): summary 필드 추가는 해시와 무관하다.
+  const plainDom = await decryptBlob(findDom(sjDom.summary_id).ciphertext, kpDom.privateKey);
+  ok(await batchHash(plainDom.items) === bhDom,
+    '도메인 전달: 복호화 후 재계산한 batch_hash가 제출값과 일치(canonical "name|dept|amount" 불변)');
+
+  // 회귀(불변식 3): 도메인 전달 도입 후에도 저장소 어디에도 평문 이메일·로컬파트가 없다.
+  const dumpDom = store._dump();
+  const domSerialized = JSON.stringify({
+    tokens: [...dumpDom.agencyTokens.values()],
+    otpKeys: [...dumpDom.agencyOtps.keys()], otps: [...dumpDom.agencyOtps.values()],
+    summaries: dumpDom.summaries, consents: dumpDom.consents
+  });
+  ok(!domSerialized.includes('@') && !domSerialized.includes('somu-alpha') && !domSerialized.includes('kyomu-beta')
+    && !domSerialized.toLowerCase().includes('somu-gamma') && !domSerialized.includes('old-officer'),
+    '도메인 전달: agency_token·agency_otp·deposit_summary·consent_log 어디에도 평문 이메일·로컬파트 없음(도메인만)');
+
   // 16) 레이트 리밋 헤더 존재 시 429(베스트 에포트) — CF-Connecting-IP 없는 하니스 호출은 영향 없음 확인
   let limited = false;
   for (let i = 0; i < 65; i++) {

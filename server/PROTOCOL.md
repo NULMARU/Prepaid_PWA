@@ -12,6 +12,9 @@
   해시 방식은 `EMAIL_PEPPER`(wrangler secret)가 설정돼 있으면 **HMAC-SHA256(EMAIL_PEPPER, email)**,
   없으면 기존 **SHA-256(email)**이다(§4.4 — 전환기에는 구 SHA-256 키도 조회 폴백으로 인식).
   평문 이메일은 OTP 발송(Resend) 호출에만 일시적으로 쓰이고 저장·로깅되지 않는다.
+  단, **도메인부만**(로컬파트 제외, 예 `gwangjin.go.kr`)은 `agency_token.email_domain`·
+  `deposit_summary.agency_domain`에 평문으로 남는다 — 사람을 가리키는 부분이 없어 개인정보가
+  아니며, 음식점 앱이 기관명 대조에 쓰도록 전달하기 위한 값이다(§4.11).
 - **전화번호는 자유 입력 창구로도 들어오지 못한다.** `POST /api/feedback`은 `message`·`contact`에
   휴대전화번호 패턴(`01[0-9]-?\d{3,4}-?\d{4}`)이 있으면 저장하지 않고 `400 {error:'no_personal_info'}`
   로 거부한다(§8.3 — 불변식 "전화번호는 어떤 서버 경로에도 실리지 않는다"의 마지막 방어선).
@@ -29,8 +32,14 @@
 ```
 items의 **선택 필드**(구버전 앱은 무시, batch_hash 계산에 불포함 — §3):
 - `org` — 소속(공공기관명·회사명). 없으면 앱이 summary.institution으로 폴백.
-- `payer` — 입금자명(CSV '입금자명' 열, 2026-08). 사장님이 **통장 입금 1건 ↔ 명단 1건**을 대조하는 기준값.
+- `payer` — **결제자·입금자명(선택, 2026-08)**. CSV '입금자명' 열. 사장님이 결제 내역과 명단을 대조하는 **보조값**.
+  ⚠️ 2026-08 정정: 결제는 **음식점별로 각각** 이뤄지며 **카드결제가 다수**다(계좌이체도 있음).
+  **카드결제 시 비어 있는 것이 정상**이며, 값이 없어도 어떤 검증에도 영향을 주지 않는다(필수 강제 금지).
   개인 이름(PII)이므로 **암호문 안에서만** 이동하고 summary(평문)에는 절대 싣지 않는다.
+- `payMethod` — **결제구분(선택, 2026-08)**. CSV '결제구분' 열, 값 `카드`|`계좌이체`(그 외 값은 담당자 웹이
+  경고만 하고 원문 전달). 음식점 앱이 승인 확인 화면에서 **그 방식에 맞는 확인 안내**(카드=매출전표·POS 정산,
+  계좌이체=통장 입금 내역)만 보여주는 데 쓴다. 값이 없으면 앱은 두 방식을 병기한다.
+  batch_hash 계산에 불포함(§3) — 값이 있든 없든 해시가 달라지지 않는다.
 암호화 절차:
 1. `aesKey` = 무작위 AES-256-GCM 키
 2. `iv` = 무작위 12바이트
@@ -53,6 +62,8 @@ canonical에 들어가는 필드는 **`name`·`dept`·`amount` 셋뿐이며 고�
 (예: 소속 표기 `org`)가 실려도 batch_hash 계산·대조에 **영향을 주지 않는다** — 선택 필드는 blob 안에서
 음식점 앱까지 그대로 전달될 뿐이다(서버는 암호문을 열지 않으므로 존재조차 알지 못한다). 새 필드를
 canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 때 정상 전송이 '변조'로 오탐된다.
+같은 이유로 **summary(메타)에 필드가 추가돼도 batch_hash와는 무관하다** — 예: `agency_domain`
+(§4.11)은 서버가 요약에 덧붙이는 값일 뿐 canonical에 들어가지 않는다.
 
 ## 4. REST 계약 (서버)
 모든 응답 JSON. 오류는 `{error}` + 상태코드.
@@ -67,8 +78,8 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 | `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` / 400 | 담당자 웹: '명단 받기 가능' 표시용. **한 번에 100개까지**(초과 시 `400 {error:'too_many_ids', max:100}` — 청킹은 클라이언트 몫) |
 | `GET /api/registered-list?sido=&sigungu=` | — | `{restaurants:[{restaurant_id,restaurant_name,district,registered_at,verified}]}` / 400 | 시도(+선택 시군구)의 등록 음식점 목록(§4.6). `sido` 필수(없으면 `400 {error:'sido_required'}`). **매칭은 정규화 후 정확 일치**(`district == "{sido} {sigungu}"` — 부분 일치 금지, §4.6). 공개 정보만(연락처 미포함), 레거시(district 없음) 제외, 이름 가나다 정렬. `registered_at`(등록 시각)·`verified`(0\|1, §4.10)는 담당자 웹의 "신규 등록"·"실존 확인" 배지용(개인정보 아님). IP당 분당 20회 별도 레이트리밋(§6.3) |
 | `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
-| `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | 신규 `{summary_id}` / 재제출 `{summary_id, deduped:true, status}` / 401 | 부서·음식점 단위 1건(§4.3). 동일 `(restaurant_id,batch_hash)` 재제출은 멱등(§4.7) |
-| `GET /api/inbox?restaurant_id=&auth_token=` (또는 헤더 `X-Auth-Token`) | — | `[{summary_id, summary, ciphertext, status}]` / 401 | 음식점 앱 폴링(PENDING만, `encrypted_blob` JOIN — 암호문 없는 건은 제외). **소유 증명 필수**(§4.1의 1회용 `auth_token`, 없거나 무효면 `401 {error:'auth_required'}`). `summary`에 **`batch_hash`는 실리지 않는다**(§4.9) |
+| `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | 신규 `{summary_id}` / 재제출 `{summary_id, deduped:true, status}` / 401 | 부서·음식점 단위 1건(§4.3). 동일 `(restaurant_id,batch_hash)` 재제출은 멱등(§4.7). 서버가 **토큰에서 읽은 인증 이메일 도메인**을 `deposit_summary.agency_domain`에 함께 기록한다(§4.11 — body로 온 값은 무시) |
+| `GET /api/inbox?restaurant_id=&auth_token=` (또는 헤더 `X-Auth-Token`) | — | `[{summary_id, summary, ciphertext, status}]` / 401 | 음식점 앱 폴링(PENDING만, `encrypted_blob` JOIN — 암호문 없는 건은 제외). **소유 증명 필수**(§4.1의 1회용 `auth_token`, 없거나 무효면 `401 {error:'auth_required'}`). `summary`에 **`batch_hash`는 실리지 않는다**(§4.9). `summary.agency_domain`(인증 이메일 도메인, 미인증·구버전이면 `null`)이 실린다(§4.11) |
 | `GET /api/inbox-count?restaurant_id=` | — | `{"count":2}` / 400 | 알림 배지·경량 폴링용 **개수만**. `/api/inbox`와 동일 필터(PENDING + 72시간 이내 + `encrypted_blob` JOIN)를 COUNT로만 수행하고 요약 메타·암호문은 반환하지 않는다. `restaurant_id` 누락 시 `400 {error:'restaurant_id 필요'}`. **인증 없음** — 같은 id로 `/api/inbox`를 호출하면 이미 알 수 있는 값의 부분집합이라 새로 노출되는 정보가 0(남용 방어는 전역 레이트리밋 분당 60, §6.3) |
 | `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절. 상태 전이 성공 시 암호문(`encrypted_blob`) 즉시 파기(§6). 인증 필요 |
 | `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash}` | `{ok:true}` | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요 |
@@ -91,6 +102,20 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
   "consent":{ "institution":"서울특별시 강남구", "department":"세무과", "year_month":"2026-07" }
 }
 ```
+`summary`에 `agency_domain`을 넣어 보내도 **서버는 무시한다** — 이 값은 서버가 `X-Agency-Token`에서만
+읽어 기록하는 필드다(§4.11).
+
+`GET /api/inbox` 응답의 `summary`:
+```json
+{ "institution":"서울특별시 강남구", "department":"세무과", "restaurant_id":"...",
+  "restaurant_name":"정식김밥", "year_month":"2026-07",
+  "total_amount":2700000, "member_count":30, "agency_domain":"gangnam.go.kr",
+  "created_at":1785900000000 }
+```
+`batch_hash`는 없고(§4.9), `agency_domain`은 미인증·구버전 제출이면 `null`이다(§4.11).
+`created_at`은 **명단 전송 시각(epoch ms)** — 음식점 앱이 승인 확인 화면에 표시해, 사장님이
+그 날짜 근처의 **결제 내역(카드 매출전표·통장 입금)**을 찾아 대조할 수 있게 한다(2026-08 추가).
+개인정보가 아니며 구버전 앱은 무시한다.
 
 ### 4.1 소유 증명 인증 (챌린지-응답)
 
@@ -354,6 +379,43 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
   담당자 웹은 `verified=0`·최근 `registered_at`을 "실존 미확인"·"신규 등록" 배지로 표시해 §4.8의
   지문 확인을 유도하는 데 쓴다. 마이그레이션 이전 등록분은 모두 `verified=0`이다(대조를 거치지
   않았으므로 정확한 표기).
+
+### 4.11 인증 도메인 전달 (기관명 자칭 문제, 보안 점검 F-04)
+
+**설계 의도 — 서버가 검증할 수 있는 것과 없는 것을 구분한다.**
+`summary.institution`(기관명)·`department`(부서명)는 담당자가 **직접 적어 보내는 자칭 값**이며,
+서버는 그것이 참인지 검증할 수단이 없다(기관 명부와 대조할 권위 있는 API가 없고, 있어도
+"이 사람이 그 기관 소속"임은 증명되지 않는다). 게다가 §4.4의 허용 도메인은 `go.kr`·`korea.kr`·
+`or.kr`·`ac.kr`까지 넓어, **대학 메일 계정 하나로도 "○○구청 총무과" 명의의 제출이 가능**하다.
+
+반면 **어느 도메인의 메일로 OTP 인증을 통과했는가**는 서버가 실제로 확인한 사실이다.
+그래서 서버는 그 도메인을 제출 건에 함께 실어 음식점 앱까지 전달하고, **음식점 앱이 기관명과
+나란히 표시해 사장님이 눈으로 대조**하게 한다(서버는 판정하지 않는다 — 판단은 사람이 한다).
+
+- **저장 위치·시점**
+  - `POST /api/agency/verify-otp` 성공 시: 인증된 이메일의 **도메인부만** 소문자로 정규화해
+    `agency_token.email_domain`에 저장한다(예 `gwangjin.go.kr`). **로컬파트는 저장하지 않는다** —
+    저장·전달되는 값에 사람을 가리키는 부분이 없으므로 개인정보가 아니며, 평문 이메일 미저장
+    불변식(§0)은 그대로 유지된다(이메일 자체는 여전히 해시로만 남는다).
+  - `POST /api/submit`: 유효한 `X-Agency-Token`이 있으면 그 토큰 행의 도메인을
+    `deposit_summary.agency_domain`에 옮겨 적는다. **출처는 토큰 행뿐이며, 요청 body의
+    `summary.agency_domain`은 무시한다**(자칭 값이 끼어들 틈을 남기지 않는다).
+  - `GET /api/inbox`: 응답 `summary.agency_domain`으로 그대로 노출한다.
+- **`null`의 의미(하위호환)**: 아래 경우 `agency_domain`은 `null`이며, 서버는 `null`을 그대로
+  내보낸다. **음식점 앱은 `null`을 "확인 불가"로 표시**한다(빈칸으로 두지 말 것 — 표시가 없으면
+  사장님은 검증된 것으로 오해한다).
+  - 마이그레이션 이전에 발급된 구버전 토큰(`email_domain` 없음) — 24시간 내 자연 소멸.
+  - 마이그레이션 이전에 저장된 `deposit_summary` 행.
+  - `REQUIRE_AGENCY_AUTH='0'`이거나 `AUTH_MODE`가 `pilot`/fallback이라 토큰 없이 제출된 건
+    (pilot에서는 담당자 웹이 OTP 검증 단계를 건너뛰므로 애초에 토큰이 없다).
+  - 도메인 모양이 아닌 손상 값(방어적으로 `null` 처리).
+- **`batch_hash`와 무관**: canonical은 §3의 `name|dept|amount` **그대로 불변**이다. `agency_domain`은
+  summary(메타)에만 추가되는 필드이며 해시 계산에 들어가지 않으므로, 이 변경으로 기존 담당자 웹·
+  음식점 앱의 해시 대조가 깨지지 않는다.
+- **한계(정직하게)**: 이것은 "기관명이 참임"의 증명이 아니라 **대조 재료의 제공**이다. 같은 기관의
+  다른 부서를 사칭하는 경우처럼 도메인이 일치하는 사칭은 이것으로 걸러지지 않는다(그쪽은 §4.8
+  열쇠 지문 확인과 수령 전 사장님 확인이 담당한다).
+- **배포 순서**: `server/migrations-2026-08.sql`의 문 4·5 적용 → `wrangler deploy` → 프론트 배포.
 
 ## 5. 상태 머신
 `deposit_summary.status`: `PENDING` →(approve)→ `APPROVED` / `REJECTED`, 또는

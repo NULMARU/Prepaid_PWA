@@ -25,6 +25,13 @@ button{cursor:pointer;background:#fff;font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
 th,td{border:1px solid var(--line);padding:6px;text-align:left}
 tr.err{background:#fdecea}
+tr.skip{background:#f8fafc;color:var(--muted)}
+tr.sub td{background:#eef2f7;font-weight:700}
+.skip-card{border:2px solid var(--warn);background:#fff8ec;border-radius:10px;padding:12px;margin-bottom:12px;font-size:13px;line-height:1.6;color:#7a5209}
+.skip-card h3{margin:0 0 6px;font-size:15px;color:#7a5209}
+.skip-card table{margin-top:6px;background:#fff}
+.skip-card .ack{display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:14px;color:#1f2937;cursor:pointer;line-height:1.5;font-weight:700}
+.skip-card .ack input{width:auto;min-height:auto;flex:0 0 auto;margin-top:2px;transform:scale(1.25)}
 .bad{color:var(--danger);font-weight:700}.good{color:var(--ok);font-weight:700}.warn{color:var(--warn);font-weight:700}
 .hide{display:none}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
@@ -80,7 +87,7 @@ tr.err{background:#fdecea}
 <button type="button" id="logoutBtn" class="hide" title="이 브라우저에 남은 인증을 폐기하고 1단계로 돌아갑니다">인증 해제</button>
 </div>
 <div class="meta">직원 명단(직원명·선금 금액)만 암호화해 음식점에 전달합니다(전화번호는 수집하지 않습니다). 서버는 암호화된 내용을 열어볼 수 없습니다.</div>
-<div class="meta" style="margin-top:4px"><b>선금(돈)은 음식점 은행 계좌로 직접 이체하세요. 이 웹은 암호화된 직원 명단만 전달해요.</b></div>
+<div class="meta" style="margin-top:4px"><b>이 웹은 암호화된 직원 명단만 전달합니다.</b> 이 웹에는 결제·정산 기능이 없고, <b>운영자는 자금을 받거나 보관하지 않습니다.</b> 결제는 기관과 음식점이 <b>앱 밖에서 직접(카드·계좌이체)</b> 진행합니다.</div>
 <ol class="stepper" id="stepper">
 <li data-n="1" id="step-1">인증</li>
 <li data-n="2" id="step-2">소속 기관·음식점</li>
@@ -165,8 +172,9 @@ tr.err{background:#fdecea}
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
 <div class="step-help">아래에 직원명·선금 금액이 담긴 명단 CSV(엑셀 저장 파일)를 올려 주세요. 엑셀에서 그냥 'CSV로 저장'한 파일을 그대로 올리시면 됩니다.</div>
-<div class="meta">💡 <b>입금자명은 실제로 이체한 이름</b>을 적어 주세요(예: “보건의료과”).</div>
-<div class="meta" style="margin-top:6px">💡 한 부서에서 <b>팀·개인별로 나눠 각각 명단을 전송한다면 입금도 각각</b> 해주세요. 음식점 사장님이 <b>통장 입금 내역과 전송명단을 대조하는 기준</b>이 됩니다.</div>
+<div class="meta">💡 <b>결제자·입금자명은 선택 항목</b>입니다. <b>계좌이체로 보내실 때</b> 통장에 찍히는 이름을 적어 주세요(예: “보건의료과”). <b>카드결제면 비워 두셔도 됩니다.</b></div>
+<div class="meta" style="margin-top:6px">💡 <b>결제구분</b>(선택) 칸에는 <b>카드</b> 또는 <b>계좌이체</b>를 적을 수 있습니다. 비워 두셔도 되고, 적어 두면 사장님이 결제 내역과 명단을 맞춰 볼 때 도움이 됩니다.</div>
+<div class="meta" style="margin-top:6px">💡 <b>결제는 음식점(가게)별로 따로 이뤄집니다.</b> 결제 단위를 명단 단위와 맞추시면 사장님이 한 건씩 대조하기 쉬워 승인이 빨라집니다(필수는 아닙니다).</div>
 <button id="csvTemplateBtn" type="button" style="margin-top:8px">CSV 양식 다운로드</button>
 <label for="csv" class="sr-only">CSV 파일 선택</label>
 <input type="file" id="csv" accept=".csv" style="padding-top:8px">
@@ -175,7 +183,8 @@ tr.err{background:#fdecea}
 
 <div class="card hide" id="confirmCard">
 <h2>4단계 · 확인</h2>
-<div class="step-help">아래 부서별 합계가 실제 이체하실 금액과 일치하는지 마지막으로 확인하세요.</div>
+<div class="step-help">아래 <b>가게별 합계</b>가 실제 <b>결제하실 금액</b>과 맞는지 마지막으로 확인하세요.</div>
+<div id="skipBox"></div>
 <div id="confirmBox"></div>
 </div>
 
@@ -191,7 +200,7 @@ tr.err{background:#fdecea}
 </div>
 <div class="mode-card" data-mode="direct" tabindex="0" role="button" aria-pressed="false">
 <h3>직접 전달</h3>
-<p>명단이 서버에 저장되지 않습니다. 암호화된 파일을 만들어 이메일·카카오톡 등으로 직접 전달하거나, 화면의 QR을 음식점 사장님이 앱으로 찍게 하세요. 음식점을 여러 곳 선택했다면 파일·QR이 <b>가게(부서)별로 각각</b> 만들어집니다 — <b>파일 1개 = 입금 1건</b>으로 각각 이체해 주세요.</p>
+<p>명단이 서버에 저장되지 않습니다. 암호화된 파일을 만들어 이메일·카카오톡 등으로 직접 전달하거나, 화면의 QR을 음식점 사장님이 앱으로 찍게 하세요. 음식점을 여러 곳 선택했다면 파일·QR이 <b>가게(부서)별로 각각</b> 만들어집니다 — 파일은 가게(부서)별로 나뉘니, 결제도 같은 단위로 나누시면 대조가 쉽습니다.</p>
 </div>
 </div>
 <button class="btn-primary" id="submitBtn" disabled style="margin-top:12px">전송 방법을 선택하세요</button>
@@ -203,7 +212,7 @@ tr.err{background:#fdecea}
 </div>
 
 <footer class="compliance-footer">
-<div>이 서비스는 결제·이체 기능이 없으며 자금을 보관하지 않습니다. 명단은 브라우저에서 암호화되어 해당 음식점만 열람할 수 있고, 서버는 내용을 볼 수 없습니다. 전화번호는 수집하지 않습니다. 선입금의 발행·차감·잔액 관리의 주체와 책임은 각 음식점에 있습니다.</div>
+<div>이 웹에는 결제·정산 기능이 없고, <b>운영자는 자금을 받거나 보관하지 않습니다.</b> 결제는 기관과 음식점이 <b>앱 밖에서 직접(카드·계좌이체)</b> 진행합니다. 명단은 브라우저에서 암호화되어 해당 음식점만 열람할 수 있고, 서버는 내용을 볼 수 없습니다. 전화번호는 수집하지 않습니다. 선입금의 발행·차감·잔액 관리의 주체와 책임은 각 음식점에 있습니다.</div>
 <div class="src">음식점 검색: 행정안전부 LOCALDATA 공공데이터 활용</div>
 <div class="src">관련 문서: <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> · <a href="https://app.bapjangbu.com/docs/terms.html" target="_blank" rel="noopener">이용약관</a></div>
 <div class="src">본 서비스는 무상 제공되며, 운영자는 이용자 간 거래·정산 분쟁 및 서비스 오류로 인한 손해에 책임지지 않습니다(이용약관 제6조).</div>
@@ -222,6 +231,10 @@ qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
 <script>
 (()=>{'use strict';
 const S={authed:false,token:null,email:'',otpMode:null,restaurants:[],rows:null,rawRows:null,csvFormat:null,fileErrors:[],fileWarnings:[],valid:false,groups:null,mode:null,lastList:[],registered:new Set(),agencyIndex:null,agency:null,dept:'',jurisList:[],excluded:new Set(JSON.parse(localStorage.getItem('agency-excluded')||'[]')),
+  // 이번에 보내지지 않는 것들(차단이 아니라 '확인 후 진행'). skipped=CSV에 있으나 2단계에서 선택되지 않은
+  // 음식점(미등록 등), missingSel=선택했지만 이번 CSV에 없는 음식점. 둘 다 전송 로직에서는 이미 안전하게
+  // 빠지므로(buildGroups) 게이트가 아니라 '봤다'는 1회 확인만 요구한다.
+  skipped:[],missingSel:[],skipAck:false,skipSig:'',
   // 열쇠 지문 확인 상태(가게 선점·가로채기 방어)
   keychecks:new Map(),   // restaurant_id → {fingerprint, checked_at}  (이 기관+부서가 이미 확인한 값)
   fps:new Map(),         // restaurant_id → 현재 서버에 등록된 공개키의 지문
@@ -417,10 +430,11 @@ function doLogout(idle){
   S.restaurants=[];S.rows=null;S.rawRows=null;S.csvFormat=null;S.fileErrors=[];S.fileWarnings=[];
   S.valid=false;S.mode=null;S.lastList=[];S.registered=new Set();
   S.keychecks=new Map();S.fps=new Map();S.fpErr=new Map();S.kcMsg=new Map();
+  S.skipped=[];S.missingSel=[];S.skipAck=false;S.skipSig='';skipProbe.clear();probeSeq++;
   keyInfoCache.clear();relayResults=new Map();relayPubCache=new Map();
   if($('csv'))$('csv').value='';
   if($('otp'))$('otp').value='';
-  ['csvResult','results','directPanel','sendResult','keycheckList'].forEach(id=>{if($(id))$(id).innerHTML=''});
+  ['csvResult','results','directPanel','sendResult','keycheckList','skipBox','confirmBox'].forEach(id=>{if($(id))$(id).innerHTML=''});
   $('log').textContent='';$('log').classList.add('hide');
   $('sendProgress').classList.add('hide');$('sendProgress').innerHTML='';
   ['searchCard','csvCard','keycheckCard','confirmCard','submitCard'].forEach(id=>$(id).classList.add('hide'));
@@ -764,6 +778,7 @@ async function fingerprintOf(spkiB64){
 }
 const DEPT_LS_KEY='agency-department';
 const KEYGATE_MSG='아래 가게는 아직 열쇠 지문을 확인하지 않았어요. 2-1단계에서 사장님과 통화해 지문을 맞춰 본 뒤 보내 주세요.';
+const SKIPGATE_MSG='이번에 명단이 전달되지 않는 음식점이 있습니다. 4단계 확인의 목록을 보시고 "위 음식점은 이번에 보내지 않는 것을 확인했습니다"에 체크해 주세요.';
 const keyInfoCache=new Map(); // restaurant_id → {pub,contact,fp} — 지문 조회용(전송 시에는 새로 받아 재검증)
 function kcScope(){return{institution:S.agency?S.agency.name:'',department:S.dept||''}}
 function kcHeaders(extra){const h=Object.assign({},extra||{});if(S.token)h['X-Agency-Token']=S.token;return h}
@@ -1041,18 +1056,22 @@ function renderSelected(){
 }
 
 // ── 3. CSV 파싱·검증 (스펙 §2.1·§3.2) ──
-// ── 헤더 3종을 모두 인정한다(하위호환 100%) ──
-//  ORG_COLS : 권장 양식. '소속' 선택 열 포함 — 비우면 2단계에서 고른 기관으로 자동 채움.
+// ── 헤더 4종을 모두 인정한다(하위호환 100%) ──
+//  PAY_COLS : 권장 양식(2026-08). ORG_COLS + '결제구분' 선택 열(카드/계좌이체/공백).
+//  ORG_COLS : 이전 권장 양식. '소속' 선택 열 포함 — 비우면 2단계에서 고른 기관으로 자동 채움.
 //  COLS     : 기존 신 양식(소속 열 없음). 기존 사용자는 아무 영향 없음.
 //  OLD_COLS : 구 양식. '기관명' 열은 2단계 기관과 같은지 확인만 하고 값은 버린다(기존 동작 유지).
+// ⚠️ 헤더는 '완전 일치' 비교다. 기존 열 이름(특히 '입금자명')은 절대 바꾸지 말 것 — 바꾸는 순간
+//    이미 쓰고 있는 양식 파일이 전부 "첫 줄이 다릅니다"로 거부된다. 화면 라벨만 바꾼다.
+const PAY_COLS=['음식점명','소속','부서명','직원명','선금금액','입금자명','결제구분'];
 const ORG_COLS=['음식점명','소속','부서명','직원명','선금금액','입금자명'];
 const COLS=['음식점명','부서명','직원명','선금금액','입금자명'];
 const OLD_COLS=['음식점명','기관명','부서명','직원명','선금금액','입금자명'];
 $('csvTemplateBtn').addEventListener('click',()=>{
-  // 양식 파일은 권장(6열) 양식으로 내려준다. 예시는 실제 기입 모습이 한눈에 보이게 전 칸을 채운다
-  // (소속은 선택 항목 — 비워도 2단계에서 고른 기관으로 자동 채워진다는 안내는 화면 도움말이 맡는다).
-  const example=['광진맛집','광진구청','홍보과','홍길동','27000','김서무'];
-  const csv=ORG_COLS.join(',')+'\r\n'+example.join(',')+'\r\n';
+  // 양식 파일은 권장(7열) 양식으로 내려준다. 예시는 실제 기입 모습이 한눈에 보이게 채우되,
+  // 선택 항목인 '결제구분'은 비워 둔다(카드/계좌이체 중 실제 결제 방식을 적는 칸).
+  const example=['광진맛집','광진구청','홍보과','홍길동','27000','김서무',''];
+  const csv=PAY_COLS.join(',')+'\r\n'+example.join(',')+'\r\n';
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download='선입금대장_CSV양식.csv';document.body.appendChild(a);a.click();a.remove();
@@ -1088,10 +1107,24 @@ function decodeCsvBuffer(buf){
 function normName(s){return String(s==null?'':s).trim().replace(/\s+/g,' ')}
 // 행 오류 사유 문구(A2) — 표의 '사유' 열에 그대로 보이므로 개발자 표현이 아닌 담당자 말로 쓴다.
 // 상수로 두는 이유: 아래 검증 로직이 문자열 비교로 분기하므로 문구가 흩어지면 조용히 깨진다.
-const ERR_BLANK='빈 칸이 있어요 (음식점명·부서명·직원명·입금자명은 꼭 채워 주세요)';
+// 입금자명(payer)은 **선택 필드**다(PROTOCOL §2). 카드결제에는 입금자명 개념 자체가 없으므로
+// 비어 있다고 명단을 막지 않는다. CSV의 열 이름('입금자명')은 하위호환 때문에 그대로 둔다.
+const ERR_BLANK='빈 칸이 있어요 (음식점명·부서명·직원명은 꼭 채워 주세요)';
 const ERR_AMOUNT='금액 칸에는 숫자만 적어 주세요 (예: 9000 또는 9,000)';
 const ERR_DUP_ROW='같은 음식점·소속·부서에 같은 직원이 두 번 있어요';
-const ERR_UNSELECTED='2단계에서 선택하지 않은 음식점이에요';
+// 2단계에서 선택되지 않은 음식점 행은 **오류가 아니라 '이번에 보내지 않음'**이다. 전송 로직
+// (buildGroups)은 이런 행을 이미 조용히 제외하므로 차단할 이유가 없다 — 대신 4단계에서 제외
+// 목록을 보여 주고 1회 확인(체크)을 받는다.
+const NOTE_SKIPPED='이번에 보내지 않음 — 밥장부에 등록·선택되지 않은 음식점';
+// 결제구분(선택): 표준값 2종. 그 밖의 값도 버리지 않고 그대로 전달하되 경고만 남긴다.
+const PAY_METHODS=['카드','계좌이체'];
+function normPayMethod(v){
+  const s=String(v==null?'':v).trim().replace(/\s+/g,'');
+  if(!s)return '';
+  if(/^(카드|신용카드|체크카드|법인카드|카드결제)$/.test(s))return '카드';
+  if(/^(계좌이체|이체|계좌|무통장|무통장입금|송금|입금)$/.test(s))return '계좌이체';
+  return s.slice(0,20);
+}
 $('csv').addEventListener('change',async e=>{
   const file=e.target.files&&e.target.files[0];if(!file)return;
   const buf=await file.arrayBuffer();
@@ -1109,44 +1142,212 @@ $('csv').addEventListener('change',async e=>{
   const header=parseLine(firstLine,delim).map(h=>h.replace(/\s/g,''));
   let rawRows=null,csvFormat=null;
   const joinedHeader=header.join(',');
+  const isPay=PAY_COLS.join(',')===joinedHeader;
   const isOrg=ORG_COLS.join(',')===joinedHeader;
   const isNew=COLS.join(',')===joinedHeader;
   const isOld=OLD_COLS.join(',')===joinedHeader;
   if(!lines.length){
     fileErrors.push('파일 내용이 비어 있습니다.');
-  }else if(!isOrg&&!isNew&&!isOld){
+  }else if(!isPay&&!isOrg&&!isNew&&!isOld){
     // 무엇이 다른지 스스로 비교할 수 있도록 '실제 들어온 첫 줄'을 함께 보여 준다(A3).
-    fileErrors.push('첫 줄(항목명)이 CSV 양식과 다릅니다.\n· 기대한 첫 줄: '+ORG_COLS.join(',')+
+    fileErrors.push('첫 줄(항목명)이 CSV 양식과 다릅니다.\n· 기대한 첫 줄: '+PAY_COLS.join(',')+
+      '\n· 결제구분 열 없는 첫 줄도 그대로 쓸 수 있어요: '+ORG_COLS.join(',')+
       '\n· 소속 열 없는 예전 첫 줄도 그대로 쓸 수 있어요: '+COLS.join(',')+
       '\n· 실제 파일의 첫 줄: '+(firstLine.trim()?firstLine.trim():'(빈 줄)')+
       '\n위 [CSV 양식 다운로드]로 받은 파일의 첫 줄을 그대로 쓰시면 됩니다.');
   }else{
-    csvFormat=isOrg?'org':(isOld?'old':'new');
+    csvFormat=isPay?'pay':(isOrg?'org':(isOld?'old':'new'));
     if(isOld)warnings.push('예전 양식(기관명 열 포함)으로 인식했습니다. 기관명은 2단계에서 고른 소속 기관을 기준으로 확인합니다.');
     rawRows=[];
+    const oddPay=new Set();
     for(let i=1;i<lines.length;i++){
       const f=parseLine(lines[i],delim);if(f.every(x=>!x))continue;
+      // 결제 양식: 음식점명,소속,부서명,직원명,선금금액,입금자명,결제구분
       // 소속 양식: 음식점명,소속,부서명,직원명,선금금액,입금자명
       // 구 양식  : 음식점명,기관명,부서명,직원명,선금금액,입금자명
       // 신 양식  : 음식점명,부서명,직원명,선금금액,입금자명
-      const o=isOrg
-        ?{rest:f[0]||'',org:f[1]||'',inst:'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||''}
+      const o=(isPay||isOrg)
+        ?{rest:f[0]||'',org:f[1]||'',inst:'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||'',payMethod:isPay?normPayMethod(f[6]):''}
         :isOld
-          ?{rest:f[0]||'',org:'',inst:f[1]||'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||''}
-          :{rest:f[0]||'',org:'',inst:'',dept:f[1]||'',name:f[2]||'',amount:f[3],payer:f[4]||''};
+          ?{rest:f[0]||'',org:'',inst:f[1]||'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||'',payMethod:''}
+          :{rest:f[0]||'',org:'',inst:'',dept:f[1]||'',name:f[2]||'',amount:f[3],payer:f[4]||'',payMethod:''};
       const amt=parseWon(o.amount);
       let structErr='';
-      // '소속'은 빈 칸이어도 오류가 아니다(2단계 기관으로 자동 채움).
-      if(!o.rest||!o.dept||!o.name||!o.payer)structErr=ERR_BLANK;
+      // '소속'·'입금자명'·'결제구분'은 빈 칸이어도 오류가 아니다(선택 항목).
+      //   · 소속   : 2단계 기관으로 자동 채움
+      //   · 입금자명: 카드결제에는 개념 자체가 없음(PROTOCOL §2 선택 필드)
+      if(!o.rest||!o.dept||!o.name)structErr=ERR_BLANK;
       else if(!(amt>0))structErr=ERR_AMOUNT;
+      if(o.payMethod&&PAY_METHODS.indexOf(o.payMethod)<0)oddPay.add(o.payMethod);
       // 중복 행 검사는 소속이 자동 채워진 뒤라야 정확하므로 validateAndRenderCsv로 옮겼다.
       rawRows.push({...o,amount:amt,line:i+1,structErr});
     }
+    if(oddPay.size)warnings.push('결제구분 값 '+[...oddPay].map(v=>'"'+v+'"').join(', ')+'은(는) 표준 값이 아니에요 — 카드 또는 계좌이체로 적어 주세요(비워 두셔도 됩니다). 적으신 값은 그대로 음식점에 전달됩니다.');
     if(!rawRows.length)fileErrors.push('데이터 행이 없습니다. 헤더 아래에 최소 1행을 입력하세요.');
   }
   S.rawRows=rawRows;S.csvFormat=csvFormat;S.fileErrors=fileErrors;S.fileWarnings=warnings;
   validateAndRenderCsv();
 });
+// ── '이번에 보내지 않는' 음식점 안내 ────────────────────────────────────────────
+// 이름 대조는 공백만 정리하는 엄격 매칭이다(오배송 방지). 그래서 한 글자 오타가 그대로
+// '미등록'으로 둔갑해 조용히 누락될 수 있다. 편집거리 ≤2(짧은 이름은 ≤1) 또는 부분 일치로
+// 후보를 찾아 "혹시 「…」인가요?"를 보여 준다. ⚠️ 자동 치환은 절대 하지 않는다 — 이름을
+// 대신 고쳐 주면 그것이 곧 오배송이다. 제안만 하고 고치는 것은 사람이 한다.
+function editDistanceLE(a,b,max){
+  if(Math.abs(a.length-b.length)>max)return false;
+  const n=b.length;
+  let prev=new Array(n+1),cur=new Array(n+1);
+  for(let j=0;j<=n;j++)prev[j]=j;
+  for(let i=1;i<=a.length;i++){
+    cur[0]=i;let best=cur[0];
+    for(let j=1;j<=n;j++){
+      cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));
+      if(cur[j]<best)best=cur[j];
+    }
+    if(best>max)return false;
+    const t=prev;prev=cur;cur=t;
+  }
+  return prev[n]<=max;
+}
+function similarNames(name){
+  const q=normName(name);
+  if(q.length<2)return [];
+  const max=q.length<=3?1:2;
+  const seen=new Set(),out=[];
+  const add=(cand,where)=>{
+    if(out.length>=3)return;
+    const c=normName(cand);
+    if(!c||c===q||seen.has(c))return;
+    const near=editDistanceLE(q,c,max)||(q.length>=3&&c.length>=3&&(c.includes(q)||q.includes(c)));
+    if(near){seen.add(c);out.push({name:cand,where})}
+  };
+  S.restaurants.forEach(r=>add(r.name,'이미 선택한 가게'));
+  (S.jurisList||[]).forEach(x=>add(x.restaurant_name,'관할 목록에 있음'));
+  return out;
+}
+// 관할 목록에 이미 있는 가게(=체크만 안 한 경우)를 찾는다. 이 경우 서버에 물어볼 필요가 없고,
+// "다른 관할에 등록됨"이라고 안내하면 명백한 오답이 된다.
+function jurisEntryFor(name){
+  const q=normName(name);
+  return (S.jurisList||[]).find(x=>normName(x.restaurant_name)===q)||null;
+}
+// 미등록인지, 등록은 돼 있는데 이 관할 목록에 없을 뿐인지 구분한다(안내가 정반대이므로 중요).
+// 검색 API는 레이트리밋 대상이라 가게당 1회만 조회하고, CSV 한 건당 최대 PROBE_MAX곳까지만 본다.
+const PROBE_MAX=20;
+const skipProbe=new Map(); // normName → {state:'loading'|'registered'|'unregistered'|'unknown'|'capped', hits:[]}
+let probeSeq=0,probeRunning=false;
+async function probeSkipped(names){
+  if(!S.authed||!srv()||probeRunning)return;
+  // 관할 목록에 있는 이름은 화면에서 바로 설명되므로 서버에 묻지 않는다(요청 절약).
+  const todo=names.filter(n=>{const k=normName(n);return k&&!skipProbe.has(k)&&!jurisEntryFor(n)});
+  if(!todo.length)return;
+  probeRunning=true;
+  const my=++probeSeq;
+  try{
+    for(const n of todo){
+      if(my!==probeSeq)return;
+      // 한도를 넘긴 이름은 '확인 중…'으로 영원히 남지 않도록 즉시 종료 상태를 준다.
+      if(skipProbe.size>=PROBE_MAX){skipProbe.set(normName(n),{state:'capped'});continue}
+      skipProbe.set(normName(n),{state:'loading'});
+      if(my===probeSeq)renderSkipNotice();
+      let st={state:'unknown'};
+      try{
+        const r=await fetch(srv()+'/api/restaurants?q='+encodeURIComponent(n));
+        const list=await r.json();
+        if(Array.isArray(list)&&list.length){
+          const exact=list.filter(x=>normName(x.name)===normName(n));
+          const cand=(exact.length?exact:list).slice(0,20);
+          let reg=[];
+          try{reg=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(cand.map(x=>x.restaurant_id).join(','))).then(x=>x.json())}catch(e){}
+          const regSet=new Set(Array.isArray(reg)?reg:[]);
+          const hits=cand.filter(x=>regSet.has(x.restaurant_id));
+          st=hits.length
+            ?{state:'registered',hits:hits.slice(0,3).map(x=>({name:x.name,addr:shortAddr(x.address)}))}
+            :{state:'unregistered'};
+        }else st={state:'unregistered'};
+      }catch(e){st={state:'unknown'}}
+      skipProbe.set(normName(n),st);
+      if(my===probeSeq)renderSkipNotice();
+    }
+  }finally{probeRunning=false}
+  // 겹친 호출로 건너뛴 이름이 남아 있으면 이어서 조회한다('확인 중…' 고착 방지).
+  if(S.skipped.some(x=>!skipProbe.has(normName(x.name))&&!jurisEntryFor(x.name)))
+    setTimeout(()=>probeSkipped(S.skipped.map(x=>x.name)),60);
+  renderSkipNotice();
+}
+function skipReasonHtml(name){
+  const sims=similarNames(name);
+  let html='';
+  if(sims.length){
+    html+='<div class="warn" style="font-size:12px;margin-top:2px">혹시 '+sims.map(s=>'「<b>'+esc(s.name)+'</b>」('+esc(s.where)+')').join(' · ')+
+      '인가요? 이름이 한 글자만 달라도 다른 가게로 봅니다 — 맞다면 <b>CSV의 음식점명을 그 이름과 똑같이 고쳐</b> 다시 올려 주세요(자동으로 바꾸지 않습니다).</div>';
+  }
+  // 관할 목록에 이미 있는 가게라면 서버 조회 결과보다 이쪽이 정확하다(체크만 안 한 것).
+  const je=jurisEntryFor(name);
+  if(je){
+    html+=S.excluded.has(je.restaurant_id)
+      ?'<div class="meta" style="font-size:12px">우리 기관 목록에서 <b>[제외]</b>해 둔 가게입니다 — 2단계 목록에서 <b>[제외 해제]</b> 후 체크하면 함께 보낼 수 있어요.</div>'
+      :'<div class="meta" style="font-size:12px"><b>2단계 관할 목록에 있는 가게</b>입니다 — 목록에서 <b>체크만</b> 하면 이번에 함께 보낼 수 있어요.</div>';
+    return html;
+  }
+  const p=skipProbe.get(normName(name));
+  if(!p||p.state==='loading')html+='<div class="meta" style="font-size:12px">등록 여부 확인 중…</div>';
+  else if(p.state==='registered')html+='<div class="meta" style="font-size:12px">이 이름의 음식점이 <b>밥장부에 등록돼 있지만 우리 기관 관할 목록에는 없습니다</b>'+
+    (p.hits&&p.hits.length?' ('+p.hits.map(h=>esc(h.name)+(h.addr?' · '+esc(h.addr):'')).join(' / ')+')':'')+
+    ' — 2단계의 <b>[목록에 없나요? 이름으로 검색]</b>에서 찾아 선택하면 이번에 함께 보낼 수 있어요.</div>';
+  else if(p.state==='unregistered')html+='<div class="meta" style="font-size:12px">아직 <b>밥장부에 등록되지 않은 음식점</b>입니다 — 사장님께 앱 설치·가게 등록을 안내해 주세요.</div>';
+  return html;
+}
+function needSkipAck(){return S.skipped.length>0||S.missingSel.length>0}
+// 3단계(명단 표) 아래 한 줄 안내. 차단이 아니라는 것이 문구로 드러나야 한다.
+function skipGuidanceHtml(){
+  if(!needSkipAck())return '';
+  let h='<div class="muted-box" style="margin:8px 0;border-color:var(--warn);background:#fff8ec;color:#7a5209;font-size:13px">';
+  if(S.skipped.length)h+='<div>ℹ️ 명단에 있지만 <b>이번에 보내지 않는 음식점 '+S.skipped.length+'곳</b>이 있어요(표에서 회색 줄). 나머지 가게 명단은 그대로 보낼 수 있습니다.</div>';
+  if(S.missingSel.length)h+='<div style="margin-top:4px">ℹ️ <b>선택했지만 이번 명단(CSV)에 없는 음식점 '+S.missingSel.length+'곳</b>이 있어요. 그 가게로는 아무것도 보내지지 않습니다.</div>';
+  h+='<div class="meta" style="margin-top:4px">자세한 목록과 금액은 <b>4단계 확인</b>에 표로 나옵니다. 거기서 한 번 확인(체크)하시면 보낼 수 있어요.</div></div>';
+  return h;
+}
+// 4단계 상단 '보내지 않는 음식점' 카드 + 1회 확인 체크박스.
+function renderSkipNotice(){
+  const box=$('skipBox');
+  if(!box)return;
+  if(!needSkipAck()){box.innerHTML='';return}
+  let h='<div class="skip-card"><h3>⚠️ 이번에 보내지 않는 음식점이 있습니다</h3>';
+  if(S.skipped.length){
+    h+='<div>아래 음식점은 밥장부에 <b>등록되어 있지 않거나 2단계에서 선택되지 않아, 명단이 전달되지 않습니다.</b> 결제는 평소대로 따로 하시면 됩니다.</div>'+
+      '<table><thead><tr><th>가게명</th><th>인원</th><th>금액</th></tr></thead><tbody>'+
+      S.skipped.map(x=>'<tr><td>'+esc(x.name)+skipReasonHtml(x.name)+'</td><td>'+x.count+'명</td><td>'+x.amount.toLocaleString()+'원</td></tr>').join('')+
+      '</tbody></table>';
+  }
+  if(S.missingSel.length){
+    h+='<div style="margin-top:10px">아래 음식점은 <b>2단계에서 선택했지만 이번 명단(CSV)에 없어</b> 아무것도 전달되지 않습니다.</div>'+
+      '<div style="margin-top:4px">'+S.missingSel.map(x=>'<span class="pill">'+esc(x.name)+'</span>').join('')+'</div>'+
+      '<div class="meta" style="margin-top:4px">3단계의 <b>[CSV에 없는 N곳 선택 해제]</b> 버튼으로 선택에서 한 번에 뺄 수 있어요.</div>';
+  }
+  h+='<label class="ack"><input type="checkbox" id="skipAck"'+(S.skipAck?' checked':'')+'><span>위 음식점은 이번에 보내지 않는 것을 확인했습니다</span></label>'+
+    '<div class="meta" style="margin-top:4px">이 화면을 캡처해 두시면 기관 내부 증빙으로 쓸 수 있습니다(완료 화면에도 같은 목록이 남습니다).</div></div>';
+  box.innerHTML=h;
+  const cb=$('skipAck');
+  if(cb)cb.addEventListener('change',()=>{S.skipAck=!!cb.checked;revalidate()});
+}
+// 완료 화면·로그에 남길 제외 목록(기관 내부 증빙).
+function skipResultHtml(){
+  if(!needSkipAck())return '';
+  let h='<div class="muted-box" style="margin-top:8px;border-color:var(--warn);background:#fff8ec;color:#7a5209"><b>이번에 보내지 않은 음식점</b>';
+  if(S.skipped.length)h+='<div style="margin-top:4px">· 미등록·미선택: '+S.skipped.map(x=>esc(x.name)+' ('+x.count+'명 · '+x.amount.toLocaleString()+'원)').join(', ')+'</div>';
+  if(S.missingSel.length)h+='<div style="margin-top:4px">· 선택했으나 명단에 없음: '+S.missingSel.map(x=>esc(x.name)).join(', ')+'</div>';
+  h+='<div class="meta" style="margin-top:4px">이 가게들은 명단이 전달되지 않았습니다. 결제는 평소대로 따로 진행하시면 됩니다.</div></div>';
+  return h;
+}
+function skipLogText(){
+  if(!needSkipAck())return '';
+  let t='\n\n⚠️ 이번에 보내지 않은 음식점:';
+  if(S.skipped.length)t+='\n· 미등록·미선택: '+S.skipped.map(x=>x.name+' ('+x.count+'명 · '+x.amount.toLocaleString()+'원)').join(', ');
+  if(S.missingSel.length)t+='\n· 선택했으나 명단에 없음: '+S.missingSel.map(x=>x.name).join(', ');
+  t+='\n  (명단이 전달되지 않았습니다. 결제는 평소대로 따로 진행하시면 됩니다.)';
+  return t;
+}
 // CSV 원본(S.rawRows)과 현재 선택된 음식점(S.restaurants)을 대조해 매번 다시 검증·렌더링.
 // 파일을 새로 올리지 않아도(2단계 선택/해제만 바뀌어도) 호출되어야 4단계가 조용히 막히지 않는다.
 function validateAndRenderCsv(){
@@ -1155,6 +1356,8 @@ function validateAndRenderCsv(){
     const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn">⚠️ '+esc(w)+'</div>').join('');
     $('csvResult').innerHTML=errHtml+warnHtml;
     S.rows=null;S.valid=false;
+    S.skipped=[];S.missingSel=[];S.skipAck=false;S.skipSig='';
+    renderSkipNotice();
     revalidate();
     return;
   }
@@ -1167,14 +1370,36 @@ function validateAndRenderCsv(){
   const dupSet=new Set();
   const rows=S.rawRows.map(r=>{
     const org=normName(r.org)||defaultOrg;
-    let err=r.structErr;
-    if(!err){
-      const k=normName(r.rest)+'|'+org+'|'+r.dept+'|'+r.name;
-      if(dupSet.has(k))err=ERR_DUP_ROW;else dupSet.add(k);
+    // 선택되지 않은 음식점 행은 이번 전송의 대상이 아니다 → 오류(err)가 아니라 안내(note)로 둔다.
+    // 오류로 두면 그 행의 존재만으로 4·5단계가 통째로 막혀(=미등록 음식점 하드 차단) 나머지 가게
+    // 명단까지 보낼 수 없게 된다. buildGroups()가 이런 행을 이미 제외하므로 전송은 그대로 안전하다.
+    const skip=!selNames.has(normName(r.rest));
+    let err='';
+    if(!skip){
+      err=r.structErr;
+      if(!err){
+        const k=normName(r.rest)+'|'+org+'|'+r.dept+'|'+r.name;
+        if(dupSet.has(k))err=ERR_DUP_ROW;else dupSet.add(k);
+      }
     }
-    if(!err&&!selNames.has(normName(r.rest)))err=ERR_UNSELECTED;
-    return {...r,org,err};
+    const note=skip?(r.structErr?NOTE_SKIPPED+' · '+r.structErr:NOTE_SKIPPED):'';
+    return {...r,org,skip,err,note};
   });
+  // 이번에 보내지지 않는 것들을 가게 단위로 모은다(제외 목록 카드·완료 기록용).
+  S.skipped=(function(){
+    const m=new Map();
+    rows.filter(r=>r.skip).forEach(r=>{
+      const key=normName(r.rest)||'(빈 칸)';
+      if(!m.has(key))m.set(key,{name:r.rest||'(빈 칸)',count:0,amount:0,lines:[]});
+      const e=m.get(key);e.count+=1;if(r.amount>0)e.amount+=r.amount;e.lines.push(r.line);
+    });
+    return [...m.values()].sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+  })();
+  S.missingSel=S.restaurants.filter(r=>!csvNames.has(normName(r.name))).map(r=>({name:r.name,restaurant_id:r.restaurant_id}));
+  // 목록이 바뀌면 '확인했다'는 체크는 무효가 된다(예전 목록을 보고 누른 확인이 새 목록을 덮지 않게).
+  const sig=JSON.stringify([S.skipped.map(x=>x.name+'#'+x.count+'#'+x.amount),S.missingSel.map(x=>x.name)]);
+  if(sig!==S.skipSig){S.skipSig=sig;S.skipAck=false}
+  if(S.skipped.length)probeSkipped(S.skipped.map(x=>x.name));
   const errors=[...(S.fileErrors||[])];
   let guidance='',missingIds=[];
   // 이중 방어: 선택 목록에 이름이 같은 가게가 있으면 4단계로 넘어갈 수 없다(오배송 차단).
@@ -1194,13 +1419,11 @@ function validateAndRenderCsv(){
   }else if(!S.restaurants.length){
     guidance='<div class="bad" style="font-size:14px;font-weight:700;margin:8px 0">⛔ 먼저 2단계에서 음식점을 선택해 주세요. 선택하면 이 명단이 자동으로 다시 확인됩니다.</div>';
   }else{
-    // "전체 선택" 후 일부 가게만 든 CSV를 올리면 나머지 전부가 오류로 남아 4단계가 막힌다(S7).
-    // 어느 가게를 빼야 하는지 사람이 하나씩 찾지 않도록 id를 모아 원클릭 해제 버튼을 만든다.
-    S.restaurants.forEach(r=>{if(!csvNames.has(normName(r.name))){errors.push('선택 음식점 "'+r.name+'"이 CSV에 없음');missingIds.push(r.restaurant_id)}});
-    const mismatchNames=[...new Set(rows.filter(r=>r.err===ERR_UNSELECTED).map(r=>r.rest))];
-    if(mismatchNames.length){
-      guidance='<div class="bad" style="font-size:14px;font-weight:700;margin:8px 0">⛔ 명단의 음식점명 '+mismatchNames.map(n=>'"'+esc(n)+'"').join(', ')+'이(가) 선택한 가게(' +S.restaurants.map(r=>'"'+esc(r.name)+'"').join(', ')+ ')와 달라요. 2단계에서 정확한 이름의 가게를 선택했는지, 또는 CSV의 음식점명을 선택한 가게 이름과 똑같이 맞췄는지 확인하세요.</div>';
-    }
+    // "전체 선택" 후 일부 가게만 든 CSV를 올리면 나머지가 전부 남는다(S7). 이것도 차단이 아니라
+    // 안내다 — 그 가게로는 아무것도 나가지 않으므로, 원클릭 해제 버튼과 4단계 확인으로 충분하다.
+    missingIds=S.missingSel.map(x=>x.restaurant_id);
+    // 이번에 보내지 않는 가게가 있으면 3단계에서도 한 줄로 알려 준다(4단계에 표·확인 체크가 뜬다).
+    guidance=skipGuidanceHtml();
   }
   const rowErr=rows.some(r=>r.err);
   S.rows=rows;
@@ -1208,11 +1431,17 @@ function validateAndRenderCsv(){
   // batch_hash 충돌(같은 음식점 안에서 명단 내용이 완전히 같은 두 그룹)은 서버에서 조용히
   // dedupe되어 한 건이 사라지므로, 보내기 전에 여기서 확실한 오류로 막는다.
   if(!rowErr&&S.agency&&S.restaurants.length)collisionErrors().forEach(m=>errors.push(m));
-  S.valid=!errors.length&&!rowErr&&rows.length>0&&S.restaurants.length>0&&!!S.agency;
+  // 보낼 수 있는 행이 하나도 없으면(전 행이 '이번에 보내지 않음') 4·5단계로 넘어갈 이유가 없다.
+  const sendable=rows.filter(r=>!r.skip&&!r.err).length;
+  S.valid=!errors.length&&!rowErr&&sendable>0&&S.restaurants.length>0&&!!S.agency;
   // '사유' 열: title 툴팁은 태블릿(터치)에서 뜨지 않아 왜 빨간 줄인지 알 수 없었다(A1).
   const orgCell=r=>r.org?esc(r.org):'<span class="meta">미선택</span>';
-  const tbl='<table><thead><tr><th>음식점명</th><th>소속</th><th>부서명</th><th>직원명</th><th>선금금액</th><th>입금자명</th><th>사유</th></tr></thead><tbody>'+
-    rows.map(r=>`<tr class="${r.err?'err':''}"><td>${esc(r.rest)}</td><td>${orgCell(r)}</td><td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount||'-'}</td><td>${esc(r.payer)}</td><td class="${r.err?'bad':''}">${r.err?esc(r.err):'—'}</td></tr>`).join('')+'</tbody></table>';
+  const showPay=S.csvFormat==='pay';
+  const reasonCell=r=>r.err
+    ?'<td class="bad">'+esc(r.err)+'</td>'
+    :(r.note?'<td class="warn">'+esc(r.note)+'</td>':'<td>—</td>');
+  const tbl='<table><thead><tr><th>음식점명</th><th>소속</th><th>부서명</th><th>직원명</th><th>선금금액</th><th>결제자·입금자명<br><span class="meta">(선택)</span></th>'+(showPay?'<th>결제구분<br><span class="meta">(선택)</span></th>':'')+'<th>사유</th></tr></thead><tbody>'+
+    rows.map(r=>`<tr class="${r.err?'err':(r.skip?'skip':'')}"><td>${esc(r.rest)}</td><td>${orgCell(r)}</td><td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount||'-'}</td><td>${esc(r.payer)||'<span class="meta">—</span>'}</td>${showPay?`<td>${esc(r.payMethod)||'<span class="meta">—</span>'}</td>`:''}${reasonCell(r)}</tr>`).join('')+'</tbody></table>';
   const dropBtn=missingIds.length
     ?'<button type="button" id="dropMissingBtn" class="btn-primary" style="margin:6px 0 8px">CSV에 없는 '+missingIds.length+'곳 선택 해제</button>'+
      '<div class="meta" style="margin-bottom:6px">누르면 이번 명단(CSV)에 없는 음식점을 선택에서 빼고 다시 확인합니다. 선택한 다른 가게와 명단은 그대로예요.</div>'
@@ -1246,9 +1475,13 @@ function buildGroups(){
     const org=normName(r.org)||defaultOrg;
     const k=rid+'|'+org+'|'+r.dept;
     if(!groups.has(k))groups.set(k,{restaurant_id:rid,restaurant_name:r.rest,institution:org,department:r.dept,items:[]});
-    // payer(입금자명): 사장님이 통장 입금과 명단을 1:1로 대조하는 기준값. 암호문 안(items)에만 실리고
-    // 서버 summary(평문)에는 싣지 않는다(개인 이름 = PII, 불변식 §0). batch_hash(name|dept|amount)도 불변.
-    groups.get(k).items.push({name:r.name,dept:r.dept,amount:r.amount,org,payer:normName(r.payer)});
+    // payer(결제자·입금자명, 선택)·payMethod(결제구분, 선택): 사장님이 결제 내역과 명단을 대조할 때
+    // 쓰는 참고값. 암호문 안(items)에만 실리고 서버 summary(평문)에는 싣지 않는다(개인 이름 = PII,
+    // 불변식 §0). ⚠️ batch_hash canonical은 name|dept|amount 셋뿐 — 선택 필드가 늘어도 값은 불변이다
+    // (PROTOCOL §3). 값이 없는 선택 필드는 아예 넣지 않아 기존 payload와 바이트 단위로 같게 둔다.
+    const item={name:r.name,dept:r.dept,amount:r.amount,org,payer:normName(r.payer)};
+    if(r.payMethod)item.payMethod=r.payMethod;
+    groups.get(k).items.push(item);
   });
   return groups;
 }
@@ -1270,6 +1503,7 @@ function collisionErrors(){
 }
 function currentYearMonth(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function renderConfirm(){
+  renderSkipNotice(); // 보내지 않는 가게 목록·확인 체크는 확인 표 위에 온다
   const groups=[...buildGroups().values()];
   if(!groups.length){$('confirmBox').innerHTML='<div class="meta">확인할 명단이 없습니다. 1~3단계를 다시 확인해 주세요.</div>';return}
   const totalPeople=groups.reduce((s,g)=>s+g.items.length,0);
@@ -1277,26 +1511,42 @@ function renderConfirm(){
   // 소속이 여러 개면 표에 '소속' 열을 추가해 그룹이 어떻게 나뉘었는지 그대로 보이게 한다.
   const orgs=[...new Set(groups.map(g=>g.institution||''))];
   const multiOrg=orgs.length>1;
-  // 입금자명: 음식점 사장님이 이 그룹의 합계를 통장 입금과 대조할 때 쓰는 기준값 — 그룹별로 그대로 보여준다.
-  const payersOf=g=>{const s=[...new Set(g.items.map(i=>i.payer).filter(Boolean))];return s.length?esc(s.slice(0,2).join(', '))+(s.length>2?' 외 '+(s.length-2)+'명':''):'—'};
-  const rows=groups.map(g=>{
-    const amt=g.items.reduce((a,i)=>a+i.amount,0);
-    return `<tr><td>${esc(g.restaurant_name)}</td>${multiOrg?`<td>${esc(g.institution||'(미지정)')}</td>`:''}<td>${esc(g.department)}</td><td>${g.items.length}명</td><td><b>${amt.toLocaleString()}원</b></td><td>${payersOf(g)}</td></tr>`;
-  }).join('');
+  const sumOf=g=>g.items.reduce((a,i)=>a+i.amount,0);
+  // 결제자·입금자명(선택)과 결제구분: 사장님이 결제 내역과 명단을 맞춰 볼 때 쓰는 참고값 — 그룹별로 보여준다.
+  const payersOf=g=>{const s=[...new Set(g.items.map(i=>i.payer).filter(Boolean))];return s.length?esc(s.slice(0,2).join(', '))+(s.length>2?' 외 '+(s.length-2)+'명':''):'<span class="meta">—</span>'};
+  const methodsOf=g=>{const s=[...new Set(g.items.map(i=>i.payMethod).filter(Boolean))];return s.length?'<div class="meta">'+esc(s.join(', '))+'</div>':''};
+  // 결제 단위는 '가게'다 — 표를 가게별로 묶고, 한 가게에 줄이 둘 이상이면 소계 행을 넣는다.
+  const order=groups.slice().sort((a,b)=>
+    String(a.restaurant_name).localeCompare(String(b.restaurant_name),'ko')||
+    String(a.institution||'').localeCompare(String(b.institution||''),'ko')||
+    String(a.department||'').localeCompare(String(b.department||''),'ko'));
+  const byStore=new Map();
+  order.forEach(g=>{const k=g.restaurant_id;if(!byStore.has(k))byStore.set(k,[]);byStore.get(k).push(g)});
+  const cols=multiOrg?6:5;
+  let rows='';
+  byStore.forEach(list=>{
+    list.forEach(g=>{
+      rows+=`<tr><td>${esc(g.restaurant_name)}</td>${multiOrg?`<td>${esc(g.institution||'(미지정)')}</td>`:''}<td>${esc(g.department)}</td><td>${g.items.length}명</td><td><b>${sumOf(g).toLocaleString()}원</b></td><td>${payersOf(g)}${methodsOf(g)}</td></tr>`;
+    });
+    if(list.length>1){
+      const amt=list.reduce((s,g)=>s+sumOf(g),0),ppl=list.reduce((s,g)=>s+g.items.length,0);
+      rows+=`<tr class="sub"><td colspan="${cols-3}">🧾 ${esc(list[0].restaurant_name)} 가게 소계</td><td>${ppl}명</td><td>${amt.toLocaleString()}원</td><td></td></tr>`;
+    }
+  });
+  // 담당자가 실제로 결제할 때 쓰는 숫자 = 가게별 금액. 표 위에 한 줄로 먼저 보여 준다.
+  const storeTotals=[...byStore.values()].map(list=>({name:list[0].restaurant_name,amt:list.reduce((s,g)=>s+sumOf(g),0)}));
+  const payLine='<div class="muted-box" style="margin-bottom:6px;font-size:13px;border-color:var(--primary);background:#f0f7fc"><b>가게별 결제 금액</b> — 결제는 가게마다 따로 이뤄집니다.<div style="margin-top:4px">'+
+    storeTotals.map(s=>'<span class="pill">'+esc(s.name)+' <b>'+s.amt.toLocaleString()+'원</b></span>').join('')+'</div></div>';
   const head=multiOrg
     ?'<div class="meta" style="margin-bottom:6px">소속 '+orgs.length+'곳: <b style="color:var(--text)">'+orgs.map(o=>esc(o||'(미지정)')).join(', ')+'</b> — 소속·부서별로 나뉘어 따로 전달됩니다.</div>'
     :(S.agency?'<div class="meta" style="margin-bottom:6px">소속 기관: <b style="color:var(--text)">'+esc(orgs[0]||S.agency.name)+'</b></div>':'');
-  $('confirmBox').innerHTML=head+
-    '<table><thead><tr><th>음식점</th>'+(multiOrg?'<th>소속</th>':'')+'<th>부서</th><th>인원</th><th>선금 합계</th><th>입금자명</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+  $('confirmBox').innerHTML=head+payLine+
+    '<table><thead><tr><th>음식점</th>'+(multiOrg?'<th>소속</th>':'')+'<th>부서</th><th>인원</th><th>선금 합계</th><th>결제자·입금자명<br><span class="meta">(선택)</span></th></tr></thead><tbody>'+rows+'</tbody></table>'+
     '<div style="margin-top:10px;padding:10px 12px;background:#eef2ff;border:1px solid var(--primary);border-radius:8px">'+
-    '<div style="font-weight:700;font-size:14px">총 합계 '+totalAmount.toLocaleString()+'원 <span style="font-weight:400;color:var(--muted);font-size:12px">(음식점 '+new Set(groups.map(g=>g.restaurant_id)).size+'곳 · '+(multiOrg?'소속·부서 조합 ':'부서 조합 ')+groups.length+'건 · '+totalPeople+'명)</span></div>'+
-    // 원칙: 명단 1건 = 입금 1건. 표가 여러 줄이면 **합계 한 번에 이체**가 곧 대조 불가능이므로, 총 합계는
-    // 참고값으로 낮추고 "줄마다 따로 이체"를 주문장으로 올린다(사장님은 건별로 통장과 맞춰 승인한다).
-    (groups.length>1
-      ? '<div class="meta" style="margin-top:4px;color:var(--text);font-weight:700">⚠️ 위 표는 '+groups.length+'건입니다 — <b>줄마다 그 금액을 따로 이체</b>해 주세요. 명단 1건 = 입금 1건이어야 사장님이 통장과 대조해 승인할 수 있습니다. 합계를 한 번에 보내면 어느 명단의 돈인지 확인할 수 없어 승인이 지연됩니다.</div>'
-        +'<div class="meta" style="margin-top:4px">총 합계는 참고용입니다. 돈은 계좌로 직접 이체하고, 이 웹은 명단만 전달합니다.</div>'
-      : '<div class="meta" style="margin-top:4px">이 금액을 음식점 계좌로 이체하세요 — 명단 1건 = 입금 1건입니다. 돈은 계좌로 직접 이체하고, 이 웹은 명단만 전달합니다.</div>')+
-    '<div class="meta" style="margin-top:4px">사장님은 <b>줄마다 “입금자명 ↔ 실제 입금 1건 ↔ 합계 금액”</b>을 통장과 대조한 뒤 장부에 올립니다 — 입금자명과 이체 금액이 명단과 정확히 맞아야 승인이 빨라집니다.</div>'+
+    // 결제 단위는 가게다. 총 합계는 어디에도 그대로 쓰이지 않는 숫자이므로 작은 참고값으로 내린다.
+    '<div class="meta">총 합계 '+totalAmount.toLocaleString()+'원 (음식점 '+byStore.size+'곳 · '+(multiOrg?'소속·부서 조합 ':'부서 조합 ')+groups.length+'건 · '+totalPeople+'명) <b>— 참고용이며, 결제는 가게별로 따로 이뤄집니다.</b></div>'+
+    '<div class="meta" style="margin-top:4px">결제 단위를 명단 단위와 맞추시면 사장님이 한 건씩 대조하기 쉬워 승인이 빨라집니다(<b>필수는 아닙니다</b>). 한 가게 몫을 한 번에 결제하셨다면 <b>이 표를 캡처해 사장님께 함께 전달</b>하세요.</div>'+
+    '<div class="meta" style="margin-top:4px">이 웹은 명단만 전달합니다 — 결제(카드·계좌이체)는 기관과 음식점이 앱 밖에서 직접 진행합니다.</div>'+
     '</div>';
 }
 function computeStep(){
@@ -1337,9 +1587,12 @@ function revalidate(){
     $('submitCard').insertBefore(div,$('submitCard').firstChild);
   }
   if(!ok&&!sending){S.mode=null;$('modeCards').querySelectorAll('.mode-card').forEach(x=>{x.classList.remove('sel');x.setAttribute('aria-pressed','false')});$('directPanel').innerHTML='';$('sendResult').innerHTML='';$('sendProgress').classList.add('hide');$('submitBtn').textContent='전송 방법을 선택하세요'}
+  // '이번에 보내지 않는 가게'는 전송을 영구히 막지 않는다 — 목록을 보고 한 번 확인(체크)하면 진행된다.
+  const skipOk=!needSkipAck()||S.skipAck;
   // 전송 중에는 어떤 이유로 revalidate가 불려도 전송 버튼을 되살리지 않는다(S6).
-  $('submitBtn').disabled=sending||!(ok&&S.mode&&keyOk);
+  $('submitBtn').disabled=sending||!(ok&&S.mode&&keyOk&&skipOk);
   if(ok&&S.mode&&!keyOk)$('submitBtn').textContent='열쇠 지문 확인 후 보낼 수 있어요';
+  else if(ok&&S.mode&&!skipOk)$('submitBtn').textContent='4단계에서 보내지 않는 음식점을 확인해 주세요';
   else if(ok&&S.mode)$('submitBtn').textContent=S.mode==='relay'?'동의 확인 후 바로 보내기':'동의 확인 후 직접 전달 준비';
   updateStepper();
 }
@@ -1533,7 +1786,7 @@ function dedupInfo(row){
   if(row.dedup==='REJECTED')return{cls:'bad',attention:true,text:'⚠️ 음식점이 거절했던 명단이에요(재전송되지 않음). 내용을 확인해 명단·금액이 바뀌면 새로 전송돼요'};
   // PENDING dedupe: 예전 문구 "중복 없음"은 오답 — 같은 내용의 명단을 **다른 담당자(또는 이전 전송)**가
   // 이미 접수해 둔 것일 수 있고, 이번 건은 새로 접수되지 않았다. 별도 입금 건이라면 구분해 다시 보내야 한다.
-  return{cls:'warn',attention:true,text:'⚠️ 같은 내용의 명단이 이미 접수되어 대기 중이에요 — 이번 건은 새로 접수되지 않았어요. 같은 부서의 다른 담당자(또는 이전 전송)가 보낸 것일 수 있어요. 이번 입금이 별도 건이면 부서명에 팀을 붙여(예: 홍보과 1팀) 구분해 다시 보내주세요.'};
+  return{cls:'warn',attention:true,text:'⚠️ 같은 내용의 명단이 이미 접수되어 대기 중이에요 — 이번 건은 새로 접수되지 않았어요. 같은 부서의 다른 담당자(또는 이전 전송)가 보낸 것일 수 있어요. 이번이 별도의 결제 건이면 부서명에 팀을 붙여(예: 홍보과 1팀) 구분해 다시 보내주세요.'};
 }
 function renderRelayResults(final){
   const rows=[...relayResults.values()];
@@ -1564,10 +1817,11 @@ function renderRelayResults(final){
     }else{
       html+='<div style="margin-top:8px;padding:10px 12px;background:#e7f8ee;border:1px solid var(--ok);border-radius:8px;font-size:13px">'+
         '<div style="font-weight:700;color:#1a7f43">✅ '+okN+'건 모두 보냈습니다.</div>'+
-        '<div class="meta" style="margin-top:4px">서버는 내용을 볼 수 없고, 음식점이 받는 즉시 서버에서 삭제됩니다. <b>3일(72시간) 안에 음식점이 받지 않으면 자동으로 삭제</b>되니, 음식점에 전화 등으로 전달 사실을 알려 주세요. 선금(돈)은 음식점 계좌로 따로 이체하시면 됩니다.</div>'+
+        '<div class="meta" style="margin-top:4px">서버는 내용을 볼 수 없고, 음식점이 받는 즉시 서버에서 삭제됩니다. <b>3일(72시간) 안에 음식점이 받지 않으면 자동으로 삭제</b>되니, 음식점에 전화 등으로 전달 사실을 알려 주세요. 결제(카드·계좌이체)는 가게별로 앱 밖에서 따로 진행하시면 됩니다.</div>'+
         '<div class="meta" style="margin-top:4px">이 화면을 캡처해 기관 내부 기록으로 보관하세요.</div>'+
         '</div>';
     }
+    html+=skipResultHtml(); // 보내지 않은 가게 목록을 결과 화면에도 남긴다(기관 내부 증빙)
   }
   $('sendResult').innerHTML=html;
   const rb=$('retryFailBtn');
@@ -1632,7 +1886,8 @@ async function runRelay(list){
   const rows=[...relayResults.values()];
   const failN=rows.filter(r=>!r.ok).length;
   const dedupN=rows.filter(r=>{const d=dedupInfo(r);return d&&d.attention}).length;
-  log('\n완료: 성공 '+(rows.length-failN)+' · 실패 '+failN+(dedupN?' · 확인 필요(이미 처리된 명단) '+dedupN:'')+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).\n\n💰 입금 확인: 방금 보낸 명단은 '+rows.length+'건입니다 — 음식점 계좌로 '+rows.length+'건을 각각 그 금액대로 이체(또는 결제)해 주세요. 명단 1건 = 입금 1건이어야 사장님이 통장과 대조해 승인할 수 있습니다.\n\n다음 할 일: 음식점에 전화 등으로 전달 사실을 알려 주시고, 이 화면(또는 위 로그)을 캡처해 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.');
+  const storeN=new Set(rows.map(r=>r.g.restaurant_id)).size;
+  log('\n완료: 성공 '+(rows.length-failN)+' · 실패 '+failN+(dedupN?' · 확인 필요(이미 처리된 명단) '+dedupN:'')+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).'+skipLogText()+'\n\n💰 결제 확인: 방금 보낸 명단은 음식점 '+storeN+'곳 · '+rows.length+'건입니다 — 결제(카드·계좌이체)는 가게별로 앱 밖에서 따로 진행해 주세요. 결제 단위를 명단 단위와 맞추시면 사장님이 한 건씩 대조하기 쉬워 승인이 빨라집니다(필수는 아닙니다). 한 가게 몫을 한 번에 결제하셨다면 4단계 확인 표를 캡처해 사장님께 함께 전달하세요.\n\n다음 할 일: 음식점에 전화 등으로 전달 사실을 알려 주시고, 이 화면(또는 위 로그)을 캡처해 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.');
 }
 async function doSubmitRelay(){
   if(sending)return; // 재진입 차단(S6) — 이중 클릭·동의 모달 재진입
@@ -1641,6 +1896,7 @@ async function doSubmitRelay(){
   if(dupSelectedNames().length){alert(DUP_MSG);return}
   // 최종 방어선: 열쇠 지문이 확인되지 않은 가게가 있으면 보내지 않는다.
   if(!allKeyChecked()){alert(KEYGATE_MSG+'\n\n· '+keyCheckPending().map(r=>r.name).join('\n· '));return}
+  if(needSkipAck()&&!S.skipAck){alert(SKIPGATE_MSG);return}
   // 최종 방어선: batch_hash가 겹치는 그룹이 남아 있으면 한 건이 서버에서 조용히 사라진다.
   const collide=collisionErrors();
   if(collide.length){alert(collide.join('\n\n'));return}
@@ -1770,6 +2026,7 @@ async function doSubmitDirect(){
   // 최종 방어선: 동명 선택이 남아 있으면 파일도 만들지 않는다.
   if(dupSelectedNames().length){alert(DUP_MSG);return}
   if(!allKeyChecked()){alert(KEYGATE_MSG+'\n\n· '+keyCheckPending().map(r=>r.name).join('\n· '));return}
+  if(needSkipAck()&&!S.skipAck){alert(SKIPGATE_MSG);return}
   // batch_hash가 겹치면 음식점 앱이 두 번째 파일을 "이미 등록한 명단(중복 전달)"로 막는다 — 미리 차단.
   const collide=collisionErrors();
   if(collide.length){alert(collide.join('\n\n'));return}
@@ -1815,8 +2072,9 @@ async function prepareDirect(){
     }catch(e){failN++;log('❌ '+g.restaurant_name+' / '+g.department+orgTagOf(g)+': '+e.message)}
   }
   prog.classList.add('hide');prog.innerHTML='';
-  log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.\n\n다음 할 일: 위 카드에서 파일 저장 또는 이메일·카톡·QR로 음식점에 전달한 뒤, 전달 사실을 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.'+
-    (groups.length>1?'\n※ 파일·QR은 음식점(부서)별로 각각 만들어졌습니다. 카드마다 따로 전달하세요.':''));
+  $('sendResult').innerHTML=skipResultHtml(); // 보내지 않은 가게 목록(기관 내부 증빙)
+  log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.'+skipLogText()+'\n\n다음 할 일: 위 카드에서 파일 저장 또는 이메일·카톡·QR로 음식점에 전달한 뒤, 전달 사실을 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.'+
+    (groups.length>1?'\n※ 파일·QR은 음식점(부서)별로 각각 만들어졌습니다. 카드마다 따로 전달하세요 — 결제도 같은 단위로 나누시면 대조가 쉽습니다(필수는 아닙니다).':''));
 }
 // 홑따옴표(&#39;)까지 반드시 이스케이프한다 — 이 파일은 속성값을 홑따옴표로 감싸는 곳이 있고,
 // 앞으로 생길 수도 있다. 빠뜨리면 가게 이름 등 외부 문자열이 속성을 탈출할 수 있다.

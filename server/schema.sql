@@ -20,6 +20,10 @@ CREATE TABLE IF NOT EXISTS deposit_summary (
   year_month      TEXT NOT NULL,       -- "2026-07"
   total_amount    INTEGER NOT NULL,    -- 부서·음식점별 선금 합계 (개인별 금액 ❌)
   member_count    INTEGER NOT NULL,    -- 대상 인원수 (이름 ❌)
+  agency_domain   TEXT,                -- 제출자가 OTP 인증에 사용한 이메일의 도메인부(예 "gwangjin.go.kr").
+                                       -- 로컬파트 없음 → 개인정보 아님(§0 허용). 기관명은 자칭이라 서버가
+                                       -- 검증할 수 없으므로, 검증 가능한 이 도메인을 음식점 앱에 함께 보내
+                                       -- 사장님이 눈으로 대조하게 한다(PROTOCOL §4.11). 미인증·구버전 토큰이면 NULL.
   batch_hash      TEXT NOT NULL,       -- 배치 무결성 해시
   status          TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING|APPROVED|REJECTED|EXPIRED(미수령 72시간 경과)
   created_at      INTEGER NOT NULL,
@@ -78,9 +82,11 @@ CREATE TABLE IF NOT EXISTS agency_otp (
 );
 
 CREATE TABLE IF NOT EXISTS agency_token (
-  token_hash TEXT PRIMARY KEY,
-  email      TEXT NOT NULL,
-  expires_at INTEGER NOT NULL
+  token_hash   TEXT PRIMARY KEY,
+  email        TEXT NOT NULL,   -- 이메일의 해시(HMAC/SHA-256) — 평문 미저장
+  expires_at   INTEGER NOT NULL,
+  email_domain TEXT             -- 인증된 이메일의 도메인부만(예 "gwangjin.go.kr", 로컬파트 제외 — 개인정보 아님).
+                                -- /api/submit이 deposit_summary.agency_domain으로 옮겨 적어 음식점 앱까지 전달(§4.11).
 );
 
 -- 열쇠 지문 확인 기록(§4.8). 담당자(서무)가 사장님과 통화로 공개키 지문을 대조하고 "확인했다"를
