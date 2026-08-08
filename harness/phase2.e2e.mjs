@@ -93,6 +93,12 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
   ok(Array.isArray(found) && found.length === 1 && found[0].restaurant_id === RID, '음식점 검색 프록시 결과');
   r = await call(store, env, 'GET', '/api/restaurants');
   ok(r.status === 400, '지역 누락 시 400(지역 필수)');
+  // 우편번호 경로(2026-08 공공API 한글 조건 장애 우회, PROTOCOL §7.4): 5자리 숫자만 허용하고
+  // 우편번호만으로도 검색이 성립해야 한다(상호 없이 후보 목록을 받는 흐름).
+  r = await call(store, env, 'GET', '/api/restaurants?zip=05021');
+  ok(r.status === 200, '우편번호만으로 검색 200');
+  r = await call(store, env, 'GET', '/api/restaurants?zip=123');
+  ok(r.status === 400, '우편번호 5자리가 아니면 400');
 
   // 3) 담당자 웹: 공개키 조회 → 명단 암호화 → 제출
   r = await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RID);

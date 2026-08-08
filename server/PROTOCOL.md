@@ -77,7 +77,7 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. `contact`는 미등록 시 각 필드 `null`. IP당 분당 20회로 별도 레이트리밋(§6.3) |
 | `GET /api/registered?ids=a,b,c` | — | `[등록된 id…]` / 400 | 담당자 웹: '명단 받기 가능' 표시용. **한 번에 100개까지**(초과 시 `400 {error:'too_many_ids', max:100}` — 청킹은 클라이언트 몫) |
 | `GET /api/registered-list?sido=&sigungu=` | — | `{restaurants:[{restaurant_id,restaurant_name,district,registered_at,verified}]}` / 400 | 시도(+선택 시군구)의 등록 음식점 목록(§4.6). `sido` 필수(없으면 `400 {error:'sido_required'}`). **매칭은 정규화 후 정확 일치**(`district == "{sido} {sigungu}"` — 부분 일치 금지, §4.6). 공개 정보만(연락처 미포함), 레거시(district 없음) 제외, 이름 가나다 정렬. `registered_at`(등록 시각)·`verified`(0\|1, §4.10)는 담당자 웹의 "신규 등록"·"실존 확인" 배지용(개인정보 아님). IP당 분당 20회 별도 레이트리밋(§6.3) |
-| `GET /api/restaurants?region=&q=` | — | `[{restaurant_id,name,address,status}]` | data.go.kr 프록시(키 은닉). 지역 또는 이름 중 하나 필수, 폐업 제외 |
+| `GET /api/restaurants?region=&q=&zip=` | — | `[{restaurant_id,name,address,status,category,region_code,tel,zip}]` | data.go.kr 프록시(키 은닉). `region`(개방자치단체코드)·`q`(상호)·`zip`(도로명 우편번호 5자리) 중 **하나 이상 필수**, 폐업 제외. `zip`이 오면 우편번호로 후보를 받아(최대 3페이지=300건) **상호는 서버가 부분일치로 거른다** — §7.4의 상대 서비스 회귀 우회 경로. `zip`이 5자리가 아니면 `400`. |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | 신규 `{summary_id}` / 재제출 `{summary_id, deduped:true, status}` / 401 | 부서·음식점 단위 1건(§4.3). 동일 `(restaurant_id,batch_hash)` 재제출은 멱등(§4.7). 서버가 **토큰에서 읽은 인증 이메일 도메인**을 `deposit_summary.agency_domain`에 함께 기록한다(§4.11 — body로 온 값은 무시) |
 | `GET /api/inbox?restaurant_id=&auth_token=` (또는 헤더 `X-Auth-Token`) | — | `[{summary_id, summary, ciphertext, status}]` / 401 | 음식점 앱 폴링(PENDING만, `encrypted_blob` JOIN — 암호문 없는 건은 제외). **소유 증명 필수**(§4.1의 1회용 `auth_token`, 없거나 무효면 `401 {error:'auth_required'}`). `summary`에 **`batch_hash`는 실리지 않는다**(§4.9). `summary.agency_domain`(인증 이메일 도메인, 미인증·구버전이면 `null`)이 실린다(§4.11) |
 | `GET /api/inbox-count?restaurant_id=` | — | `{"count":2}` / 400 | 알림 배지·경량 폴링용 **개수만**. `/api/inbox`와 동일 필터(PENDING + 72시간 이내 + `encrypted_blob` JOIN)를 COUNT로만 수행하고 요약 메타·암호문은 반환하지 않는다. `restaurant_id` 누락 시 `400 {error:'restaurant_id 필요'}`. **인증 없음** — 같은 id로 `/api/inbox`를 호출하면 이미 알 수 있는 값의 부분집합이라 새로 노출되는 정보가 0(남용 방어는 전역 레이트리밋 분당 60, §6.3) |
@@ -360,8 +360,9 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 ### 4.10 가게 등록 강화 (공공데이터 실존·상호 대조)
 
 `POST /api/register-key`의 **최초 등록**(그 `restaurant_id`가 아직 없을 때)에는 공공데이터
-(data.go.kr 일반음식점 — `/api/restaurants`와 같은 소스, `env.searchRestaurants`/`defaultSearch`
-재사용)로 실존 여부와 상호를 대조한다.
+(data.go.kr 일반음식점)로 실존 여부와 상호를 대조한다. 실서비스 경로는 **관리번호(MNG_NO) 정확
+일치 조회**(`cond[MNG_NO::EQ]` — 값이 ASCII라 §7.4의 한글 조건 장애를 타지 않는다)이고,
+`env.searchRestaurants`가 주입된 경우(테스트 목·대체 데이터원)에만 기존 이름 검색 경로를 쓴다.
 
 - 조회 키워드는 상호의 **첫 토큰**(공백·괄호 앞까지)으로 넓게 잡고, 대조는 **정규화 후 전체 이름
   일치**로 판정한다. 정규화 = NFC + 모든 공백 제거 + 괄호류(`()[]{}（）［］｛｝`) 제거 — 앱이 보낸
@@ -592,3 +593,24 @@ CORS 헤더와는 독립이므로 **CORS 동작(화이트리스트 echo / Origin
   날짜(`2026-08-01`) 등 다른 숫자는 통과한다.
 - 스팸 방지로 IP당 분당 5회 레이트리밋(`429`). 성공 시 `200 {ok:true}`.
 - **주의**: 자유 입력이므로 저장은 그대로 하되, 응답·서버 로그에 입력 내용을 반영하지 않는다.
+
+## 7.4 공공데이터 API 한글 조건 장애 (2026-08-08 확인, 진행 중)
+
+data.go.kr **행정안전부_식품_일반음식점 조회서비스**(`apis.data.go.kr/1741000/general_restaurants/info`)가
+**조건값에 한글이 들어가면 언제나 0건**을 돌려준다. 우리 쪽 문제가 아님을 다음으로 확인했다.
+
+- `cond[BPLC_NM::LIKE]=김밥` → `resultCode "0"`(정상) + `totalCount 0`.
+  UTF-8·EUC-KR·이중 인코딩·소문자 퍼센트 표기 모두 동일.
+- 같은 조건에 **ASCII 값**(`cond[BPLC_NM::LIKE]=1`)을 주면 정상(23,661건). 상호 아닌 다른 한글 필드
+  (`cond[ROAD_NM_ADDR::LIKE]=광진`, `cond[BZSTAT_SE_NM::EQ]=기타`)도 똑같이 0건 — **필드가 아니라
+  값의 한글 여부**가 갈림선이다.
+- 지역코드(`cond[OPN_ATMY_GRP_CD::EQ]=3040000`, 18,284건)·우편번호(`cond[ROAD_NM_ZIP::EQ]=05021`,
+  149건)·관리번호(`cond[MNG_NO::EQ]`, 1건)는 ASCII라 정상 동작한다. 연산자는 `::EQ`/`::LIKE`만 유효
+  (`::CONTAIN` 등은 HTTP_ERROR), `numOfRows`는 500·1000을 넣어도 **100이 상한**이다.
+
+**우회 설계(현재 구현):** 상호(한글)는 서버가 후보를 받아 **우리 코드에서** 부분일치로 거른다.
+후보를 좁히는 키는 ASCII인 우편번호(`zip`)·지역코드(`region`)다. 상호 조건은 요청에 그대로 남겨
+두므로 **상대가 고치면 자동으로 예전 성능으로 복귀**한다(코드 변경 불필요).
+
+**재확인 방법:** `curl "https://prepaid-relay.sulsul-plus.workers.dev/api/restaurants?q=김밥"` 이
+0건이 아니게 되면 복구된 것이다. 복구 후에도 우편번호 경로는 유지한다(더 정확한 검색 수단).

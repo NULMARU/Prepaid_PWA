@@ -21,9 +21,13 @@ node harness/responsive.e2e.mjs >/tmp/v4.log 2>&1; test $? -eq 0; ok $? "폰 반
 
 echo; echo "[2] 라이브 서버 (배포된 실제 시스템 + D1)"
 node harness/phase2.live.mjs "$RELAY" >/tmp/v3.log 2>&1; test $? -eq 0; ok $? "phase2 라이브 6단계 ($(grep -oE '[0-9]+ 통과' /tmp/v3.log | head -1)) — 등록→조회→암호화 + 인증강제(무토큰/무효토큰 제출 401)→등록해제"
-N=$(curl -s "$RELAY/api/restaurants?q=%EA%B9%80%EB%B0%A5" | python3 -c "import sys,json;d=json.load(sys.stdin);print(len(d) if isinstance(d,list) else 0)" 2>/dev/null)
-test "${N:-0}" -gt 0; ok $? "공공API 실검색(이름) — ${N:-0}건"
-PE=$(curl -s "$RELAY/api/restaurants?region=6510000&q=%EA%B9%80%EB%B0%A5" | python3 -c "import sys,json;d=json.load(sys.stdin);print('OK' if not any('폐업' in x['status'] for x in d) else 'BAD')" 2>/dev/null)
+# 공공 API는 2026-08-08부터 **조건값에 한글이 들어가면 0건**을 돌려주는 회귀 상태다(상대 서비스 문제).
+# 그래서 생존 확인은 우편번호(ASCII)로 하고, 상호는 서버가 받아온 후보에서 걸러 준다.
+N=$(curl -s "$RELAY/api/restaurants?zip=05021" | python3 -c "import sys,json;d=json.load(sys.stdin);print(len(d) if isinstance(d,list) else 0)" 2>/dev/null)
+test "${N:-0}" -gt 0; ok $? "공공API 실검색(우편번호) — ${N:-0}건"
+NQ=$(curl -s "$RELAY/api/restaurants?zip=05021&q=%EB%8F%84%EC%BF%84" | python3 -c "import sys,json;d=json.load(sys.stdin);print(len(d) if isinstance(d,list) else 0)" 2>/dev/null)
+test "${NQ:-0}" -gt 0; ok $? "공공API 상호 필터(우편번호+상호) — ${NQ:-0}건"
+PE=$(curl -s "$RELAY/api/restaurants?zip=05021" | python3 -c "import sys,json;d=json.load(sys.stdin);print('OK' if not any('폐업' in x['status'] for x in d) else 'BAD')" 2>/dev/null)
 test "$PE" = "OK"; ok $? "폐업 자동 제외"
 curl -s -X POST "$RELAY/api/submit" -H "Content-Type: application/json" -d '{"summary":{},"blob":{"ciphertext":{"items":[1]}}}' | grep -q "형식 오류"; ok $? "평문 개인정보 제출 거부 (불변식 §1.2-1)"
 

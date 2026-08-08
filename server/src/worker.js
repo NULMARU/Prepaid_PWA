@@ -338,18 +338,13 @@ function extractRows(data) {
   return [];
 }
 function pick(r, keys) { for (const k of keys) { if (r[k] != null && String(r[k]).trim() !== '') return String(r[k]); } return ''; }
-async function defaultSearch(env, region, q) {
-  // data.go.kr 행정안전부_식품_일반음식점 조회서비스 /info 오퍼레이션.
-  // cond[OPN_ATMY_GRP_CD::EQ]=개방자치단체코드(지역), cond[BPLC_NM::LIKE]=사업장명 검색.
+// 공공 API 한 페이지 호출 → 원본 행 배열. params 는 [키, 값] 배열(값은 여기서 인코딩).
+// cond[...] 파라미터명은 브래킷을 리터럴로 유지하고 값만 인코딩(값에 serviceKey +,/,= 포함 가능).
+async function fetchPublicRows(env, extraParams) {
   const key = env.PUBLIC_API_KEY || env.LOCALDATA_KEY;
   if (!key) throw new Error('PUBLIC_API_KEY 미설정');
   const base = env.PUBLIC_API_BASE || 'https://apis.data.go.kr/1741000/general_restaurants/info';
-  const regionParam = env.PUBLIC_API_REGION_PARAM || 'cond[OPN_ATMY_GRP_CD::EQ]';
-  const nameParam = env.PUBLIC_API_NAME_PARAM || 'cond[BPLC_NM::LIKE]';
-  // cond[...] 파라미터명은 브래킷을 리터럴로 유지하고 값만 인코딩(값에 serviceKey +,/,= 포함 가능).
-  const params = [['serviceKey', key], ['pageNo', '1'], ['numOfRows', '100'], ['returnType', 'json']];
-  if (region) params.push([regionParam, region]);
-  if (q) params.push([nameParam, q]);
+  const params = [['serviceKey', key], ['returnType', 'json']].concat(extraParams);
   const qs = params.map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
   const res = await fetch(base + '?' + qs);
   if (!res.ok) throw new Error('공공API HTTP ' + res.status);
@@ -357,8 +352,13 @@ async function defaultSearch(env, region, q) {
   const hdr = data && data.response && data.response.header;
   if (hdr && hdr.resultCode != null && !['0', '00'].includes(String(hdr.resultCode)))
     throw new Error('공공API 오류: ' + (hdr.resultMsg || hdr.resultCode));
-  const rows = extractRows(data);
-  const kw = (q || '').trim();
+  return extractRows(data);
+}
+// 원본 행 → 앱이 쓰는 형태. kw 가 있으면 상호 부분일치로 우리 쪽에서 거른다(한글 필터는 서버에서 수행).
+// 대조는 등록 대조와 같은 정규화(NFC + 공백·괄호 제거)를 거친다 — 사장님이 "도쿄 오므라이스"라고
+// 띄어 써도 "도쿄오므라이스"가 나오게.
+function mapStoreRows(rows, kw) {
+  const key = normalizeStoreName(kw);
   return rows
     .map(r => ({
       // 행정안전부_식품_일반음식점 조회서비스 실제 필드 우선, LOCALDATA 변형 후순위
@@ -369,11 +369,63 @@ async function defaultSearch(env, region, q) {
       category: pick(r, ['BZSTAT_SE_NM', 'SNTTN_BZSTAT_NM']),
       region_code: pick(r, ['OPN_ATMY_GRP_CD']),
       // 온보딩 1/3에서 가게를 고르면 전화번호까지 자동으로 채워 주기 위한 필드(사장님이 수정 가능).
-      tel: pick(r, ['LOCP_TEL_NO', 'SITE_TEL_NO', 'siteTel', 'LOCPLC_TEL_NO', '소재지전화'])
+      tel: pick(r, ['TELNO', 'LOCP_TEL_NO', 'SITE_TEL_NO', 'siteTel', 'LOCPLC_TEL_NO', '소재지전화']),
+      zip: pick(r, ['ROAD_NM_ZIP', 'LCTN_ZIP'])
     }))
     .filter(r => r.restaurant_id && r.name)
     .filter(r => !r.status.includes('폐업'))   // 영업 중인 곳만
-    .filter(r => !kw || r.name.includes(kw));
+    .filter(r => !key || normalizeStoreName(r.name).includes(key));
+}
+// 우편번호 검색 시 훑는 최대 페이지 수(100건/페이지). 도로명 우편번호 하나에 딸린 음식점은
+// 대개 100~300곳이라 3페이지면 충분하고, Workers 서브요청 한도(무료 50)에도 여유가 있다.
+const ZIP_MAX_PAGES = 3;
+async function defaultSearch(env, region, q, zip) {
+  // data.go.kr 행정안전부_식품_일반음식점 조회서비스 /info 오퍼레이션.
+  // cond[OPN_ATMY_GRP_CD::EQ]=개방자치단체코드(지역), cond[ROAD_NM_ZIP::EQ]=도로명 우편번호,
+  // cond[BPLC_NM::LIKE]=사업장명.
+  //
+  // ⚠️ 2026-08-08 확인: 공공 API가 **조건값에 한글이 들어가면 무조건 0건**을 돌려준다
+  //    (resultCode "0"/정상 + totalCount 0). UTF-8·EUC-KR·이중 인코딩 모두 동일하고, 같은
+  //    조건에 ASCII 값을 넣으면 정상 동작하므로 우리 쪽 인코딩 문제가 아니라 상대 서비스 회귀다.
+  //    따라서 **상호(한글) 조건은 서버가 밀어 넣어도 소용이 없다** — ASCII로 좁힐 수 있는
+  //    우편번호(ROAD_NM_ZIP)·지역코드(OPN_ATMY_GRP_CD)로 후보를 받아 상호는 여기서 거른다.
+  //    상호 조건은 그대로 남겨 둔다(상대가 고치면 자동으로 다시 빨라진다).
+  const zipKey = String(zip == null ? '' : zip).replace(/\D/g, '');
+  if (zipKey) {
+    const zipParam = env.PUBLIC_API_ZIP_PARAM || 'cond[ROAD_NM_ZIP::EQ]';
+    const rows = [];
+    for (let page = 1; page <= ZIP_MAX_PAGES; page++) {
+      const got = await fetchPublicRows(env, [[zipParam, zipKey], ['pageNo', String(page)], ['numOfRows', '100']]);
+      rows.push(...got);
+      if (got.length < 100) break;
+    }
+    return mapStoreRows(rows, q);
+  }
+  const regionParam = env.PUBLIC_API_REGION_PARAM || 'cond[OPN_ATMY_GRP_CD::EQ]';
+  const nameParam = env.PUBLIC_API_NAME_PARAM || 'cond[BPLC_NM::LIKE]';
+  const extra = [['pageNo', '1'], ['numOfRows', '100']];
+  if (region) extra.push([regionParam, region]);
+  if (q) extra.push([nameParam, q]);
+  return mapStoreRows(await fetchPublicRows(env, extra), q);
+}
+// 공개ID(관리번호 MNG_NO)로 한 곳만 조회 — 값이 ASCII라 위 한글 조건 장애의 영향을 받지 않는다.
+// 반환: 행 객체 | null(실존하지 않음) | undefined(판정 불가 — 장애·키 미설정 등)
+async function lookupStoreById(env, restaurant_id) {
+  const idParam = env.PUBLIC_API_ID_PARAM || 'cond[MNG_NO::EQ]';
+  const id = String(restaurant_id == null ? '' : restaurant_id).trim();
+  if (!id || /[^\x20-\x7E]/.test(id)) return undefined; // 관리번호는 ASCII다 — 아니면 판정 불가
+  let rows;
+  try {
+    rows = await fetchPublicRows(env, [[idParam, id], ['pageNo', '1'], ['numOfRows', '5']]);
+  } catch (_) {
+    return undefined; // 공공 API 장애·키 미설정·타임아웃 — 가용성 우선
+  }
+  const list = mapStoreRows(rows, '');
+  const row = list.find(x => String(x.restaurant_id) === id);
+  if (row) return row;
+  // 폐업이라 걸러졌는지, 정말 없는지 구분: 원본 행에 관리번호가 있으면 실존은 한다.
+  if (rows.some(r => String(pick(r, ['MNG_NO', 'mgtNo', 'MGTNO', '관리번호'])) === id)) return undefined;
+  return null;
 }
 
 // ── 가게 등록 강화(F-01): 공공데이터로 실존·이름 대조 ──
@@ -407,20 +459,28 @@ async function verifyStoreIdentity(env, restaurant_id, restaurant_name) {
   // 상호가 비어 있으면 대조 자체가 성립하지 않는다 — 조건 없는 전체 조회를 날리지 않고
   // 곧바로 '판정 불가'로 둔다(등록은 허용하되 verified=0).
   if (!String(restaurant_name == null ? '' : restaurant_name).trim()) return 'unknown';
-  const search = env.searchRestaurants || defaultSearch;
-  let list;
-  try {
-    list = await search(env, '', storeSearchKeyword(restaurant_name));
-  } catch (_) {
-    return 'unknown'; // 공공 API 장애·키 미설정·타임아웃 — 가용성 우선
+  // 커스텀 검색기(테스트 목·대체 데이터원)가 주입돼 있으면 기존 이름 검색 경로를 그대로 쓴다.
+  if (env.searchRestaurants) {
+    let list;
+    try {
+      list = await env.searchRestaurants(env, '', storeSearchKeyword(restaurant_name));
+    } catch (_) {
+      return 'unknown'; // 공공 API 장애·키 미설정·타임아웃 — 가용성 우선
+    }
+    if (!Array.isArray(list)) return 'unknown';
+    const row = list.find(x => x && String(x.restaurant_id) === String(restaurant_id));
+    if (row) return normalizeStoreName(row.name) === normalizeStoreName(restaurant_name) ? 'ok' : 'mismatch';
+    // 이름 검색 결과가 한 페이지(numOfRows=100)를 가득 채웠다면 뒤쪽에 잘렸을 수 있다 —
+    // 흔한 상호(예 "김밥천국")에서 정상 가게를 오탐 거부하지 않도록 판정 불가로 둔다.
+    if (list.length >= 100) return 'unknown';
+    return 'mismatch';
   }
-  if (!Array.isArray(list)) return 'unknown';
-  const row = list.find(x => x && String(x.restaurant_id) === String(restaurant_id));
-  if (row) return normalizeStoreName(row.name) === normalizeStoreName(restaurant_name) ? 'ok' : 'mismatch';
-  // 이름 검색 결과가 한 페이지(numOfRows=100)를 가득 채웠다면 뒤쪽에 잘렸을 수 있다 —
-  // 흔한 상호(예 "김밥천국")에서 정상 가게를 오탐 거부하지 않도록 판정 불가로 둔다.
-  if (list.length >= 100) return 'unknown';
-  return 'mismatch';
+  // 실서비스 경로: 관리번호(ASCII) 정확 일치로 한 곳만 조회한다. 상호(한글) 조건 검색이
+  // 상대 서비스 장애로 0건이 되는 상황에서도 이 대조는 그대로 동작한다.
+  const row = await lookupStoreById(env, restaurant_id);
+  if (row === undefined) return 'unknown';  // 판정 불가 — 가용성 우선(등록 허용, verified=0)
+  if (row === null) return 'mismatch';      // 공공데이터에 없는 공개ID
+  return normalizeStoreName(row.name) === normalizeStoreName(restaurant_name) ? 'ok' : 'mismatch';
 }
 
 export async function handle(request, env, store) {
@@ -587,10 +647,13 @@ export async function handle(request, env, store) {
     if (path === '/api/restaurants' && request.method === 'GET') {
       const region = url.searchParams.get('region') || '';
       const q = url.searchParams.get('q') || '';
-      if (!region && !q) return j({ error: '지역 또는 가게 이름이 필요합니다' }, 400);
+      // 우편번호(도로명 5자리) 검색: 상호(한글) 조건이 공공 API에서 0건이 되는 장애를 우회하는 경로.
+      const zip = (url.searchParams.get('zip') || '').replace(/\D/g, '').slice(0, 5);
+      if (!region && !q && !zip) return j({ error: '지역·우편번호 또는 가게 이름이 필요합니다' }, 400);
       if (tooLong(region, MAX_STR) || tooLong(q, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      if (zip && zip.length !== 5) return j({ error: '우편번호는 5자리 숫자입니다' }, 400);
       const search = env.searchRestaurants || defaultSearch;
-      const list = await search(env, region, q);
+      const list = await search(env, region, q, zip);
       await bumpStats(async () => { await store.incrCounter('searches', 1); });
       return j(list);
     }
@@ -1231,7 +1294,7 @@ export default {
 export function makeMemoryStore() {
   const keys = new Map(), summaries = [], blobs = [], consents = [];
   const challenges = [], ledgerBackups = new Map(), agencyOtps = new Map(), agencyTokens = new Map();
-  const keychecks = new Map(); // key: institution department restaurant_id
+  const keychecks = new Map(); // key: institution\u0000department\u0000restaurant_id
   // 비식별 집계 통계(하니스용 — D1과 동등 구조): 조직정보·공개ID 집합, 누적 카운터, 피드백.
   const seenInstitutions = new Set(), seenDepartments = new Set(), seenRestaurants = new Set();
   const counters = new Map(), feedbacks = [];
@@ -1358,7 +1421,7 @@ export function makeMemoryStore() {
     async getAgencyToken(token_hash) { return agencyTokens.get(token_hash) || null; },
     // ── 열쇠 지문 확인 기록(§4.8) — D1의 PRIMARY KEY(institution,department,restaurant_id)와 동등 ──
     async upsertKeycheck(k) {
-      keychecks.set(k.institution + ' ' + k.department + ' ' + k.restaurant_id, { ...k });
+      keychecks.set(k.institution + '\u0000' + k.department + '\u0000' + k.restaurant_id, { ...k });
     },
     async listKeychecks(institution, department) {
       return [...keychecks.values()]

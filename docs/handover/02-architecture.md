@@ -37,7 +37,7 @@
         │  ◀──────────── {token} (24h, sessionStorage) │                             │
         │                                             │                             │
         │ ② 음식점 찾기                                │                             │
-        │  GET /api/restaurants?region=&q= ──────────▶ │──▶ data.go.kr LOCALDATA     │
+        │  GET /api/restaurants?region=&q=&zip= ─────▶ │──▶ data.go.kr LOCALDATA     │
         │  GET /api/registered-list?sido=&sigungu= ──▶ │  (관할 등록 목록)             │
         │  GET /api/public-key?restaurant_id= ───────▶ │                             │
         │  ◀──────────── {public_key(SPKI b64), contact}                            │

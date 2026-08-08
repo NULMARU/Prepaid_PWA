@@ -67,7 +67,9 @@ async function getAuthToken(privateKey) {
 // 6-a) 신규 보안 계약(2026-08): 실존하지 않는 가게 id는 등록 거부(가게 선점 방어).
 //   서버는 공공 API가 응답하지 않으면 '판정 불가 → 등록 허용(verified=0)'로 빠진다(가용성 우선 설계).
 //   그래서 공공 API가 살아 있을 때만 엄격히 단언하고, 죽어 있으면 건너뛴다(거짓 실패 방지).
-const { j: apiProbe } = await jf('/api/restaurants?q=' + encodeURIComponent('김밥천국'));
+//   ⚠️ 생존 확인은 **우편번호(ASCII)** 로 한다 — 공공 API는 2026-08-08부터 조건값에 한글이 들어가면
+//   0건을 돌려주는 회귀 상태라, 상호(한글) 검색으로 확인하면 살아 있어도 죽은 것으로 오판한다.
+const { j: apiProbe } = await jf('/api/restaurants?zip=05021');
 const apiUp = Array.isArray(apiProbe) && apiProbe.length > 0;
 if (apiUp) {
   const fakeKp = await subtle.generateKey({ name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['encrypt', 'decrypt']);

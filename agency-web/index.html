@@ -150,10 +150,11 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <details id="nameSearch" style="margin-top:14px">
 <summary style="cursor:pointer;font-weight:600;color:var(--primary)">목록에 없나요? 이름으로 검색</summary>
 <div style="margin-top:10px">
-<div class="step-help">음식점 이름으로 직접 검색합니다. 결과가 많으면 지역(구·동)을 함께 입력해 좁힐 수 있습니다. 아직 등록되지 않은 음식점은 검색 결과에 나타나지 않습니다.</div>
+<div class="step-help">음식점 이름으로 직접 검색합니다. 공공데이터 사정으로 <b>이름만으로는 찾지 못할 수 있으니</b>, 그럴 때는 음식점의 <b>우편번호 5자리</b>를 함께 넣어 주세요. 결과가 많으면 지역(구·동)으로 좁힐 수 있습니다. 아직 등록되지 않은 음식점은 검색 결과에 나타나지 않습니다.</div>
 <label for="q" class="sr-only">음식점명 검색</label>
+<label for="zip" class="sr-only">우편번호 5자리(선택)</label>
 <label for="region" class="sr-only">지역(선택)</label>
-<div class="row"><input id="q" placeholder="음식점명 (필수)"><input id="region" placeholder="지역(선택) — 예: 광진구 구의동"></div>
+<div class="row"><input id="q" placeholder="음식점명"><input id="zip" placeholder="우편번호 5자리 (예: 05021)" inputmode="numeric" maxlength="5"><input id="region" placeholder="지역(선택) — 예: 광진구 구의동"></div>
 <button id="searchBtn" style="margin-top:8px">검색</button>
 <div id="results"></div>
 </div>
@@ -990,13 +991,17 @@ $('searchBtn').addEventListener('click',async()=>{
   if(!navigator.onLine){alert('인터넷 연결을 확인해 주세요.');return}
   const q=($('q').value||'').trim(),regionText=($('region').value||'').trim();
   if(!srv()){alert('서버 주소를 입력하세요.');return}
-  if(!q){alert('음식점 이름을 입력하세요.');return}
+  const zipText=(($('zip')&&$('zip').value)||'').replace(/\D/g,'').slice(0,5);
+  if(!q&&!zipText){alert('음식점 이름이나 우편번호를 입력하세요.');return}
   $('results').innerHTML='<div class="meta">검색 중…</div>';
   try{
-    const r=await fetch(srv()+'/api/restaurants?q='+encodeURIComponent(q));
+    // 공공데이터가 한글 조건 검색을 못 받는 상태(2026-08)에서는 우편번호로 후보를 받고
+    // 이름은 서버가 걸러 준다. 우편번호가 없으면 기존 이름 검색을 그대로 시도한다.
+    const qsParts=[];if(q)qsParts.push('q='+encodeURIComponent(q));if(zipText)qsParts.push('zip='+zipText);
+    const r=await fetch(srv()+'/api/restaurants?'+qsParts.join('&'));
     const list=await r.json();
     if(!Array.isArray(list)){$('results').innerHTML='<div class="bad">'+esc(list.error||'검색 오류')+'</div>';return}
-    if(!list.length){$('results').innerHTML='<div class="meta">검색 결과가 없습니다. 음식점 이름을 다시 확인하거나 다르게 입력해 보세요.</div>';S.lastList=[];return}
+    if(!list.length){$('results').innerHTML='<div class="meta">'+(zipText?'검색 결과가 없습니다. 우편번호와 음식점 이름을 다시 확인해 주세요.':'이름만으로는 찾지 못했습니다. 음식점의 <b>우편번호 5자리</b>를 함께 넣고 다시 검색해 보세요.')+'</div>';S.lastList=[];return}
     const capped=list.slice(0,50);
     let reg=[];try{reg=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(capped.map(x=>x.restaurant_id).join(','))).then(x=>x.json())}catch(e){}
     S.registered=new Set(Array.isArray(reg)?reg:[]);
