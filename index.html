@@ -528,7 +528,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.37',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.38',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -1163,8 +1163,10 @@ async function searchStoresRaw(q,regionText,zip){const z=str(zip).replace(/\D/g,
 // 원리: 정적 zipmap(우체국 우편번호 DB에서 harness/build-zipmap.mjs 로 생성, 이 앱과 같은 출처에서 서빙)으로
 // 동의 우편번호 목록을 얻고, 기존 zip 검색을 구역별로 돌린다. **상호 검색이 기본**이고 이 경로는 0건일 때만
 // 권한다(보조 수단 — 사용자 확정 원칙). 시도·시군구는 절대 추측하지 않는다(동명 구 오매칭 방지).
-// 호출량 보호: 3구역씩 병렬 × 한 라운드 9구역, 자동은 2라운드(18구역)까지 — 그 뒤엔 [계속 찾기] 탭 필요.
-const ZIP_SCAN_BATCH=3,ZIP_SCAN_ROUND=9,ZIP_SCAN_AUTO_ROUNDS=2;
+// 동네(읍면동) 전체를 자동으로 끝까지 살펴본다 — 전국 동의 99%가 32구역 이하(약 10초), 최대 122구역.
+// 찾는 즉시 멈추고(배치 단위 조기 종료), 진행률·남은 시간 추정·[그만 찾기]를 보여준다.
+// 구 단위처럼 더 넓은 범위는 절대 돌지 않는다(zipmap 키가 읍면동·리 단위뿐 — 구조적 보장).
+const ZIP_SCAN_BATCH=3;
 let zipmapIndexCache=null;const zipmapSidoCache={};
 async function zipmapIndex(){if(!zipmapIndexCache){const r=await fetch('zipmap/index.json');if(!r.ok)throw new Error('동네 지도 자료를 불러오지 못했어요');zipmapIndexCache=await r.json()}return zipmapIndexCache}
 async function zipmapSido(slug){if(!zipmapSidoCache[slug]){const r=await fetch('zipmap/'+encodeURIComponent(slug)+'.json');if(!r.ok)throw new Error('동네 지도 자료를 불러오지 못했어요');zipmapSidoCache[slug]=await r.json()}return zipmapSidoCache[slug]}
@@ -1210,19 +1212,19 @@ setDongState(kind,{status:'resolving'});render();
 let res;try{res=await resolveDongZips(regionText,sidoPick,sigunguPick)}catch(e){console.error(e);setDongState(kind,null);render();toast(e.message||'동네 자료를 불러오지 못했어요.');return}
 if(res.error){setDongState(kind,null);render();toast(res.error);return}
 if(res.choices){setDongState(kind,{status:'choices',choices:res.choices});render();return}
-ds={status:'scanning',label:res.sido+' '+res.sigungu+' '+res.dong,dong:res.dong,zips:res.zips.slice(),total:res.zips.length,done:0,found:[],seen:{}};
+ds={status:'scanning',label:res.sido+' '+res.sigungu+' '+res.dong,dong:res.dong,zips:res.zips.slice(),total:res.zips.length,done:0,found:[],seen:{},spentMs:0,stopped:false};
 setDongState(kind,ds)}
-else{ds.status='scanning'}
+else{ds.status='scanning';ds.stopped=false}
 render();
-const rounds=resume?1:ZIP_SCAN_AUTO_ROUNDS;
-for(let r0=0;r0<rounds&&ds.zips.length&&!ds.found.length;r0++){
-const round=ds.zips.splice(0,ZIP_SCAN_ROUND);
-for(let i=0;i<round.length;i+=ZIP_SCAN_BATCH){
-const batch=round.slice(i,i+ZIP_SCAN_BATCH);
+// 동네 전체를 끝까지 자동 순회 — 찾는 즉시(배치 단위) 멈추고, [그만 찾기]를 누르면 배치 경계에서 멈춘다.
+while(ds.zips.length&&!ds.found.length&&!ds.stopped){
+const batch=ds.zips.splice(0,ZIP_SCAN_BATCH);
+const t0=now();
 const rs=await Promise.all(batch.map(z=>searchStoresRaw(q,'',z).catch(()=>({ok:false,results:[]}))));
 if(dongState(kind)!==ds)return;// 화면 전환·새 검색으로 상태가 바뀌었으면 조용히 중단
+ds.spentMs+=now()-t0;
 for(const rr of rs)for(const x of rr.results||[]){const k=str(x.restaurant_id);if(!k||ds.seen[k])continue;ds.seen[k]=1;ds.found.push(x)}
-ds.done+=batch.length;render()}}
+ds.done+=batch.length;render()}
 ds.status='done';
 // 찾은 결과는 기존 결과 목록에 그대로 실어 기존 [이 가게] 선택 흐름을 재사용한다.
 if(kind==='setup'){state.setupStoreResults=ds.found.slice();state.setupStoreSearched=true;state.setupStoreFilteredOut=false;state.setupStoreUsedZip=true}
@@ -1235,11 +1237,15 @@ if(!ds){if(searched&&!resultCount&&dong)return '<div style="margin-top:10px"><bu
 if(searched&&!resultCount&&!dong)return '<div class="meta" style="margin-top:8px;line-height:1.5">지역 칸에 "광진구 구의동"처럼 <b>구·군과 동</b>을 적고 다시 검색하면 동네 전체에서 자동으로 찾아봐요. 우편번호(5자리)를 아는 경우엔 우편번호 칸을 써도 돼요.</div>';return ''}
 if(ds.status==='resolving')return '<div class="meta" style="margin-top:10px">동네 우편번호 구역을 찾는 중…</div>';
 if(ds.status==='choices')return '<div style="margin-top:10px"><div class="meta" style="margin-bottom:6px">같은 이름의 동이 여러 지역에 있어요. 우리 동네를 골라 주세요.</div>'+ds.choices.map(c=>'<button class="btn small" data-a="dong-scan" data-kind="'+esc(kind)+'" data-sido="'+esc(c.sido)+'" data-sigungu="'+esc(c.sigungu)+'" style="margin:0 6px 6px 0">'+esc(c.sido+' '+c.sigungu)+'</button>').join('')+'</div>';
-if(ds.status==='scanning')return '<div class="meta" style="margin-top:10px">『'+esc(ds.label)+'』 '+ds.done+'/'+ds.total+' 구역 확인 중…'+(ds.found.length?' — '+ds.found.length+'곳 찾음':'')+'</div>';
+if(ds.status==='scanning'){
+// 남은 시간 추정 — 3구역쯤 지나 평균이 잡히면 보여준다(5초 단위 올림, 과소 약속 방지).
+let eta='';if(ds.done>=3&&ds.spentMs>0){const sec=Math.ceil((ds.spentMs/ds.done)*ds.zips.length/1000/5)*5;if(sec>0)eta=' · 약 '+(sec>=60?Math.ceil(sec/60)+'분':sec+'초')+' 남음'}
+return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 동네 전체에서 찾는 중… <b>'+ds.done+'/'+ds.total+' 구역</b>'+esc(eta)+(ds.found.length?' — '+ds.found.length+'곳 찾음':'')+'<br>찾으면 바로 멈추고 보여드려요.</div><button class="btn small" data-a="dong-scan-stop" data-kind="'+esc(kind)+'" style="margin-top:6px">그만 찾기</button></div>'}
 const remain=ds.zips.length;
-if(ds.status==='done'){let msg=ds.found.length?'『'+esc(ds.label)+'』 '+ds.done+'/'+ds.total+' 구역에서 '+ds.found.length+'곳을 찾았어요.':'『'+esc(ds.label)+'』 '+ds.done+'/'+ds.total+' 구역에는 없었어요.';
-let btn=remain?'<button class="btn small" data-a="dong-scan" data-kind="'+esc(kind)+'" data-resume="1" style="margin-top:6px">남은 '+remain+'개 구역 계속 찾기</button>':(!ds.found.length?'<div class="meta" style="margin-top:6px">동네 전 구역을 봤어요. 가게 이름 표기를 바꿔 보거나 [직접 입력]을 쓰세요.</div>':'');
-return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">'+msg+'</div>'+btn+'</div>'}
+if(ds.status==='done'){
+if(ds.found.length)return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 '+ds.done+'/'+ds.total+' 구역에서 '+ds.found.length+'곳을 찾았어요.'+(remain?' 우리 가게가 아니면 남은 구역을 더 찾아볼 수 있어요.':'')+'</div>'+(remain?'<button class="btn small" data-a="dong-scan" data-kind="'+esc(kind)+'" data-resume="1" style="margin-top:6px">남은 '+remain+'개 구역 계속 찾기</button>':'')+'</div>';
+if(remain)return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">검색 결과가 없습니다. ('+ds.done+'/'+ds.total+' 구역 확인) 남은 구역을 더 찾아보시겠습니까?</div><button class="btn small" data-a="dong-scan" data-kind="'+esc(kind)+'" data-resume="1" style="margin-top:6px">남은 '+remain+'개 구역 계속 찾기</button></div>';
+return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 동네 전 구역('+ds.total+'곳)을 모두 살펴봤지만 찾지 못했어요. 가게 이름 표기를 바꿔 다시 검색하거나, 아래 [직접 입력]으로 등록해 주세요.</div></div>'}
 return ''}
 async function relaySearchStores(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const q=str(qs('storeName')&&qs('storeName').value),regionText=str(qs('storeRegion')&&qs('storeRegion').value),zip=str(qs('storeZip')&&qs('storeZip').value);state.modal.dong=null;
 // 전면 재렌더 앱이라 입력값은 render() 전에 반드시 상태로 흡수한다.
@@ -2441,6 +2447,7 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 'relay-send-district':async()=>{if(!relayDistrict()){toast('가게 주소를 몰라 지역을 보낼 수 없어요. [변경]을 눌러 우리 가게를 다시 골라 주세요.');return}await relayRegister()},
 'relay-search-stores':async()=>{await relaySearchStores()},
 'dong-scan':async(el)=>{await runDongScan(el.dataset.kind,el.dataset.sido||'',el.dataset.sigungu||'',el.dataset.resume==='1')},
+'dong-scan-stop':(el)=>{const ds=dongState(el.dataset.kind);if(ds&&ds.status==='scanning')ds.stopped=true},
 'relay-pick-store':async(el)=>{await relayPickStore(el.dataset.id,el.dataset.name,el.dataset.addr)},
 'relay-inbox':async()=>{await relayOpenInbox()},
 'copy-key-fp':async()=>{const fp=str(state.keyFingerprint);if(!fp){toast('아직 열쇠가 만들어지지 않았어요.');return}

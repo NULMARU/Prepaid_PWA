@@ -34,12 +34,14 @@ const ok = (c, m) => { if (c) { pass++; console.log('✅ ' + m); } else { fail++
 const cors = { 'Access-Control-Allow-Origin': '*' };
 
 async function newPage(ctx, calls) {
-  await ctx.route('**/api/restaurants**', route => {
+  await ctx.route('**/api/restaurants**', async route => {
     const u = new URL(route.request().url());
     calls.push({ q: u.searchParams.get('q') || '', zip: u.searchParams.get('zip') || '' });
     const zip = u.searchParams.get('zip');
     const q = u.searchParams.get('q') || '';
     // 실서버 계약 재현: zip으로 후보를 받고 상호(q)는 서버가 부분일치로 거른다. 한글 q 단독은 0건(장애).
+    // 응답에 지연을 줘서 진행 표시·[그만 찾기]를 실제로 검증할 수 있게 한다.
+    await new Promise(r => setTimeout(r, 90));
     let rows = [];
     if (zip === EARLY_ZIP) rows = mkRow(zip, '도쿄오므라이스 구의점');
     if (zip === LATE_ZIP) rows = mkRow(zip, '숨은가게 구의점');
@@ -84,15 +86,15 @@ const browser = await chromium.launch();
   await page.waitForTimeout(900);
   ok(calls.slice(noGuessStart).every(c => !c.zip), '시·군·구 없이 동만 적으면 우편번호 순회를 시작하지 않는다(비추측 원칙)');
 
-  // "광진구 구의동" → 검색 0건이면 **버튼 없이 자동으로** 동네 순회가 이어진다 → 조기 발견
+  // "광진구 구의동" → 검색 0건이면 **버튼 없이 자동으로** 동네 순회가 이어진다 → 찾는 즉시(배치 단위) 멈춤
   await page.fill('#setupStoreRegion', '광진구 구의동');
   const scanStart = calls.length;
   await page.click('[data-a="setup-store-search"]');
-  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 15000 });
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 20000 });
   const scanCalls = calls.slice(scanStart).filter(c => c.zip);
   ok(scanCalls.length > 0, '0건이면 자동으로 동네(우편번호 구역) 순회가 이어진다 — 탭 불필요');
   ok(scanCalls.every(c => GUUI_ZIPS.includes(c.zip)), '순회는 구의동 우편번호 구역만 두드린다 (' + scanCalls.length + '회)');
-  ok(scanCalls.length <= 9, '첫 라운드(9구역) 안에서 찾으면 거기서 멈춘다 — 실제 ' + scanCalls.length + '회');
+  ok(scanCalls.length <= 6, '찾은 배치에서 즉시 멈춘다(5번째 구역 → 최대 6회) — 실제 ' + scanCalls.length + '회');
   ok(scanCalls.every(c => c.q === '도쿄오므라이스'), '가게 이름 조건을 유지한 채 구역만 바꾼다');
   const rowText = await page.textContent('.setup');
   ok(rowText.includes('도쿄오므라이스 구의점') && rowText.includes('구역에서 1곳'), '찾은 가게가 기존 선택 목록에 실린다');
@@ -101,7 +103,7 @@ const browser = await chromium.launch();
   await ctx.close();
 }
 
-// ── 시나리오 B: 자동 상한(18구역) + [계속 찾기] ──
+// ── 시나리오 B: 뒤쪽 구역(21번째)에 있어도 탭 없이 자동으로 끝까지 찾아낸다 + 진행 표시 ──
 {
   const ctx = await browser.newContext();
   const calls = [];
@@ -111,17 +113,43 @@ const browser = await chromium.launch();
   await page.fill('#setupStoreRegion', '광진구 구의동');
   const scanStart = calls.length;
   await page.click('[data-a="setup-store-search"]');
-  await page.waitForSelector('[data-a="dong-scan"][data-resume="1"]', { timeout: 20000 });
+  // 순회 중간: 진행률·[그만 찾기]가 보인다
+  await page.waitForSelector('[data-a="dong-scan-stop"]', { timeout: 20000 });
+  ok(true, '순회 중 [그만 찾기] 버튼이 보인다');
+  ok((await page.textContent('.setup')).includes('동네 전체에서 찾는 중'), '진행 문구("동네 전체에서 찾는 중… n/N 구역")가 보인다');
+  // 21번째 구역의 가게 — 옛 자동 상한(18구역)이었다면 못 찾았을 자리. 탭 없이 발견돼야 한다.
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 30000 });
+  ok((await page.textContent('.setup')).includes('숨은가게 구의점'), '뒤쪽 구역(21번째)의 가게도 탭 없이 자동으로 찾아낸다');
   const autoCalls = calls.slice(scanStart).filter(c => c.zip).length;
-  ok(autoCalls === 18, '자동 순회는 18구역(2라운드)에서 멈춘다 — 실제 ' + autoCalls + '회');
-  ok((await page.textContent('.setup')).includes('남은 ' + (GUUI_ZIPS.length - 18) + '개 구역'), '남은 구역 수를 보여주며 [계속 찾기]를 권한다');
-
-  await page.click('[data-a="dong-scan"][data-resume="1"]');
-  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 15000 });
-  ok((await page.textContent('.setup')).includes('숨은가게 구의점'), '[계속 찾기]로 다음 라운드에서 찾아낸다');
-  ok(calls.slice(scanStart).filter(c => c.zip).length <= 27, '이어 찾기도 한 라운드(9구역)까지만');
+  ok(autoCalls >= 19 && autoCalls <= 24, '찾은 배치에서 멈춘다(21번째 → 21~24회) — 실제 ' + autoCalls + '회');
 
   ok(errors.length === 0, 'B: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 C: [그만 찾기] → "남은 구역을 더 찾아보시겠습니까?" → [계속 찾기] → 전 구역 소진 안내 ──
+{
+  const ctx = await browser.newContext();
+  const calls = [];
+  const { page, errors } = await newPage(ctx, calls);
+
+  await page.fill('#setupStoreName', '어디에도없는가게');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="dong-scan-stop"]', { timeout: 20000 });
+  await page.click('[data-a="dong-scan-stop"]');
+  await page.waitForSelector('[data-a="dong-scan"][data-resume="1"]', { timeout: 10000 });
+  const t = await page.textContent('.setup');
+  ok(/검색 결과가 없습니다\./.test(t) && /남은 구역을 더 찾아보시겠습니까\?/.test(t), '중단하면 "검색 결과가 없습니다. 남은 구역을 더 찾아보시겠습니까?"로 잇는다');
+  const stoppedAt = calls.filter(c => c.zip).length;
+  ok(stoppedAt < GUUI_ZIPS.length, '[그만 찾기]가 실제로 순회를 멈춘다 (' + stoppedAt + '/' + GUUI_ZIPS.length + ')');
+
+  await page.click('[data-a="dong-scan"][data-resume="1"]');
+  await page.waitForFunction(() => document.querySelector('.setup') && /모두 살펴봤지만/.test(document.querySelector('.setup').textContent), null, { timeout: 30000 });
+  ok(/전 구역\(49곳\)|전 구역\(\d+곳\)/.test(await page.textContent('.setup')), '[계속 찾기] 후 전 구역 소진이면 "모두 살펴봤지만 찾지 못했어요" 안내가 뜬다');
+  ok(calls.filter(c => c.zip).length === GUUI_ZIPS.length, '소진 시 정확히 동네 전 구역만 두드렸다(중복·초과 없음)');
+
+  ok(errors.length === 0, 'C: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
 }
 
