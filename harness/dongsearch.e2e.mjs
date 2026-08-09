@@ -74,17 +74,24 @@ const browser = await chromium.launch();
   await page.click('[data-a="setup-store-search"]');
   await page.waitForSelector('.empty', { timeout: 8000 });
   ok(await page.locator('[data-a="dong-scan"]').count() === 0, '지역 칸이 비면 동 검색이 시작되지 않는다');
-  ok((await page.textContent('.setup')).includes('구·군과 동'), '"구·군과 동" 입력 안내가 뜬다');
+  ok((await page.textContent('.setup')).includes('지역 칸에 "광진구 구의동"처럼 구·군과 동을 적고 다시 검색해 주세요'), '지역이 비었으면 "입력이 필요하다"는 안내가 뜬다');
+
+  // 지역에 구만 적으면(동 없음) — "동까지 붙여 달라"고 입력 내용을 짚어 안내한다
+  await page.fill('#setupStoreRegion', '광진구');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForFunction(() => /동\(읍·면\) 이름까지/.test(document.body.textContent), null, { timeout: 8000 });
+  ok((await page.textContent('.setup')).includes('"광진구" 뒤에 동(읍·면) 이름까지'), '구만 적으면 그 입력을 짚어 "동까지 붙여 달라"고 안내한다');
   const labels = await page.$$eval('.setup label', els => els.map(e => e.textContent));
   ok(labels.indexOf(labels.find(t => t.includes('지역'))) < labels.indexOf(labels.find(t => t.includes('우편번호'))), '지역 칸이 우편번호 칸보다 앞(기본)이다');
   ok(labels.some(t => t.includes('우편번호(선택)')), '우편번호는 "(선택)" 보조 칸이다');
 
-  // 동만 적으면(구의동) 자동 검색이 시작돼도 전국을 뒤지지 않고 안내만 한다
+  // 동만 적으면(구의동) 자동 검색이 시작돼도 전국을 뒤지지 않고, 안내가 화면에 남는다(토스트 아님)
   await page.fill('#setupStoreRegion', '구의동');
   const noGuessStart = calls.length;
   await page.click('[data-a="setup-store-search"]');
   await page.waitForTimeout(900);
   ok(calls.slice(noGuessStart).every(c => !c.zip), '시·군·구 없이 동만 적으면 우편번호 순회를 시작하지 않는다(비추측 원칙)');
+  ok((await page.textContent('.setup')).includes('구·군(또는 시·도)을 동 이름과 함께'), '무엇을 고쳐야 하는지가 화면에 남는다(사라지는 토스트가 아니라)');
 
   // "광진구 구의동" → 검색 0건이면 **버튼 없이 자동으로** 동네 순회가 이어진다 → 찾는 즉시(배치 단위) 멈춤
   await page.fill('#setupStoreRegion', '광진구 구의동');
@@ -98,6 +105,7 @@ const browser = await chromium.launch();
   ok(scanCalls.every(c => c.q === '도쿄오므라이스'), '가게 이름 조건을 유지한 채 구역만 바꾼다');
   const rowText = await page.textContent('.setup');
   ok(rowText.includes('도쿄오므라이스 구의점') && rowText.includes('구역에서 1곳'), '찾은 가게가 기존 선택 목록에 실린다');
+  ok(!rowText.includes('지역 칸에'), '동네 검색이 이미 돌았으면 "지역 칸에 적으세요"류 안내를 다시 보여주지 않는다');
 
   ok(errors.length === 0, 'A: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
@@ -141,6 +149,7 @@ const browser = await chromium.launch();
   await page.waitForSelector('[data-a="dong-scan"][data-resume="1"]', { timeout: 10000 });
   const t = await page.textContent('.setup');
   ok(/검색 결과가 없습니다\./.test(t) && /남은 구역을 더 찾아보시겠습니까\?/.test(t), '중단하면 "검색 결과가 없습니다. 남은 구역을 더 찾아보시겠습니까?"로 잇는다');
+  ok(!t.includes('지역 칸에'), '중단 안내와 "지역 칸에 적으세요" 안내가 겹쳐 나오지 않는다');
   const stoppedAt = calls.filter(c => c.zip).length;
   ok(stoppedAt < GUUI_ZIPS.length, '[그만 찾기]가 실제로 순회를 멈춘다 (' + stoppedAt + '/' + GUUI_ZIPS.length + ')');
 
