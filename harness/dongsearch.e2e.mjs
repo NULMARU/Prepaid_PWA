@@ -67,31 +67,30 @@ const browser = await chromium.launch();
   const calls = [];
   const { page, errors } = await newPage(ctx, calls);
 
-  // 이름만 검색(한글 장애 재현: 0건) → 동 검색 버튼 없음(동 토큰이 없으므로 안내문만)
+  // 이름만 검색(한글 장애 재현: 0건) → 지역(구·군+동) 안내가 뜬다(지역이 기본, 우편번호는 보조)
   await page.fill('#setupStoreName', '도쿄오므라이스');
   await page.click('[data-a="setup-store-search"]');
   await page.waitForSelector('.empty', { timeout: 8000 });
-  ok(await page.locator('[data-a="dong-scan"]').count() === 0, '지역 칸이 비면 동 검색 버튼이 뜨지 않는다');
-  ok((await page.textContent('.setup')).includes('구·군과 동'), '대신 "구·군과 동" 입력 안내가 뜬다');
+  ok(await page.locator('[data-a="dong-scan"]').count() === 0, '지역 칸이 비면 동 검색이 시작되지 않는다');
+  ok((await page.textContent('.setup')).includes('구·군과 동'), '"구·군과 동" 입력 안내가 뜬다');
+  const labels = await page.$$eval('.setup label', els => els.map(e => e.textContent));
+  ok(labels.indexOf(labels.find(t => t.includes('지역'))) < labels.indexOf(labels.find(t => t.includes('우편번호'))), '지역 칸이 우편번호 칸보다 앞(기본)이다');
+  ok(labels.some(t => t.includes('우편번호(선택)')), '우편번호는 "(선택)" 보조 칸이다');
 
-  // 동만 적으면(구의동) 버튼은 뜨되, 누르면 전국을 뒤지지 않고 안내한다
+  // 동만 적으면(구의동) 자동 검색이 시작돼도 전국을 뒤지지 않고 안내만 한다
   await page.fill('#setupStoreRegion', '구의동');
+  const noGuessStart = calls.length;
   await page.click('[data-a="setup-store-search"]');
-  await page.waitForSelector('[data-a="dong-scan"]', { timeout: 8000 });
-  const callsBefore = calls.length;
-  await page.click('[data-a="dong-scan"]');
-  await page.waitForTimeout(600);
-  ok(calls.length === callsBefore, '시·군·구 없이 동만 적으면 우편번호 순회를 시작하지 않는다(비추측 원칙)');
+  await page.waitForTimeout(900);
+  ok(calls.slice(noGuessStart).every(c => !c.zip), '시·군·구 없이 동만 적으면 우편번호 순회를 시작하지 않는다(비추측 원칙)');
 
-  // "광진구 구의동" → zipmap 구역 순회 → 조기 발견
+  // "광진구 구의동" → 검색 0건이면 **버튼 없이 자동으로** 동네 순회가 이어진다 → 조기 발견
   await page.fill('#setupStoreRegion', '광진구 구의동');
-  await page.click('[data-a="setup-store-search"]');
-  await page.waitForSelector('[data-a="dong-scan"]', { timeout: 8000 });
-  ok((await page.textContent('.setup')).includes('『구의동』'), '0건이면 『구의동』 동네 검색 버튼이 뜬다');
   const scanStart = calls.length;
-  await page.click('[data-a="dong-scan"]');
+  await page.click('[data-a="setup-store-search"]');
   await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 15000 });
-  const scanCalls = calls.slice(scanStart);
+  const scanCalls = calls.slice(scanStart).filter(c => c.zip);
+  ok(scanCalls.length > 0, '0건이면 자동으로 동네(우편번호 구역) 순회가 이어진다 — 탭 불필요');
   ok(scanCalls.every(c => GUUI_ZIPS.includes(c.zip)), '순회는 구의동 우편번호 구역만 두드린다 (' + scanCalls.length + '회)');
   ok(scanCalls.length <= 9, '첫 라운드(9구역) 안에서 찾으면 거기서 멈춘다 — 실제 ' + scanCalls.length + '회');
   ok(scanCalls.every(c => c.q === '도쿄오므라이스'), '가게 이름 조건을 유지한 채 구역만 바꾼다');
@@ -110,19 +109,17 @@ const browser = await chromium.launch();
 
   await page.fill('#setupStoreName', '숨은가게');
   await page.fill('#setupStoreRegion', '광진구 구의동');
-  await page.click('[data-a="setup-store-search"]');
-  await page.waitForSelector('[data-a="dong-scan"]', { timeout: 8000 });
   const scanStart = calls.length;
-  await page.click('[data-a="dong-scan"]');
+  await page.click('[data-a="setup-store-search"]');
   await page.waitForSelector('[data-a="dong-scan"][data-resume="1"]', { timeout: 20000 });
-  const autoCalls = calls.length - scanStart;
+  const autoCalls = calls.slice(scanStart).filter(c => c.zip).length;
   ok(autoCalls === 18, '자동 순회는 18구역(2라운드)에서 멈춘다 — 실제 ' + autoCalls + '회');
   ok((await page.textContent('.setup')).includes('남은 ' + (GUUI_ZIPS.length - 18) + '개 구역'), '남은 구역 수를 보여주며 [계속 찾기]를 권한다');
 
   await page.click('[data-a="dong-scan"][data-resume="1"]');
   await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 15000 });
   ok((await page.textContent('.setup')).includes('숨은가게 구의점'), '[계속 찾기]로 다음 라운드에서 찾아낸다');
-  ok(calls.length - scanStart <= 27, '이어 찾기도 한 라운드(9구역)까지만 — 총 ' + (calls.length - scanStart) + '회');
+  ok(calls.slice(scanStart).filter(c => c.zip).length <= 27, '이어 찾기도 한 라운드(9구역)까지만');
 
   ok(errors.length === 0, 'B: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
