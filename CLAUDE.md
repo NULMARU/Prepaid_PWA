@@ -75,7 +75,13 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - **동 이름 검색(A안) probe**: `server/probe-emd.mjs` — PUBLIC_API_KEY로 응답 필드 실물 덤프 + ASCII 코드
   cond 실험(호출 10회 안팎). 동급 코드 조건이 있으면 "동 이름 → 법정동코드 정적 매핑" 경로 성립.
   **기본은 상호 검색(공공API 정상 시), 동·우편번호는 보조 경로**(사용자 확정 원칙).
-- 검증: 앱 e2e ok · 반응형 2455 · 목 339.
+- **직원용 앱(bapjangbu-staff, 커밋 f6638d2)**: 등록 모달에 **"우리 지역의 밥장부 음식점" 목록**
+  (`/api/registered-list` — 공개 정보만, 탭 한 번에 restaurantId까지 등록), 검색 결과에 **「밥장부 받음」 배지**
+  (목록 세션 캐시와 대조 — 추가 API 호출 없음), 행마다 네이버 "지도" 링크. **시·도 추측 금지** — 서울에만 있는
+  구 이름만 서울로 확정(SEOUL_GUS), 중구·강서구는 시·도 포함 설정 안내(동명 구 오매칭 방지 원칙 준수).
+  `harness/registered.e2e.mjs` 신설(14검사 — XSS·noopener·중구 비추측 포함), sw 캐시 v5. 직원 안내서 3장 갱신.
+- 검증: 앱 e2e ok · 반응형 2455 · 목 339 · 직원용 registered 14 + zip 8. 전 서피스 라이브 반영 확인
+  (app=beta.35 문자열·agency=naverMapUrl·staff=registered-list — 첫 버전 문자열 grep은 beta.27이 걸리는 함정 재확인).
 
 ### 완료 (2026-08-08 — 공공데이터 한글 조건 장애 대응: 우편번호 검색 경로, beta.34 + 서버 + 담당자 웹)
 
