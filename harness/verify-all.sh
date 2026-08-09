@@ -33,7 +33,11 @@ test "$PE" = "OK"; ok $? "폐업 자동 제외"
 curl -s -X POST "$RELAY/api/submit" -H "Content-Type: application/json" -d '{"summary":{},"blob":{"ciphertext":{"items":[1]}}}' | grep -q "형식 오류"; ok $? "평문 개인정보 제출 거부 (불변식 §1.2-1)"
 
 echo; echo "[3] 3개 앱 접속"
-V=$(curl -s "$APP" | grep -oE "beta\.[0-9]+" | head -1); test -n "$V"; ok $? "음식점 앱 (${V:-?})"
+# 버전은 APP_VERSION 상수에서 뽑는다 — 첫 등장 문자열을 집으면 본문 주석의 옛 버전(beta.27)이 걸려
+# 구버전이 서빙되고 있어도 눈치채지 못한다. 로컬 index.html의 APP_VERSION과 일치해야 통과.
+LOCALV=$(grep -oE "APP_VERSION='[^']+'" index.html | grep -oE "beta\.[0-9]+" | head -1)
+V=$(curl -s "$APP" | grep -oE "APP_VERSION='[^']+'" | grep -oE "beta\.[0-9]+" | head -1)
+test -n "$V" && test "$V" = "$LOCALV"; ok $? "음식점 앱 (라이브 ${V:-?} = 로컬 ${LOCALV:-?})"
 test "$(curl -s -o /dev/null -w '%{http_code}' "$PAGES/")" = "200"; ok $? "담당자 웹 (200)"
 # 중계 서버 접속 확인 — 앞선 라이브 하니스가 짧은 시간에 요청을 몰아 분당 레이트리밋(60)에
 # 걸릴 수 있다. 서버가 살아 있는지 보는 검사이므로 한 번 실패하면 잠깐 쉬고 재시도한다.
