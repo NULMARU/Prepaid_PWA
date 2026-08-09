@@ -11,8 +11,15 @@
 // 결과 마지막 줄의 판정을 그대로 Claude에게 붙여넣어 주면 된다.
 //   키를 넣는 방법 3가지(아무거나): ① 그냥 `node server/probe-emd.mjs` 실행 → 물어볼 때 붙여넣기
 //   ② `node server/probe-emd.mjs <Decoding키>`  ③ `PUBLIC_API_KEY=<Decoding키> node server/probe-emd.mjs`
+//   ④ 키를 파일로: server/.public-api-key 에 키 한 줄 저장(gitignore — 커밋 안 됨) 후 그냥 실행
 let KEY = process.env.PUBLIC_API_KEY || process.argv[2] || '';
 if (!KEY) {
+  try {
+    const { readFileSync } = await import('node:fs');
+    KEY = readFileSync(new URL('./.public-api-key', import.meta.url), 'utf8').trim();
+  } catch (_) { /* 파일 없음 — 아래에서 물어보거나 안내 */ }
+}
+if (!KEY && process.stdin.isTTY) {
   const { createInterface } = await import('node:readline/promises');
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   KEY = (await rl.question('data.go.kr Decoding 인증키를 붙여넣고 Enter: ')).trim();

@@ -14,3 +14,6 @@ docs/phase2-deploy.md
 
 # Claude Code 로컬 개발 설정(프로젝트 무관)
 .claude/
+
+# 로컬 전용 — 공공데이터 인증키(probe용)
+server/.public-api-key
