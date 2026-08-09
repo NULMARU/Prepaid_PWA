@@ -9,9 +9,17 @@
 //      → totalCount가 여러 건 나오는 동(EMD)급 코드 필드가 있으면 A안 성립.
 //
 // 결과 마지막 줄의 판정을 그대로 Claude에게 붙여넣어 주면 된다.
-const KEY = process.env.PUBLIC_API_KEY;
+//   키를 넣는 방법 3가지(아무거나): ① 그냥 `node server/probe-emd.mjs` 실행 → 물어볼 때 붙여넣기
+//   ② `node server/probe-emd.mjs <Decoding키>`  ③ `PUBLIC_API_KEY=<Decoding키> node server/probe-emd.mjs`
+let KEY = process.env.PUBLIC_API_KEY || process.argv[2] || '';
 if (!KEY) {
-  console.error('❌ 사용법: PUBLIC_API_KEY=<Decoding키> node server/probe-emd.mjs');
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  KEY = (await rl.question('data.go.kr Decoding 인증키를 붙여넣고 Enter: ')).trim();
+  rl.close();
+}
+if (!KEY) {
+  console.error('❌ 인증키가 없습니다. data.go.kr 마이페이지 > 인증키의 "Decoding" 키를 쓰세요.');
   process.exit(1);
 }
 const BASE = process.env.PUBLIC_API_BASE || 'https://apis.data.go.kr/1741000/general_restaurants/info';
