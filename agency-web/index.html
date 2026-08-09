@@ -720,6 +720,11 @@ function shortAddr(a){
 }
 // 같은 이름·같은 관할(district)까지 겹치면 마지막 수단으로 등록번호 뒷자리로 구분한다.
 function idTail(rid){const s=String(rid||'');return s.length>4?'…'+s.slice(-4):s}
+// 네이버 지도 검색 딥링크(참고용) — 어느 가게인지 눈으로 확인하는 데 도움을 준다.
+// ⚠️ 편의 기능일 뿐, 가게 확인(선점·가로채기 방어)은 2-1단계 열쇠 지문 확인이 담당한다.
+// 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
+function naverMapUrl(name,where){const q=(String(where||'').trim()+' '+String(name||'').trim()).trim();return q?'https://map.naver.com/p/search/'+encodeURIComponent(q):''}
+function naverLinkHtml(name,where){const u=naverMapUrl(name,where);return u?`<a href="${esc(u)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;white-space:nowrap;align-self:center" title="네이버 지도에서 확인(참고용 — 가게 확인은 열쇠 지문으로)">지도</a>`:''}
 function updateSelCount(){
   const el=$('selCount');if(!el)return;
   const dups=dupSelectedNames();
@@ -746,7 +751,7 @@ function renderJurisList(){
     if(isEx){
       return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px;opacity:.55"><div style="min-width:0"><b>${esc(x.restaurant_name)}</b> <span class="pill" style="background:#fdecea;color:#c0392b">우리 기관 제외</span>${dist}</div><button type="button" data-a="unexclude" data-id="${esc(rid)}" style="flex:0 0 auto">제외 해제</button></div>`;
     }
-    return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><label style="display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;margin:0"><input type="checkbox" data-a="chk" data-id="${esc(rid)}" data-name="${esc(x.restaurant_name)}" data-addr="${esc(x.district||'')}" style="width:auto;min-height:auto;flex:0 0 auto"${isSel?' checked':''}><span style="min-width:0"><b>${esc(x.restaurant_name)}</b>${dupBadge}${regBadges(rid)}${dist}</span></label><button type="button" data-a="exclude" data-id="${esc(rid)}" style="flex:0 0 auto">제외</button></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><label style="display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;margin:0"><input type="checkbox" data-a="chk" data-id="${esc(rid)}" data-name="${esc(x.restaurant_name)}" data-addr="${esc(x.district||'')}" style="width:auto;min-height:auto;flex:0 0 auto"${isSel?' checked':''}><span style="min-width:0"><b>${esc(x.restaurant_name)}</b>${dupBadge}${regBadges(rid)}${dist}</span></label><span style="display:flex;gap:8px;align-items:center;flex:0 0 auto">${naverLinkHtml(x.restaurant_name,x.district)}<button type="button" data-a="exclude" data-id="${esc(rid)}">제외</button></span></div>`;
   }).join('');
   $('jurisList').querySelectorAll('input[data-a="chk"]').forEach(cb=>cb.addEventListener('change',()=>{
     const id=cb.dataset.id;
@@ -1038,7 +1043,7 @@ function renderResults(){
     const dupBadge=isDup?' <span class="pill" style="background:#fff4e5;color:#b7791f">동명 주의 — 주소 확인</span>':'';
     let btns='';
     if(isEx)btns=`<button data-a="unexclude" data-id="${esc(rid)}">제외 해제</button>`;
-    else btns=`<button class="btn-primary" data-a="select" data-id="${esc(rid)}" data-name="${esc(x.name)}" data-addr="${esc(shortAddr(x.address))}"${isSel?' disabled':''}>${isSel?'선택됨':'선택'}</button>`+`<button data-a="exclude" data-id="${esc(rid)}">제외</button>`;
+    else btns=naverLinkHtml(x.name,shortAddr(x.address))+`<button class="btn-primary" data-a="select" data-id="${esc(rid)}" data-name="${esc(x.name)}" data-addr="${esc(shortAddr(x.address))}"${isSel?' disabled':''}>${isSel?'선택됨':'선택'}</button>`+`<button data-a="exclude" data-id="${esc(rid)}">제외</button>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px;${isEx?'opacity:.55':''}"><div style="min-width:0"><b>${esc(x.name)}</b> ${badge}${dupBadge}<div class="meta"${isDup?' style="font-weight:700;color:var(--warn)"':' style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"'}>${esc(x.address||'')} · ${esc(x.status||'')}</div></div><div style="display:flex;gap:4px;flex-shrink:0">${btns}</div></div>`;
   }).join('');
   $('results').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{

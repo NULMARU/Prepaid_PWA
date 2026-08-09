@@ -528,7 +528,11 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.34',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.35',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+// 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
+// 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
+// ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
+function naverMapUrl(name,addr){const head=String(addr||'').trim().split(/\s+/).slice(0,3).join(' ');const q=(head+' '+String(name||'').trim()).trim();return q?'https://map.naver.com/p/search/'+encodeURIComponent(q):''}
 // ── 시간 상수(잠금 화면=손님 화면) ─────────────────────────────────────────
 // 프로덕션 값은 여기 그대로 유지한다. 자동화 검증만 __prepaidTestHooks.TIMERS로 짧게 덮어쓴다
 // (실제 대기 30초·90초를 e2e에서 그대로 기다릴 수 없기 때문 — 값 자체는 코드 상수로 남는다).
@@ -2352,6 +2356,8 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 'relay-inbox':async()=>{await relayOpenInbox()},
 'copy-key-fp':async()=>{const fp=str(state.keyFingerprint);if(!fp){toast('아직 열쇠가 만들어지지 않았어요.');return}
 try{await navigator.clipboard.writeText(fp);toast('열쇠 지문을 복사했어요.')}catch(e){toast('복사할 수 없어요. 화면의 값을 그대로 읽어 주세요.')}},
+'copy-naver-link':async()=>{const u=naverMapUrl(state.data.meta.relayStoreName||state.data.meta.shopName,state.data.meta.storeAddr||state.data.meta.shopAddr);if(!u){toast('가게 이름을 먼저 저장해 주세요.');return}
+try{await navigator.clipboard.writeText(u);toast('네이버 지도 링크를 복사했어요.')}catch(e){toast('복사할 수 없어요. 링크를 눌러 직접 열어 주세요.')}},
 'relay-approve':async(el)=>{await relayApprove(el.dataset.sid)},
 'relay-reject':async(el)=>{await relayReject(el.dataset.sid)},
 'direct-transfer-open':()=>{qs('directTransferFile').value='';qs('directTransferFile').click()},
@@ -2965,7 +2971,9 @@ const hiddenEmps=d.employees.filter(e=>e.isDeleted).sort((a,b)=>a.name.localeCom
 const deptGroups=groupBy(activeEmps,e=>e.deptKey).sort((a,b)=>cmpGroupSort(groupSortTuple(a[1][0]),groupSortTuple(b[1][0]))||a[0].localeCompare(b[0],'ko'));
 const empSection=!d.employees.length?'<div class="empty">아직 등록된 직원이 없어요.<br>위 [수동 등록 — 직접 입력하기]에서 첫 직원을 등록해 보세요.</div>':(deptGroups.map(([dept,emps])=>{const open=state.expandedDepts[dept];return `<div class="mgr-group"><div class="mgr-head" data-a="toggle-dept" data-dept="${esc(dept)}"><span class="mgr-toggle">${open?'▼':'▶'}</span><span class="mgr-dept">${esc(dept)}</span><span class="mgr-count">${emps.length}명</span></div>${open?'<div class="mgr-body">'+emps.map(manageRow).join('')+'</div>':''}</div>`}).join('')+(hiddenEmps.length?`<div class="mgr-group"><div class="mgr-head" data-a="toggle-dept" data-dept="__hidden__"><span class="mgr-toggle">${state.expandedDepts['__hidden__']?'▼':'▶'}</span><span class="mgr-dept" style="color:var(--muted)">숨김 직원</span><span class="mgr-count">${hiddenEmps.length}명</span></div>${state.expandedDepts['__hidden__']?'<div class="mgr-body">'+hiddenEmps.map(manageRow).join('')+'</div>':''}</div>`:''));
 const deptTags=depts.map((v,i)=>`<span class="dept-tag">${esc(v)}<button data-a="remove-dept" data-idx="${i}">×</button></span>`).join('')||'<span class="meta">등록된 부서가 없어요. 아래에서 추가해 보세요.</span>';
-const shopExtra=[state.data.meta.shopAddr?`주소: ${esc(state.data.meta.shopAddr)}`:'',state.data.meta.shopTel?`전화: ${esc(state.data.meta.shopTel)}`:''].filter(Boolean).map(v=>`<div class="meta">${v}</div>`).join('');
+const shopNaverUrl=naverMapUrl(state.data.meta.relayStoreName||state.data.meta.shopName,state.data.meta.storeAddr||state.data.meta.shopAddr);
+const shopExtra=[state.data.meta.shopAddr?`주소: ${esc(state.data.meta.shopAddr)}`:'',state.data.meta.shopTel?`전화: ${esc(state.data.meta.shopTel)}`:'',
+shopNaverUrl?`네이버 지도: <a href="${esc(shopNaverUrl)}" target="_blank" rel="noopener noreferrer">우리 가게 검색</a> <button class="small" data-a="copy-naver-link">링크 복사</button><br><span style="font-size:11px">공공기관 담당자나 직원에게 우리 가게 위치를 알려줄 때 쓰세요.</span>`:''].filter(Boolean).map(v=>`<div class="meta">${v}</div>`).join('');
 // ── 그룹 1(맨 위): 직원 선금대장 등록 = [자동 등록](공공기관 명단 받기) + [수동 등록](직접 입력) ──
 // 돈에 대한 오해를 막는 고정 문구 — 이 앱은 자금을 수수·보관하지 않는다(절대 불변식 1).
 const moneyNotice=`<div class="notice-money">선금(돈)은 앱이 아니라 <b>앱 밖에서 따로 결제(카드·계좌이체)</b>돼요. 앱이 받는 것은 암호화된 <b>직원 명단</b>뿐이에요.</div>`;
