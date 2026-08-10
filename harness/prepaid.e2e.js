@@ -325,6 +325,15 @@ async function runSearchOnboarding(browser, url, cors) {
     await assert(settingsText.includes('관할 지역: 서울특별시 광진구'), 'the settings auto-enrollment card should show the jurisdiction that was sent');
     await assert(await page.locator('[data-a="relay-find-store"]', { hasText: '우리 가게 등록' }).count() === 0, 'no duplicate "우리 가게 등록 (처음 한 번)" button may appear once onboarding registered the store');
     await assert(await page.locator('[data-a="relay-find-store"]', { hasText: '변경' }).count() === 1, 'the registered card should still offer a [변경] path');
+    // beta.40: [신청 확인하기] → [온라인 자동 등록]. 이 시점의 inbox-count 목은 404(구서버 호환) → 0건 취급.
+    //   0건이면 흐린 모습(btn-idle)이되 **탭은 가능**해야 한다(폴링이 놓친 신청을 사장님이 직접 확인하는 탈출구 — 완전 disabled 금지).
+    {
+      const inboxBtn = page.locator('[data-a="relay-inbox"]');
+      await assert(await inboxBtn.count() === 1, 'the registered auto card must hold exactly one 온라인 자동 등록 button');
+      await assert((await inboxBtn.innerText()).includes('온라인 자동 등록'), 'the inbox button must be labeled 온라인 자동 등록 (구 신청 확인하기)');
+      await assert(((await inboxBtn.getAttribute('class')) || '').includes('btn-idle'), 'with zero pending requests the 온라인 자동 등록 button must look idle (btn-idle)');
+      await assert(await inboxBtn.isEnabled(), 'the idle 온라인 자동 등록 button must stay tappable (never hard-disabled)');
+    }
 
     // 재부팅: 이미 동기화된 기기는 자동 치유가 다시 돌지 않는다(register-key 추가 호출 0).
     await page.reload({ waitUntil: 'load' });
@@ -1198,12 +1207,25 @@ async function main() {
     // 용어 체계: 상위 그룹 "직원 선금대장 등록" 아래 [자동 등록]·[수동 등록] 두 카드
     await assert((await page.locator('.section-title', { hasText: '직원 선금대장 등록' }).count()) === 1, 'settings should group enrollment under a single 직원 선금대장 등록 heading');
     await assert((await page.locator('.section-title', { hasText: '자동 등록 — 공공기관에서 보낸 명단 받기' }).count()) === 1, 'the relay card should be titled 자동 등록 — 공공기관에서 보낸 명단 받기');
-    await assert((await page.locator('.section-title', { hasText: '수동 등록 — 직접 입력하기' }).count()) === 1, 'a 수동 등록 — 직접 입력하기 card should hold the manual enrollment actions');
+    await assert((await page.locator('.section-title', { hasText: '수동 등록' }).count()) === 1, 'a 수동 등록 card should hold the manual enrollment actions (beta.40: 제목에서 "— 직접 입력하기" 제거)');
     // 돈 오해 차단 문구는 자동 등록 카드 본문에 있다 — beta.29부터 접혀 있으므로 펼쳐서 확인한다.
     await openSettingsCard(page, 'enroll-auto');
     const settingsText = await page.locator('.app').innerText();
     await assert(!/구청 선금|선금 받기|직원개별등록/.test(settingsText), 'the retired wording (구청 선금 / 선금 받기 / 직원개별등록) must be gone from settings');
     await assert(settingsText.includes('앱 밖에서 따로 결제(카드·계좌이체)'), 'the auto-enrollment card must state that the money is paid outside the app (card or bank transfer), not through it');
+    // ── beta.40: 메뉴 재배치(사용자 지시) — 전달파일·QR 진입점은 자동 등록 카드가 아니라
+    //    수동 등록 카드 하단("공공기관 담당자에게 직접 받기")에 있다. 이 시점은 미등록 상태지만
+    //    수동 등록 카드 본문은 등록 여부와 무관하므로 여기서 구조를 고정한다.
+    //    (온라인 자동 등록 버튼의 idle/활성 모습은 등록 상태 구간에서 별도 단언)
+    const autoCardScope = '.card.settings-card:has(.fold-head[data-card="enroll-auto"])';
+    const manualCardScope = '.card.settings-card:has(.fold-head[data-card="enroll-manual"])';
+    await assert(await count(page, `${autoCardScope} [data-a="direct-transfer-open"]`) === 0 && await count(page, `${autoCardScope} [data-a="qr-scan-open"]`) === 0,
+      'the auto card must no longer contain the file/QR entry points (moved to 수동 등록)');
+    await assert(await count(page, `${manualCardScope} [data-a="direct-transfer-open"]`) === 1,
+      'the 수동 등록 card must hold the 담당자 전달파일 열기 entry point at its bottom section');
+    const manualCardText = await page.locator(manualCardScope).innerText();
+    await assert(manualCardText.includes('공공기관 담당자에게 직접 받기'), 'the 수동 등록 card must label its bottom 직접 받기 section');
+    await assert(manualCardText.includes('QR(사각 코드)'), 'the 수동 등록 card must hold the QR entry point (button or unsupported notice)');
     await page.locator('#quickAddDept').fill('Dept Q');
     await page.locator('#quickAddName').fill('User Q');
     await page.locator('#quickAddOpen').fill('12000');
@@ -1907,6 +1929,14 @@ async function main() {
     const settingsAfterReg = await page.locator('.app').innerText();
     await assert(settingsAfterReg.includes('공공기관 명단 받는 중'), 'the settings auto-enrollment card should label the registered store 공공기관 명단 받는 중');
     await assert(settingsAfterReg.includes('아직 안 함'), 'the key-backup button should carry a ⚠️ badge while the key has never been backed up (B3)');
+    // beta.40: 새 신청이 있으면(count=2) 설정의 [온라인 자동 등록] 버튼은 흐린 모습을 벗고 활성(btn-primary)+숫자 배지가 된다.
+    {
+      const activeInbox = page.locator('.card.settings-card:has(.fold-head[data-card="enroll-auto"]) [data-a="relay-inbox"]');
+      await assert(await activeInbox.count() === 1, 'the expanded auto card must show the 온라인 자동 등록 button after registration (go-register-store deep-link keeps it open)');
+      const cls = (await activeInbox.getAttribute('class')) || '';
+      await assert(cls.includes('btn-primary') && !cls.includes('btn-idle'), `with pending requests the 온라인 자동 등록 button must be active btn-primary (got ${JSON.stringify(cls)})`);
+      await assert((await activeInbox.innerText()).includes('2'), 'the active 온라인 자동 등록 button must carry the pending-count badge');
+    }
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.evaluate(() => window.__prepaidTestHooks.refreshInboxCount());
     await page.waitForTimeout(300);

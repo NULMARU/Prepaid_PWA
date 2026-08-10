@@ -85,6 +85,8 @@
 .action-btn.btn-primary span,.action-btn.btn-danger span,.action-btn.btn-primary .action-icon,.action-btn.btn-danger .action-icon{color:rgba(255,255,255,.9)}
 /* 액션 버튼 안의 배지(신청 건수·⚠️ 아직 안 함)가 상속 폭/색에 눌려 깨지지 않게 한다. */
 .action-btn .badge-count{display:inline-block;color:#fff;width:auto}
+/* 새 명단 0건일 때의 '쉬는' 상태 — 흐리게만 하고 탭은 막지 않는다(탭하면 서버를 새로 확인). */
+.action-btn.btn-idle{opacity:.55;filter:grayscale(.3)}
 .inline-form{display:flex;gap:8px;align-items:center}
 .inline-form input{min-width:0}
 .inline-form button{flex:0 0 auto;min-width:84px}
@@ -528,7 +530,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.39',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.40',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -3074,7 +3076,7 @@ const hiddenEmps=d.employees.filter(e=>e.isDeleted).sort((a,b)=>a.name.localeCom
 // 분류 기준은 그룹의 첫 직원 — activeEmps가 deptKey→이름 순으로 정렬돼 있어 항상 같은 직원이 뽑힌다(결정적).
 // 결합 라벨이 같으면 사장님 눈에는 같은 소속·부서이므로, 한 그룹 안에서 orgKind가 섞여도 대표 1명으로 판정하면 충분하다.
 const deptGroups=groupBy(activeEmps,e=>e.deptKey).sort((a,b)=>cmpGroupSort(groupSortTuple(a[1][0]),groupSortTuple(b[1][0]))||a[0].localeCompare(b[0],'ko'));
-const empSection=!d.employees.length?'<div class="empty">아직 등록된 직원이 없어요.<br>위 [수동 등록 — 직접 입력하기]에서 첫 직원을 등록해 보세요.</div>':(deptGroups.map(([dept,emps])=>{const open=state.expandedDepts[dept];return `<div class="mgr-group"><div class="mgr-head" data-a="toggle-dept" data-dept="${esc(dept)}"><span class="mgr-toggle">${open?'▼':'▶'}</span><span class="mgr-dept">${esc(dept)}</span><span class="mgr-count">${emps.length}명</span></div>${open?'<div class="mgr-body">'+emps.map(manageRow).join('')+'</div>':''}</div>`}).join('')+(hiddenEmps.length?`<div class="mgr-group"><div class="mgr-head" data-a="toggle-dept" data-dept="__hidden__"><span class="mgr-toggle">${state.expandedDepts['__hidden__']?'▼':'▶'}</span><span class="mgr-dept" style="color:var(--muted)">숨김 직원</span><span class="mgr-count">${hiddenEmps.length}명</span></div>${state.expandedDepts['__hidden__']?'<div class="mgr-body">'+hiddenEmps.map(manageRow).join('')+'</div>':''}</div>`:''));
+const empSection=!d.employees.length?'<div class="empty">아직 등록된 직원이 없어요.<br>위 [수동 등록]에서 첫 직원을 등록해 보세요.</div>':(deptGroups.map(([dept,emps])=>{const open=state.expandedDepts[dept];return `<div class="mgr-group"><div class="mgr-head" data-a="toggle-dept" data-dept="${esc(dept)}"><span class="mgr-toggle">${open?'▼':'▶'}</span><span class="mgr-dept">${esc(dept)}</span><span class="mgr-count">${emps.length}명</span></div>${open?'<div class="mgr-body">'+emps.map(manageRow).join('')+'</div>':''}</div>`}).join('')+(hiddenEmps.length?`<div class="mgr-group"><div class="mgr-head" data-a="toggle-dept" data-dept="__hidden__"><span class="mgr-toggle">${state.expandedDepts['__hidden__']?'▼':'▶'}</span><span class="mgr-dept" style="color:var(--muted)">숨김 직원</span><span class="mgr-count">${hiddenEmps.length}명</span></div>${state.expandedDepts['__hidden__']?'<div class="mgr-body">'+hiddenEmps.map(manageRow).join('')+'</div>':''}</div>`:''));
 const deptTags=depts.map((v,i)=>`<span class="dept-tag">${esc(v)}<button data-a="remove-dept" data-idx="${i}">×</button></span>`).join('')||'<span class="meta">등록된 부서가 없어요. 아래에서 추가해 보세요.</span>';
 const shopNaverUrl=naverMapUrl(state.data.meta.relayStoreName||state.data.meta.shopName,state.data.meta.storeAddr||state.data.meta.shopAddr);
 const shopExtra=[state.data.meta.shopAddr?`주소: ${esc(state.data.meta.shopAddr)}`:'',state.data.meta.shopTel?`전화: ${esc(state.data.meta.shopTel)}`:'',
@@ -3103,21 +3105,22 @@ ${fpBlock}
 <div class="agency-current"><div><div class="meta">등록된 우리 가게</div><div class="agency-current-name">${esc(state.data.meta.relayStoreName||state.data.meta.restaurantId)} <span class="chip" style="background:var(--success-soft);color:var(--success)">공공기관 명단 받는 중</span></div></div><button class="small" data-a="relay-find-store">변경</button></div>
 ${districtRow}
 ${moneyNotice}
-<div class="meta" style="line-height:1.6">받는 방법 2가지<br>① <b>앱으로 바로 받기</b>: 공공기관이 서버로 보낸 명단 신청을 앱에서 확인·승인해요. 받는 즉시 서버에서 삭제되고, 최대 3일 보관돼요.<br>② <b>담당자 전달파일·QR(사각 코드)로 받기</b>: 담당자가 건넨 파일을 열거나 QR(사각 코드)을 스캔해 서버를 거치지 않고 바로 등록해요.</div>
+<div class="meta" style="line-height:1.6">공공기관이 서버로 보낸 명단 신청을 앱에서 확인·승인해요. 받는 즉시 서버에서 삭제되고, 최대 3일 보관돼요.<br>담당자에게 파일·QR(사각 코드)로 직접 받은 명단은 아래 <b>수동 등록</b> 카드에서 열어요.</div>
 <div class="section-actions" style="margin-top:10px">
-<button class="btn-primary action-btn" data-a="relay-inbox"><span class="action-icon">📥</span><div><strong>① 신청 확인하기${inboxBadge}</strong><span>새 명단 신청을 확인하고 직원 명단을 받아요</span></div></button>
-<button class="btn-secondary action-btn" data-a="direct-transfer-open"><span class="action-icon">📁</span><div><strong>② 담당자 전달파일 열기</strong><span>담당자에게 받은 전달 파일(.json)을 열어 바로 등록해요</span></div></button>
-${state.qrAvailable?`<button class="btn-secondary action-btn" data-a="qr-scan-open"><span class="action-icon">📷</span><div><strong>② QR(사각 코드)로 받기</strong><span>담당자가 보여주는 QR(사각 코드)을 카메라로 스캔해 바로 등록해요</span></div></button>`:`<div class="meta">이 기기는 QR(사각 코드) 스캔을 지원하지 않아요. 담당자에게 파일로 받아 주세요.</div>`}
+${inboxN>0
+?`<button class="btn-primary action-btn" data-a="relay-inbox"><span class="action-icon">📥</span><div><strong>온라인 자동 등록${inboxBadge}</strong><span>공공기관에서 새 명단이 왔어요 — 눌러서 확인·승인해요</span></div></button>`
+:`<button class="btn-secondary action-btn btn-idle" data-a="relay-inbox"><span class="action-icon">📥</span><div><strong>온라인 자동 등록</strong><span>지금은 새 명단이 없어요 — 공공기관에서 보내면 여기가 켜져요 (눌러서 다시 확인할 수 있어요)</span></div></button>`}
 <button class="btn-danger action-btn" data-a="relay-stop"><span class="action-icon">■</span><div><strong>자동 등록 중단 (가게 등록 해제)</strong><span>폐업·미운영 시 더는 공공기관 명단 신청을 받지 않아요</span></div></button>
 </div>
 <details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">고급 설정</summary><label class="meta" style="display:block;margin:8px 0 4px">중계 서버 주소 (기본값 사용을 권장)</label><div class="inline-form"><input id="relayServer" type="url" value="${esc(state.data.meta.relayServer||'')}" placeholder="${esc(DEFAULT_RELAY)}"><button class="btn" data-a="relay-save-server">저장</button></div></details>`)
 :foldCard('enroll-auto',`자동 등록 — 공공기관에서 보낸 명단 받기${autoTitleBadge}`,'우리 가게를 아직 등록하지 않았어요 — 여기서 한 번만 등록해요',`
 ${moneyNotice}
 ${fpBlock}
-<div class="meta" style="margin-bottom:10px">공공기관 명단을 받으려면 <b>우리 가게를 한 번만 등록</b>하면 됩니다. 등록 후에는 앱으로 바로 받거나, 담당자 전달파일·QR(사각 코드)로 받을 수 있어요.</div>
+<div class="meta" style="margin-bottom:10px">공공기관 명단을 받으려면 <b>우리 가게를 한 번만 등록</b>하면 됩니다. 등록 후에는 공공기관이 보낸 명단이 앱으로 자동으로 와요. 담당자에게 파일·QR(사각 코드)로 직접 받는 방법은 아래 <b>수동 등록</b> 카드에 있어요.</div>
 <button class="btn-primary action-btn" data-a="relay-find-store" style="width:100%;min-height:64px;font-size:17px"><span class="action-icon">🔍</span><div><strong>우리 가게 등록 (처음 한 번)</strong><span>가게 이름으로 찾아서 등록해요</span></div></button>`);
-// [수동 등록] — 공공기관을 거치지 않고 사장님이 직접 올리는 경로(한 명씩·엑셀 명단·빠른 등록)
-const manualCard=foldCard('enroll-manual','수동 등록 — 직접 입력하기','사장님이 직접 올려요 — 한 명씩 · 엑셀 명단(CSV) · 빠른 등록. 회사·개인 선금도 여기서.',`
+// [수동 등록] — 사장님이 직접 올리는 경로(한 명씩·엑셀 명단·빠른 등록) + 담당자에게 직접 받기(파일·QR).
+//   파일·QR은 원래 자동 등록 카드에 있었으나 "온라인이 기본, 손으로 여는 것은 수동" 원칙으로 이동(사용자 지시 2026-08-10).
+const manualCard=foldCard('enroll-manual','수동 등록','사장님이 직접 올려요 — 한 명씩 · 엑셀 명단(CSV) · 빠른 등록. 담당자에게 받은 파일·QR도 여기서.',`
 <div class="section-actions">
 <button class="btn-primary action-btn" data-a="add-employee"><span class="action-icon">＋</span><div><strong>한 명씩 등록</strong><span>직원 한 명과 초기 선입금액을 입력해 등록해요</span></div></button>
 <button class="btn-secondary action-btn" data-a="csv-import"><span class="action-icon">📄</span><div><strong>엑셀 명단(CSV) 불러오기</strong><span>엑셀에서 저장한 CSV 파일로 여러 명을 한 번에 등록해요</span></div></button>
@@ -3132,7 +3135,12 @@ const manualCard=foldCard('enroll-manual','수동 등록 — 직접 입력하기
 <button class="btn-primary" data-a="quick-add-employee">추가</button>
 <div class="quick-add-orgpicks"><span class="quick-add-pickhint">소속 추천</span>${orgChipsHtml('quickAddOrg','')}</div>
 </div>
-<div class="meta" style="font-size:11px;margin-top:6px">소속은 회사명·공공기관명을 적거나, 개인 선금이면 '개인'이라고 적어요. 비워도 됩니다.</div>`);
+<div class="meta" style="font-size:11px;margin-top:6px">소속은 회사명·공공기관명을 적거나, 개인 선금이면 '개인'이라고 적어요. 비워도 됩니다.</div>
+<div class="section-kicker" style="margin-top:14px">공공기관 담당자에게 직접 받기 — 서버를 거치지 않아요</div>
+<div class="section-actions">
+<button class="btn-secondary action-btn" data-a="direct-transfer-open"><span class="action-icon">📁</span><div><strong>담당자 전달파일 열기</strong><span>담당자에게 받은 전달 파일(.json)을 열어 바로 등록해요</span></div></button>
+${state.qrAvailable?`<button class="btn-secondary action-btn" data-a="qr-scan-open"><span class="action-icon">📷</span><div><strong>QR(사각 코드)로 받기</strong><span>담당자가 보여주는 QR(사각 코드)을 카메라로 스캔해 바로 등록해요</span></div></button>`:`<div class="meta">이 기기는 QR(사각 코드) 스캔을 지원하지 않아요. 담당자에게 파일로 받아 주세요.</div>`}
+</div>`);
 const enrollGroup=`<div class="section-head" style="margin:2px 2px 8px"><div><div class="section-title">직원 선금대장 등록</div><div class="section-kicker">직원과 선금을 선금대장(장부)에 올리는 두 가지 방법이에요</div></div></div>${autoCard}${manualCard}`;
 // 직원 목록 관리 — 조회·수정·충전·숨김 전용(등록 버튼은 위 [수동 등록] 카드로 이동).
 // 홈 상단 [직원 목록 관리] 버튼(go-employees)이 이 카드를 자동 펼침+스크롤로 연다.

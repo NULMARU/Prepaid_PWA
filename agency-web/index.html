@@ -173,7 +173,8 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
 <div class="step-help">아래에 직원명·선금 금액이 담긴 명단 CSV(엑셀 저장 파일)를 올려 주세요. 엑셀에서 그냥 'CSV로 저장'한 파일을 그대로 올리시면 됩니다.</div>
-<div class="meta">💡 <b>결제자·입금자명은 선택 항목</b>입니다. <b>계좌이체로 보내실 때</b> 통장에 찍히는 이름을 적어 주세요(예: “보건의료과”). <b>카드결제면 비워 두셔도 됩니다.</b></div>
+<div class="meta">💡 <b>음식점이 여러 곳이어도 파일은 하나</b>면 됩니다 — 첫 칸(음식점명)에 가게 이름을 적으면 가게별로 알아서 나뉘어 전달돼요. 빠뜨린 명단이 있으면 파일을 하나 더 올려 <b>기존 명단에 추가</b>할 수도 있어요.</div>
+<div class="meta" style="margin-top:6px">💡 <b>결제자·입금자명은 선택 항목</b>입니다. <b>계좌이체로 보내실 때</b> 통장에 찍히는 이름을 적어 주세요(예: “보건의료과”). <b>카드결제면 비워 두셔도 됩니다.</b></div>
 <div class="meta" style="margin-top:6px">💡 <b>결제구분</b>(선택) 칸에는 <b>카드</b> 또는 <b>계좌이체</b>를 적을 수 있습니다. 비워 두셔도 되고, 적어 두면 사장님이 결제 내역과 명단을 맞춰 볼 때 도움이 됩니다.</div>
 <div class="meta" style="margin-top:6px">💡 <b>결제는 음식점(가게)별로 따로 이뤄집니다.</b> 결제 단위를 명단 단위와 맞추시면 사장님이 한 건씩 대조하기 쉬워 승인이 빨라집니다(필수는 아닙니다).</div>
 <button id="csvTemplateBtn" type="button" style="margin-top:8px">CSV 양식 다운로드</button>
@@ -184,7 +185,7 @@ tr.sub td{background:#eef2f7;font-weight:700}
 
 <div class="card hide" id="confirmCard">
 <h2>4단계 · 확인</h2>
-<div class="step-help">아래 <b>가게별 합계</b>가 실제 <b>결제하실 금액</b>과 맞는지 마지막으로 확인하세요.</div>
+<div class="step-help"><b>가게별 합계</b>가 실제 <b>결제하실 금액</b>과 맞는지 확인하세요.</div>
 <div id="skipBox"></div>
 <div id="confirmBox"></div>
 </div>
@@ -1080,8 +1081,14 @@ const OLD_COLS=['음식점명','기관명','부서명','직원명','선금금액
 $('csvTemplateBtn').addEventListener('click',()=>{
   // 양식 파일은 권장(7열) 양식으로 내려준다. 예시는 실제 기입 모습이 한눈에 보이게 채우되,
   // 선택 항목인 '결제구분'은 비워 둔다(카드/계좌이체 중 실제 결제 방식을 적는 칸).
-  const example=['광진맛집','광진구청','홍보과','홍길동','27000','김서무',''];
-  const csv=PAY_COLS.join(',')+'\r\n'+example.join(',')+'\r\n';
+  // 예시가 음식점 1곳 1행뿐이면 "가게마다 파일을 따로 만든다"로 오해한다(실사용 보고) —
+  // 음식점 2곳·3행을 담아 '여러 가게 = 한 파일'이 양식 자체에서 드러나게 한다.
+  const examples=[
+    ['광진맛집','광진구청','홍보과','홍길동','27000','김서무',''],
+    ['광진맛집','광진구청','홍보과','김철수','27000','김서무',''],
+    ['동네국밥','광진구청','재무과','이영희','36000','재무과','']
+  ];
+  const csv=PAY_COLS.join(',')+'\r\n'+examples.map(r=>r.join(',')).join('\r\n')+'\r\n';
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download='선입금대장_CSV양식.csv';document.body.appendChild(a);a.click();a.remove();
@@ -1137,12 +1144,22 @@ function normPayMethod(v){
 }
 $('csv').addEventListener('change',async e=>{
   const file=e.target.files&&e.target.files[0];if(!file)return;
+  // 같은 파일을 고쳐 다시 골라도 change가 다시 발화하도록 즉시 비운다(File 객체는 이미 확보됨).
+  e.target.value='';
+  const hadRows=Array.isArray(S.rawRows)&&S.rawRows.length>0;
+  // 새 파일이 깨졌을 때(헤더 불일치·빈 파일·인코딩 실패) 이미 올려 둔 명단까지 함께 날리지 않는다.
+  //   예전에는 무조건 S.rawRows를 덮어써서, 잘못된 두 번째 파일 하나로 정상이던 첫 명단이 사라졌다.
+  const rejectKeepingPrev=msgs=>{
+    if(hadRows){
+      S.fileWarnings=['방금 올린 파일("'+file.name+'")은 반영되지 않았어요 — 이전에 올린 명단은 그대로 유지됩니다.\n'+msgs.join('\n')].concat(S.fileWarnings||[]);
+    }else{
+      S.rawRows=null;S.csvFormat=null;S.fileErrors=msgs;S.fileWarnings=[];
+    }
+    validateAndRenderCsv();
+  };
   const buf=await file.arrayBuffer();
   let decoded;
-  try{decoded=decodeCsvBuffer(buf)}catch(err){
-    S.rawRows=null;S.fileErrors=['인코딩 인식 실패: '+err.message];S.fileWarnings=[];
-    validateAndRenderCsv();return;
-  }
+  try{decoded=decodeCsvBuffer(buf)}catch(err){rejectKeepingPrev(['인코딩 인식 실패: '+err.message]);return}
   const text=decoded.text;
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
   const fileErrors=[],warnings=[];
@@ -1195,7 +1212,22 @@ $('csv').addEventListener('change',async e=>{
     if(oddPay.size)warnings.push('결제구분 값 '+[...oddPay].map(v=>'"'+v+'"').join(', ')+'은(는) 표준 값이 아니에요 — 카드 또는 계좌이체로 적어 주세요(비워 두셔도 됩니다). 적으신 값은 그대로 음식점에 전달됩니다.');
     if(!rawRows.length)fileErrors.push('데이터 행이 없습니다. 헤더 아래에 최소 1행을 입력하세요.');
   }
-  S.rawRows=rawRows;S.csvFormat=csvFormat;S.fileErrors=fileErrors;S.fileWarnings=warnings;
+  if(rawRows==null||!rawRows.length||fileErrors.length){
+    rejectKeepingPrev(fileErrors.length?fileErrors:['파일에서 명단을 읽지 못했습니다.']);
+    return;
+  }
+  // 연속 업로드: 담당자가 빠뜨린 명단을 파일 하나 더 만들어 이어서 올리는 실사용 패턴을 지원한다.
+  //   [확인]=기존 명단에 추가(합치기) / [취소]=이 파일로 새로 시작(예전의 교체 동작).
+  //   합친 뒤 같은 직원이 겹치면 기존 중복 행 검사(ERR_DUP_ROW)가 표에서 그대로 잡아 준다.
+  if(hadRows){
+    const addTo=window.confirm('이미 올린 명단('+S.rawRows.length+'행)이 있습니다.\n\n[확인] 기존 명단에 이 파일('+rawRows.length+'행)을 추가합니다 — 빠뜨린 명단을 보완할 때.\n[취소] 기존 명단을 지우고 이 파일로 새로 시작합니다.');
+    if(addTo){
+      warnings.unshift('기존 명단 '+S.rawRows.length+'행에 '+rawRows.length+'행을 추가했어요. 아래 표에서 합쳐진 전체 명단을 확인해 주세요.');
+      rawRows=S.rawRows.concat(rawRows);
+      if(S.csvFormat==='pay')csvFormat='pay'; // 먼저 올린 파일에 결제구분 열이 있었다면 표에서 계속 보이게
+    }
+  }
+  S.rawRows=rawRows;S.csvFormat=csvFormat;S.fileErrors=[];S.fileWarnings=warnings;
   validateAndRenderCsv();
 });
 // ── '이번에 보내지 않는' 음식점 안내 ────────────────────────────────────────────
@@ -1325,7 +1357,7 @@ function renderSkipNotice(){
   if(!needSkipAck()){box.innerHTML='';return}
   let h='<div class="skip-card"><h3>⚠️ 이번에 보내지 않는 음식점이 있습니다</h3>';
   if(S.skipped.length){
-    h+='<div>아래 음식점은 밥장부에 <b>등록되어 있지 않거나 2단계에서 선택되지 않아, 명단이 전달되지 않습니다.</b> 결제는 평소대로 따로 하시면 됩니다.</div>'+
+    h+='<div>밥장부에 <b>등록되지 않았거나 2단계에서 선택되지 않아 명단이 전달되지 않습니다.</b> 결제는 평소대로 따로 하시면 됩니다.</div>'+
       '<table><thead><tr><th>가게명</th><th>인원</th><th>금액</th></tr></thead><tbody>'+
       S.skipped.map(x=>'<tr><td>'+esc(x.name)+skipReasonHtml(x.name)+'</td><td>'+x.count+'명</td><td>'+x.amount.toLocaleString()+'원</td></tr>').join('')+
       '</tbody></table>';
@@ -1336,7 +1368,7 @@ function renderSkipNotice(){
       '<div class="meta" style="margin-top:4px">3단계의 <b>[CSV에 없는 N곳 선택 해제]</b> 버튼으로 선택에서 한 번에 뺄 수 있어요.</div>';
   }
   h+='<label class="ack"><input type="checkbox" id="skipAck"'+(S.skipAck?' checked':'')+'><span>위 음식점은 이번에 보내지 않는 것을 확인했습니다</span></label>'+
-    '<div class="meta" style="margin-top:4px">이 화면을 캡처해 두시면 기관 내부 증빙으로 쓸 수 있습니다(완료 화면에도 같은 목록이 남습니다).</div></div>';
+    '<div class="meta" style="margin-top:4px">이 화면을 캡처하면 기관 내부 증빙으로 쓸 수 있어요.</div></div>';
   box.innerHTML=h;
   const cb=$('skipAck');
   if(cb)cb.addEventListener('change',()=>{S.skipAck=!!cb.checked;revalidate()});
@@ -1363,7 +1395,7 @@ function skipLogText(){
 function validateAndRenderCsv(){
   if(S.rawRows==null){
     const errHtml=(S.fileErrors||[]).map(e=>'<div class="bad" style="white-space:pre-line">⛔ '+esc(e)+'</div>').join('');
-    const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn">⚠️ '+esc(w)+'</div>').join('');
+    const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn" style="white-space:pre-line">⚠️ '+esc(w)+'</div>').join('');
     $('csvResult').innerHTML=errHtml+warnHtml;
     S.rows=null;S.valid=false;
     S.skipped=[];S.missingSel=[];S.skipAck=false;S.skipSig='';
@@ -1457,7 +1489,7 @@ function validateAndRenderCsv(){
      '<div class="meta" style="margin-bottom:6px">누르면 이번 명단(CSV)에 없는 음식점을 선택에서 빼고 다시 확인합니다. 선택한 다른 가게와 명단은 그대로예요.</div>'
     :'';
   const errHtml=errors.map(e=>'<div class="bad" style="white-space:pre-line">⛔ '+esc(e)+'</div>').join('');
-  const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn">⚠️ '+esc(w)+'</div>').join('');
+  const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn" style="white-space:pre-line">⚠️ '+esc(w)+'</div>').join('');
   $('csvResult').innerHTML=dropBtn+errHtml+warnHtml+tbl+guidance;
   const dm=$('dropMissingBtn');
   if(dm)dm.addEventListener('click',()=>{
@@ -1545,19 +1577,16 @@ function renderConfirm(){
   });
   // 담당자가 실제로 결제할 때 쓰는 숫자 = 가게별 금액. 표 위에 한 줄로 먼저 보여 준다.
   const storeTotals=[...byStore.values()].map(list=>({name:list[0].restaurant_name,amt:list.reduce((s,g)=>s+sumOf(g),0)}));
-  const payLine='<div class="muted-box" style="margin-bottom:6px;font-size:13px;border-color:var(--primary);background:#f0f7fc"><b>가게별 결제 금액</b> — 결제는 가게마다 따로 이뤄집니다.<div style="margin-top:4px">'+
+  const payLine='<div class="muted-box" style="margin-bottom:6px;font-size:13px;border-color:var(--primary);background:#f0f7fc"><b>가게별 결제 금액</b> (가게마다 따로 결제)<div style="margin-top:4px">'+
     storeTotals.map(s=>'<span class="pill">'+esc(s.name)+' <b>'+s.amt.toLocaleString()+'원</b></span>').join('')+'</div></div>';
   const head=multiOrg
     ?'<div class="meta" style="margin-bottom:6px">소속 '+orgs.length+'곳: <b style="color:var(--text)">'+orgs.map(o=>esc(o||'(미지정)')).join(', ')+'</b> — 소속·부서별로 나뉘어 따로 전달됩니다.</div>'
     :(S.agency?'<div class="meta" style="margin-bottom:6px">소속 기관: <b style="color:var(--text)">'+esc(orgs[0]||S.agency.name)+'</b></div>':'');
   $('confirmBox').innerHTML=head+payLine+
     '<table><thead><tr><th>음식점</th>'+(multiOrg?'<th>소속</th>':'')+'<th>부서</th><th>인원</th><th>선금 합계</th><th>결제자·입금자명<br><span class="meta">(선택)</span></th></tr></thead><tbody>'+rows+'</tbody></table>'+
-    '<div style="margin-top:10px;padding:10px 12px;background:#eef2ff;border:1px solid var(--primary);border-radius:8px">'+
-    // 결제 단위는 가게다. 총 합계는 어디에도 그대로 쓰이지 않는 숫자이므로 작은 참고값으로 내린다.
-    '<div class="meta">총 합계 '+totalAmount.toLocaleString()+'원 (음식점 '+byStore.size+'곳 · '+(multiOrg?'소속·부서 조합 ':'부서 조합 ')+groups.length+'건 · '+totalPeople+'명) <b>— 참고용이며, 결제는 가게별로 따로 이뤄집니다.</b></div>'+
-    '<div class="meta" style="margin-top:4px">결제 단위를 명단 단위와 맞추시면 사장님이 한 건씩 대조하기 쉬워 승인이 빨라집니다(<b>필수는 아닙니다</b>). 한 가게 몫을 한 번에 결제하셨다면 <b>이 표를 캡처해 사장님께 함께 전달</b>하세요.</div>'+
-    '<div class="meta" style="margin-top:4px">이 웹은 명단만 전달합니다 — 결제(카드·계좌이체)는 기관과 음식점이 앱 밖에서 직접 진행합니다.</div>'+
-    '</div>';
+    // 결제 단위는 가게다. 총 합계는 담당자의 검산용 참고값 — 설명 박스는 지나친 설명이라 삭제하고
+    // (사용자 지시 2026-08-10) 숫자 한 줄만 남긴다.
+    '<div class="meta" style="margin-top:8px">총 합계 '+totalAmount.toLocaleString()+'원 · 음식점 '+byStore.size+'곳 · '+totalPeople+'명 (참고용 — 결제는 가게별로 따로)</div>';
 }
 function computeStep(){
   if(!S.authed)return 1;
