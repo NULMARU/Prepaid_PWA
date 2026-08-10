@@ -1127,6 +1127,9 @@ async function main() {
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await assert(await count(page, '[data-a="new-month"]') === 0, 'new-month action must be removed');
     await assert(await count(page, '[data-a="full-reset"]') === 1, 'full-reset action must appear once');
+    // beta.41: 앱만 삭제하면 서버 등록이 남는다 — 위험 작업 구역이 "삭제 전 초기화/등록 해제 먼저"를 안내해야 한다.
+    await assert(await page.evaluate(() => document.body.textContent.includes('앱을 삭제하거나 기기를 바꾸기 전에는')),
+      'the danger zone must warn that deleting the app alone leaves the server registration behind (beta.41)');
     await assert(await count(page, '[data-a="export-csv"]') === 0, 'standalone CSV export action must be removed from settings');
 
     // ── beta.27→29: 설정 카드 아코디언 ──────────────────────────────────────────

@@ -530,7 +530,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.40',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.41',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -3110,7 +3110,7 @@ ${moneyNotice}
 ${inboxN>0
 ?`<button class="btn-primary action-btn" data-a="relay-inbox"><span class="action-icon">📥</span><div><strong>온라인 자동 등록${inboxBadge}</strong><span>공공기관에서 새 명단이 왔어요 — 눌러서 확인·승인해요</span></div></button>`
 :`<button class="btn-secondary action-btn btn-idle" data-a="relay-inbox"><span class="action-icon">📥</span><div><strong>온라인 자동 등록</strong><span>지금은 새 명단이 없어요 — 공공기관에서 보내면 여기가 켜져요 (눌러서 다시 확인할 수 있어요)</span></div></button>`}
-<button class="btn-danger action-btn" data-a="relay-stop"><span class="action-icon">■</span><div><strong>자동 등록 중단 (가게 등록 해제)</strong><span>폐업·미운영 시 더는 공공기관 명단 신청을 받지 않아요</span></div></button>
+<button class="btn-danger action-btn" data-a="relay-stop"><span class="action-icon">■</span><div><strong>자동 등록 중단 (가게 등록 해제)</strong><span>폐업·미운영이거나 앱을 지우기 전에 — 더는 공공기관 명단 신청을 받지 않아요</span></div></button>
 </div>
 <details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">고급 설정</summary><label class="meta" style="display:block;margin:8px 0 4px">중계 서버 주소 (기본값 사용을 권장)</label><div class="inline-form"><input id="relayServer" type="url" value="${esc(state.data.meta.relayServer||'')}" placeholder="${esc(DEFAULT_RELAY)}"><button class="btn" data-a="relay-save-server">저장</button></div></details>`)
 :foldCard('enroll-auto',`자동 등록 — 공공기관에서 보낸 명단 받기${autoTitleBadge}`,'우리 가게를 아직 등록하지 않았어요 — 여기서 한 번만 등록해요',`
@@ -3208,7 +3208,7 @@ ${webauthnCardHtml()}`)
 <div class="section-actions" style="margin-top:10px">
 <button class="btn-danger action-btn" data-a="full-reset"><span class="action-icon">!</span><div><strong>전체 초기화</strong></div></button>
 </div>
-<div class="danger-note">전체 초기화 전에는 최종 백업 파일이 자동으로 생성됩니다.</div>
+<div class="danger-note">전체 초기화 전에는 최종 백업 파일이 자동으로 생성됩니다.<br>📵 <b>앱을 삭제하거나 기기를 바꾸기 전에는 이 전체 초기화(또는 자동 등록 중단)를 먼저</b> 실행하세요 — 서버의 가게 등록이 함께 해제돼요. 앱만 지우면 공공기관 담당자 화면에 우리 가게가 계속 보이고, 다시 설치해도 "이미 등록되어 있어요"로 막혀요.</div>
 </details>
 </div>`;
 // ── 그룹 4(맨 아래): 앱 정보·법적 안내 ──
