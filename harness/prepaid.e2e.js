@@ -1333,7 +1333,11 @@ async function main() {
     await assert(phoneModalText.includes('문자 안내') && phoneModalText.includes('010-9999-8888'), 'usage modal should auto-fill the registered phone number for a consenting employee');
 
     // ⑤ 차감 저장 직후 sms: URI로 이동을 시도해야 한다(문자 앱 자동 오픈 시도, location 변경 감지)
+    //    beta.42: 이 차감을 **지난 날짜(실사용일)**로 저장한다 — 소급 입력이 sms·증표·잔액·체인 어디도
+    //    깨뜨리지 않음을 같은 흐름에서 검증(별도 거래를 만들면 아래 'open,use' 정확 일치 단언이 깨진다).
+    const bdYmd = await page.evaluate(() => { const d = new Date(Date.now() - 5 * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
     await page.locator('#useAmount').fill('5000');
+    await page.locator('#useDate').fill(bdYmd);
     const smsBox = await page.locator('#signCanvas').boundingBox();
     await page.mouse.move(smsBox.x + 30, smsBox.y + 80);
     await page.mouse.down();
@@ -1347,9 +1351,30 @@ async function main() {
     await assert(smsHref.includes('body=') && decodeURIComponent(smsHref.split('body=')[1] || '').includes('5,000원'), 'the sms body should describe the amount used and the resulting balance');
     // 차감 저장 성공 안내(confirm)를 수락하면 방금 차감된 직원의 잔액증표가 자동으로 열린다(dialog handler가 자동 수락)
     await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    await assert(!(await page.locator('.receipt-modal').innerText()).includes('장부에 이상'), 'a backdated usage must not break the balance cross-check — the receipt must still show the balance');
     await page.locator('.receipt-modal [data-a="close-modal"]').click();
     await page.waitForTimeout(50);
     await page.locator('#searchInput').fill('');
+
+    // ── beta.42: 소급 입력(실사용일) 계약 — 방금 지난 날짜로 저장한 5000원 차감을 검사한다 ──
+    //   ① 과거 날짜는 occurredAt에만 담기고 createdAt(원장 시계)은 여전히 꼬리(최댓값)다
+    //   ② note에 '실사용일 YYYY-MM-DD'가 병기된다(해시 canonical 안 — 위·변조 방지 유지)
+    //   ③ 잔액 교차검증이 깨지지 않는다(위에서 증표가 경고 없이 열렸다)
+    //   ④ 이력 화면의 날짜 묶음이 발생일 그룹으로 잡힌다
+    {
+      const bdDb = await readDb(page);
+      const bdTx = bdDb.transactions.find(t => t.type === 'use' && t.employeeId === empQ.id);
+      await assert(bdTx && bdTx.occurredAt > 0, 'a backdated usage must store the picked day in occurredAt');
+      await assert(String(bdTx.note || '').includes(`실사용일 ${bdYmd}`), 'the note must carry the human-readable 실사용일 so the date is hash-sealed');
+      const bdMax = Math.max(...bdDb.transactions.map(t => Number(t.createdAt) || 0));
+      await assert(bdTx.createdAt === bdMax, 'backdating must not touch createdAt — the new tx still sits at the ledger clock tail');
+      await page.locator('[data-a="screen"][data-screen="history"]').click();
+      await page.waitForTimeout(150);
+      await assert((await page.locator('.app').innerText()).includes(bdYmd.replace(/-/g, '.')), 'the history date groups must file the backdated tx under its 실사용일');
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+      await page.waitForTimeout(100);
+      await page.locator('#searchInput').fill('');
+    }
 
     // 기존 사용 등록(차감) 플로우 — User A, 서명 포함
     await page.locator('#searchInput').fill('User A');
