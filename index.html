@@ -530,7 +530,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.42',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.43',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -2719,9 +2719,17 @@ const dsel=readTxDate('useDate');if(!dsel.ok){toast(dsel.msg);return}
 //   실사용일(소급 입력)도 같은 원칙으로 note에 병기한다 — note는 해시 canonical에 들어간다.
 const note=[typedNote,preAmount>0?`손님 요청 금액 ${money(preAmount)}`:'',txDateNote('use',dsel)].filter(Boolean).join(' · ');
 // 확인창은 이 앱에서 돈이 실제로 움직이기 직전의 마지막 관문이다. 금액을 줄 바꿈해 크게 떼어 놓는 이유는
-//   프리필(손님 요청)이 생기면서 "확인이 형식이 되는" 위험이 커졌기 때문이다 — 사장님이 읽어야 하는 것은
-//   이름이 아니라 **금액**이다. 잔액 전후는 그대로 함께 보여준다.
-if(!window.confirm(`▶ 사용 금액\n\n${money(amount)}\n\n${emp.name} · 잔액 ${money(before)} → ${money(before-amount)}${dsel.ts?`\n실사용일 ${dsel.label} (지난 날짜)`:''}\n\n저장하시겠습니까?`))return;setBusy('서명을 저장하는 중입니다.');try{const signatureHash=await hash(signatureData),tx=await makeTx({employeeId:emp.id,type:'use',amount,beforeBalance:before,afterBalance:before-amount,reason:'서명 확인',note,signatureData,signatureHash,occurredAt:dsel.ts});await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();await maybeSendSms(emp,amount,before-amount);
+//   사장님이 읽어야 하는 것이 이름이 아니라 **금액**이기 때문이다. 잔액 전후는 그대로 함께 보여준다.
+// beta.43(사용자 지시): 손님 요청(B단계)을 **금액 그대로** 저장할 때는 이 확인창을 띄우지 않는다.
+//   사장님은 직전 "사장님 확인" 화면에서 그 금액을 화면 최대 크기(pin-req-amt)로 보고 서명까지 확인한 뒤
+//   PIN을 입력했다 — 그 자체가 확인 행위다. 같은 숫자를 한 번 더 묻는 것은 확인이 아니라 절차 지연이고,
+//   반복되는 확인창은 "무조건 예"를 습관으로 만들어 오히려 마지막 관문을 무디게 한다.
+//   ⚠️ 다음 두 경우에는 그대로 묻는다 — 그 값은 **어느 큰 화면에도 뜬 적이 없기 때문**이다.
+//     ① 사장님이 직접 금액을 입력한 평소 경로(요청 없음) ② 손님 요청 금액을 사장님이 고친 경우
+//        (금액을 고치면 손님 서명이 무효화되고 새 서명으로 저장된다 — 그 숫자는 손님도 본 적이 없다)
+//     ③ 지난 날짜(실사용일)를 지정한 소급 입력 — 날짜 역시 PIN 화면에 없던 정보다.
+const preConfirmedByOwner=preAmount>0&&amount===preAmount&&!dsel.ts;
+if(!preConfirmedByOwner&&!window.confirm(`▶ 사용 금액\n\n${money(amount)}\n\n${emp.name} · 잔액 ${money(before)} → ${money(before-amount)}${dsel.ts?`\n실사용일 ${dsel.label} (지난 날짜)`:''}\n\n저장하시겠습니까?`))return;setBusy('서명을 저장하는 중입니다.');try{const signatureHash=await hash(signatureData),tx=await makeTx({employeeId:emp.id,type:'use',amount,beforeBalance:before,afterBalance:before-amount,reason:'서명 확인',note,signatureData,signatureHash,occurredAt:dsel.ts});await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();await maybeSendSms(emp,amount,before-amount);
 // 저장이 끝나면 다음 손님을 위해 검색어를 비운다(소속 필터는 그대로 — 단체 손님이 이어서 오는 경우가 많다).
 state.search='';render();if(window.confirm(`✅ 저장 완료\n\n${emp.name} (${orgDeptLabel(emp)||'부서 없음'})\n사용: ${money(amount)}\n잔액: ${money(before-amount)}\n\n손님에게 잔액증표(명함)를 보여줄까요?`)){await openReceipt(emp.id)}}catch(err){console.error(err);clearBusy();toast('사용 등록 중 오류')}}
 // 직원 목록 관리: 전화번호 등록/수정·삭제 — 이 폰(로컬)에만 저장, 서버/기관 경로로 전송되지 않음(스펙 §수정3)

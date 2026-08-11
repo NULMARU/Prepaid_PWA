@@ -1446,9 +1446,15 @@ async function main() {
     });
     await assert(afterStroke.stillInDom && afterStroke.hidden === true && afterStroke.boxSigned,
       `the hint must disappear on the first stroke by a CSS class toggle, not by re-rendering (got ${JSON.stringify(afterStroke)})`);
+    // beta.43: **사장님이 직접 입력한 금액**은 큰 화면에 뜬 적이 없으므로 저장 직전 확인창이 그대로 산다.
+    //   (확인창이 빠지는 유일한 경로는 "손님 요청 금액을 그대로 저장할 때"다 — B단계 시나리오에서 검증)
+    const ownerTypedDialogsBefore = dialogs.length;
     await page.locator('[data-a="save-use"]').click();
     // 사용(차감) 저장 직후 성공 안내 흐름에서 "잔액증표 보기"가 방금 차감된 직원 id로 자동 오픈된다
     await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    const ownerTypedConfirm = dialogs.slice(ownerTypedDialogsBefore).find(d => d.type === 'confirm' && d.message.includes('저장하시겠습니까'));
+    await assert(Boolean(ownerTypedConfirm) && ownerTypedConfirm.message.includes('9,000원') && ownerTypedConfirm.message.includes('18,000원'),
+      `an owner-typed deduction must still be confirmed with its amount and resulting balance (got ${JSON.stringify(ownerTypedConfirm && ownerTypedConfirm.message)})`);
     const autoReceiptText = await page.locator('.namecard').innerText();
     await assert(autoReceiptText.includes('Dept A User A님'), 'post-save receipt should render "{부서} {이름}님" for the just-deducted employee');
     await assert(autoReceiptText.includes('18,000원'), 'post-save receipt should show the derive() balance (27000-9000)');
@@ -3856,10 +3862,11 @@ async function main() {
     const dialogsBeforeSave = dialogs.length;
     await page.locator('[data-a="save-use"]').click();
     await page.waitForSelector('.receipt-modal', { timeout: 6000 });
-    // 저장 직전 confirm은 이 앱에서 돈이 움직이기 직전의 마지막 관문이다 — 금액이 반드시 들어가야 한다.
-    const saveConfirm = dialogs.slice(dialogsBeforeSave).find(d => d.type === 'confirm');
-    await assert(Boolean(saveConfirm) && saveConfirm.message.includes('9,000원'), `the save confirm must spell out the amount (got ${JSON.stringify(saveConfirm && saveConfirm.message)})`);
-    await assert(saveConfirm.message.includes('30,000원') && saveConfirm.message.includes('21,000원'), 'the save confirm must keep showing the before/after balance');
+    // beta.43: 손님 요청 금액을 **그대로** 저장할 때는 저장 직전 confirm을 띄우지 않는다(사용자 지시).
+    //   사장님은 직전 "사장님 확인" 화면에서 같은 금액을 최대 크기로 보고 PIN까지 넣었다 — 같은 숫자를
+    //   한 번 더 묻는 것은 확인이 아니라 절차 지연이다. 확인창이 남는 경로는 (n-2)에서 따로 검증한다.
+    const saveConfirm = dialogs.slice(dialogsBeforeSave).find(d => d.type === 'confirm' && d.message.includes('저장하시겠습니까'));
+    await assert(!saveConfirm, `saving a request at the requested amount must not ask again (got ${JSON.stringify(saveConfirm && saveConfirm.message)})`);
     await page.locator('.receipt-modal [data-a="close-modal"]').click();
     await page.waitForTimeout(150);
 
@@ -4338,8 +4345,14 @@ async function main() {
     await assert(await count(page, '#signCanvas') === 1, 'the mismatch rule must still fire after a network flap');
     await assert((await page.locator('#useAmount').inputValue()) === '3000', 'the amount must still be the edited one after the signature is voided');
     await drawOn('#signCanvas');
+    // beta.43: **고친 금액**은 어느 큰 화면에도 뜬 적이 없다(손님 PIN 화면에는 요청 금액 1,000원이 떴다)
+    //   → 요청 경로라도 저장 직전 확인창이 반드시 살아 있어야 한다. 금액·잔액 전후를 그대로 읽어 준다.
+    const editedDialogsBefore = dialogs.length;
     await page.locator('[data-a="save-use"]').click();
     await page.waitForSelector('.receipt-modal', { timeout: 6000 });
+    const editedConfirm = dialogs.slice(editedDialogsBefore).find(d => d.type === 'confirm' && d.message.includes('저장하시겠습니까'));
+    await assert(Boolean(editedConfirm) && editedConfirm.message.includes('3,000원'),
+      `an owner-edited amount must still be confirmed before it moves money (got ${JSON.stringify(editedConfirm && editedConfirm.message)})`);
     await closePrefilled();
     const flapDb = await readDb(page);
     await assert(balanceOfId(flapDb, 'br-2') === beforeFlapSave - 3000, `the saved amount must be the owner's 3,000원, not the requested 1,000원 (got ${balanceOfId(flapDb, 'br-2')})`);
