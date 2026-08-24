@@ -531,8 +531,8 @@ async function runViewport(context, url, w, h) {
   await page.waitForSelector('#useAmount');
   await noHorizontalOverflow(page, '사용 등록 모달', w);
   // 모달이 열릴 때 커서가 놓이는 곳은 **금액 칸**이어야 한다.
-  //   첫 포커스가 [9,000원] 빠른 금액 버튼이면, 모달이 열리자마자 Enter를 한 번 누르는 것만으로
-  //   손님이 요청한 금액이 9,000원으로 덮여 쓴다(흔적도 남지 않는다). 그리고 커서가 놓인 칸은
+  //   (beta.44에서 빠른 금액 버튼 자체를 없앴지만 이 계약은 남긴다 — 첫 포커스가 버튼이면 Enter 한 번이
+  //    곧 저장·덮어쓰기가 되는 사고 경로는 새 버튼이 생기는 순간 되살아난다.) 그리고 커서가 놓인 칸은
   //   어느 폭에서도 화면 안에 있어야 한다 — 보이지 않는 칸에 커서가 있으면 사장님은 무엇을 고치는지 모른다.
   const focusBox = await page.evaluate(() => {
     const ae = document.activeElement;
@@ -542,28 +542,21 @@ async function runViewport(context, url, w, h) {
   });
   check(Boolean(focusBox) && focusBox.id === 'useAmount', `${w}px 모달: 첫 포커스는 금액 칸이어야 한다 (id="${focusBox && focusBox.id}" data-a="${focusBox && focusBox.a}")`);
   check(Boolean(focusBox) && focusBox.left >= -1 && focusBox.right <= clientW + 1, `${w}px 모달: 포커스된 금액 칸이 화면 밖이다 (${focusBox && Math.round(focusBox.left)}~${focusBox && Math.round(focusBox.right)} / ${clientW})`);
-  // 빠른 금액 3버튼(beta.17)이 한 줄에 들어가고 화면 밖으로 나가지 않아야 한다.
-  const quick = await page.evaluate(() => [...document.querySelectorAll('[data-a="fill-use"]')].map(b => {
-    const r = b.getBoundingClientRect();
-    return { text: b.innerText.trim(), left: r.left, right: r.right, top: r.top, height: r.height };
-  }));
-  check(quick.length === 3, `${w}px 모달: 빠른 금액 버튼이 3개여야 한다 (${quick.length}개)`);
-  quick.forEach(b => {
-    check(b.left >= -1 && b.right <= clientW + 1, `${w}px 모달: 빠른 금액 "${b.text}" 버튼이 화면 밖이다`);
-    check(b.height >= 44, `${w}px 모달: 빠른 금액 "${b.text}" 버튼 터치 타겟이 작다 (${Math.round(b.height)}px)`);
-  });
-  check(quick.length === 3 && quick.every(b => Math.abs(b.top - quick[0].top) <= 2), `${w}px 모달: 빠른 금액 3버튼은 한 줄에 있어야 한다 ${JSON.stringify(quick.map(b => Math.round(b.top)))}`);
+  // beta.44: 빠른 금액 3버튼은 이 모달에서 사라졌다(손님이 서명한 금액을 오탭 한 번으로 덮어쓰는 경로).
+  const quick = await page.evaluate(() => document.querySelectorAll('[data-a="fill-use"]').length);
+  check(quick === 0, `${w}px 모달: 사용 등록 모달에는 빠른 금액 버튼이 없어야 한다 (${quick}개)`);
+  check(!(await page.locator('.modal').innerText()).includes('빠른 금액'), `${w}px 모달: '빠른 금액' 라벨도 남아 있으면 안 된다`);
   const btns = await page.evaluate(() => [...document.querySelectorAll('.modal-actions button')].map(b => {
     const r = b.getBoundingClientRect();
     return { text: b.innerText.trim(), left: r.left, right: r.right, top: r.top, width: r.width };
   }));
   check(btns.length >= 3, `${w}px 모달: 액션 버튼이 모두 렌더되어야 한다 (${btns.length}개)`);
-  check(btns.some(b => b.text.includes('서명 후 저장')), `${w}px 모달: [서명 후 저장] 버튼이 있어야 한다`);
-  // 폰(≤640)은 세로 쌓기(column-reverse)라 주 동작 [서명 후 저장]이 맨 위에 와야 한다. 태블릿은 한 줄 유지.
-  const saveBtn = btns.find(b => b.text.includes('서명 후 저장'));
+  check(btns.some(b => b.text === '저장'), `${w}px 모달: [저장] 버튼이 있어야 한다 (beta.44: '서명 후 저장' → '저장')`);
+  // 폰(≤640)은 세로 쌓기(column-reverse)라 주 동작 [저장]이 맨 위에 와야 한다. 태블릿은 한 줄 유지.
+  const saveBtn = btns.find(b => b.text === '저장');
   const otherBtns = btns.filter(b => b !== saveBtn);
   if (saveBtn && otherBtns.length) {
-    if (w <= 640) check(otherBtns.every(b => saveBtn.top <= b.top + 1), `${w}px 모달: [서명 후 저장]이 다른 버튼보다 위에 있어야 한다 (엄지 근처)`);
+    if (w <= 640) check(otherBtns.every(b => saveBtn.top <= b.top + 1), `${w}px 모달: [저장]이 다른 버튼보다 위에 있어야 한다 (엄지 근처)`);
     else check(otherBtns.every(b => Math.abs(saveBtn.top - b.top) <= 2), `${w}px 모달: 태블릿에서는 액션 버튼이 한 줄(같은 높이)을 유지해야 한다`);
   }
   const client = await page.evaluate(() => document.documentElement.clientWidth);
@@ -596,6 +589,7 @@ async function runViewport(context, url, w, h) {
   }
   await page.waitForSelector('[data-a="quick-add-employee"]');
   await noHorizontalOverflow(page, '설정(펼침)', w);
+  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-settings-enroll-${w}.png`), fullPage: true }).catch(() => {});
   // 홈 하단에서 옮겨온 요약(활성 직원 수 · 잔액 합계)이 [직원 목록 관리] 카드 안에서 밀리지 않아야 한다.
   const mgr = await page.evaluate(() => {
     const el = document.querySelector('.mgr-summary');
@@ -790,25 +784,26 @@ async function runViewport(context, url, w, h) {
   await page.waitForTimeout(150);
   await noHorizontalOverflow(page, '손님 요청 화면', w);
   const amtView = await page.evaluate(() => {
-    const big = document.querySelector('.cust-req-amt'), input = document.querySelector('#custAmountInput');
-    const br = big.getBoundingClientRect(), ir = input.getBoundingClientRect();
+    const bal = document.querySelector('.cust-req-bal'), input = document.querySelector('#custAmountInput');
+    const br = bal.getBoundingClientRect(), ir = input.getBoundingClientRect();
     return {
-      bigText: big.textContent.trim(), bigFont: parseFloat(getComputedStyle(big).fontSize),
-      bigClipped: big.scrollWidth > big.clientWidth + 1, bigLeft: br.left, bigRight: br.right,
+      balFont: parseFloat(getComputedStyle(bal).fontSize), balLeft: br.left, balRight: br.right,
       inputHeight: ir.height, inputLeft: ir.left, inputRight: ir.right, inputWidth: ir.width,
-      balText: (document.querySelector('.cust-req-bal') || {}).innerText || '',
-      balClipped: (() => { const b = document.querySelector('.cust-req-bal'); return b ? b.scrollWidth > b.clientWidth + 1 : false; })(),
+      inputFont: parseFloat(getComputedStyle(input).fontSize),
+      balText: bal.innerText.trim(),
+      balClipped: bal.scrollWidth > bal.clientWidth + 1,
       quick: [...document.querySelectorAll('.cust-req-quick button')].map(b => { const r = b.getBoundingClientRect(); return { text: b.innerText.trim(), height: r.height, left: r.left, right: r.right, clipped: b.scrollWidth > b.clientWidth + 1 }; }),
       actions: [...document.querySelectorAll('.cust-actions button')].map(b => { const r = b.getBoundingClientRect(); return { text: b.innerText.trim(), height: r.height, left: r.left, right: r.right }; })
     };
   });
-  check(amtView.bigText === '0원', `${w}px 손님 금액 화면: 처음에는 0원이어야 한다 (got "${amtView.bigText}")`);
-  check(amtView.bigFont >= 30, `${w}px 손님 금액 화면: 금액 글자가 충분히 커야 한다 (${amtView.bigFont}px)`);
-  check(amtView.bigLeft >= -1 && amtView.bigRight <= clientW + 1, `${w}px 손님 금액 화면: 금액이 화면 밖으로 나갔다`);
+  // beta.44: 금액 안내는 '잔액 N원이 남아있어요' 한 줄이고, 그것이 이 화면에서 가장 큰 글자다.
+  check(amtView.balText === '잔액 1,234,567원이 남아있어요', `${w}px 손님 금액 화면: 잔액 한 줄이 그대로 보여야 한다 (got "${amtView.balText.replace(/\n/g, ' ')}")`);
+  check(amtView.balFont >= 20, `${w}px 손님 금액 화면: 잔액 글자가 충분히 커야 한다 (${amtView.balFont}px)`);
+  check(amtView.balFont >= amtView.inputFont, `${w}px 손님 금액 화면: 잔액 줄이 입력 글자보다 작으면 안 된다 (${amtView.balFont} vs ${amtView.inputFont})`);
+  check(amtView.balLeft >= -1 && amtView.balRight <= clientW + 1, `${w}px 손님 금액 화면: 잔액 줄이 화면 밖으로 나갔다`);
   check(amtView.inputHeight >= 48, `${w}px 손님 금액 화면: 입력창 터치 타겟이 작다 (${Math.round(amtView.inputHeight)}px)`);
   check(amtView.inputWidth >= 240, `${w}px 손님 금액 화면: 입력창이 충분히 넓어야 한다 (${Math.round(amtView.inputWidth)}px)`);
   check(amtView.inputLeft >= -1 && amtView.inputRight <= clientW + 1, `${w}px 손님 금액 화면: 입력창이 화면 밖으로 나갔다`);
-  check(amtView.balText.includes('1,234,567원'), `${w}px 손님 금액 화면: 현재 잔액이 전액으로 보여야 한다 (got "${amtView.balText.replace(/\n/g, ' ')}")`);
   check(!amtView.balClipped, `${w}px 손님 금액 화면: 잔액 안내가 잘렸다`);
   check(amtView.quick.length === 3, `${w}px 손님 금액 화면: 빠른 금액 3개가 있어야 한다 (${amtView.quick.length}개)`);
   amtView.quick.forEach(b => {
@@ -830,7 +825,7 @@ async function runViewport(context, url, w, h) {
   const signView = await page.evaluate(() => {
     const box = document.querySelector('.cust-sig'), canvas = document.querySelector('#signCanvas');
     const br = box.getBoundingClientRect(), cr = canvas.getBoundingClientRect();
-    const amt = document.querySelector('.cust-req-amt'), input = document.querySelector('#custAmountInput');
+    const amt = document.querySelector('.cust-req-bal'), input = document.querySelector('#custAmountInput');
     const title = document.querySelector('.cust-sign-title');
     const submit = document.querySelector('[data-a="cust-sign-submit"]');
     return {
@@ -844,9 +839,10 @@ async function runViewport(context, url, w, h) {
       actions: [...document.querySelectorAll('.cust-actions button')].map(b => { const r = b.getBoundingClientRect(); return { text: b.innerText.trim(), height: r.height, left: r.left, right: r.right, clipped: b.scrollWidth > b.clientWidth + 1 }; })
     };
   });
-  check(signView.amtText === '0원', `${w}px 손님 요청 화면: 아직 입력 전이므로 금액은 0원이어야 한다 (got "${signView.amtText}")`);
-  check(!signView.amtClipped, `${w}px 손님 요청 화면: 금액이 잘렸다`);
-  check(signView.titleText.includes('서명'), `${w}px 손님 요청 화면: 서명 구획에 안내 문구가 있어야 한다 (got "${signView.titleText}")`);
+  check(signView.amtText === '잔액 1,234,567원이 남아있어요', `${w}px 손님 요청 화면: 잔액 한 줄이 서명판 위에 그대로 있어야 한다 (got "${signView.amtText}")`);
+  check(!signView.amtClipped, `${w}px 손님 요청 화면: 잔액 줄이 잘렸다`);
+  // beta.44: 서명 안내는 "서명하고 다음에 무엇을 누르는지"까지 말한다 — 손님이 서명만 하고 멈추던 자리다.
+  check(signView.titleText.replace(/\s+/g, ' ') === '여기에 서명하시고, 사장님 확인받기를 클릭해주세요', `${w}px 손님 요청 화면: 서명 안내 문구가 달라졌다 (got "${signView.titleText}")`);
   check(!signView.titleClipped, `${w}px 손님 요청 화면: 서명 안내 문구가 잘렸다`);
   // 배치 순서 — 금액 칸 → 캔버스 → 버튼. 이 순서가 뒤집히면 손님이 서명부터 하고 금액을 못 찾는다.
   check(signView.inputBottom <= signView.canvasTop + 1, `${w}px 손님 요청 화면: 서명 캔버스는 금액 칸 아래에 와야 한다 (input ${Math.round(signView.inputBottom)} / canvas ${Math.round(signView.canvasTop)})`);
@@ -934,24 +930,26 @@ async function runViewport(context, url, w, h) {
   }
   const typedState = await page.evaluate(() => ({
     blurs: window.__amtBlurs,
-    big: document.querySelector('.cust-req-amt').textContent.trim(),
-    after: (document.querySelector('#custAmtAfter') || {}).textContent || ''
+    value: document.querySelector('#custAmountInput').value,
+    bal: document.querySelector('.cust-req-bal').textContent.trim()
   }));
   check(typedState.blurs === 0, `${w}px 손님 금액 입력: 타이핑 중 포커스를 ${typedState.blurs}번 잃었다(0이어야 한다)`);
-  check(typedState.big === '12,000원', `${w}px 손님 금액 입력: 큰 숫자가 입력값을 따라가야 한다 (got "${typedState.big}")`);
-  check(typedState.after.includes('1,222,567원'), `${w}px 손님 금액 입력: 사용 후 남는 금액이 보여야 한다 (got "${typedState.after}")`);
+  check(typedState.value === '12000', `${w}px 손님 금액 입력: 친 글자가 입력칸에 그대로 남아야 한다 (got "${typedState.value}")`);
+  // beta.44(사용자 확정): 잔액 줄은 **현재 잔액 고정**이다 — 금액을 쳐도 줄어들지 않는다.
+  check(typedState.bal === '잔액 1,234,567원이 남아있어요', `${w}px 손님 금액 입력: 잔액 줄은 현재 잔액에 고정돼야 한다 (got "${typedState.bal}")`);
   if (w <= 640) await page.locator('[data-a="cust-amt-quick"][data-amount="18000"]').tap(); else await page.locator('[data-a="cust-amt-quick"][data-amount="18000"]').click();
   await page.waitForTimeout(100);
   const quickState = await page.evaluate(() => {
     const el = document.querySelector('#custAmountInput'), c = document.querySelector('#signCanvas');
     return {
       same: !!el && el.__bapProbe === 'alive', value: el ? el.value : null,
-      big: document.querySelector('.cust-req-amt').textContent.trim(),
+      bal: document.querySelector('.cust-req-bal').textContent.trim(),
       canvasSame: !!c && c.__bapStroke === 'alive', empty: window.__prepaidTestHooks.lockState().signPadEmpty
     };
   });
   check(quickState.same, `${w}px 손님 요청 화면: 빠른 금액 탭이 입력 노드를 갈아치웠다`);
-  check(quickState.value === '18000' && quickState.big === '18,000원', `${w}px 손님 요청 화면: 빠른 금액이 입력창과 큰 숫자에 함께 반영돼야 한다 (got ${JSON.stringify(quickState.value)} / "${quickState.big}")`);
+  check(quickState.value === '18000', `${w}px 손님 요청 화면: 빠른 금액이 입력창에 반영돼야 한다 (got ${JSON.stringify(quickState.value)})`);
+  check(quickState.bal === '잔액 1,234,567원이 남아있어요', `${w}px 손님 요청 화면: 빠른 금액 탭도 잔액 줄을 흔들면 안 된다 (got "${quickState.bal}")`);
   check(quickState.canvasSame && quickState.empty === false, `${w}px 손님 요청 화면: 빠른 금액 탭이 그려 둔 서명을 지웠다`);
   // 통합 화면은 세로로 길다 — 그럼에도 가로 스크롤은 절대 생기지 않아야 한다(세로 스크롤은 허용).
   await noHorizontalOverflow(page, '손님 요청 화면(입력 후)', w);
@@ -990,8 +988,54 @@ async function runViewport(context, url, w, h) {
   check(reqBlock.padKeys === 12, `${w}px 사장님 확인 화면: 요청 블록이 생겨도 숫자판 12키가 그대로 있어야 한다 (${reqBlock.padKeys}개)`);
   await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-cust-request-pin-${w}.png`) }).catch(() => {});
 
-  // 요청을 버리고(=[처음으로]) A단계 인계 화면 검증으로 되돌아간다.
-  await page.locator('[data-a="pin-to-cust"]').click();
+  // ── 손님 요청으로 열린 사용 등록 모달 — beta.44 버튼 배치(사용자 지시) ────────
+  //    PIN을 풀면 금액·서명이 채워진 모달이 열린다. 폰에서 사장님이 하는 일은 사실상 [저장] 하나이므로
+  //    저장이 **서명 그림 바로 아래 첫 버튼**이어야 한다. [서명 다시 받기]는 예외 경로라 그 아래,
+  //    [취소]가 맨 아래다. DOM 순서(취소·서명 다시 받기·저장)를 CSS column-reverse가 뒤집는 구조라
+  //    여기서 재는 것은 **실제 화면 좌표**다 — 순서가 뒤집히는 사고는 CSS 한 줄로 일어난다.
+  for (const key of ['1', '2', '3', '4']) await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
+  await page.waitForSelector('#useAmount', { timeout: 8000 });
+  await noHorizontalOverflow(page, '손님 요청 사용 모달', w);
+  const preModal = await page.evaluate(() => {
+    const sig = document.querySelector('.sig-pre');
+    return {
+      sigBottom: sig ? sig.getBoundingClientRect().bottom : null,
+      quick: document.querySelectorAll('[data-a="fill-use"]').length,
+      inForm: !!document.querySelector('.modal .form [data-a="use-resign"]'),
+      btns: [...document.querySelectorAll('.modal-actions button')].map(b => {
+        const r = b.getBoundingClientRect();
+        return { a: (b.dataset && b.dataset.a) || '', text: b.innerText.trim(), top: r.top, height: r.height, left: r.left, right: r.right };
+      })
+    };
+  });
+  const preSave = preModal.btns.find(b => b.a === 'save-use');
+  const preResign = preModal.btns.find(b => b.a === 'use-resign');
+  const preCancel = preModal.btns.find(b => b.a === 'close-modal');
+  check(preModal.quick === 0, `${w}px 손님 요청 사용 모달: 빠른 금액 버튼이 없어야 한다 (${preModal.quick}개)`);
+  check(preModal.sigBottom !== null, `${w}px 손님 요청 사용 모달: 손님이 미리 한 서명이 보여야 한다`);
+  check(!preModal.inForm, `${w}px 손님 요청 사용 모달: [서명 다시 받기]는 서명칸이 아니라 버튼 묶음에 있어야 한다`);
+  check(Boolean(preSave && preResign && preCancel), `${w}px 손님 요청 사용 모달: [저장]·[서명 다시 받기]·[취소] 세 버튼이 있어야 한다 (${JSON.stringify(preModal.btns.map(b => b.text))})`);
+  if (preSave && preResign && preCancel) {
+    check(preSave.text === '저장', `${w}px 손님 요청 사용 모달: 저장 버튼의 말은 [저장]이어야 한다 (got "${preSave.text}")`);
+    if (w <= 640) {
+      check(preSave.top < preResign.top, `${w}px 손님 요청 사용 모달: [저장]이 [서명 다시 받기]보다 위에 있어야 한다`);
+      check(preResign.top < preCancel.top, `${w}px 손님 요청 사용 모달: [서명 다시 받기]가 [취소]보다 위에 있어야 한다`);
+      check(preSave.top >= preModal.sigBottom - 1, `${w}px 손님 요청 사용 모달: [저장]은 서명 그림 아래에 와야 한다`);
+    } else {
+      check([preResign, preCancel].every(b => Math.abs(preSave.top - b.top) <= 2), `${w}px 손님 요청 사용 모달: 태블릿에서는 버튼이 한 줄(같은 높이)을 유지해야 한다`);
+    }
+    [preSave, preResign, preCancel].forEach(b => {
+      check(b.height >= 44, `${w}px 손님 요청 사용 모달: "${b.text}" 터치 타겟이 작다 (${Math.round(b.height)}px)`);
+      check(b.left >= -1 && b.right <= clientW + 1, `${w}px 손님 요청 사용 모달: "${b.text}" 버튼이 화면 밖이다`);
+    });
+  }
+  await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-usage-prefilled-${w}.png`) }).catch(() => {});
+  // 저장하지 않고 닫는다 — 이 절은 기하만 본다(원장을 건드리면 뒤 검사의 잔액 전제가 흔들린다).
+  await page.locator('.modal-actions [data-a="close-modal"]').click();
+  await page.waitForTimeout(150);
+
+  // A단계 인계 화면 검증으로 되돌아간다([손님 셀프 조회]로 다시 손님 화면).
+  await page.locator('[data-a="hand-to-customer"]').click();
   await page.waitForSelector('#custSearchInput');
   await page.locator('#custSearchInput').fill('김수한무');
   await page.waitForSelector('.cust-ask');

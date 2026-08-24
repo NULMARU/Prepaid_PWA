@@ -754,7 +754,35 @@ async function runSecurityHardening(browser, url, cors) {
     await assert(fpText === fpExpected, `the fingerprint must be SHA-256(SPKI) hex[0..8] (expected ${fpExpected}, got ${fpText})`);
     await assert((await page.locator('.settings-card', { hasText: '우리 가게 열쇠 지문' }).innerText()).includes('전화로'),
       'the fingerprint block must explain the phone-confirmation procedure in plain language');
-    await assert(await count(page, '[data-a="copy-key-fp"]') === 1, 'the fingerprint must offer a copy button');
+    // beta.45(현장 지시): [복사]는 없앴고, 그 자리에 [내 열쇠 백업]이 있다 — '열쇠'라는 말이 붙은 것을
+    //   한 자리에 모은 것이다. 지문은 전화로 읽어 주는 값이라 복사할 곳이 없었다.
+    await assert(await count(page, '[data-a="copy-key-fp"]') === 0, 'the fingerprint copy button must be gone (beta.45)');
+    await assert(await page.evaluate(() => {
+      const card = [...document.querySelectorAll('.settings-card')].find(c => c.innerText.includes('우리 가게 열쇠 지문'));
+      return !!(card && card.querySelector('[data-a="export-key"]'));
+    }), 'the key-backup button must now live next to the fingerprint');
+    await assert(await page.evaluate(() => {
+      const card = [...document.querySelectorAll('.settings-card')].find(c => c.innerText.includes('장부 안전 저장'));
+      return !!card && !card.querySelector('[data-a="export-key"]');
+    }), 'the key-backup button must no longer be duplicated inside 장부 지키기');
+    // 접힌 채로도 "아직 백업 안 함"이 읽혀야 한다 — 버튼의 ⚠️ 배지와 카드 요약은 **같은 사실**을 말한다.
+    //   (둘이 어긋나면 접어 둔 사장님은 위험 상태를 영영 못 본다.)
+    const keyWarnSync = await page.evaluate(() => {
+      const btn = document.querySelector('[data-a="export-key"]');
+      const head = document.querySelector('.fold-head[data-card="enroll-auto"] .section-kicker');
+      return { badge: !!(btn && btn.querySelector('.badge-count')), kicker: (head ? head.innerText : '').includes('열쇠 백업') };
+    });
+    await assert(keyWarnSync.badge === keyWarnSync.kicker, `the ⚠️ badge on [내 열쇠 백업] and the collapsed 자동 등록 summary must agree (${JSON.stringify(keyWarnSync)})`);
+    // ── beta.45(현장 지시 7 — "간단명료"): 카드는 위에서부터 **오늘 할 일 → 참고 → 위험** 순이다 ──
+    //   예전에는 열쇠 지문(참고 정보)이 맨 위였고, 매일 누르는 [온라인 자동 등록]이 그 아래였다.
+    //   앱이 익숙하지 않은 사장님은 화면 맨 위를 "지금 해야 하는 일"로 읽는다.
+    const autoOrder = await page.evaluate(() => {
+      const card = document.querySelector('.card.settings-card:has(.fold-head[data-card="enroll-auto"])');
+      const y = sel => { const el = card.querySelector(sel); return el ? el.getBoundingClientRect().top : NaN; };
+      return { store: y('.agency-current'), inbox: y('[data-a="relay-inbox"]'), fp: y('#keyFp'), stop: y('[data-a="relay-stop"]') };
+    });
+    await assert(autoOrder.store < autoOrder.inbox && autoOrder.inbox < autoOrder.fp && autoOrder.fp < autoOrder.stop,
+      `자동 등록 카드 order must read 등록된 가게 → 온라인 자동 등록 → 열쇠 지문 → 자동 등록 중단 (got ${JSON.stringify(autoOrder)})`);
 
     // ── ⑭ 잠금 중에는 개인키를 쓰는 자동 백업이 돌지 않는다 ──────────────────
     await page.locator('[data-a="screen"][data-screen="home"]').click();
@@ -1170,13 +1198,16 @@ async function main() {
     for (const f of foldSummaries) {
       await assert(f.title.length > 0 && f.kicker.length > 0, `a collapsed settings card must show both a title and a one-line summary (got ${JSON.stringify(f)})`);
     }
-    await assert(foldSummaries.find(f => f.title.includes('장부 안전 저장')).kicker.includes('내 열쇠 백업'),
-      'the collapsed 장부 카드 summary must name the key backup — the one action an owner can never afford to miss');
+    // beta.45: 열쇠 백업은 자동 등록 카드(열쇠 지문 옆)로 옮겼다 — "놓치면 안 되는 일"이라는 성격은
+    //   그대로이므로, 아직 안 했다면 **자동 등록 카드의 접힌 요약**이 그 사실을 말해야 한다.
+    await assert(!foldSummaries.find(f => f.title.includes('장부 안전 저장')).kicker.includes('열쇠'),
+      'the 장부 카드 summary must no longer advertise a key backup it does not hold');
+    // (등록 전이라 열쇠 자체가 없다 — 열쇠 백업 요약이 실제로 실리는지는 등록된 상태에서 ⑬이 검증한다.)
     // 접힌 상태에서는 본문이 DOM에 없다(숨김이 아니라 미렌더) → 펼치면 그 자리에 그대로 나타난다.
     await assert(await count(page, '[data-a="export-safe"]') === 0, 'a collapsed card must not leave its actions in the DOM');
     await openSettingsCard(page, 'ledger');
     await assert(await count(page, '[data-a="export-safe"]') === 1, 'combined safe export action must be reachable once 장부 지키기 is expanded');
-    await assert(await count(page, '[data-a="export-key"]') === 1 && await count(page, '[data-a="verify-integrity"]') === 1, 'expanding 장부 지키기 must reveal every action it holds');
+    await assert(await count(page, '[data-a="export-key"]') === 0 && await count(page, '[data-a="verify-integrity"]') === 1, 'expanding 장부 지키기 must reveal every action it holds (the key backup moved out in beta.45)');
     // 토글은 양방향이다(다시 누르면 접힌다).
     await page.locator('.fold-head[data-card="ledger"]').click();
     await page.waitForTimeout(80);
@@ -1192,7 +1223,34 @@ async function main() {
 
     await openSettingsCard(page, 'depts');
     await assert((await page.locator('.agency-current-name').textContent()).includes('광진구청'), 'setup agency should be reflected as current agency');
+    // ── beta.45(현장 지시): 공공기관을 고르기 **전에는 과 목록을 펼치지 않는다** ──────────────
+    //   예전에는 아무것도 고르지 않아도 목록의 첫 기관이 골라진 것처럼 보이고 그 아래 과 체크박스 수십 개가
+    //   깔려 있었다. 사장님은 "이게 우리 가게 것인지" 알 수 없는 채로 체크박스 벽을 마주했다.
+    const regionOriginal = await page.locator('#regionSelectSettings').inputValue();
+    await page.locator('#agencySelectSettings').selectOption('');
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.dept-check') === 0 && await count(page, '[data-a="agency-add-all"]') === 0,
+      'with no agency chosen the 과 목록 and its buttons must not be rendered at all');
+    await assert((await page.locator('.agency-tools').innerText()).includes('공공기관을 고르세요'),
+      'the picker must ask for the agency instead of silently pretending one is chosen');
+    // 시·도를 바꾸면 기관은 **다시 고르게** 된다(예전에는 새 시·도의 첫 기관이 자동으로 골라졌다).
+    const otherRegion = await page.evaluate(() => {
+      const sel = document.querySelector('#regionSelectSettings');
+      const opt = [...sel.options].find(o => o.value && o.value !== sel.value);
+      return opt ? opt.value : '';
+    });
+    if (otherRegion) {
+      await page.locator('#regionSelectSettings').selectOption(otherRegion);
+      await page.waitForTimeout(250);
+      await assert((await page.locator('#agencySelectSettings').inputValue()) === '', 'changing the province must clear the agency, not auto-pick its first one');
+      await assert(await count(page, '.dept-check') === 0, 'changing the province must fold the 과 목록 back until an agency is chosen');
+      await page.locator('#regionSelectSettings').selectOption(regionOriginal);
+      await page.waitForTimeout(250);
+    }
     await page.locator('#agencySelectSettings').selectOption('gangnam');
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.dept-check') > 0 && await count(page, '[data-a="agency-add-all"]') === 1,
+      'choosing an agency must reveal its 과 목록 and the add/remove buttons');
     await page.waitForFunction(() => document.querySelector('.agency-current-name')?.textContent.includes('강남구청'));
     // 보조 경로로 유지된 기존 개별등록 모달 — beta.29부터 수동 등록 카드도 접히므로 먼저 펼친다.
     await openSettingsCard(page, 'enroll-manual');
@@ -1216,6 +1274,16 @@ async function main() {
     const settingsText = await page.locator('.app').innerText();
     await assert(!/구청 선금|선금 받기|직원개별등록/.test(settingsText), 'the retired wording (구청 선금 / 선금 받기 / 직원개별등록) must be gone from settings');
     await assert(settingsText.includes('앱 밖에서 따로 결제(카드·계좌이체)'), 'the auto-enrollment card must state that the money is paid outside the app (card or bank transfer), not through it');
+    // beta.45: 등록 전에는 열쇠 지문·열쇠 백업을 보여주지 않는다 — 담당자가 지문을 묻는 일도, 열쇠를
+    //   잃어 곤란해지는 일도 등록한 뒤의 일이다. 등록 전 화면의 첫 버튼은 [우리 가게 등록] 하나여야 한다.
+    await assert(await count(page, '#keyFp') === 0 && await count(page, '[data-a="export-key"]') === 0,
+      'an unregistered store must not be shown the key fingerprint or the key backup yet');
+    const unregOrder = await page.evaluate(() => {
+      const card = document.querySelector('.card.settings-card:has(.fold-head[data-card="enroll-auto"])');
+      const y = sel => { const el = card.querySelector(sel); return el ? el.getBoundingClientRect().top : NaN; };
+      return { find: y('[data-a="relay-find-store"]'), money: y('.notice-money') };
+    });
+    await assert(unregOrder.find < unregOrder.money, `the [우리 가게 등록] button must come before the fine print (got ${JSON.stringify(unregOrder)})`);
     // ── beta.40: 메뉴 재배치(사용자 지시) — 전달파일·QR 진입점은 자동 등록 카드가 아니라
     //    수동 등록 카드 하단("공공기관 담당자에게 직접 받기")에 있다. 이 시점은 미등록 상태지만
     //    수동 등록 카드 본문은 등록 여부와 무관하므로 여기서 구조를 고정한다.
@@ -1225,10 +1293,24 @@ async function main() {
     await assert(await count(page, `${autoCardScope} [data-a="direct-transfer-open"]`) === 0 && await count(page, `${autoCardScope} [data-a="qr-scan-open"]`) === 0,
       'the auto card must no longer contain the file/QR entry points (moved to 수동 등록)');
     await assert(await count(page, `${manualCardScope} [data-a="direct-transfer-open"]`) === 1,
-      'the 수동 등록 card must hold the 담당자 전달파일 열기 entry point at its bottom section');
+      'the 수동 등록 card must hold the 담당자에게 받은 파일 entry point');
     const manualCardText = await page.locator(manualCardScope).innerText();
-    await assert(manualCardText.includes('공공기관 담당자에게 직접 받기'), 'the 수동 등록 card must label its bottom 직접 받기 section');
+    // beta.45(현장 지시): 구역 이름은 '공공기관 담당자에게 전달받기'이고, 파일 버튼의 이름은 출처를 말한다
+    //   ('전달파일'이라는 말은 바로 위 [엑셀 명단(CSV)]과 구별되지 않아 사장님이 둘을 헷갈렸다).
+    await assert(manualCardText.includes('공공기관 담당자에게 전달받기'), 'the 수동 등록 card must label the 전달받기 section');
+    await assert(manualCardText.includes('카톡·메일로 보낸 명단 파일'), 'the file entry point must name where the file came from, so it is not confused with the CSV import');
     await assert(manualCardText.includes('QR(사각 코드)'), 'the 수동 등록 card must hold the QR entry point (button or unsupported notice)');
+    // 순서 계약(현장 지시): ①엑셀 명단(CSV) → ②담당자에게 전달받기(파일·QR) → ③한 명씩 → ④빠른 등록.
+    const manualOrder = await page.evaluate(scope => {
+      const card = document.querySelector(scope);
+      const y = sel => { const el = card.querySelector(sel); return el ? el.getBoundingClientRect().top : NaN; };
+      return { csv: y('[data-a="csv-import"]'), file: y('[data-a="direct-transfer-open"]'), one: y('[data-a="add-employee"]'), quick: y('[data-a="quick-add-employee"]') };
+    }, manualCardScope);
+    await assert(manualOrder.csv < manualOrder.file && manualOrder.file < manualOrder.one && manualOrder.one < manualOrder.quick,
+      `수동 등록 order must read CSV → 담당자 파일 → 한 명씩 → 빠른 등록 (got ${JSON.stringify(manualOrder)})`);
+    // 카드 안의 진한 버튼은 하나뿐이다 — 여럿이면 "무엇부터"가 사라진다.
+    const manualPrimary = await page.evaluate(scope => document.querySelectorAll(scope + ' .btn-primary.action-btn').length, manualCardScope);
+    await assert(manualPrimary === 1, `the 수동 등록 card must have exactly one primary action button (got ${manualPrimary})`);
     await page.locator('#quickAddDept').fill('Dept Q');
     await page.locator('#quickAddName').fill('User Q');
     await page.locator('#quickAddOpen').fill('12000');
@@ -2865,7 +2947,9 @@ async function main() {
     await assert(recentOrder.join('|') === '김민수|김미래',
       `during a search the most recently used employee must come first (got ${JSON.stringify(recentOrder)})`);
 
-    // (7-e) 사용 모달 빠른 금액 — 한 번 눌러 금액이 채워지고, 그대로 고쳐 쓸 수 있다.
+    // (7-e) 사용 모달(beta.44) — 빠른 금액 3버튼은 **없다**. 금액은 사장님이 직접 친다.
+    //   지운 이유: 이 모달은 손님이 보낸 금액·서명을 읽고 저장하는 자리다. 한 번 누르면 금액을 덮어쓰는
+    //   버튼이 저장 버튼 곁에 있으면 오탭 한 번이 "손님이 서명한 금액과 다른 숫자"를 만든다.
     await page.locator('#searchInput').fill('박보검');
     await page.waitForTimeout(200);
     await page.locator('#deptFilterSelect').selectOption({ label: '가나상사' });
@@ -2874,11 +2958,13 @@ async function main() {
     await assert(await count(page, '.card.employee.solo') === 1, 'the filtered + searched single hit should still be the solo card');
     await page.locator('.card.employee.solo [data-a="use"]').click();
     await page.waitForSelector('#useAmount');
-    await assert(await count(page, '[data-a="fill-use"]') === 3, 'the usage modal must offer three quick-amount buttons');
-    await page.locator('[data-a="fill-use"][data-amount="18000"]').click();
-    await assert((await page.locator('#useAmount').inputValue()) === '18000', 'one tap on a quick amount must fill the usage amount field');
+    await assert(await count(page, '[data-a="fill-use"]') === 0, 'the usage modal must not offer quick-amount buttons any more (beta.44)');
+    await assert(!(await page.locator('.modal').innerText()).includes('빠른 금액'), 'the 빠른 금액 label must be gone from the usage modal too (beta.44)');
+    // 저장 버튼의 말은 [저장] 하나다 — "서명 후 저장"은 서명이 이미 있는 흔한 경우에 거짓말이 된다.
+    const useSaveLabel = (await page.locator('[data-a="save-use"]').innerText()).trim();
+    await assert(useSaveLabel === '저장', `the usage modal save button must read 저장 (got ${JSON.stringify(useSaveLabel)})`);
     await page.locator('#useAmount').fill('9000');
-    await assert((await page.locator('#useAmount').inputValue()) === '9000', 'a quick-filled amount must remain hand-editable');
+    await assert((await page.locator('#useAmount').inputValue()) === '9000', 'the usage amount must be hand-editable');
 
     // (7-f) 저장이 끝나면 검색어는 비워지고(다음 손님) 소속 필터는 그대로 남는다.
     const sBox = await page.locator('#signCanvas').boundingBox();
@@ -3492,14 +3578,15 @@ async function main() {
       `the A-path escape hatch must stay reachable from the compose screen and say why one would use it (got ${JSON.stringify(composeLinks)})`);
     await assert(await count(page, '.cust-links [data-a="cust-history"]') === 1 && await count(page, '.cust-links [data-a="cust-call-owner"]') === 1,
       'the two auxiliary links must be the history link and the call-the-owner handover');
-    // 순서도 계약이다 — 위에서 아래로 대상 → 금액 → 서명 → 버튼.
+    // 순서도 계약이다 — 위에서 아래로 대상 → 잔액 → 금액칸 → 서명 → 버튼(beta.44: 큰 숫자 자리가 잔액 한 줄).
     const composeOrder = await page.evaluate(() => {
       const y = s => { const el = document.querySelector(s); return el ? el.getBoundingClientRect().top : NaN; };
-      return { name: y('.cust-name'), big: y('#custAmtBig'), input: y('#custAmountInput'), canvas: y('#signCanvas'), submit: y('[data-a="cust-sign-submit"]') };
+      return { name: y('.cust-name'), bal: y('#custAmtBal'), input: y('#custAmountInput'), signTitle: y('.cust-sign-title'), canvas: y('#signCanvas'), submit: y('[data-a="cust-sign-submit"]') };
     });
-    await assert(composeOrder.name < composeOrder.big && composeOrder.big < composeOrder.input
-      && composeOrder.input < composeOrder.canvas && composeOrder.canvas < composeOrder.submit,
-      `the unified screen must read top-to-bottom: 대상 → 금액 → 서명 → 버튼 (got ${JSON.stringify(composeOrder)})`);
+    await assert(composeOrder.name < composeOrder.bal && composeOrder.bal < composeOrder.input
+      && composeOrder.input < composeOrder.signTitle && composeOrder.signTitle < composeOrder.canvas
+      && composeOrder.canvas < composeOrder.submit,
+      `the unified screen must read top-to-bottom: 대상 → 잔액 → 금액칸 → 서명 안내 → 서명판 → 버튼 (got ${JSON.stringify(composeOrder)})`);
     // ── beta.27: 빈 서명판 안내(손님 요청 화면) ────────────────────────────────
     //   이 화면은 손님이 직접 만지는 유일한 화면이다. 흰 상자만 놓여 있으면 어르신은 무엇을 하는 칸인지 모른다.
     //   사장님 모달과 **같은 오버레이 구현**이어야 한다 — 캔버스에 그리는 순간 그 문구가 원장의 서명 그림에 박힌다.
@@ -3555,7 +3642,10 @@ async function main() {
       await assert(s.value === '12345'.slice(0, i + 1), `character ${i + 1} must land in the input (got ${JSON.stringify(s.value)})`);
       await assert(s.blurs === 0, `typing character ${i + 1} must not raise a focusout (${s.blurs} so far)`);
     }
-    await assert((await page.locator('#custAmtBig').innerText()).trim() === '12,345원', 'the big number must follow every typed character');
+    // beta.44: 큰 숫자가 없어졌으니 "글자가 들어갔다"의 증거는 입력칸 자신이다. 그리고 잔액 한 줄은
+    //   타이핑에도 흔들리지 않아야 한다(현재 잔액 고정 — 손님 눈앞에서 잔액이 줄어드는 착시를 만들지 않는다).
+    await assert((await page.locator('#custAmountInput').inputValue()) === '12345', 'every typed character must land in the input field');
+    await assert(/^잔액 [\d,]+원이 남아있어요$/.test((await page.locator('#custAmtBal').innerText()).trim()), 'the balance line must keep its shape while the customer types');
     // ② 서명이 있는 상태에서 빠른 금액을 눌러도 서명은 그대로다.
     await page.locator('[data-a="cust-amt-quick"][data-amount="18000"]').click();
     await page.waitForTimeout(120);
@@ -3581,7 +3671,7 @@ async function main() {
     await page.waitForTimeout(120);
     s2 = await canvasState();
     await assert(s2.sameNode && !s2.empty, 'editing the amount after signing must not wipe the signature');
-    await assert((await page.locator('#custAmtBig').innerText()).trim() === '7,000원', 'the big number must follow the edited amount');
+    await assert((await page.locator('#custAmountInput').inputValue()) === '7000', 'the edited amount must stay in the input field');
 
     // ④ 비동기 render 공격 — 아무도 아무것도 누르지 않았는데 화면을 갈아엎으려는 경로들.
     //    토스트(3초 뒤 스스로 사라짐)·네트워크 플랩·탭 복귀·수신함 폴링. 어느 것도 서명·금액을 건드릴 수 없다.
@@ -3614,11 +3704,16 @@ async function main() {
     await markCanvas();
     await page.evaluate(() => { window.__spamRender = setInterval(() => window.__prepaidTestHooks.forceRender(), 100); });
     await page.waitForTimeout(300);
-    // (1) 폭격 중에도 부분 갱신은 살아 있다 — 손님이 누른 금액이 큰 숫자에 즉시 반영돼야 한다.
+    // (1) 폭격 중에도 부분 갱신은 살아 있다 — 손님이 누른 금액이 입력칸에 남고, 잔액·오류 줄이 정상이다.
     await page.locator('[data-a="cust-amt-quick"][data-amount="18000"]').click();
     await page.waitForTimeout(200);
-    await assert((await page.locator('#custAmtBig').innerText()).trim() === '18,000원',
-      'while the guard is downgrading renders the amount display must STILL be repainted (that is what the guard promises in exchange)');
+    const spamPaint = await page.evaluate(() => ({
+      value: document.querySelector('#custAmountInput').value,
+      bal: document.querySelector('#custAmtBal').textContent.trim(),
+      err: document.querySelector('#custAmtErr').textContent.trim()
+    }));
+    await assert(spamPaint.value === '18000' && spamPaint.err === '' && /^잔액 [\d,]+원이 남아있어요$/.test(spamPaint.bal),
+      `while the guard is downgrading renders the amount display must STILL be repainted (got ${JSON.stringify(spamPaint)})`);
     const spamState = await canvasState();
     await assert(spamState.sameNode && !spamState.empty, 'the render storm must not cost the signature');
     await assert((await lockSt2()).idleSinceInput < 900, 'a real tap must reset the idle clock (only user input may)');
@@ -3738,7 +3833,7 @@ async function main() {
     await assert(roundTrip.value === '12000' && roundTrip.amount === '12000',
       `coming back from the history screen must keep the amount exactly as it was (got ${JSON.stringify(roundTrip.value)})`);
     await assert(roundTrip.empty === true, 'the signature must be blank after the round trip — the detail screen promised exactly that');
-    await assert((await page.locator('#custAmtBig').innerText()).trim() === '12,000원', 'the big number must be repainted from the preserved amount');
+    await assert((await page.locator('#custAmountInput').inputValue()) === '12000', 'the preserved amount must be repainted into the input field');
     // 조회만 하러 온 손님은 상세 화면에서 [처음으로]로 끝낼 수 있어야 한다.
     await openHistory();
     await page.locator('.cust-actions [data-a="cust-back"]').click();
@@ -3793,8 +3888,21 @@ async function main() {
     await custLookup('김요청');
     // beta.24: 본인 확인 직후가 곧 금액 칸이다(잔액 화면을 한 번 더 지나지 않는다).
     await assert(await count(page, '#custAmountInput') === 1, 'the happy path must reach the amount field straight from the confirmation card');
-    await assert((await page.locator('#custAmtBig').innerText()).trim() === '0원', 'the amount screen must open at 0원');
-    await assert((await page.locator('#custAmtBal').innerText()).includes('30,000원'), 'the amount screen must show the current balance');
+    // beta.44: 금액 안내는 한 줄이다 — "잔액 N원이 남아있어요". 큰 숫자(#custAmtBig)·사용 후 예상 잔액
+    //   (#custAmtAfter)은 DOM에서 사라졌다. 손님이 읽어야 하는 숫자를 하나로 줄인 것이 이 변경의 전부다.
+    await assert(await count(page, '#custAmtBig') === 0 && await count(page, '#custAmtAfter') === 0, 'beta.44: the big amount and the after-balance line must be gone from the request screen');
+    const balLine0 = (await page.locator('#custAmtBal').innerText()).trim();
+    await assert(balLine0 === '잔액 30,000원이 남아있어요', `the request screen must open with the single balance line (got ${JSON.stringify(balLine0)})`);
+    // 이 줄이 화면에서 가장 큰 글자여야 한다(예전 큰 숫자가 맡던 자리를 그대로 물려받는다).
+    const balFont = await page.evaluate(() => ({
+      bal: parseFloat(getComputedStyle(document.querySelector('#custAmtBal')).fontSize),
+      label: parseFloat(getComputedStyle(document.querySelector('.cust-req-field label')).fontSize)
+    }));
+    await assert(balFont.bal >= 20, `the balance line must be big enough for an older customer to read (got ${balFont.bal}px)`);
+    // 서명 안내는 "서명하고 다음에 무엇을 누르는지"까지 말한다.
+    const signTitle = (await page.locator('.cust-sign-title').innerText()).replace(/\s+/g, ' ').trim();
+    await assert(signTitle === '여기에 서명하시고, 사장님 확인받기를 클릭해주세요', `the signature title must tell the customer what to press next (got ${JSON.stringify(signTitle)})`);
+    await assert(parseFloat(String(await page.evaluate(() => getComputedStyle(document.querySelector('.cust-sign-title')).fontSize))) >= 15, 'the signature title must be at least 15px');
     const quickTexts = (await page.locator('.cust-req-quick button').allInnerTexts()).map(t => t.trim());
     await assert(JSON.stringify(quickTexts) === JSON.stringify(['9,000원', '18,000원', '27,000원']), `the customer quick amounts must match the usage modal (got ${JSON.stringify(quickTexts)})`);
     // 입력 노드 유실 금지(beta.20에서 배운 것) — 빠른 금액도, 타이핑도 입력창을 갈아치우면 안 된다.
@@ -3807,14 +3915,16 @@ async function main() {
     });
     await assert(quickState.same, 'tapping a quick amount must not replace the amount input node (the phone keypad would close)');
     await assert(quickState.value === '9000', `the quick amount must land in the input (got ${JSON.stringify(quickState.value)})`);
-    await assert((await page.locator('#custAmtBig').innerText()).trim() === '9,000원', 'the big number must follow the quick amount');
-    await assert((await page.locator('#custAmtAfter').innerText()).includes('21,000원'), 'the amount screen must show the balance left after the deduction');
+    // beta.44(사용자 확정): 잔액 줄은 **현재 잔액 고정**이다 — 금액을 넣어도 숫자가 줄지 않는다.
+    //   줄어드는 숫자를 보여주면 손님은 "이미 빠져나갔다"로 읽는다. 차감은 사장님이 저장할 때 한 번뿐이다.
+    await assert((await page.locator('#custAmtBal').innerText()).trim() === '잔액 30,000원이 남아있어요', 'the balance line must stay on the CURRENT balance while the customer types an amount');
     await assert((await page.locator('#custAmtErr').innerText()).trim() === '', 'a valid amount must raise no error');
     // 요청은 아직 아무것도 아니다 — 이 시점에 저장소가 건드려졌다면 설계가 무너진 것이다.
     const composeDb = await readDb(page);
     await assert(!JSON.stringify(composeDb).includes('custAmount') && !JSON.stringify(composeDb).includes('pendingAmount'), 'a half-written request must never reach IndexedDB');
 
-    await assert((await page.locator('.cust-req-amt').innerText()).includes('9,000원'), 'the request screen must keep showing the amount the customer typed, right above the canvas they sign on');
+    // 손님이 넣은 금액이 확인되는 자리는 입력칸이다(큰 숫자를 없앤 뒤의 유일한 자리).
+    await assert((await page.locator('#custAmountInput').inputValue()) === '9000', 'the amount the customer typed must remain visible in the input field, right above the canvas they sign on');
     await drawOn('.cust-sig #signCanvas');
     const submitLabel = (await page.locator('[data-a="cust-sign-submit"]').innerText()).trim();
     await assert(submitLabel === '사장님 확인 받기', `the request must be handed over with the [사장님 확인 받기] label (got ${JSON.stringify(submitLabel)})`);
@@ -3858,6 +3968,13 @@ async function main() {
     await assert(modalSignSrc === custSignSrc, 'the signature must arrive at the owner byte-for-byte identical to what the customer drew');
     await assert(await count(page, '#signCanvas') === 0, 'a prefilled signature must replace the blank canvas (re-signing is a deliberate act, not the default)');
     await assert(await count(page, '[data-a="use-resign"]') === 1, 'the owner must always be able to take a fresh signature');
+    // beta.44(사용자 지시): [저장]이 서명 바로 아래 첫 버튼이고, [서명 다시 받기]는 그 아래(예외 경로)다.
+    //   버튼 묶음의 DOM 순서는 [… 취소 · 서명 다시 받기 · 저장] — 폰(≤640px)의 column-reverse가 이것을
+    //   화면에서 저장 → 서명 다시 받기 → 취소로 뒤집는다(기하 검증은 responsive 하니스가 맡는다).
+    const actionOrder = await page.evaluate(() => Array.from(document.querySelectorAll('.modal .modal-actions button')).map(b => b.dataset.a));
+    await assert(actionOrder[actionOrder.length - 1] === 'save-use', `[저장] must be the last button in DOM order (got ${JSON.stringify(actionOrder)})`);
+    await assert(actionOrder[actionOrder.length - 2] === 'use-resign', `[서명 다시 받기] must sit directly before [저장] in DOM order (got ${JSON.stringify(actionOrder)})`);
+    await assert(await page.evaluate(() => !document.querySelector('.modal .form [data-a="use-resign"]')), 'the resign button must no longer live inside the signature field — it moved into the button group under [저장]');
 
     const dialogsBeforeSave = dialogs.length;
     await page.locator('[data-a="save-use"]').click();
@@ -3867,6 +3984,10 @@ async function main() {
     //   한 번 더 묻는 것은 확인이 아니라 절차 지연이다. 확인창이 남는 경로는 (n-2)에서 따로 검증한다.
     const saveConfirm = dialogs.slice(dialogsBeforeSave).find(d => d.type === 'confirm' && d.message.includes('저장하시겠습니까'));
     await assert(!saveConfirm, `saving a request at the requested amount must not ask again (got ${JSON.stringify(saveConfirm && saveConfirm.message)})`);
+    // beta.44(사용자 지시): 저장 뒤 "✅ 저장 완료 … 증표를 보여줄까요?" 확인창도 없다 — 증표 화면이 곧바로
+    //   열리고, 그 화면에 이름·잔액이 다 있으므로 확인창이 새로 알려 주는 것이 없었다(탭만 한 번 더 들었다).
+    const postSaveDialogs = dialogs.slice(dialogsBeforeSave);
+    await assert(!postSaveDialogs.some(d => d.message.includes('증표') || d.message.includes('저장 완료')), `the receipt must open by itself, with no confirm in front of it (got ${JSON.stringify(postSaveDialogs.map(d => d.message))})`);
     await page.locator('.receipt-modal [data-a="close-modal"]').click();
     await page.waitForTimeout(150);
 
@@ -3992,7 +4113,7 @@ async function main() {
     await page.locator('#custAmountInput').fill('1000');
     await page.waitForTimeout(120);
     await assert((await page.locator('#custAmtErr').innerText()).trim() === '', 'spending exactly the whole balance must be allowed');
-    await assert((await page.locator('#custAmtAfter').innerText()).includes('0원'), 'spending the whole balance must show 0원 left');
+    await assert((await page.locator('#custAmtBal').innerText()).includes('1,000원'), 'the balance line stays on the current balance even when the customer spends all of it');
     await page.locator('#custAmountInput').fill('1001');
     await page.waitForTimeout(120);
     await assert((await page.locator('#custAmtErr').innerText()).includes('잔액보다 많아요'), 'one won over the balance must already be blocked');
@@ -4000,6 +4121,9 @@ async function main() {
     // ── (B-e) 0 · 음수 · 소수 · 문자 입력 차단 ──
     // 0x·1e·0b·0o는 Number()가 조용히 숫자로 바꿔주는 표기다 — 화면에 적힌 글자와 전혀 다른 금액이 된다
     //   ('0x2710' → 10000원). 전각 숫자도 마찬가지로 "숫자처럼 보이는 것"이다. 돈 파서는 전부 거절해야 한다.
+    // beta.44: 큰 숫자가 없어졌으니 "메아리치지 않는다"의 관측 지점은 잔액 한 줄이다 — 어떤 쓰레기 표기도
+    //   이 줄을 흔들지 못해야 한다(흔들린다면 파서가 그것을 숫자로 받아들였다는 뜻이다).
+    const balBeforeBad = (await page.locator('#custAmtBal').innerText()).trim();
     for (const [bad, why] of [['0', 'zero'], ['-100', 'a negative amount'], ['9000.5', 'a fractional amount'], ['abc', 'letters'], ['9-0', 'a mangled number'],
     ['0x2710', 'a hex literal'], ['1e4', 'an exponent literal'], ['0b11', 'a binary literal'], ['0o17', 'an octal literal'], ['１２３', 'full-width digits'], ['Infinity', 'Infinity']]) {
       await page.locator('#custAmountInput').fill(bad);
@@ -4012,7 +4136,7 @@ async function main() {
       await page.waitForTimeout(120);
       await assert((await lockSt2()).pendingCustomerId === '', `${why} ("${bad}") must never become a request`);
       await assert(await count(page, '#custAmountInput') === 1, `${why} ("${bad}") must leave the customer on the request screen`);
-      await assert((await page.locator('#custAmtBig').innerText()).trim() === '0원', `${why} ("${bad}") must never be echoed as a real amount`);
+      await assert((await page.locator('#custAmtBal').innerText()).trim() === balBeforeBad, `${why} ("${bad}") must never be echoed as a real amount`);
       await page.locator('[data-a="cust-sign-clear"]').click();
       await page.waitForTimeout(80);
     }
@@ -4070,7 +4194,7 @@ async function main() {
     await setTimers({ custIdle: 30000, custComposeIdle: 60000 });
     await composeTo('김요청', '1000');
     await setTimers({ custIdle: 400, custComposeIdle: 1600 });
-    await rearm('.cust-req-step');
+    await rearm('#custAmtBal');
     await page.waitForTimeout(900);
     await assert(await count(page, '.cust-sig #signCanvas') === 1, 'the request screen must also hold past the 30s mark while the customer is signing');
     // 서명을 그리는 동작(pointermove/touchmove)만으로도 시계가 다시 무장돼야 한다 —
@@ -4432,7 +4556,7 @@ async function main() {
     //   "조작"으로 세면 이름·잔액이 뜬 화면이 무한히 방치된다(자동 복귀가 영원히 오지 않는다).
     await composeTo('박두번', '1000');
     await setTimers({ custIdle: 800, custComposeIdle: 1200 });
-    await rearm('.cust-req-step');
+    await rearm('#custAmtBal');
     const hoverBox = await page.locator('.cust-sig #signCanvas').boundingBox();
     for (let i = 0; i < 7; i += 1) {
       await page.mouse.move(hoverBox.x + 20 + i * 6, hoverBox.y + hoverBox.height * 0.5);

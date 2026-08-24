@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로 (홍보 1페이지)</title>
+<style>
+  /* A4 1페이지 인터넷 게시용 홍보문. 외부 요청 0건(폰트·이미지 전부 내장/시스템). */
+  @page { size: A4; margin: 0; }
+  :root{
+    --primary:#1e4e86; --primary-dark:#173c66; --primary-soft:#eef3fa;
+    --accent:#c0894f; --accent-soft:#f9f2e8; --accent-line:#e8d6ba;
+    --owner:#1e4e86; --agency:#a8762f; --staff:#1f7a4d;
+    --heading:#16202e; --text:#26313f; --muted:#5b6878; --line:#e3e6eb; --bg:#ffffff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{background:#e9eaec}
+  body{
+    font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",Roboto,sans-serif;
+    color:var(--text); -webkit-font-smoothing:antialiased; word-break:keep-all;
+  }
+  .page{
+    width:210mm; height:297mm; margin:0 auto; background:var(--bg);
+    padding:10mm 13mm 8mm; display:flex; flex-direction:column; position:relative; overflow:hidden;
+  }
+  /* ── 머리 ── */
+  .top{display:flex; align-items:flex-start; justify-content:space-between; gap:8mm}
+  .brand{font-size:34pt; font-weight:900; letter-spacing:-2px; color:var(--primary); line-height:1}
+  .brand small{display:block; font-size:9.5pt; font-weight:700; letter-spacing:0; color:var(--muted); margin-top:3px}
+  .tagline{font-size:15pt; font-weight:800; color:var(--heading); line-height:1.35; text-align:right; padding-top:3px}
+  .tagline em{font-style:normal; color:var(--primary); border-bottom:3px solid var(--accent-line); padding-bottom:1px}
+  .rule{height:3px; background:linear-gradient(90deg,var(--primary) 0%,var(--primary) 42%,var(--accent) 42%,var(--accent) 100%); margin:5mm 0 4.5mm; border-radius:2px}
+
+  /* ── 문제 → 해결 ── */
+  .hook{background:var(--primary-soft); border-left:5px solid var(--primary); border-radius:0 8px 8px 0; padding:3.2mm 4.4mm}
+  .hook h1{font-size:15pt; font-weight:900; color:var(--heading); line-height:1.4; letter-spacing:-.5px}
+  .hook p{font-size:9.8pt; color:var(--muted); line-height:1.55; margin-top:2mm}
+  .hook b{color:var(--primary-dark)}
+
+  .cols{display:grid; grid-template-columns:1fr 1fr 1fr; gap:3.4mm; margin-top:3.6mm}
+  .col{border:1px solid var(--line); border-radius:9px; padding:3mm 3.2mm 3.2mm; background:#fff}
+  .col .ic{font-size:16pt; line-height:1}
+  .col h3{font-size:10.8pt; font-weight:850; color:var(--heading); margin:1.4mm 0 1.2mm; letter-spacing:-.3px}
+  .col p{font-size:8.5pt; line-height:1.5; color:var(--muted)}
+  .col p b{color:var(--text)}
+
+  /* ── 3주체 ── */
+  .sec-title{font-size:11.6pt; font-weight:900; color:var(--heading); margin:4mm 0 2.4mm; display:flex; align-items:center; gap:3mm}
+  .sec-title::after{content:""; flex:1; height:1px; background:var(--line)}
+  .who{display:grid; grid-template-columns:1fr 1fr 1fr; gap:3.4mm}
+  .who .card{border-radius:9px; padding:2.8mm 3.2mm; border:1px solid var(--line); border-top:4px solid var(--owner)}
+  .who .card.agency{border-top-color:var(--agency)}
+  .who .card.staff{border-top-color:var(--staff)}
+  .who .role{font-size:9pt; font-weight:800; color:var(--owner); letter-spacing:-.2px}
+  .who .card.agency .role{color:var(--agency)} .who .card.staff .role{color:var(--staff)}
+  .who h4{font-size:10pt; font-weight:850; color:var(--heading); margin:1.2mm 0 1.2mm}
+  .who p{font-size:8.3pt; line-height:1.5; color:var(--muted)}
+  .who .url{display:block; margin-top:2mm; font-size:8.6pt; font-weight:800; color:var(--primary); letter-spacing:-.2px}
+
+  /* ── 흐름 ── */
+  .flow{display:grid; grid-template-columns:repeat(4,1fr); gap:3mm; counter-reset:st}
+  .flow .st{position:relative; background:#fbfbfc; border:1px solid var(--line); border-radius:9px; padding:3mm 3mm 2.8mm}
+  .flow .st::before{
+    counter-increment:st; content:counter(st);
+    position:absolute; top:-3.4mm; left:3.2mm; width:7mm; height:7mm; border-radius:50%;
+    background:var(--primary); color:#fff; font-size:9.5pt; font-weight:900;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .flow .st h5{font-size:9.6pt; font-weight:850; color:var(--heading); margin:2.8mm 0 1.2mm}
+  .flow .st p{font-size:8.1pt; line-height:1.45; color:var(--muted)}
+
+  /* ── 안심 ── */
+  .trust{margin-top:3.2mm; background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:10px; padding:3.2mm 4mm}
+  .trust h3{font-size:10.8pt; font-weight:900; color:#7a5220; margin-bottom:2mm}
+  .trust ul{list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:1.8mm 5mm}
+  .trust li{font-size:8.4pt; line-height:1.42; color:#5c4526; padding-left:5.2mm; position:relative}
+  .trust li::before{content:"✓"; position:absolute; left:0; color:var(--accent); font-weight:900}
+  .trust li b{color:#3d2d16}
+
+  /* ── 쓰이는 자리 ── */
+  .uses{margin-top:3mm; border:1px solid var(--line); border-radius:10px; padding:2.6mm 3.6mm}
+  .uses .u-title{font-size:9.8pt; font-weight:900; color:var(--heading); margin-bottom:1.8mm}
+  .uses .u-row{display:grid; grid-template-columns:repeat(4,1fr); gap:3mm}
+  .uses .u-row span{font-size:8.2pt; line-height:1.45; color:var(--muted)}
+  .uses .u-row b{color:var(--text)}
+  .uses .u-note{margin-top:2mm; padding-top:1.8mm; border-top:1px dashed var(--line); font-size:8.2pt; color:var(--muted); line-height:1.5}
+  .uses .u-note b{color:var(--primary-dark)}
+
+  /* ── 시작하기 ── */
+  .start{margin-top:auto; padding-top:3.2mm; display:flex; align-items:center; gap:6mm; border-top:2px solid var(--line)}
+  .qr{width:24mm; height:24mm; flex:0 0 auto; border:1px solid var(--line); border-radius:6px; padding:1.6mm; background:#fff}
+  .qr svg{width:100%; height:100%; display:block}
+  .start .go h3{font-size:13pt; font-weight:900; color:var(--heading); letter-spacing:-.5px}
+  .start .go .addr{font-size:15pt; font-weight:900; color:var(--primary); letter-spacing:-.5px; margin:1.1mm 0}
+  .start .go p{font-size:8.3pt; color:var(--muted); line-height:1.6}
+  .foot{margin-top:3mm; display:flex; justify-content:space-between; align-items:baseline; font-size:8.2pt; color:var(--muted)}
+  .foot b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="top">
+    <div class="brand">밥장부<small>선입금대장 · bapjangbu.com</small></div>
+    <div class="tagline">단체 손님·직원 식대 장부,<br><em>수첩 대신 폰으로</em></div>
+  </div>
+  <div class="rule"></div>
+
+  <div class="hook">
+    <h1>“이 분 얼마 남았죠?” — 그때마다 수첩을 넘기지 마세요.</h1>
+    <p>공공기관·회사가 <b>미리 결제한 식대(선금)</b>를 종이 대장에 적어 두면, 잔액을 묻는 손님마다 장부를 뒤져야 하고
+       달이 바뀌면 계산이 어긋납니다. 밥장부는 그 대장을 <b>가게 폰·태블릿 하나</b>로 옮겨 줍니다.
+       설치는 주소만 열면 끝, <b>가입도 비용도 없습니다.</b></p>
+  </div>
+
+  <div class="cols">
+    <div class="col">
+      <div class="ic">🔎</div>
+      <h3>이름만 누르면 잔액</h3>
+      <p>손님 이름을 검색해 <b>잔액과 최근 사용 내역</b>을 그 자리에서 보여드려요. 손님이 직접 확인할 수도 있어요.</p>
+    </div>
+    <div class="col">
+      <div class="ic">✍️</div>
+      <h3>서명 한 번이면 차감</h3>
+      <p>금액을 넣고 손가락으로 <b>서명</b>을 받으면 끝. 서명은 장부에 그대로 남아 나중에 다툴 일이 없어요.</p>
+    </div>
+    <div class="col">
+      <div class="ic">📋</div>
+      <h3>명단은 자동으로</h3>
+      <p>공공기관 담당자가 보낸 <b>직원 명단·금액</b>이 앱으로 도착해요. 사장님은 결제 확인 후 승인만 하면 돼요.</p>
+    </div>
+  </div>
+
+  <div class="sec-title">누가 쓰나요</div>
+  <div class="who">
+    <div class="card">
+      <div class="role">🍚 음식점 사장님</div>
+      <h4>선금 장부를 관리해요</h4>
+      <p>명단 받기·충전·차감·잔액 확인·엑셀 저장까지. 인터넷이 끊겨도 장부는 그대로 열려요.</p>
+      <span class="url">app.bapjangbu.com</span>
+    </div>
+    <div class="card agency">
+      <div class="role">🏛️ 공공기관 담당자(서무)</div>
+      <h4>명단을 보내요</h4>
+      <p>관할 음식점을 고르고 직원 명단을 올리면, 브라우저에서 암호화되어 그 가게에만 전달돼요.</p>
+      <span class="url">agency.bapjangbu.com</span>
+    </div>
+    <div class="card staff">
+      <div class="role">🙋 직원 (베타)</div>
+      <h4>내 잔액을 확인해요</h4>
+      <p>내가 쓴 금액을 스스로 적어 두는 개인 기록장. 공식 잔액은 음식점 장부가 기준이에요.</p>
+      <span class="url">staff.bapjangbu.com</span>
+    </div>
+  </div>
+
+  <div class="sec-title">이렇게 씁니다</div>
+  <div class="flow">
+    <div class="st">
+      <h5>앱 열기</h5>
+      <p>주소로 접속해 ‘홈 화면에 추가’. 설치 파일도, 가입도 없어요.</p>
+    </div>
+    <div class="st">
+      <h5>우리 가게 등록</h5>
+      <p>가게 이름으로 찾아 한 번만 등록. 공공기관이 우리 가게를 찾을 수 있게 돼요.</p>
+    </div>
+    <div class="st">
+      <h5>명단 받기</h5>
+      <p>기관이 보낸 명단이 도착하면 <b>받은 금액을 확인</b>하고 승인해요.</p>
+    </div>
+    <div class="st">
+      <h5>식사 때 차감</h5>
+      <p>이름 검색 → 금액 → 서명. 잔액이 자동으로 줄어들어요.</p>
+    </div>
+  </div>
+
+  <div class="trust">
+    <h3>믿고 쓰셔도 되는 이유</h3>
+    <ul>
+      <li><b>완전 무료</b> — 광고도, 유료 기능도, 결제 수단 등록도 없습니다.</li>
+      <li><b>돈은 앱을 거치지 않습니다</b> — 선금은 기관이 가게에 직접 결제해요.</li>
+      <li><b>장부는 가게 기기에</b> — 원본은 사장님 폰에 저장되고 인터넷 없이도 열려요.</li>
+      <li><b>서버는 이름을 모릅니다</b> — 명단은 암호화된 채로만 오갑니다.</li>
+      <li><b>전화번호는 서버로 가지 않습니다</b> — 기기 안에서만 암호화 보관.</li>
+      <li><b>백업과 복원</b> — 엑셀(CSV)로 저장하고, 폰을 바꿔도 되찾을 수 있어요.</li>
+    </ul>
+  </div>
+
+  <div class="uses">
+    <div class="u-title">이런 자리에서 씁니다</div>
+    <div class="u-row">
+      <span>🏛️ 구청·주민센터 <b>부서 식대</b></span>
+      <span>🏥 공단·복지관·학교 <b>직원 식대</b></span>
+      <span>🏢 회사 <b>단체 선금</b></span>
+      <span>🙍 단골 손님 <b>개인 선불</b></span>
+    </div>
+    <div class="u-note">계산대에 <b>쓰지 않는 폰이나 태블릿을 한 대 놓아 두면</b> 손님이 직접 잔액을 확인하고 서명까지 마칠 수 있어요.</div>
+  </div>
+
+  <div class="start">
+    <div class="qr" aria-label="app.bapjangbu.com QR"><svg xmlns='http://www.w3.org/2000/svg' viewBox='-2 -2 29 29' shape-rendering='crispEdges'><rect x='-2' y='-2' width='29' height='29' fill='#fff'/><path d='M0,0h1v1h-1zM1,0h1v1h-1zM2,0h1v1h-1zM3,0h1v1h-1zM4,0h1v1h-1zM5,0h1v1h-1zM6,0h1v1h-1zM8,0h1v1h-1zM9,0h1v1h-1zM14,0h1v1h-1zM18,0h1v1h-1zM19,0h1v1h-1zM20,0h1v1h-1zM21,0h1v1h-1zM22,0h1v1h-1zM23,0h1v1h-1zM24,0h1v1h-1zM0,1h1v1h-1zM6,1h1v1h-1zM8,1h1v1h-1zM9,1h1v1h-1zM11,1h1v1h-1zM16,1h1v1h-1zM18,1h1v1h-1zM24,1h1v1h-1zM0,2h1v1h-1zM2,2h1v1h-1zM3,2h1v1h-1zM4,2h1v1h-1zM6,2h1v1h-1zM8,2h1v1h-1zM9,2h1v1h-1zM10,2h1v1h-1zM12,2h1v1h-1zM13,2h1v1h-1zM15,2h1v1h-1zM16,2h1v1h-1zM18,2h1v1h-1zM20,2h1v1h-1zM21,2h1v1h-1zM22,2h1v1h-1zM24,2h1v1h-1zM0,3h1v1h-1zM2,3h1v1h-1zM3,3h1v1h-1zM4,3h1v1h-1zM6,3h1v1h-1zM9,3h1v1h-1zM10,3h1v1h-1zM11,3h1v1h-1zM12,3h1v1h-1zM13,3h1v1h-1zM16,3h1v1h-1zM18,3h1v1h-1zM20,3h1v1h-1zM21,3h1v1h-1zM22,3h1v1h-1zM24,3h1v1h-1zM0,4h1v1h-1zM2,4h1v1h-1zM3,4h1v1h-1zM4,4h1v1h-1zM6,4h1v1h-1zM8,4h1v1h-1zM9,4h1v1h-1zM10,4h1v1h-1zM12,4h1v1h-1zM14,4h1v1h-1zM16,4h1v1h-1zM18,4h1v1h-1zM20,4h1v1h-1zM21,4h1v1h-1zM22,4h1v1h-1zM24,4h1v1h-1zM0,5h1v1h-1zM6,5h1v1h-1zM9,5h1v1h-1zM11,5h1v1h-1zM12,5h1v1h-1zM13,5h1v1h-1zM14,5h1v1h-1zM16,5h1v1h-1zM18,5h1v1h-1zM24,5h1v1h-1zM0,6h1v1h-1zM1,6h1v1h-1zM2,6h1v1h-1zM3,6h1v1h-1zM4,6h1v1h-1zM5,6h1v1h-1zM6,6h1v1h-1zM8,6h1v1h-1zM10,6h1v1h-1zM12,6h1v1h-1zM14,6h1v1h-1zM16,6h1v1h-1zM18,6h1v1h-1zM19,6h1v1h-1zM20,6h1v1h-1zM21,6h1v1h-1zM22,6h1v1h-1zM23,6h1v1h-1zM24,6h1v1h-1zM9,7h1v1h-1zM13,7h1v1h-1zM15,7h1v1h-1zM0,8h1v1h-1zM3,8h1v1h-1zM4,8h1v1h-1zM5,8h1v1h-1zM6,8h1v1h-1zM7,8h1v1h-1zM8,8h1v1h-1zM10,8h1v1h-1zM12,8h1v1h-1zM14,8h1v1h-1zM16,8h1v1h-1zM17,8h1v1h-1zM20,8h1v1h-1zM22,8h1v1h-1zM23,8h1v1h-1zM24,8h1v1h-1zM4,9h1v1h-1zM8,9h1v1h-1zM11,9h1v1h-1zM12,9h1v1h-1zM14,9h1v1h-1zM15,9h1v1h-1zM17,9h1v1h-1zM19,9h1v1h-1zM20,9h1v1h-1zM21,9h1v1h-1zM22,9h1v1h-1zM23,9h1v1h-1zM5,10h1v1h-1zM6,10h1v1h-1zM7,10h1v1h-1zM11,10h1v1h-1zM12,10h1v1h-1zM13,10h1v1h-1zM14,10h1v1h-1zM15,10h1v1h-1zM17,10h1v1h-1zM18,10h1v1h-1zM19,10h1v1h-1zM20,10h1v1h-1zM21,10h1v1h-1zM24,10h1v1h-1zM0,11h1v1h-1zM1,11h1v1h-1zM3,11h1v1h-1zM9,11h1v1h-1zM10,11h1v1h-1zM12,11h1v1h-1zM16,11h1v1h-1zM17,11h1v1h-1zM18,11h1v1h-1zM21,11h1v1h-1zM22,11h1v1h-1zM23,11h1v1h-1zM24,11h1v1h-1zM1,12h1v1h-1zM2,12h1v1h-1zM4,12h1v1h-1zM6,12h1v1h-1zM7,12h1v1h-1zM8,12h1v1h-1zM10,12h1v1h-1zM12,12h1v1h-1zM15,12h1v1h-1zM18,12h1v1h-1zM19,12h1v1h-1zM24,12h1v1h-1zM0,13h1v1h-1zM2,13h1v1h-1zM7,13h1v1h-1zM8,13h1v1h-1zM10,13h1v1h-1zM12,13h1v1h-1zM13,13h1v1h-1zM15,13h1v1h-1zM16,13h1v1h-1zM17,13h1v1h-1zM20,13h1v1h-1zM23,13h1v1h-1zM0,14h1v1h-1zM1,14h1v1h-1zM2,14h1v1h-1zM5,14h1v1h-1zM6,14h1v1h-1zM8,14h1v1h-1zM9,14h1v1h-1zM13,14h1v1h-1zM14,14h1v1h-1zM15,14h1v1h-1zM18,14h1v1h-1zM20,14h1v1h-1zM21,14h1v1h-1zM22,14h1v1h-1zM23,14h1v1h-1zM24,14h1v1h-1zM0,15h1v1h-1zM2,15h1v1h-1zM7,15h1v1h-1zM8,15h1v1h-1zM11,15h1v1h-1zM16,15h1v1h-1zM18,15h1v1h-1zM19,15h1v1h-1zM21,15h1v1h-1zM22,15h1v1h-1zM24,15h1v1h-1zM0,16h1v1h-1zM3,16h1v1h-1zM5,16h1v1h-1zM6,16h1v1h-1zM7,16h1v1h-1zM8,16h1v1h-1zM9,16h1v1h-1zM12,16h1v1h-1zM13,16h1v1h-1zM14,16h1v1h-1zM15,16h1v1h-1zM16,16h1v1h-1zM17,16h1v1h-1zM18,16h1v1h-1zM19,16h1v1h-1zM20,16h1v1h-1zM22,16h1v1h-1zM23,16h1v1h-1zM8,17h1v1h-1zM10,17h1v1h-1zM12,17h1v1h-1zM13,17h1v1h-1zM16,17h1v1h-1zM20,17h1v1h-1zM22,17h1v1h-1zM23,17h1v1h-1zM0,18h1v1h-1zM1,18h1v1h-1zM2,18h1v1h-1zM3,18h1v1h-1zM4,18h1v1h-1zM5,18h1v1h-1zM6,18h1v1h-1zM8,18h1v1h-1zM9,18h1v1h-1zM10,18h1v1h-1zM11,18h1v1h-1zM16,18h1v1h-1zM18,18h1v1h-1zM20,18h1v1h-1zM24,18h1v1h-1zM0,19h1v1h-1zM6,19h1v1h-1zM8,19h1v1h-1zM13,19h1v1h-1zM14,19h1v1h-1zM15,19h1v1h-1zM16,19h1v1h-1zM20,19h1v1h-1zM0,20h1v1h-1zM2,20h1v1h-1zM3,20h1v1h-1zM4,20h1v1h-1zM6,20h1v1h-1zM8,20h1v1h-1zM11,20h1v1h-1zM12,20h1v1h-1zM14,20h1v1h-1zM15,20h1v1h-1zM16,20h1v1h-1zM17,20h1v1h-1zM18,20h1v1h-1zM19,20h1v1h-1zM20,20h1v1h-1zM0,21h1v1h-1zM2,21h1v1h-1zM3,21h1v1h-1zM4,21h1v1h-1zM6,21h1v1h-1zM8,21h1v1h-1zM9,21h1v1h-1zM10,21h1v1h-1zM11,21h1v1h-1zM14,21h1v1h-1zM18,21h1v1h-1zM23,21h1v1h-1zM24,21h1v1h-1zM0,22h1v1h-1zM2,22h1v1h-1zM3,22h1v1h-1zM4,22h1v1h-1zM6,22h1v1h-1zM9,22h1v1h-1zM11,22h1v1h-1zM13,22h1v1h-1zM14,22h1v1h-1zM15,22h1v1h-1zM17,22h1v1h-1zM20,22h1v1h-1zM21,22h1v1h-1zM22,22h1v1h-1zM23,22h1v1h-1zM24,22h1v1h-1zM0,23h1v1h-1zM6,23h1v1h-1zM9,23h1v1h-1zM10,23h1v1h-1zM14,23h1v1h-1zM19,23h1v1h-1zM20,23h1v1h-1zM22,23h1v1h-1zM23,23h1v1h-1zM24,23h1v1h-1zM0,24h1v1h-1zM1,24h1v1h-1zM2,24h1v1h-1zM3,24h1v1h-1zM4,24h1v1h-1zM5,24h1v1h-1zM6,24h1v1h-1zM8,24h1v1h-1zM12,24h1v1h-1zM16,24h1v1h-1zM17,24h1v1h-1zM21,24h1v1h-1zM24,24h1v1h-1z' fill='#12233a'/></svg></div>
+    <div class="go">
+      <h3>지금 폰으로 열어 보세요</h3>
+      <div class="addr">app.bapjangbu.com</div>
+      <p>QR을 카메라로 비추거나 주소를 입력하면 바로 시작됩니다. 앱스토어에 갈 필요 없어요.<br>
+         소개와 사용 매뉴얼은 <b>bapjangbu.com</b>에서 볼 수 있어요.</p>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>밥장부(선입금대장) · 문의 <b>contact@bapjangbu.com</b></span>
+    <span>운영자는 자금을 받거나 보관하지 않으며, 선금 기록은 등록된 그 음식점에서만 사용됩니다.</span>
+  </div>
+
+</div>
+</body>
+</html>
