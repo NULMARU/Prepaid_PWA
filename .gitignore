@@ -10,6 +10,9 @@ docs/COMPLIANCE.md
 docs/COST_MODEL.md
 docs/STATUS.md
 docs/phase2-deploy.md
+
+# 공모·제안 문서 — 응모자 인적사항이 들어가고 대외 제출 전 자료라 public 리포에 두지 않는다
+docs/proposal/
 .wrangler/
 
 # Claude Code 로컬 개발 설정(프로젝트 무관)
