@@ -160,7 +160,7 @@ npx wrangler secret put RESEND_API_KEY
 3. 계약 변경이 있으면 §2 순서를 따른다.
 4. `git push` → Actions 완료 대기.
 5. §3의 콘텐츠 문자열로 **라이브 확인**.
-6. `CLAUDE.md`의 「현재 상태」·「완료」 절에 변경 내역을 기록한다(이 리포의 실질적 릴리스 노트다 — `CHANGELOG.md`는 beta.8에서 멈춰 있다, [10-code-review.md](10-code-review.md) 참조).
+6. `CLAUDE.md`의 「현재 상태」·「완료」 절에 상세 내역을 기록하고, **`CHANGELOG.md`에 해당 버전 항목을 추가한다**(릴리스 단위 요약 — 배경·설계 판단은 `CLAUDE.md`, 요약은 `CHANGELOG.md`).
 
 ---
 

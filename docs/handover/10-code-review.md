@@ -6,7 +6,7 @@
 
 | # | 항목 | 위치 | 위험도 | 조치 |
 |---|---|---|---|---|
-| R1 | `CHANGELOG.md`가 beta.8에서 멈춤 (18개 버전 누락) | `CHANGELOG.md` | 높음 | 지금 |
+| R1 | `CHANGELOG.md`가 beta.8에서 멈춤 | `CHANGELOG.md` | 높음 | 지금(해소됨) |
 | R2 | 배포 문서가 `.gitignore`로 리포 밖 | `docs/phase2-deploy.md` | 높음 | 지금(해소됨) |
 | R3 | `README.md`가 3서피스 구조를 반영하지 않음 | `README.md` | 높음 | 지금(부분 해소) |
 | R4 | `docs/department-data-update.md`가 폐기된 방식을 설명 | `docs/` | 중 | 지금 |
@@ -34,15 +34,15 @@
 
 ## 상세
 
-### R1 — `CHANGELOG.md`가 `1.0.0-beta.8`(2026-07-01)에서 멈춰 있다 · 높음 · **지금**
-현재 앱은 `1.0.0-beta.27`대이고 계속 올라간다. 그 사이의 모든 변경(용어 대개편, 소속 필드, 홈 그룹핑, 손님 셀프 조회, B단계 요청, district, 온보딩 재편…)이 `CHANGELOG.md`에 없고 **`CLAUDE.md`의 「완료」 절**에만 있다.
-- **왜 문제인가**: 제3자 개발사는 관례상 `CHANGELOG.md`를 먼저 본다. 거기만 보면 **한 달 반 전 상태를 현재로 오인**한다.
-- **권장**: `CHANGELOG.md` 최상단에 "beta.9 이후 변경 이력은 `CLAUDE.md`의 「완료」 절에 기록한다"는 한 줄을 넣거나, 아예 CLAUDE.md 내용을 역순으로 옮긴다. **둘 중 하나만 진실의 원본이어야 한다.**
+### R1 — `CHANGELOG.md`가 `1.0.0-beta.8`(2026-07-01)에서 멈춰 있었다 · 높음 · **지금(2026-08-25 해소)**
+제3자 개발사는 관례상 `CHANGELOG.md`를 먼저 본다. 거기만 보면 **두 달 전 상태를 현재로 오인**한다.
+- **해소**: `CHANGELOG.md`에 `beta.9`~`beta.45` 항목을 채웠다(결번 `beta.11·22·24`와, 별도 커밋 없이 beta.45 커밋에 실린 `beta.44`도 명시).
+- **역할 분담 확정**: `CHANGELOG.md` = 릴리스 단위 요약(외부용), `CLAUDE.md`의 「완료」 절 = 배경·설계 판단·하니스 계약까지 담은 상세 기록(내부용). 릴리스 때 **둘 다** 갱신한다([07-deploy-runbook.md](07-deploy-runbook.md) §배포 후 6번).
 
 ### R2 — 배포 절차 문서가 리포에 없다 · 높음 · **지금(이 작업으로 해소)**
 `docs/phase2-deploy.md`는 `.gitignore`에 등재되어 있다. `CHANGELOG.md`가 이 파일을 참조하지만 **클론한 사람에게는 존재하지 않는다**(끊어진 참조). 같은 이유로 `docs/STATUS.md`·`docs/COMPLIANCE.md`·`docs/BUSINESS_PLAN.md`·`docs/COST_MODEL.md`도 리포 밖이다.
 - **해소**: [07-deploy-runbook.md](07-deploy-runbook.md)가 배포 절차의 리포 내 원본이 되었다.
-- **남은 조치**: `CHANGELOG.md`의 `docs/phase2-deploy.md` 참조를 정리할 것. 그리고 **로컬 전용 문서에 의존하는 새 참조를 만들지 말 것.**
+- **남은 조치**: 없음 — `CHANGELOG.md`의 `docs/phase2-deploy.md` 참조는 07-deploy-runbook.md로 대체했다(2026-08-25). 앞으로도 **로컬 전용 문서에 의존하는 새 참조를 만들지 말 것.**
 - 참고: 로컬 `docs/STATUS.md`는 내용도 낡았다(예: `ALLOW_ORIGIN=*`, "기관 이메일은 형식만 확인" — 둘 다 현재와 다르다). 리포에 안 나가므로 이관 영향은 없으나, 이관 시 넘길 문서로 착각하지 말 것.
 
 ### R3 — 루트 `README.md`가 음식점 앱 단독 시절 구조 · 높음 · **지금(부분 해소)**
