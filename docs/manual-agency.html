@@ -120,7 +120,7 @@ footer{color:var(--muted);font-size:12.5px;margin-top:36px;text-align:center}
 <div class="callout">※ <b>이름이 같은 음식점은 함께 선택할 수 없습니다.</b> 동명 음식점이 목록에 있으면 명단의 <code>음식점명</code>으로 구분할 수 없기 때문에, 한 곳씩 따로 선택해 전송해 주십시오.</div>
 <div class="tip"><span class="field">우리 부서(과)</span> 칸에는 담당자 본인의 부서 이름을 적어 두십시오(예: <code>총무과</code>). <b>열쇠 지문 확인 기록이 부서 단위로 저장</b>되어, 같은 부서에서는 같은 가게를 다시 확인하지 않아도 됩니다(<a href="#keycheck">2-1단계</a> 참고).</div>
 <div class="tip">여기서 고른 <b>소속 기관 이름</b>이 명단의 <code>소속</code> 칸을 비워 둔 행에 자동으로 들어갑니다. 소속 기관을 선택하지 않으면 3단계(명단 만들기)로 넘어갈 수 없습니다.</div>
-<div class="callout">※ <b>앱을 설치·등록한 음식점만 목록에 나타납니다.</b> 원하는 음식점이 보이지 않으면 <span class="btn-secondary">목록에 없나요? 이름으로 검색</span>을 펼쳐 이름으로 찾을 수 있습니다. <b>이름만으로 나오지 않을 때는 그 음식점의 우편번호 5자리를 함께 넣어 검색해 주십시오</b>(공공데이터 쪽 사정으로 이름만으로는 찾지 못하는 기간이 있습니다). 그래도 없으면 해당 음식점에 앱 설치·(재)등록을 안내해 주십시오. (음식점용 안내문: <a href="manual-restaurant.html">manual-restaurant.html</a>)</div>
+<div class="callout">※ <b>앱을 설치·등록한 음식점만 목록에 나타납니다.</b> 원하는 음식점이 보이지 않으면 <span class="btn-secondary">음식점 등록명단에 없는 경우 이름으로 한번 더 검색해보세요</span>를 펼쳐 이름으로 한 번 더 검색해 보십시오(이름만으로 나오지 않으면 우편번호 5자리를 함께 넣을 수 있습니다). 그래도 없으면 해당 음식점에 앱 설치·(재)등록을 안내해 주십시오. (음식점용 안내문: <a href="manual-restaurant.html">manual-restaurant.html</a>)</div>
 <div class="tip"><b>등록되지 않은 음식점이 명단에 섞여 있어도 나머지는 그대로 보낼 수 있습니다.</b> 그 음식점 행은 <b>“이번에 보내지 않음”</b>으로 표시되어 전달 대상에서 빠지고, <a href="#step4">4단계</a>에서 <b>가게명·인원·금액이 담긴 제외 목록</b>과 함께 한 번 확인(체크)하면 전송이 진행됩니다. 자세한 절차는 <a href="#skip">「이번에 보내지 않는 음식점」</a>을 참고하십시오.</div>
 
 <h2 id="keycheck"><span class="num">4</span>2-1단계 가게 열쇠 지문 확인</h2>
@@ -145,13 +145,13 @@ footer{color:var(--muted);font-size:12.5px;margin-top:36px;text-align:center}
 </ul>
 
 <h2 id="step3"><span class="num">5</span>3단계 명단 만들기</h2>
-<div class="step"><div class="step-num">1</div><div class="step-body"><span class="btn-secondary">CSV 양식 다운로드</span>를 눌러 양식을 내려받습니다.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">엑셀에서 다음 항목(순서 고정)을 작성합니다: <code>음식점명, 소속, 부서명, 직원명, 선금금액, 입금자명, 결제구분</code><br><span class="field" style="border-style:solid">소속·입금자명·결제구분은 선택 항목입니다</span> — <b>꼭 채워야 하는 칸은 음식점명·부서명·직원명·선금금액 넷뿐</b>입니다.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body"><b>반드시</b> <span class="btn-secondary">CSV 양식 다운로드</span>를 눌러 양식 파일을 내려받아 <b>그 파일에</b> 작성합니다. 양식 안의 <code>예시)</code> 행은 지우고 실제 명단을 적습니다.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">엑셀에서 다음 항목(순서 고정)을 작성합니다: <code>음식점명, 소속, 부서명, 직원명, 선금금액, 입금자명, 결제구분</code><br><b>필수 입력항목은 음식점명·소속·부서명·직원명·선금금액</b>이며, 입금자명·결제구분은 선택 항목입니다.</div></div>
 <table>
 <thead><tr><th>항목</th><th>필수</th><th>설명</th></tr></thead>
 <tbody>
 <tr><td><code>음식점명</code></td><td>필수</td><td>2단계에서 선택한 음식점 이름과 <b>글자까지 똑같이</b> 적으십시오(한 글자만 달라도 다른 가게로 봅니다).</td></tr>
-<tr><td><code>소속</code></td><td>선택</td><td>비워 두면 2단계에서 고른 소속 기관이 자동으로 들어갑니다.</td></tr>
+<tr><td><code>소속</code></td><td>필수</td><td>공공기관명·회사명을 적으십시오. 비워 두면 2단계에서 고른 소속 기관이 자동으로 들어갑니다(기존 파일도 그대로 인식).</td></tr>
 <tr><td><code>부서명</code></td><td>필수</td><td>팀 단위로 나눠 보낼 때는 팀까지 적으십시오(예: <code>홍보과 1팀</code>).</td></tr>
 <tr><td><code>직원명</code></td><td>필수</td><td>—</td></tr>
 <tr><td><code>선금금액</code></td><td>필수</td><td>숫자만(예: <code>9000</code> 또는 <code>9,000</code>).</td></tr>
@@ -197,7 +197,7 @@ footer{color:var(--muted);font-size:12.5px;margin-top:36px;text-align:center}
 <ul class="card-list">
 <li><b>“혹시 「○○식당」인가요?”</b> — 이름이 비슷한 가게가 있으면 후보를 알려 줍니다. 음식점명은 <b>한 글자만 달라도 다른 가게</b>로 보기 때문에, 오타 때문에 조용히 빠지는 일을 막기 위한 안내입니다. <b>이름을 대신 고쳐 주지는 않습니다</b>(잘못 고치면 곧 오배송이 되므로) — 맞다면 <b>CSV의 음식점명을 그 이름과 똑같이 고쳐</b> 다시 올려 주십시오.</li>
 <li><b>“아직 밥장부에 등록되지 않은 음식점입니다”</b> — 사장님께 앱 설치·가게 등록을 안내해 주십시오.</li>
-<li><b>“등록돼 있지만 우리 기관 관할 목록에는 없습니다”</b> — 2단계의 <span class="btn-secondary">목록에 없나요? 이름으로 검색</span>에서 찾아 선택하면 이번에 함께 보낼 수 있습니다.</li>
+<li><b>“등록돼 있지만 우리 기관 관할 목록에는 없습니다”</b> — 2단계의 <span class="btn-secondary">음식점 등록명단에 없는 경우 이름으로 한번 더 검색해보세요</span>에서 찾아 선택하면 이번에 함께 보낼 수 있습니다.</li>
 </ul>
 <div class="callout">※ <b>선택했지만 이번 명단(CSV)에 없는 음식점</b>도 같은 카드에 함께 표시됩니다. 그 가게로는 아무것도 전송되지 않으며, 3단계의 <span class="btn-secondary">CSV에 없는 N곳 선택 해제</span> 버튼으로 선택에서 한 번에 뺄 수 있습니다.</div>
 <div class="tip">제외 목록은 <b>전송 완료 화면과 전송 로그에도 그대로 남습니다.</b> 화면을 캡처해 두시면 “이 음식점 몫은 이번에 전달하지 않았다”는 <b>기관 내부 증빙</b>으로 쓰실 수 있습니다.</div>

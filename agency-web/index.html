@@ -142,15 +142,13 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <button type="button" id="selAllBtn" style="min-height:34px;font-size:13px;padding:0 10px">목록 전체 선택</button>
 <button type="button" id="selNoneBtn" style="min-height:34px;font-size:13px;padding:0 10px">선택 전체 해제</button>
 <span class="meta" id="selCount">0곳 선택됨</span>
-<span class="meta" style="flex-basis:100%">전체 선택 후 CSV에 있는 가게만 남기려면, 3단계에 나오는 <b>[CSV에 없는 N곳 선택 해제]</b> 버튼을 쓰세요.</span>
 </div>
 <div id="jurisList" style="margin-top:8px"></div>
 </div>
 
 <details id="nameSearch" style="margin-top:14px">
-<summary style="cursor:pointer;font-weight:600;color:var(--primary)">목록에 없나요? 이름으로 검색</summary>
+<summary style="cursor:pointer;font-weight:600;color:var(--primary)">음식점 등록명단에 없는 경우 이름으로 한번 더 검색해보세요</summary>
 <div style="margin-top:10px">
-<div class="step-help">음식점 이름으로 직접 검색합니다. 공공데이터 사정으로 <b>이름만으로는 찾지 못할 수 있으니</b>, 그럴 때는 음식점의 <b>우편번호 5자리</b>를 함께 넣어 주세요. 결과가 많으면 지역(구·동)으로 좁힐 수 있습니다. 아직 등록되지 않은 음식점은 검색 결과에 나타나지 않습니다.</div>
 <label for="q" class="sr-only">음식점명 검색</label>
 <label for="zip" class="sr-only">우편번호 5자리(선택)</label>
 <label for="region" class="sr-only">지역(선택)</label>
@@ -172,12 +170,9 @@ tr.sub td{background:#eef2f7;font-weight:700}
 
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
-<div class="step-help">아래에 직원명·선금 금액이 담긴 명단 CSV(엑셀 저장 파일)를 올려 주세요. 엑셀에서 그냥 'CSV로 저장'한 파일을 그대로 올리시면 됩니다.</div>
-<div class="meta">💡 <b>음식점이 여러 곳이어도 파일은 하나</b>면 됩니다 — 첫 칸(음식점명)에 가게 이름을 적으면 가게별로 알아서 나뉘어 전달돼요. 빠뜨린 명단이 있으면 파일을 하나 더 올려 <b>기존 명단에 추가</b>할 수도 있어요.</div>
-<div class="meta" style="margin-top:6px">💡 <b>결제자·입금자명은 선택 항목</b>입니다. <b>계좌이체로 보내실 때</b> 통장에 찍히는 이름을 적어 주세요(예: “보건의료과”). <b>카드결제면 비워 두셔도 됩니다.</b></div>
-<div class="meta" style="margin-top:6px">💡 <b>결제구분</b>(선택) 칸에는 <b>카드</b> 또는 <b>계좌이체</b>를 적을 수 있습니다. 비워 두셔도 되고, 적어 두면 사장님이 결제 내역과 명단을 맞춰 볼 때 도움이 됩니다.</div>
-<div class="meta" style="margin-top:6px">💡 <b>결제는 음식점(가게)별로 따로 이뤄집니다.</b> 결제 단위를 명단 단위와 맞추시면 사장님이 한 건씩 대조하기 쉬워 승인이 빨라집니다(필수는 아닙니다).</div>
-<button id="csvTemplateBtn" type="button" style="margin-top:8px">CSV 양식 다운로드</button>
+<div class="step-help"><b>반드시 아래 [CSV 양식 다운로드]로 받은 양식 파일에 작성해 주세요.</b><br>양식 안의 '예시)' 행은 지우고 실제 명단을 적으면 됩니다.</div>
+<div class="meta">필수 입력항목은 <b>음식점명, 소속, 부서명, 직원명, 선금금액</b>입니다.</div>
+<button id="csvTemplateBtn" type="button" class="btn-primary" style="margin-top:8px">CSV 양식 다운로드</button>
 <label for="csv" class="sr-only">CSV 파일 선택</label>
 <input type="file" id="csv" accept=".csv" style="padding-top:8px">
 <div id="csvResult"></div>
@@ -1083,10 +1078,11 @@ $('csvTemplateBtn').addEventListener('click',()=>{
   // 선택 항목인 '결제구분'은 비워 둔다(카드/계좌이체 중 실제 결제 방식을 적는 칸).
   // 예시가 음식점 1곳 1행뿐이면 "가게마다 파일을 따로 만든다"로 오해한다(실사용 보고) —
   // 음식점 2곳·3행을 담아 '여러 가게 = 한 파일'이 양식 자체에서 드러나게 한다.
+  // CSV는 서식(이탤릭 등)이 불가능하므로 각 예시 행 첫 칸에 '예시)'를 붙여 예시임을 밝힌다(사용자 지시).
   const examples=[
-    ['광진맛집','광진구청','홍보과','홍길동','27000','김서무',''],
-    ['광진맛집','광진구청','홍보과','김철수','27000','김서무',''],
-    ['동네국밥','광진구청','재무과','이영희','36000','재무과','']
+    ['예시)광진맛집','광진구청','홍보과','홍길동','27000','김서무',''],
+    ['예시)광진맛집','광진구청','홍보과','김철수','27000','김서무',''],
+    ['예시)동네국밥','광진구청','재무과','이영희','36000','재무과','']
   ];
   const csv=PAY_COLS.join(',')+'\r\n'+examples.map(r=>r.join(',')).join('\r\n')+'\r\n';
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
@@ -1336,7 +1332,7 @@ function skipReasonHtml(name){
   if(!p||p.state==='loading')html+='<div class="meta" style="font-size:12px">등록 여부 확인 중…</div>';
   else if(p.state==='registered')html+='<div class="meta" style="font-size:12px">이 이름의 음식점이 <b>밥장부에 등록돼 있지만 우리 기관 관할 목록에는 없습니다</b>'+
     (p.hits&&p.hits.length?' ('+p.hits.map(h=>esc(h.name)+(h.addr?' · '+esc(h.addr):'')).join(' / ')+')':'')+
-    ' — 2단계의 <b>[목록에 없나요? 이름으로 검색]</b>에서 찾아 선택하면 이번에 함께 보낼 수 있어요.</div>';
+    ' — 2단계의 <b>[음식점 등록명단에 없는 경우 이름으로 한번 더 검색해보세요]에서 찾아 선택하면 이번에 함께 보낼 수 있어요.</div>';
   else if(p.state==='unregistered')html+='<div class="meta" style="font-size:12px">아직 <b>밥장부에 등록되지 않은 음식점</b>입니다 — 사장님께 앱 설치·가게 등록을 안내해 주세요.</div>';
   return html;
 }
