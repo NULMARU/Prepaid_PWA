@@ -1003,7 +1003,9 @@ async function main() {
   //   Playwright는 **나중에 등록한 라우트가 이긴다** → 이 catch-all을 먼저 걸고 개별 목을 뒤에 건다.
   await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
   await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(storeSearchResults) }));
-  await context.route('**/api/inbox-count**', route => (inboxCountBody === null
+  await context.route('**/api/inbox-count**', route => (inboxCountBody === 'netfail'
+    ? route.abort('failed')
+    : inboxCountBody === null
     ? route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not found"}' })
     : route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(inboxCountBody) })));
   const dialogs = [];
@@ -2061,6 +2063,38 @@ async function main() {
     await assert(await count(page, '[data-a="dismiss-key-banner"]') === 1, 'home should nudge an un-backed-up key with a dismissible banner (B3)');
     const inboxPill = await page.locator('[data-a="relay-inbox"]').innerText();
     await assert(inboxPill.includes('📩') && inboxPill.includes('2건'), 'a 200 inbox-count should render the 📩 new-request chip on home');
+
+    // ── beta.46: 현장 결함 고정 — 사무실 와이파이에서 배지를 본 태블릿이 가게(오프라인)에서
+    //    다시 열렸을 때 배지가 사라져 보이던 문제. 계약 4개를 고정한다. ──
+    // (a) 성공한 조회값은 기기(meta.inboxCountCache)에 저장된다
+    await page.waitForTimeout(300);
+    {
+      const m46 = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+      await assert(m46.inboxCountCache === 2, `a successful inbox-count must persist the last-known badge to meta.inboxCountCache (got ${JSON.stringify(m46.inboxCountCache)})`);
+    }
+    // (b) 조회 실패(네트워크 오류) = 배지 유지 — 지우지 않는다
+    inboxCountBody = 'netfail';
+    await page.evaluate(() => window.__prepaidTestHooks.refreshInboxCount(0));
+    await page.waitForTimeout(400);
+    await assert((await page.locator('[data-a="relay-inbox"]').first().innerText()).includes('2건'), 'a failed inbox-count poll must keep the last-known badge (never clear it)');
+    // (c) 재시작 복원 — 조회가 계속 실패해도(가게 이동 시나리오) 마지막 확인값이 되살아난다
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await page.waitForTimeout(400);
+    await assert((await page.locator('[data-a="relay-inbox"]').first().innerText()).includes('2건'), 'after a restart with the server unreachable the badge must be restored from the device cache');
+    // (d) 오프라인 안내 — 등록 가게가 오프라인이면 명단 확인에 인터넷이 필요함을 홈에서 말한다
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await page.waitForTimeout(300);
+    {
+      const offTxt = await page.locator('.pill-row').innerText();
+      await assert(offTxt.includes('인터넷'), `while offline a registered store must be told roster checks need internet (got ${JSON.stringify(offTxt.slice(0, 120))})`);
+      await assert(offTxt.includes('2건'), 'the cached badge must stay visible even while offline');
+    }
+    await context.setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    inboxCountBody = { count: 2 };
+    await page.waitForTimeout(400);
     await page.locator('[data-a="dismiss-key-banner"]').click();
     await page.waitForTimeout(150);
     await assert(await count(page, '[data-a="dismiss-key-banner"]') === 0, 'dismissing the key-backup banner should hide it for this session');
