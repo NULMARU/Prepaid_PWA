@@ -47,6 +47,13 @@ tr.sub td{background:#eef2f7;font-weight:700}
 .stepper li.done::before{background:var(--ok);color:#fff;content:'✓'}
 .stepper li.cur{color:var(--primary);font-weight:700}
 .stepper li.cur::before{background:var(--primary);color:#fff}
+/* 단계 표시를 탭으로 쓴다 — 이미 지난 단계만 누를 수 있고(tapable),
+   지금 보고 있는 화면은 밑줄(viewing)로 따로 표시한다(현재 단계 cur와 다를 수 있다). */
+.stepper li{padding-bottom:7px}
+.stepper li.tapable{cursor:pointer}
+.stepper li.tapable:hover{color:var(--primary)}
+.stepper li[aria-disabled="true"]{opacity:.5}
+.stepper li.viewing::after{content:'';position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:26px;height:3px;border-radius:2px;background:var(--primary)}
 .step-help{font-size:12px;color:var(--muted);margin:0 0 10px}
 .mode-card{border:2px solid var(--line);border-radius:10px;padding:12px;cursor:pointer;background:#fff;position:relative}
 .mode-card:hover{border-color:#9fc4e0}
@@ -86,8 +93,7 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <h1>선입금대장 — 공공기관 담당자(서무) 업로드</h1>
 <button type="button" id="logoutBtn" class="hide" title="이 브라우저에 남은 인증을 폐기하고 1단계로 돌아갑니다">인증 해제</button>
 </div>
-<div class="meta">직원 명단(직원명·선금 금액)만 암호화해 음식점에 전달합니다(전화번호는 수집하지 않습니다). 서버는 암호화된 내용을 열어볼 수 없습니다.</div>
-<div class="meta" style="margin-top:4px"><b>이 웹은 암호화된 직원 명단만 전달합니다.</b> 이 웹에는 결제·정산 기능이 없고, <b>운영자는 자금을 받거나 보관하지 않습니다.</b> 결제는 기관과 음식점이 <b>앱 밖에서 직접(카드·계좌이체)</b> 진행합니다.</div>
+<div class="meta"><b>이 웹은 암호화된 직원 명단만 전달합니다.</b> 이 웹에는 결제·정산 기능이 없고, 결제는 기관과 음식점이 <b>직접(제로페이, 카드 등)</b> 해야 합니다.</div>
 <ol class="stepper" id="stepper">
 <li data-n="1" id="step-1">인증</li>
 <li data-n="2" id="step-2">소속 기관·음식점</li>
@@ -96,6 +102,7 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <li data-n="5" id="step-5">보내기</li>
 </ol>
 
+<div id="view-1" class="wizard-view">
 <div class="card hide" id="serverCard">
 <h2>0. 서버 주소</h2>
 <label for="server" class="sr-only">서버 주소</label>
@@ -122,6 +129,8 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <div class="meta" style="margin-top:6px">※ 무료로 운영되는 서비스라 <b>이용이 몰리는 날에는 인증번호 이메일 발송이 하루 한도에 걸릴 수 있습니다.</b> 그때는 잠시 후 다시 시도하시고, 계속 안 되면 다음 날 다시 시도해 주십시오.</div>
 </div>
 
+</div>
+<div id="view-2" class="wizard-view hide">
 <div class="card hide" id="searchCard">
 <h2>2단계 · 소속 기관과 음식점</h2>
 <div class="step-help">먼저 소속 기관을 고르면, 그 기관 관할로 등록된 음식점 목록이 자동으로 나타납니다. 보낼 음식점을 체크하세요.</div>
@@ -168,6 +177,8 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <div id="keycheckList"></div>
 </div>
 
+</div>
+<div id="view-3" class="wizard-view hide">
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
 <div class="step-help"><b>반드시 아래 [CSV 양식 다운로드]로 받은 양식 파일에 작성해 주세요.</b><br>양식 안의 '예시)' 행은 지우고 실제 명단을 적으면 됩니다.</div>
@@ -205,6 +216,7 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <div id="sendResult" style="margin-top:10px"></div>
 <div id="directPanel"></div>
 <div id="log" class="hide" style="margin-top:10px"></div>
+</div>
 </div>
 </div>
 
@@ -435,6 +447,7 @@ function doLogout(idle){
   $('log').textContent='';$('log').classList.add('hide');
   $('sendProgress').classList.add('hide');$('sendProgress').innerHTML='';
   ['searchCard','csvCard','keycheckCard','confirmCard','submitCard'].forEach(id=>$(id).classList.add('hide'));
+  stepMax=1;stepSeen=1;setView(1);   // 인증 폐기 → 1단계 화면으로 돌아가고 뒤 단계 탭을 다시 잠긴다.
   $('authStep1').classList.remove('hide');$('authStep2').classList.add('hide');
   $('logoutBtn').classList.add('hide');
   $('authMsg').innerHTML=idle
@@ -1592,13 +1605,43 @@ function computeStep(){
   if(!S.mode)return 4;
   return 5;
 }
-function updateStepper(){
-  const cur=computeStep();
+// ── 단계별 화면(위저드) ────────────────────────────────────────
+// 화면은 3개다: view-1(1단계 인증) · view-2(2단계 음식점 + 2-1단계 열쇠 지문) · view-3(3~5단계).
+//   viewNow — 지금 보고 있는 화면. computeStep()의 '현재 단계'와 다를 수 있다(탭으로 되돌아간 경우).
+//   stepMax — 여태 도달한 가장 높은 단계. 탭 개방 기준(아직 안 가본 단계는 잠금).
+//   stepSeen — 자동 전환 판정용 직전 단계.
+let viewNow=1,stepMax=1,stepSeen=1;
+function viewOfStep(s){return s<=1?1:(s===2?2:3)}
+function setView(n){
+  if(viewNow!==n){viewNow=n;try{window.scrollTo({top:0,behavior:'smooth'})}catch(e){window.scrollTo(0,0)}}
+  [1,2,3].forEach(i=>{const el=$('view-'+i);if(el)el.classList.toggle('hide',i!==n)});
+}
+function paintStepper(cur){
   for(let i=1;i<=5;i+=1){
     const el=$('step-'+i);if(!el)continue;
-    el.classList.remove('done','cur');
+    el.classList.remove('done','cur','tapable','viewing');
     if(i<cur)el.classList.add('done');else if(i===cur)el.classList.add('cur');
+    const reachable=i<=stepMax;
+    if(reachable)el.classList.add('tapable');
+    el.setAttribute('aria-disabled',reachable?'false':'true');
+    el.setAttribute('tabindex',reachable?'0':'-1');
+    if(reachable&&viewOfStep(i)===viewNow)el.classList.add('viewing');
   }
+}
+function updateStepper(){
+  const cur=computeStep();
+  if(cur>stepMax)stepMax=cur;
+  // 자동 전환은 단계가 **올라가는 순간에만** 건다(에지 트리거).
+  //   레벨 트리거로 만들면 담당자가 탭으로 2단계에 되돌아와도 조건이 이미 충족돼 있어
+  //   즉시 3단계로 다시 끌려가 **음식점을 더 고를 수 없는 덕송배기**가 된다.
+  if(cur>stepSeen){stepSeen=cur;setView(viewOfStep(cur))}
+  else if(cur<stepSeen)stepSeen=cur;
+  paintStepper(cur);
+}
+// 탭 이동 — 이미 도달한 단계만 열린다. 되돌아간 뒤 자동 전환이 다시 끌고 가지 않는 이유는 위 에지 트리거.
+function gotoStep(n){
+  if(!(n>=1&&n<=5)||n>stepMax)return;
+  setView(viewOfStep(n));paintStepper(computeStep());
 }
 function revalidate(){
   const ok=!!(S.authed&&S.valid&&S.rows&&S.restaurants.length);
@@ -2114,6 +2157,9 @@ async function prepareDirect(){
 // 홑따옴표(&#39;)까지 반드시 이스케이프한다 — 이 파일은 속성값을 홑따옴표로 감싸는 곳이 있고,
 // 앞으로 생길 수도 있다. 빠뜨리면 가게 이름 등 외부 문자열이 속성을 탈출할 수 있다.
 function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+// 단계 표시를 탭으로 — 마우스·터치와 키보드(Enter/Space) 둘 다 받는다.
+$('stepper').addEventListener('click',e=>{const li=e.target.closest('li');if(li)gotoStep(Number(li.getAttribute('data-n')))});
+$('stepper').addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const li=e.target.closest('li');if(!li)return;e.preventDefault();gotoStep(Number(li.getAttribute('data-n')))});
 updateStepper();
 renderServerWarning(); // 기본값과 다른 중계 서버 주소가 쓰이면 상단에 붉은 배너
 try{S.dept=localStorage.getItem(DEPT_LS_KEY)||''}catch(e){S.dept=''}
