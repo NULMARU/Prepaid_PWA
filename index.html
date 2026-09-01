@@ -526,7 +526,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.46',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.47',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -1373,10 +1373,11 @@ async function markBatchReceived(bh){if(!bh)return;const list=receivedBatchLog()
 // 명단에 실려 온 결제자·입금자명(담당자 웹 CSV '입금자명' 열, items[].payer — 선택 필드) 목록.
 //   카드결제면 비어 있는 것이 정상이다(전표에 개인 이름이 남지 않는 경우가 많다).
 function batchPayers(items){return [...new Set((items||[]).map(it=>str(it&&it.payer)).filter(Boolean))]}
-// 결제구분(담당자 웹 CSV '결제구분' 선택 열, items[].payMethod — 선택 필드). 값은 '카드'·'계좌이체'.
+// 결제구분(담당자 웹 CSV '결제구분' 선택 열, items[].payMethod — 선택 필드). 값은 '카드'·'계좌이체'·'제로페이'(beta.47).
+//   모르는 값은 ''로 떨괴 폴백 문구(확인처 병기)로 간다 — 구버전 앱에 새 값이 와도 안전하다.
 //   batch_hash canonical(name|dept|amount)에는 들어가지 않는다 — 없어도(구버전 명단) 안전해야 한다.
 //   한 명단 안에서 값이 섞여 있거나 비어 있으면 ''(=둘 다 병기)로 본다.
-function batchPayMethod(items){const set=new Set((items||[]).map(it=>str(it&&it.payMethod)));if(set.size!==1)return '';const v=[...set][0];return (v==='카드'||v==='계좌이체')?v:''}
+function batchPayMethod(items){const set=new Set((items||[]).map(it=>str(it&&it.payMethod)));if(set.size!==1)return '';const v=[...set][0];return (v==='카드'||v==='계좌이체'||v==='제로페이')?v:''}
 // 명단이 전송된 시각(사장님이 그 날짜 매출전표·통장 내역에서 결제 건을 찾을 수 있게 한다).
 //   서버 계약상 있을 수도, 없을 수도 있는 값이라 후보 키를 넓게 받고 초 단위도 ms로 맞춘다. 없으면 0.
 function batchSentAt(){for(const src of arguments){if(!src||typeof src!=='object')continue;for(const k of ['sent_at','created_at','submitted_at','createdAt','exported_at','exportedAt']){const n=num(src[k]);if(n>0)return n<1e11?n*1000:n}}return 0}
@@ -1385,7 +1386,7 @@ function batchSentAt(){for(const src of arguments){if(!src||typeof src!=='object
 function domainLine(domain){const d=str(domain);return `인증 도메인: ${d||'확인 불가(직접 전달 등)'}`}
 // 승인·직접 전달 공용 검토 확인창 본문. 사장님이 결제 내역과 대조할 것(금액·기관·결제자)을 맨 위 3줄에,
 //   그 아래 인증 도메인·전송 시각, 이름 단위 반영 내역(충전은 잔액 변화까지), 중복 경고, 확정 문장 순으로 놓는다.
-// 표현은 중립("결제(카드·계좌이체)")으로 통일한다 — 담당자는 명단 하나로 여러 가게에 보내지만 돈은
+// 표현은 중립("결제(제로페이, 카드 등)")으로 통일한다 — 담당자는 명단 하나로 여러 가게에 보내지만 돈은
 //   가게마다 따로 결제하며, 그 수단은 카드가 대부분이다. "통장 입금"만을 확인 수단으로 요구하면
 //   카드 정산금(합산·수수료 차감·며칠 뒤 입금) 때문에 사장님이 승인 근거를 영원히 못 찾는다.
 function batchReviewText(o){
@@ -1393,19 +1394,19 @@ const L=[];
 const pm=str(o.payMethod);
 L.push(`받으실 금액 ${money(o.total)} · ${o.count}명`);
 L.push(`기관·부서: ${o.label}${o.ym?` (${o.ym})`:''}${o.direct?' · 직접 전달':''}`);
-const payerHint=pm==='카드'?'(카드결제)':pm==='계좌이체'?'(계좌이체)':'(계좌이체 시)';
+const payerHint=pm==='카드'?'(카드결제)':pm==='계좌이체'?'(계좌이체)':pm==='제로페이'?'(제로페이)':'(계좌이체 시)';
 L.push(`결제자·입금자명: ${o.payers.length?o.payers.slice(0,3).join(', ')+(o.payers.length>3?` 외 ${o.payers.length-3}명`:''):'(명단에 없음 — 카드결제면 비어 있을 수 있어요)'} ${payerHint}`);
 L.push(domainLine(o.domain));
 L.push('기관명은 담당자가 직접 적는 값이라, 인증된 이메일 도메인과 함께 보고 판단하세요.');
 L.push(`명단 전송 시각: ${o.sentAt?dt(o.sentAt):'확인 불가'}`);
-if(pm)L.push(`결제 방식: ${pm==='카드'?'카드결제':'계좌이체'} (명단에 표기됨)`);
+if(pm)L.push(`결제 방식: ${pm==='카드'?'카드결제':pm==='제로페이'?'제로페이':'계좌이체'} (명단에 표기됨)`);
 const tops=o.plan.filter(p=>p.exist),news=o.plan.filter(p=>!p.exist);
 if(tops.length){L.push('');L.push(`이미 있는 직원 충전 ${tops.length}명 — 잔액에 더해져요`);tops.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.before)} → ${money(p.before+p.amt)}`));if(tops.length>8)L.push(`· 외 ${tops.length-8}명`)}
 if(news.length){L.push('');L.push(`새 직원 등록 ${news.length}명`);news.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.amt)}`));if(news.length>8)L.push(`· 외 ${news.length-8}명`)}
 if(o.dupAt){L.push('');L.push(`⚠️ 이 명단은 ${o.dupAt>1?dt(o.dupAt):'이전'}에 이미 장부에 올린 명단과 이름·금액까지 완전히 같아요.`);L.push('같은 결제 건을 두 번 올리는 실수일 수 있어요. 이 총액을 별도로 한 번 더 받으신 경우에만(카드 전표·입금 내역 확인) 계속하세요.')}
 L.push('');
 // 결제구분이 실려 오면 그 수단에 맞는 확인처만 안내하고, 없으면 둘 다 병기한다.
-const where=pm==='카드'?'(카드 매출전표·POS 정산 내역)':pm==='계좌이체'?'(통장 입금 내역)':'(카드결제면 매출전표·POS 정산 내역, 계좌이체면 통장 입금 내역)';
+const where=pm==='카드'?'(카드 매출전표·POS 정산 내역)':pm==='계좌이체'?'(통장 입금 내역)':pm==='제로페이'?'(제로페이 가맹점 앱 정산 내역 또는 통장 입금 내역)':'(카드결제면 매출전표·POS 정산 내역, 계좌이체·제로페이면 통장 입금 내역)';
 L.push(`위 금액 ${money(o.total)}을 실제로 받으셨는지 확인하셨으면 [확인]을 누르세요. ${where}`);
 // 출구 안내 — 아직 결제를 못 받았으면 취소가 정답이다(취소해도 서버 신청은 PENDING 그대로 남는다).
 L.push(o.direct?'아직 결제를 못 받으셨으면 [취소] — 받은 파일(또는 QR)로 나중에 다시 열 수 있어요.':'아직 결제를 못 받으셨으면 [취소] — 신청은 그대로 남아 나중에 다시 열 수 있어요(3일 이내).');
@@ -2037,7 +2038,7 @@ return '<div class="setup"><div class="setup-welcome">'
 +'<div>② 담당자(서무)가 <b>직원 명단</b>을 보내면 앱이 장부에 올려 드려요.</div>'
 +'<div>③ 손님이 밥을 먹으면 <b>서명 한 번</b>으로 잔액이 줄어요 — 종이 장부는 필요 없어요.</div>'
 +'</div>'
-+'<div class="setup-welcome-safe">이 앱은 돈을 받거나 보내지 않아요 — 선금 결제(카드·계좌이체)는 기관과 우리 가게가 앱 밖에서 직접 해요.</div>'
++'<div class="setup-welcome-safe">이 앱은 돈을 받거나 보내지 않아요 — 선금 결제(제로페이, 카드 등)는 기관과 우리 가게가 앱 밖에서 직접 해요.</div>'
 +'<div class="setup-welcome-free">완전 무료예요 · 광고도 없어요</div>'
 +'</div>'
 +'<button class="btn-primary" data-a="setup-welcome-start" style="width:100%;min-height:60px;font-size:18px;font-weight:800;margin-top:18px">시작하기</button>'
@@ -3160,7 +3161,7 @@ const shopExtra=[state.data.meta.shopAddr?`주소: ${esc(state.data.meta.shopAdd
 shopNaverUrl?`네이버 지도: <a href="${esc(shopNaverUrl)}" target="_blank" rel="noopener noreferrer">우리 가게 검색</a> <button class="small" data-a="copy-naver-link">링크 복사</button><br><span style="font-size:11px">공공기관 담당자나 직원에게 우리 가게 위치를 알려줄 때 쓰세요.</span>`:''].filter(Boolean).map(v=>`<div class="meta">${v}</div>`).join('');
 // ── 그룹 1(맨 위): 직원 선금대장 등록 = [자동 등록](공공기관 명단 받기) + [수동 등록](직접 입력) ──
 // 돈에 대한 오해를 막는 고정 문구 — 이 앱은 자금을 수수·보관하지 않는다(절대 불변식 1).
-const moneyNotice=`<div class="notice-money">선금(돈)은 앱이 아니라 <b>앱 밖에서 따로 결제(카드·계좌이체)</b>돼요. 앱이 받는 것은 암호화된 <b>직원 명단</b>뿐이에요.</div>`;
+const moneyNotice=`<div class="notice-money">선금(돈)은 앱이 아니라 <b>앱 밖에서 따로 결제(제로페이, 카드 등)</b>돼요. 앱이 받는 것은 암호화된 <b>직원 명단</b>뿐이에요.</div>`;
 const inboxN=num(state.inboxCount);
 const inboxBadge=(relayRegistered()&&inboxN>0)?`<span class="badge-count">${inboxN}</span>`:'';
 // 관할 지역(district) — 담당자 웹의 '관할 음식점' 목록은 이 값에만 의존한다. 비면 목록에 아예 뜨지 않는다.
@@ -3310,7 +3311,7 @@ ${webauthnCardHtml()}`)
 </div>`;
 // ── 그룹 4(맨 아래): 앱 정보·법적 안내 ──
 const infoGroup=foldCard('info','앱 정보',`v${APP_VERSION} · 저장 위치: 이 기기 · 약관·개인정보처리방침`,`<div class="stack"><div class="meta">저장 위치: 이 기기</div><div class="meta">마지막 백업: ${esc(state.data.meta.lastBackupAt?dt(state.data.meta.lastBackupAt):'없음')}</div><div class="meta">직원 수: ${d.active.length}명 (숨김 포함 ${d.employees.length}명)</div><div class="meta">거래 수: ${state.data.transactions.length}건</div><div class="meta">앱 버전: v${APP_VERSION}</div>
-<div class="meta" style="line-height:1.6">이 앱에는 결제·정산 기능이 없고, 운영자는 자금을 받거나 보관하지 않습니다. 선금 결제(카드·계좌이체)는 기관과 음식점이 앱 밖에서 직접 진행하며, 이 앱은 장부 기록 도구입니다. 선금 기록은 등록된 해당 음식점 1곳에서만 사용됩니다. 장부 데이터는 이 기기에 저장되며, 클라우드 백업은 암호화되어 서버도 내용을 볼 수 없습니다. 선입금의 발행·차감·잔액 관리의 주체와 책임은 각 음식점에 있습니다.</div>
+<div class="meta" style="line-height:1.6">이 앱에는 결제·정산 기능이 없고, 운영자는 자금을 받거나 보관하지 않습니다. 선금 결제(제로페이, 카드 등)는 기관과 음식점이 앱 밖에서 직접 진행하며, 이 앱은 장부 기록 도구입니다. 선금 기록은 등록된 해당 음식점 1곳에서만 사용됩니다. 장부 데이터는 이 기기에 저장되며, 클라우드 백업은 암호화되어 서버도 내용을 볼 수 없습니다. 선입금의 발행·차감·잔액 관리의 주체와 책임은 각 음식점에 있습니다.</div>
 <div class="meta">데이터 출처: 음식점 검색 — 행정안전부 LOCALDATA 공공데이터</div>
 <div class="meta" style="margin-top:8px">본 서비스는 무상으로 제공되며, 백업하지 않은 데이터의 복구와 서비스 중단·오류로 인한 손해를 보장하지 않습니다. 자세한 내용은 이용약관 제6조를 확인해 주세요.</div>
 <div class="meta" style="font-size:11px">관련 문서: <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> · <a href="https://app.bapjangbu.com/docs/terms.html" target="_blank" rel="noopener">이용약관</a></div>

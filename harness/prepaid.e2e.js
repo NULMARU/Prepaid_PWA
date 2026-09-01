@@ -246,8 +246,9 @@ async function runSearchOnboarding(browser, url, cors) {
     await assert(await count(page, '#setupStoreName') === 0, 'the welcome screen must come BEFORE step 1/3 (the store search form must not be on it)');
     await assert(await count(page, '.setup-step') === 0, 'the welcome screen must not carry a step number (1/3·2/3·3/3 numbering stays a 3-step count)');
     const welcomeText = await page.locator('.setup-welcome').innerText();
-    // beta.33: 결제 수단은 카드가 대부분이라 "통장 입금"으로 못 박지 않는다 — 중립 표현("결제(카드·계좌이체)")이어야 한다.
-    await assert(welcomeText.includes('돈을 받거나 보내지 않아요') && welcomeText.includes('선금 결제(카드·계좌이체)') && welcomeText.includes('앱 밖에서 직접'),
+    // beta.33: 결제 수단은 카드가 대부분이라 "통장 입금"으로 못 박지 않는다 — 중립 표현이어야 한다.
+    //   beta.47: 공공기관은 제로페이 결제가 많아 표현을 "결제(제로페이, 카드 등)"로 통일했다(사용자 지시).
+    await assert(welcomeText.includes('돈을 받거나 보내지 않아요') && welcomeText.includes('선금 결제(제로페이, 카드 등)') && welcomeText.includes('앱 밖에서 직접'),
       `the welcome screen must carry the "the app never handles money" reassurance in payment-neutral wording (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
     await assert(!/통장|은행 계좌/.test(welcomeText), `the welcome screen must not name the bank account as the only way money arrives (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
     await assert(/무료/.test(welcomeText), 'the welcome screen must say the service is free');
@@ -1275,7 +1276,7 @@ async function main() {
     await openSettingsCard(page, 'enroll-auto');
     const settingsText = await page.locator('.app').innerText();
     await assert(!/구청 선금|선금 받기|직원개별등록/.test(settingsText), 'the retired wording (구청 선금 / 선금 받기 / 직원개별등록) must be gone from settings');
-    await assert(settingsText.includes('앱 밖에서 따로 결제(카드·계좌이체)'), 'the auto-enrollment card must state that the money is paid outside the app (card or bank transfer), not through it');
+    await assert(settingsText.includes('앱 밖에서 따로 결제(제로페이, 카드 등)'), 'the auto-enrollment card must state that the money is paid outside the app (zeropay/card etc), not through it');
     // beta.45: 등록 전에는 열쇠 지문·열쇠 백업을 보여주지 않는다 — 담당자가 지문을 묻는 일도, 열쇠를
     //   잃어 곤란해지는 일도 등록한 뒤의 일이다. 등록 전 화면의 첫 버튼은 [우리 가게 등록] 하나여야 한다.
     await assert(await count(page, '#keyFp') === 0 && await count(page, '[data-a="export-key"]') === 0,
@@ -2153,8 +2154,8 @@ async function main() {
     await assert(dtReview.message.includes('인증 도메인: 확인 불가(직접 전달 등)'),
       `a direct transfer carries no authenticated domain, so the review must say 확인 불가 (got ${JSON.stringify(dtReview.message)})`);
     await assert(dtReview.message.includes('기관명은 담당자가 직접 적는 값이라'), 'the review must warn that the institution name is self-declared and must be read together with the authenticated domain');
-    // 결제구분(payMethod)이 없는 명단이므로 카드·계좌이체 확인처를 둘 다 안내해야 한다.
-    await assert(dtReview.message.includes('실제로 받으셨는지 확인하셨으면') && dtReview.message.includes('(카드결제면 매출전표·POS 정산 내역, 계좌이체면 통장 입금 내역)'),
+    // 결제구분(payMethod)이 없는 명단이므로 모든 수단의 확인처를 병기해야 한다.
+    await assert(dtReview.message.includes('실제로 받으셨는지 확인하셨으면') && dtReview.message.includes('(카드결제면 매출전표·POS 정산 내역, 계좌이체·제로페이면 통장 입금 내역)'),
       `without 결제구분 the confirm sentence must name both payment records (got ${JSON.stringify(dtReview.message)})`);
     await assert(!dtReview.message.includes('결제 방식:'), 'a roster without 결제구분 must not claim a payment method');
     // 아직 결제를 못 받은 사장님의 출구(취소)를 명시해야 한다 — 직접 전달은 받은 파일로 다시 열 수 있다.
@@ -2209,7 +2210,9 @@ async function main() {
     confirmAnswer = false;// 문구만 확인하고 전부 취소한다 — 장부는 그대로여야 한다.
     for (const c of [
       { pm: '카드', label: '카드결제', expect: '(카드 매출전표·POS 정산 내역)', forbid: '통장 입금 내역', name: '카드결제직원', amount: 11000 },
-      { pm: '계좌이체', label: '계좌이체', expect: '(통장 입금 내역)', forbid: '매출전표', name: '이체결제직원', amount: 12000 }
+      { pm: '계좌이체', label: '계좌이체', expect: '(통장 입금 내역)', forbid: '매출전표', name: '이체결제직원', amount: 12000 },
+      // beta.47: 공공기관 제로페이 결제. 돈은 가맹점 계좌로 들어오므로 통장 내역도 함께 안내한다.
+      { pm: '제로페이', label: '제로페이', expect: '(제로페이 가맹점 앱 정산 내역 또는 통장 입금 내역)', forbid: '매출전표', name: '제로페이직원', amount: 13000 }
     ]) {
       const json = await makePayMethodTransfer(c.pm, c.name, c.amount);
       const before = dialogs.length;
