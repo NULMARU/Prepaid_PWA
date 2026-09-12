@@ -198,7 +198,7 @@ tr.sub td{background:#eef2f7;font-weight:700}
 
 <div class="card hide" id="submitCard">
 <h2>5단계 · 보내기</h2>
-<div class="step-help">전송 방법을 고른 뒤, 제3자 제공 동의를 확인하면 안전하게 보내기가 시작됩니다.</div>
+<div class="step-help">전송 방법을 고른 뒤, 제3자 제공 동의를 확인하면 안전하게 보내기가 시작됩니다.<br>같은 명단을 다시 보내면 새 접수번호로 접수되고, 음식점 앱에는 ‘이미 올린 명단과 같다’는 경고가 떠요 — 별도로 결제한 경우에만 다시 보내세요.</div>
 <div class="meta" style="margin-bottom:8px">잘 모르겠으면 <b>바로 보내기</b>를 사용하세요.</div>
 <div class="row" id="modeCards" style="align-items:stretch">
 <div class="mode-card" data-mode="relay" tabindex="0" role="button" aria-pressed="false">
@@ -1482,8 +1482,8 @@ function validateAndRenderCsv(){
   const rowErr=rows.some(r=>r.err);
   S.rows=rows;
   // buildGroups()는 S.rows를 읽으므로 반드시 위 대입 뒤에 호출해야 한다.
-  // batch_hash 충돌(같은 음식점 안에서 명단 내용이 완전히 같은 두 그룹)은 서버에서 조용히
-  // dedupe되어 한 건이 사라지므로, 보내기 전에 여기서 확실한 오류로 막는다.
+  // batch_hash 충돌(같은 음식점 안에서 명단 내용이 완전히 같은 두 그룹)은 음식점 앱에서 서로
+  // 구분되지 않고(중복 경고로 겹쳐 보인다), 구서버에서는 한 건이 조용히 사라지므로 미리 막는다.
   if(!rowErr&&S.agency&&S.restaurants.length)collisionErrors().forEach(m=>errors.push(m));
   // 보낼 수 있는 행이 하나도 없으면(전 행이 '이번에 보내지 않음') 4·5단계로 넘어갈 이유가 없다.
   const sendable=rows.filter(r=>!r.skip&&!r.err).length;
@@ -1542,8 +1542,9 @@ function buildGroups(){
 // ── batch_hash 충돌 사전 차단 ──
 // batch_hash는 name|dept|amount만으로 계산된다(불변식 — org를 넣을 수 없다). 그래서 같은 음식점에
 // 같은 부서명으로 소속만 다른 두 그룹을 보내면서 명단 내용(이름·금액 집합)까지 완전히 같으면
-// 두 그룹의 batch_hash가 같아진다. 서버는 (restaurant_id, batch_hash) UNIQUE 멱등 처리를 하므로
-// 두 번째 그룹이 조용히 dedupe되어 "보냈는데 한 건이 없어지는" 사고가 된다. 그래서 전송 전에 막는다.
+// 두 그룹의 batch_hash가 같아진다. 접수번호(submission_id)가 그룹마다 다르니 서버에는 두 건이 남지만,
+// 음식점 앱에서는 두 건의 batch_hash가 같아 "이미 올린 명단과 같다"는 중복 경고로 겹쳐 보이고 사장님이
+// 어느 쪽이 어느 소속인지 구분할 수 없다(구서버에서는 아예 한 건이 조용히 사라진다). 그래서 전송 전에 막는다.
 const COLLISION_MSG='같은 음식점·같은 부서명에 소속만 다른 동일 명단은 함께 보낼 수 없어요 — 부서명을 구분해 주시거나(예: "총무과(A기관)"), 나눠서 보내주세요.';
 function collisionErrors(){
   const byKey=new Map();
@@ -1777,8 +1778,9 @@ function showConsent(){
 }
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 // 429(레이트리밋)·네트워크 오류·5xx는 지수 백오프로 최대 2회 재시도한다.
-// POST /api/submit 재시도가 안전한 이유: 서버는 동일 (restaurant_id, batch_hash) 재제출에
-// 기존 summary_id를 200으로 돌려주는 멱등 처리라 중복 명단이 쌓이지 않는다(PROTOCOL 계약).
+// POST /api/submit 재시도가 안전한 이유: 재시도는 같은 body를 그대로 다시 보내므로 접수번호
+// (submission_id)도 같고, 서버는 같은 접수번호를 만나면 새 건을 만들지 않고 기존 summary_id를
+// 200으로 돌려준다(PROTOCOL 계약) — 응답만 잃어버린 전송이 중복으로 쌓이지 않는다.
 // 429는 서버가 '분 단위 고정 창'으로 세므로 네트워크 오류보다 길게 기다려야 의미가 있다.
 const MAX_RETRY=2,BACKOFF_NET=[1000,2000],BACKOFF_429=[5000,15000];
 async function fetchRetry(url,opts,onRetry){
@@ -1847,6 +1849,19 @@ async function getPubKey(restaurant_id,cache,pace,onRetry){
 // 연락처 형식 재검증(서버 응답을 그대로 신뢰하지 않음) — kakao_link는 open.kakao.com 시작만, email은 단순 형식만 허용
 function isValidKakaoLink(v){return typeof v==='string'&&/^https:\/\/open\.kakao\.com\//.test(v)}
 function isValidEmail(v){return typeof v==='string'&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
+// 접수번호(submission_id)·직접 전달 파일 식별자(transfer_id)에 쓰는 UUID v4.
+// [보내기] 1회당 그룹마다 새로 만들고, [실패 재시도]는 앞 시도의 값을 그대로 다시 쓴다 — 서버는 같은
+// 접수번호를 만나면 "같은 전송의 재시도"로 보고 중복 접수를 만들지 않는다(값이 다르면 내용이 같아도 새 접수).
+// crypto.randomUUID는 보안 컨텍스트(https·localhost)에만 있고 구형 브라우저에는 없다 → getRandomValues 폴백.
+function uuid4(){
+  try{if(window.crypto&&typeof window.crypto.randomUUID==='function')return window.crypto.randomUUID()}catch(e){}
+  const b=window.crypto.getRandomValues(new Uint8Array(16));
+  b[6]=(b[6]&0x0f)|0x40;b[8]=(b[8]&0x3f)|0x80; // v4 · variant 10
+  let h='';for(let i=0;i<16;i++)h+=b[i].toString(16).padStart(2,'0');
+  return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);
+}
+// 서버 접수는 '음식점 장부 반영'도 '결제'도 아니다 — 세 가지를 한 줄에서 구분해 말한다.
+const SUBMIT_OK_MSG='✅ 서버 접수 — 음식점이 앱에서 승인하면 장부에 반영돼요 (결제는 별도)';
 // ── 5-A. 바로 보내기 (기존 /api/submit 경로) ──
 // 그룹(음식점×부서)별 결과를 보관해 결과표·재시도에 쓴다. 키는 restaurant_id|부서.
 let relayResults=new Map(),relayPubCache=new Map();
@@ -1857,17 +1872,21 @@ let sending=false;
 function groupKey(g){return g.restaurant_id+'|'+g.institution+'|'+g.department}
 // 로그·진행 표시 라벨: 소속이 2단계에서 고른 기관과 다를 때만 덧붙인다(기존 표시 최소 변경).
 function orgTagOf(g){return (g.institution&&(!S.agency||g.institution!==S.agency.name))?' ['+g.institution+']':''}
-// 서버 dedupe 응답(S2): 동일 (restaurant_id, batch_hash)가 이미 있으면 서버는 새 건을 만들지 않고
-// {deduped:true,status}를 준다. 예전에는 이것도 "✅ 보냄"으로 보여, 음식점이 이미 거절한 명단을
-// 담당자가 몇 번을 다시 눌러도 아무 일이 없는 '블랙홀'이 됐다. 상태별로 다르게 말해 준다.
-// 구서버(deduped 필드 없음)는 dedup=null이 되어 기존 동작 그대로다.
+// 서버 dedupe 응답(S2): 서버가 같은 접수번호(submission_id)를 이미 받아 두었으면 새 건을 만들지 않고
+// {deduped:true,status}를 준다. 접수번호는 [보내기] 1회당 새로 만들므로 dedupe는 사실상 '재시도'에서만
+// 일어난다 — 같은 내용을 새로 보내면 새 접수번호가 붙어 새 건으로 접수되고, 중복 여부는 음식점 앱이
+// "이미 올린 명단과 같다"고 경고해 사장님이 통장과 대조해 판단한다(중복의 최종 판별자는 통장).
+// repaired:true는 앞서 중간에 끊겨 요약만 남아 있던 건을 이번 요청이 채워 넣은 경우다(정상 접수 완료).
+// 구서버(deduped·repaired 필드 없음)는 dedup=null이 되어 기존 동작 그대로다.
 function dedupInfo(row){
-  if(!row.ok||!row.dedup)return null;
+  if(!row.ok)return null;
+  if(row.repaired)return{cls:'good',attention:false,text:'✅ 접수 완료(이전 실패분 복구)'};
+  if(!row.dedup)return null;
   if(row.dedup==='APPROVED')return{cls:'warn',attention:true,text:'ℹ️ 음식점이 이미 승인한 명단이에요(재전송되지 않음)'};
   if(row.dedup==='REJECTED')return{cls:'bad',attention:true,text:'⚠️ 음식점이 거절했던 명단이에요(재전송되지 않음). 내용을 확인해 명단·금액이 바뀌면 새로 전송돼요'};
-  // PENDING dedupe: 예전 문구 "중복 없음"은 오답 — 같은 내용의 명단을 **다른 담당자(또는 이전 전송)**가
-  // 이미 접수해 둔 것일 수 있고, 이번 건은 새로 접수되지 않았다. 별도 입금 건이라면 구분해 다시 보내야 한다.
-  return{cls:'warn',attention:true,text:'⚠️ 같은 내용의 명단이 이미 접수되어 대기 중이에요 — 이번 건은 새로 접수되지 않았어요. 같은 부서의 다른 담당자(또는 이전 전송)가 보낸 것일 수 있어요. 이번이 별도의 결제 건이면 부서명에 팀을 붙여(예: 홍보과 1팀) 구분해 다시 보내주세요.'};
+  // PENDING dedupe: 같은 접수번호가 이미 접수돼 있다 = 앞선 전송이 실패로 보였지만 서버에는 들어가 있었고,
+  // 이번 재시도가 그것을 확인한 것이다. 중복 접수가 아니므로 '확인 필요'로 세지 않는다.
+  return{cls:'good',attention:false,text:'ℹ️ 이미 접수된 전송이에요(재시도 확인됨)'};
 }
 function renderRelayResults(final){
   const rows=[...relayResults.values()];
@@ -1880,13 +1899,13 @@ function renderRelayResults(final){
     rows.map(r=>{
       const d=dedupInfo(r);
       const cls=r.ok?(d?d.cls:'good'):'bad';
-      const text=r.ok?(d?d.text:'✅ 보냄'):'❌ '+esc(r.detail);
+      const text=r.ok?(d?d.text:SUBMIT_OK_MSG):'❌ '+esc(r.detail);
       return `<tr class="${r.ok&&!(d&&d.attention)?'':'err'}"><td>${esc(r.g.restaurant_name)}</td>${multiOrg?`<td>${esc(r.g.institution||'(미지정)')}</td>`:''}<td>${esc(r.g.department)}</td><td>${r.g.items.length}명</td><td class="${cls}">${r.ok?esc(text):text}</td></tr>`;
     }).join('')+
     '</tbody></table>';
   if(final){
     if(failRows.length){
-      html+='<div class="bad" style="margin-top:8px;font-size:13px">⛔ '+failRows.length+'건이 전송되지 않았습니다(성공 '+okN+'건). 아래 버튼으로 실패한 건만 다시 보낼 수 있어요. 같은 명단을 다시 보내도 음식점에 중복으로 쌓이지 않습니다.</div>'+
+      html+='<div class="bad" style="margin-top:8px;font-size:13px">⛔ '+failRows.length+'건이 전송되지 않았습니다(성공 '+okN+'건). 아래 버튼으로 실패한 건만 다시 보낼 수 있어요. 이 버튼은 <b>같은 접수번호</b>로 다시 보내므로 중복 접수되지 않습니다(새로 [보내기]를 누르면 새 접수번호가 붙어 새 건이 됩니다).</div>'+
         '<button type="button" class="btn-primary" id="retryFailBtn"'+(sending?' disabled':'')+' style="margin-top:8px">실패한 '+failRows.length+'건 다시 보내기</button>';
     }else if(attentionRows.length){
       // 실패는 아니지만 '보냈다'고 말하면 거짓이 되는 경우 — 확인이 필요하다고 정직하게 안내한다.
@@ -1927,6 +1946,10 @@ async function runRelay(list){
   try{
     for(const g of list){
       i+=1;
+      // 접수번호는 이 [보내기]에서 그룹마다 한 번만 만든다. [실패 재시도]는 앞 시도가 남긴 값을 그대로 써야
+      // 서버가 같은 전송으로 알아본다(doSubmitRelay가 새 전송 때 relayResults를 비우므로 그때는 새 값이 된다).
+      const prevRow=relayResults.get(groupKey(g));
+      const sid=(prevRow&&prevRow.sid)||uuid4();
       const base='보내는 중 '+i+'/'+list.length+' — '+g.restaurant_name+(g.department?' / '+g.department:'')+orgTagOf(g);
       line.textContent=base;
       const onRetry=(n,wait)=>{line.textContent=base+' · 실패해서 '+Math.round(wait/1000)+'초 뒤 다시 시도('+n+'/'+MAX_RETRY+')…'};
@@ -1938,7 +1961,7 @@ async function runRelay(list){
         const blob=await encryptBlob(g.items,entry.pub);
         const bh=await batchHash(g.items);
         const total=g.items.reduce((s,i2)=>s+i2.amount,0);
-        const body={summary:{institution:g.institution,department:g.department,restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,year_month,total_amount:total,member_count:g.items.length,batch_hash:bh},blob:{restaurant_id:g.restaurant_id,ciphertext:blob},consent:{institution:g.institution,department:g.department,year_month}};
+        const body={summary:{institution:g.institution,department:g.department,restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,year_month,total_amount:total,member_count:g.items.length,batch_hash:bh,submission_id:sid},blob:{restaurant_id:g.restaurant_id,ciphertext:blob},consent:{institution:g.institution,department:g.department,year_month}};
         const submitHeaders={'Content-Type':'application/json'};
         if(S.token)submitHeaders['X-Agency-Token']=S.token;
         await paceWait(pace,false);
@@ -1949,10 +1972,12 @@ async function runRelay(list){
         if(!res.ok)throw new Error(submitErrMsg(j.error,res.status));
         // 구서버는 deduped 필드가 없다 → dedup=null(기존 동작).
         const dedup=j.deduped===true?String(j.status||'PENDING'):null;
-        relayResults.set(groupKey(g),{g,ok:true,dedup,detail:String(j.summary_id||'')});
-        log((dedup&&dedup!=='PENDING'?'ℹ️ ':'✅ ')+g.restaurant_name+' / '+g.department+orgTagOf(g)+' ('+g.items.length+'명, '+total.toLocaleString()+'원) → '+j.summary_id+(dedup?' [이미 있는 명단 · 상태 '+dedup+']':''));
+        const repaired=j.repaired===true; // 구서버에는 없는 필드 — 없으면 false
+        relayResults.set(groupKey(g),{g,ok:true,dedup,repaired,detail:String(j.summary_id||''),sid});
+        const tail=repaired?' [중간에 끊겼던 전송 복구 · 접수 완료]':(dedup?' [같은 접수번호가 이미 접수됨 · 상태 '+dedup+']':'');
+        log((dedup&&!repaired?'ℹ️ ':'✅ ')+g.restaurant_name+' / '+g.department+orgTagOf(g)+' ('+g.items.length+'명, '+total.toLocaleString()+'원) → '+j.summary_id+tail);
       }catch(e){
-        relayResults.set(groupKey(g),{g,ok:false,detail:e.message});
+        relayResults.set(groupKey(g),{g,ok:false,detail:e.message,sid});
         log('❌ '+g.restaurant_name+' / '+g.department+orgTagOf(g)+': '+e.message);
       }
       renderRelayResults(false);
@@ -2145,7 +2170,9 @@ async function prepareDirect(){
       const ciphertext=await encryptBlob(g.items,entry.pub);
       const bh=await batchHash(g.items);
       const total=g.items.reduce((s,i)=>s+i.amount,0);
-      const fileObj={v:1,type:'direct-transfer',restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,institution:g.institution,department:g.department,year_month,summary:{total_amount:total,member_count:g.items.length,batch_hash:bh},ciphertext};
+      // transfer_id: 이 파일(=QR도 같은 json)을 한 장으로 식별한다. 음식점 앱이 같은 파일을 두 번 열면
+      // 막아 준다(같은 명단을 새로 만들어 보내면 새 id가 붙어, 별도 결제 건은 정상적으로 올릴 수 있다).
+      const fileObj={v:1,type:'direct-transfer',transfer_id:uuid4(),restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,institution:g.institution,department:g.department,year_month,summary:{total_amount:total,member_count:g.items.length,batch_hash:bh},ciphertext};
       const json=JSON.stringify(fileObj);
       const bytes=enc.encode(json).length;
       renderDirectGroup(g,total,json,bytes,year_month,entry.contact);

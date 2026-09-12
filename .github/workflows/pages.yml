@@ -15,7 +15,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 배포 게이트: 서버 계약 하니스(목)가 통과해야 배포한다.
+  # phase2.e2e.mjs는 server/src/worker.js를 직접 import하는 순수 Node 하니스라 설치할 의존성이 없다.
+  # Playwright 계열(prepaid e2e·responsive·dongsearch)은 브라우저 다운로드가 필요해 넣지 않는다 —
+  # 그쪽은 로컬 `bash harness/verify-all.sh`의 몫이다.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 서버 계약 하니스 (phase2 목)
+        run: node harness/phase2.e2e.mjs
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages

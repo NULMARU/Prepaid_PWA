@@ -3,7 +3,7 @@
 **진실의 원본은 코드다.** 이 문서는 "어느 함수를 열어야 하는가"를 알려주는 지도이며, 필드 목록은 인수인계 시점(IndexedDB `VER=3`, 백업 `schemaVersion:3`) 기준이다. 앱 버전 문자열은 자주 올라가므로 `index.html`의 `APP_VERSION`을 직접 볼 것.
 
 - 서버 D1 스키마 원본 → `server/schema.sql` (컬럼별 주석 포함, 여기서 복제하지 않는다)
-- 마이그레이션 이력 → `server/migrations-2026-07.sql` (append-only)
+- 마이그레이션 이력 → `server/migrations-2026-07.sql` · `server/migrations-2026-08.sql` · `server/migrations-2026-09.sql` (**월별로 파일이 나뉘고 각 파일은 append-only**. 과거 문장을 고치지 말고 새 달 파일을 추가한다)
 - 암호 blob·`batch_hash` 규격 → `server/PROTOCOL.md` §2·§3
 
 ---
@@ -126,8 +126,9 @@ employeeId | amount | afterBalance | prevHash | createdAt
 
 `checksum`은 `core`(= `schemaVersion`~`payload`)만 대상으로 하고 `summary`·`checksum` 자신은 제외한다.
 
-**포함**: 숨김 직원 포함 전 직원, 전 거래(**`signatureData` data URL 그대로** — 백업 용량의 지배적 요인), `meta.pubKey`, 그리고 **암호화된 `phone`·`phoneConsent`**.
-**제외**(`backupCore()`가 구조분해로 제거): `deviceSecret`, `privKeyWrapped`, `pinHash`, `pinFails`, `pinDelayUntil`.
+**포함**: 숨김 직원 포함 전 직원, 전 거래(**`signatureData` data URL 그대로** — 백업 용량의 지배적 요인), `meta.pubKey`, **암호화된 `phone`·`phoneConsent`**, 그리고 **"이미 받았다/이미 반영했다" 기록 4종**(`receivedBatchLog`·`receivedBatchHashes`·`receivedTransferLog`·`approvedSummaryLog`)과 미통보 대기열 `pendingNotify`.
+→ 이 기록들이 백업에서 빠지면 **복원한 기기가 같은 명단을 중복 경고 없이 다시 받아들인다**(선금 이중 반영). 기기 전용이라 일부러 빼는 값(`inboxCountCache`)과 혼동하지 말 것 — 판단 기준은 "다른 기기에서 되살아나야 하는 사실인가"다.
+**제외**(`backupCore()`가 구조분해로 제거): `deviceSecret`, `privKeyWrapped`, `pinHash`, `pinFails`, `pinDelayUntil`, `inboxCountCache`.
 → `deviceSecret`이 빠지므로 **다른 기기에서 복원하면 `phone` 암호문은 복호화 불가**(설계상 안전 동작).
 
 ### schemaVersion 정책 (`parseBackupPayload()`)
@@ -142,6 +143,29 @@ employeeId | amount | afterBalance | prevHash | createdAt
 - checksum 불일치는 **경고**(사용자가 진행 가능). `validateRestoreData().errors`(id/이름 누락, 중복 id, 미지 type, 고아 `employeeId`, 비정수 금액, 대상 없는 `void`)는 **복원 중단**.
 - 복원은 `safety` 스냅샷을 떠 두고 실패 시 `repo.replaceAll(safety)`로 롤백. 데이터가 있으면 `setupComplete`를 강제 true(복원 후 마법사로 되돌아가 데이터에 못 들어가던 사고의 방어).
 - **새 필드를 추가할 때**: v3를 읽는 코드가 미지 필드를 무시하고 `norm()`이 기본값을 채우는 구조이므로, **필드 추가만이라면 `schemaVersion`을 올리지 않는다**(실제로 `org` 추가 때 3을 유지했다). 기존 필드의 **의미가 바뀌거나 제거될 때만** 올리고, 그때는 `parseBackupPayload()`에 변환 분기를 반드시 함께 넣을 것.
+
+### 잠긴 백업 파일 `prepaid-locked-backup` (beta.48)
+
+**평문 백업이 나가면 안 되는 유일한 경로**를 위한 별도 파일 형식이다. 생성 함수 `exportLockedBackup()`, 파일명 `선입금대장_잠긴백업_YYYYMMDD.json`.
+
+```jsonc
+{
+  "type": "prepaid-locked-backup",
+  "v": 1,
+  "appName": "선입금대장",
+  "appVersion": "1.0.0-beta.NN",
+  "exportedAt": 0,
+  "pubKeyFp": "ABCD-EF12",          // 이 파일을 열 수 있는 열쇠의 지문(keyFingerprint)
+  "restaurantId": "…",              // 등록돼 있으면
+  "blob": { "encKey": "", "iv": "", "ct": "" }   // buildCloudBackupBlob() 산출물 그대로
+}
+```
+
+- 본문은 **클라우드 원장 백업과 같은 하이브리드 암호**다(`buildCloudBackupBlob()` 재사용) — 따라서 **전화번호 제외**(`stripPhonesForCloud`)도 그대로 따라온다. 여는 열쇠는 이 기기의 개인키와 「내 열쇠 백업」 파일에만 있다.
+- **쓰는 곳은 PIN 분실 복구 화면의 초기화(`pinReset`) 하나뿐**: `confirmWipeWithBackup(introMsg, {locked:true})`. 이 화면은 비밀번호를 모르는 사람도 누를 수 있어야 하는데(잠긴 기기를 되살리는 유일한 길), 그동안 그 경로가 **직원 이름·금액이 평문으로 든 백업**을 다운로드 폴더에 떨궜다. 설정의 **인증된 전체 초기화는 지금도 평문 백업**이다(PIN을 통과한 사장님 본인이므로).
+- 이 경로는 **`markBackupSaved()`를 부르지 않는다** — 사장님이 스스로 한 백업이 아니므로 `meta.lastBackupAt`을 옮기면 백업 리마인더가 거짓으로 꺼진다.
+- `pubKey`가 없는 기기면 파일을 만들지 않고 2차 확인창에 `⚠️ 이 기기에는 열쇠가 없어 백업 없이 지웁니다.`를 붙인다.
+- 복원: 복원 파일 선택기가 `type==='prepaid-locked-backup'`을 보면 `restoreLockedBackup()`으로 보내 개인키로 `decryptBlob` → 나온 core를 **기존 `restoreFromParsed()`** 에 그대로 태운다. 개인키가 없거나 `pubKeyFp`가 다르면 복호화를 시도하기 전에 `LOCKED_BACKUP_HELP` 안내를 띄운다("…'내 열쇠 백업'을 먼저 가져온 뒤(설정 > 자동 등록 카드) 다시 선택해 주세요").
 
 ### 관련 파일 산출물
 
@@ -163,11 +187,26 @@ employeeId | amount | afterBalance | prevHash | createdAt
 - 전화번호 암호화: `setPhone()`/`getPhone()` → `aesEncryptStr`/`aesDecryptStr` = **PBKDF2-SHA256 120,000회 + 16바이트 salt → AES-GCM-256 + 12바이트 IV**, 저장 형태 `{v:1, salt, iv, ct}` JSON.
 - 생성기: `ensureKeyPair()` (`deviceSecret`·`pubKey`·`privKeyWrapped`·`keyCreatedAt`).
 
-관찰된 `meta` 키 전체: `lastBackupAt, lastMonthlyBackup, lastCloudBackupAt, autoCloudBackup, orgName, shopName, shopAddr, shopTel, storeAddr, departments, setupComplete, termsAgreedAt, pinHash, pinFails, pinDelayUntil, deviceSecret, pubKey, privKeyWrapped, keyCreatedAt, myKeyBackedUpAt, restaurantId, relayStoreName, relayRegisteredAt, relayServer, storeRegisterPending, districtSyncedAt, receivedBatchHashes, contactKakaoLink, contactEmail`.
+**`meta` 키의 진실의 원본은 `index.html`의 `META_KEYS` 배열**이다(그 옆의 `META_DEVICE_KEYS`가 "이 기기에만 속하는 값" — 복원 시 백업이 아니라 현재 기기 값으로 되돌아간다).
+🔴 **새 meta 키를 만들면 `META_KEYS`에 반드시 등재할 것** — 등재하지 않으면 `normMeta()`가 걸러 내므로 저장은 되어도 재시작·복원 후 사라진다. 화이트리스트 방식인 이유는 조작된 백업으로 `pinHash`·열쇠·가게 id를 치환하던 경로를 막기 위해서다(2026-08 보안 점검).
 
-- `storeAddr` = LOCALDATA 검색으로 고른 가게의 **공식 주소**. `relayDistrict(addrHint)`의 1순위 입력이며, 이게 비어 있어서 라이브 D1의 `district`가 전국 0건이던 장애가 있었다([04](04-contracts.md) 참조).
-- `districtSyncedAt` = 부팅 시 1회 자동 치유(district 재전송) 완료 표시.
-- `receivedBatchHashes` = 이미 받은 배치 `batch_hash` 목록(중복 전달 차단).
+주요 키의 의미(전체 목록은 코드를 볼 것):
+
+| 키 | 의미 |
+|---|---|
+| `storeAddr` | LOCALDATA 검색으로 고른 가게의 **공식 주소**. `relayDistrict(addrHint)`의 1순위 입력이며, 이게 비어 있어서 라이브 D1의 `district`가 전국 0건이던 장애가 있었다([04](04-contracts.md) C2) |
+| `districtSyncedAt` | 부팅 시 1회 자동 치유(district 재전송) 완료 표시 |
+| `receivedBatchHashes` | 이미 받은 배치 `batch_hash` 목록(구 키 — 다운그레이드 호환용으로 계속 채운다) |
+| `receivedBatchLog` | 위의 후속 형태 `[{h, at}]` 최근 300 — "**언제** 이미 올렸는지"를 중복 경고에 실어 준다 |
+| `receivedTransferLog` | **beta.48** `[{id, at}]` 최근 300. 직접 전달 파일·QR의 `transfer_id` 처리 기록 |
+| `approvedSummaryLog` | **beta.48** `[{sid, h, at}]` 최근 300. 서버 승인으로 **장부에 반영한** `summary_id` |
+| `pendingNotify` | **beta.48** `[{sid, at}]`. 장부에는 반영했으나 서버에 `APPROVED` 통보가 아직 성공하지 못한 건(상한 없음 — 통보가 성공하면 즉시 빠진다) |
+| `inboxCountCache` | 마지막으로 확인한 📩 배지 개수. **기기 전용**(backupCore 제외) |
+| `chainTip` / `txCount` | 해시 체인 꼬리 앵커(§2) |
+
+**beta.48의 세 키는 전부 "돈이 두 번 들어가는 것"을 막는 장치**다. `receivedTransferLog`는 같은 파일 재열기를 아예 차단하고, `approvedSummaryLog`는 이미 반영한 신청을 다시 열지 못하게 하며, `pendingNotify`는 "장부에는 넣었는데 서버에 못 알린" 상태를 기억해 두었다가 인터넷이 되면 통보만 재시도한다([04](04-contracts.md) C11). 셋 다 `backupCore()`에 **포함**된다 — 복원한 기기에서도 같은 중복 방어가 살아 있어야 하기 때문이다.
+
+- `receivedBatchLog`·`receivedTransferLog`·`approvedSummaryLog`는 **장부(직원·거래)와 같은 `repo.apply()` 한 번**으로 커밋한다. 나눠 쓰면 그 사이의 중단이 곧 이중 반영 경로가 된다(`nextReceivedBatchMeta()`가 "무엇을 저장할지"만 계산하고 저장은 호출부가 하는 이유).
 
 ---
 
@@ -207,17 +246,28 @@ employeeId | amount | afterBalance | prevHash | createdAt
 
 | 테이블 | 역할 | 수명 |
 |---|---|---|
-| `public_key_registry` | 음식점 공개키·이름·`district`·업무용 연락처 | 등록 해제 시까지 |
-| `deposit_summary` | 기관·부서·총액·인원수·`batch_hash`·상태 (**개인별 금액·이름 없음**) | 처리 후 30일 |
+| `public_key_registry` | 음식점 공개키·이름·`district`·업무용 연락처 · **`deregistered_at`**(NULL=활성) | 해제 시 삭제가 아니라 **30일 휴지통** → 그 뒤 cron이 삭제 |
+| `deposit_summary` | 기관·부서·총액·인원수·`batch_hash`·**`dedupe_key`**·상태 (**개인별 금액·이름 없음**) | 처리 후 30일 |
 | `encrypted_blob` | 암호문 | **수령 즉시 파기**, 미수령 72시간 |
 | `consent_log` | 기관·부서·연월 + 담당자 이메일 **SHA-256 해시** | 180일 |
 | `auth_challenge` | 소유증명 챌린지 토큰 **해시** | 5분, 1회용 |
-| `ledger_backup` | 음식점당 암호화 원장 1행 | 사용자 삭제 시까지 |
-| `agency_otp` / `agency_token` | OTP 해시 / 세션 토큰 해시 (**이메일도 해시**) | 10분 / 24시간 |
+| `ledger_backup` | 음식점당 암호화 원장 1행 | 사용자 삭제 시까지 · **등록 해제 후에는 30일**(그 안에 같은 열쇠로 재등록하면 되찾는다) |
+| `agency_otp` / `agency_token` | OTP 해시 / 세션 토큰 해시 (**이메일도 해시**, 도메인부만 `email_domain`에 평문) | 10분 / 24시간 |
+| `agency_keycheck` | 열쇠 지문 확인 이력(기관·부서·가게 id·지문·**`agency_domain`**) | **TTL 정리 대상 아님**(장기 보관 — 개인정보 없음) |
 | `seen_institution` / `seen_department` / `seen_restaurant` / `stats_counter` | 비식별 집계 | 무기한(비개인) |
 | `feedback` | 의견 자유 입력 | 180일 |
 
-TTL 상수는 `server/src/worker.js` 상단(`PENDING_TTL_MS`, `RETENTION_TTL_MS`, `CONSENT_RETENTION_TTL_MS`, `FEEDBACK_RETENTION_TTL_MS`), 정리는 cron(`wrangler.toml` `crons = ["17 18 * * *"]`, KST 03:17).
+TTL 상수는 `server/src/worker.js` 상단(`PENDING_TTL_MS`, `RETENTION_TTL_MS`, `CONSENT_RETENTION_TTL_MS`, `FEEDBACK_RETENTION_TTL_MS`, **`DEREGISTER_GRACE_MS`**), 정리는 cron(`wrangler.toml` `crons = ["17 18 * * *"]`, KST 03:17). cron이 id를 묶어 지울 때의 청크 크기는 **`CLEANUP_CHUNK = 99`** — D1의 문장당 바인딩 100개 상한에서 `processed_at` 1개를 뺀 값이다(100으로 올리면 만료 처리가 통째로 실패한다).
+
+### 2026-09(beta.48)에 들어온 세 컬럼
+
+| 컬럼 | 왜 생겼나 |
+|---|---|
+| `deposit_summary.dedupe_key` | 중복 판정 키. 접수번호가 있으면 `sid:<submission_id>`, 없으면(구버전 담당자 웹) `bh:<batch_hash>\|<year_month>`. **`UNIQUE(restaurant_id, dedupe_key)`** 가 옛 `UNIQUE(restaurant_id, batch_hash)`를 대신한다 — 옛 규칙은 "같은 명단을 별도로 결제해 다시 보내는" 정상 업무를 영구히 삼켰다. `batch_hash`에는 조회용 **비유니크** 인덱스(`idx_summary_batch_lookup`)만 남는다 |
+| `public_key_registry.deregistered_at` | 등록 해제 = 30일 휴지통(PROTOCOL §4.12). 담당자에게는 즉시 '없는 가게'지만 소유 증명과 백업 되찾기는 30일간 그대로 된다 |
+| `agency_keycheck.agency_domain` | 확인 이력을 남긴 담당자의 **인증된 이메일 도메인**. 기관·부서명은 담당자 자칭이라, 이 결속이 없으면 남의 기관명을 적어 그 부서의 거래처·지문을 읽어갈 수 있었다. 조회는 토큰 도메인이 같은 행만 반환하고 **NULL인 레거시 행은 반환하지 않는다**(재확인 1회로 채워진다) |
+
+마이그레이션 7문은 `server/migrations-2026-09.sql`에 있다 — **문 2(백필)가 문 4(UNIQUE 인덱스)보다 먼저** 실행되어야 한다([07](07-deploy-runbook.md) §4).
 
 ---
 

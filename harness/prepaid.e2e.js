@@ -1015,10 +1015,14 @@ async function main() {
   // confirm()의 기본 응답은 [확인]이다(기존 흐름 전부 그대로). beta.25에서 **[취소]를 눌렀을 때**를
   //   검증할 자리가 생겨서(손님이 적어 둔 금액·서명을 지킬 것인가) 잠깐 false로 두는 스위치를 뒀다.
   let confirmAnswer = true;
+  // beta.48: 한 흐름 안에서 1차는 [확인], 2차는 [취소]처럼 **메시지별로** 갈라야 하는 자리가 생겼다
+  //   (미인증 초기화의 "최종 백업만 받고 지우지는 않는다" 시나리오). null이면 기존 동작 그대로다.
+  let confirmDecider = null;
 
   page.on('dialog', async dialog => {
     dialogs.push({ type: dialog.type(), message: dialog.message() });
     if (dialog.type() === 'prompt') await dialog.accept(promptAnswer);
+    else if (dialog.type() === 'confirm' && confirmDecider && !confirmDecider(dialog.message())) await dialog.dismiss();
     else if (dialog.type() === 'confirm' && !confirmAnswer) await dialog.dismiss();
     else await dialog.accept();
   });
@@ -1287,6 +1291,12 @@ async function main() {
       return { find: y('[data-a="relay-find-store"]'), money: y('.notice-money') };
     });
     await assert(unregOrder.find < unregOrder.money, `the [우리 가게 등록] button must come before the fine print (got ${JSON.stringify(unregOrder)})`);
+    // ── beta.48(F6): 접힘 요약은 **이 가게의 사실**만 말한다 ─────────────────────────
+    //   미등록인데 "월말 자동 백업 켜짐"이 뜨면 사장님은 백업이 돌고 있다고 읽는다 — 실제로는 등록 전이라
+    //   서버에 아무것도 저장되지 않는다(거짓 안심 = 폰을 잃었을 때 장부가 통째로 사라지는 길).
+    const cloudSummaryUnreg = (await page.locator('.card.settings-card:has(.fold-head[data-card="cloud"]) .fold-head .section-kicker').innerText()).trim();
+    await assert(cloudSummaryUnreg === '등록 후 사용 가능', `an unregistered store's cloud-backup card must summarise as 등록 후 사용 가능 (got ${JSON.stringify(cloudSummaryUnreg)})`);
+    await assert(!/켜짐|꺼짐/.test(cloudSummaryUnreg), 'the collapsed cloud card must not claim the monthly auto-backup is on before the store is registered');
     // ── beta.40: 메뉴 재배치(사용자 지시) — 전달파일·QR 진입점은 자동 등록 카드가 아니라
     //    수동 등록 카드 하단("공공기관 담당자에게 직접 받기")에 있다. 이 시점은 미등록 상태지만
     //    수동 등록 카드 본문은 등록 여부와 무관하므로 여기서 구조를 고정한다.
@@ -2056,6 +2066,20 @@ async function main() {
       await assert(cls.includes('btn-primary') && !cls.includes('btn-idle'), `with pending requests the 온라인 자동 등록 button must be active btn-primary (got ${JSON.stringify(cls)})`);
       await assert((await activeInbox.innerText()).includes('2'), 'the active 온라인 자동 등록 button must carry the pending-count badge');
     }
+    // ── beta.48(F5): 이미 등록된 기기가 **다시** 등록을 보낼 때는 소유 증명을 함께 싣는다 ─────────
+    //   서버는 "같은 열쇠라도 저장된 관할(district)을 다른 값으로 덮어쓰려면" 인증을 요구한다.
+    //   토큰 없이 보내면 401 → 앱이 "이미 등록되어 있어요"로 오안내한다(자기 가게인데 막힌다).
+    {
+      const before = registerCalls.length;
+      await page.locator('[data-a="relay-send-district"]').click();
+      await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 10000 });
+      await page.waitForTimeout(300);
+      await assert(registerCalls.length === before + 1, `[관할 정보 보내기] must call register-key exactly once (got ${registerCalls.length - before})`);
+      const last = registerCalls[registerCalls.length - 1];
+      await assert(typeof last.auth_token === 'string' && last.auth_token.length > 0,
+        `a re-registration from an already-registered device must carry the ownership proof (got ${JSON.stringify(Object.keys(last))})`);
+      await assert(last.district === '서울특별시 광진구', 're-registration must still carry the jurisdiction');
+    }
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.evaluate(() => window.__prepaidTestHooks.refreshInboxCount());
     await page.waitForTimeout(300);
@@ -2183,6 +2207,48 @@ async function main() {
     await assert(Boolean(dupReview), 're-opening the same transfer must warn that this roster was already registered (dated duplicate warning)');
     await assert(dupReview.message.includes('별도로 한 번 더 받으신 경우에만(카드 전표·입금 내역 확인)'), 'the duplicate warning must tell the owner to decide by the actual payment received, card or transfer (사용자 원칙)');
     await assert((await readDb(page)).transactions.length === txCountBeforeDup, 'declining the duplicate warning must leave the ledger untouched');
+
+    // ── beta.48: 전달 번호(transfer_id)가 있는 파일은 **재열기 자체가 막힌다** ────────────────
+    //   batch_hash는 "같은 이름·금액"이면 달이 달라도 같아서 경고까지만 할 수 있었다(사장님 판단).
+    //   transfer_id는 파일 한 장을 가리키므로 "같은 파일을 두 번 올렸다"가 확실하다 — 그때는 묻지 않고 막는다.
+    const tidJson = await page.evaluate(async ({ pubKey, rid }) => {
+      const enc = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const items = [{ name: '전달번호직원', dept: '자치행정과', amount: 7000 }];
+      const h = async t => { const d = await crypto.subtle.digest('SHA-256', enc.encode(String(t))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+      const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+      const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify({ items })));
+      const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+      const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
+      return JSON.stringify({
+        v: 1, type: 'direct-transfer', transfer_id: 'tid-harness-0001', restaurant_id: rid, restaurant_name: 'Harness Shop',
+        institution: '강남구청', department: '자치행정과', year_month: '2026-07',
+        summary: { total_amount: 7000, member_count: 1, batch_hash },
+        ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
+      });
+    }, { pubKey: regMeta.pubKey, rid: regMeta.restaurantId });
+    const txBeforeTid = (await readDb(page)).transactions.length;
+    await page.locator('#directTransferFile').setInputFiles({ name: 'with-tid.json', mimeType: 'application/json', buffer: Buffer.from(tidJson, 'utf8') });
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+    await page.waitForTimeout(350);
+    const afterTid = await readDb(page);
+    await assert(afterTid.transactions.length === txBeforeTid + 1, 'a transfer carrying a transfer_id must still register normally the first time');
+    const tidLog = (afterTid.meta.find(r => r.key === 'receivedTransferLog') || {}).value;
+    await assert(Array.isArray(tidLog) && tidLog.some(r => r && r.id === 'tid-harness-0001'),
+      `the transfer_id must be recorded in meta.receivedTransferLog (got ${JSON.stringify(tidLog)})`);
+    const dialogsBeforeTidAgain = dialogs.length;
+    await page.locator('#directTransferFile').setInputFiles({ name: 'with-tid-again.json', mimeType: 'application/json', buffer: Buffer.from(tidJson, 'utf8') });
+    await page.waitForTimeout(500);
+    const tidAgain = dialogs.slice(dialogsBeforeTidAgain);
+    await assert(tidAgain.some(d => d.type === 'alert' && d.message.includes('이미 장부에 올렸어요')),
+      `re-opening the very same transfer file must be blocked outright (got ${JSON.stringify(tidAgain.map(d => d.type + ':' + d.message.slice(0, 40)))})`);
+    await assert(!tidAgain.some(d => d.type === 'confirm' && d.message.includes('받으실 금액')),
+      'a blocked re-open must never reach the review confirm (the owner is not asked to judge a file we know we already used)');
+    await assert((await readDb(page)).transactions.length === txBeforeTid + 1, 're-opening the same transfer file must not add a second transaction');
 
     // ── 결제구분(payMethod, beta.33) — 명단에 실려 오면 그 수단에 맞는 확인처만 안내한다 ──
     //   담당자 웹 CSV의 선택 열 '결제구분'(카드/계좌이체/공백)이 items[].payMethod로 실려 온다.
@@ -2498,8 +2564,183 @@ async function main() {
     await assert(Boolean(crossReview), 'a direct-transfer of a roster already approved via the server must raise the duplicate warning (cross-mode)');
     await assert((await readDb(page)).transactions.length === txCountBeforeCross, 'declining the cross-mode duplicate must leave the ledger untouched');
 
+    // ══ beta.48: 승인 아웃박스 — "장부에 넣었는데 서버에 못 알린" 상태를 앱이 기억한다 ══════════
+    //   현장 결함: 승인은 ①장부 반영 ②서버 통보의 두 걸음인데, ②가 실패해도 앱은 항목을 지우고 넘어갔다.
+    //   그 신청은 다음 조회에서 PENDING으로 되살아나고, 사장님이 다시 승인하면 **선금이 두 배**가 된다.
+    const installOutboxSpy = async (specs, status) => page.evaluate(async ({ pubKey, specs, status }) => {
+      const enc = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s2 = ''; for (let i = 0; i < u.length; i++) s2 += String.fromCharCode(u[i]); return btoa(s2); };
+      const b2u = s2 => { const bin = atob(s2); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const h = async t => { const d = await crypto.subtle.digest('SHA-256', enc.encode(String(t))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      const mk = async (sid, items) => {
+        const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+        const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+        const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify({ items })));
+        const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+        const encKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw);
+        return {
+          summary_id: sid,
+          summary: { restaurant_name: 'Harness Shop', institution: '강남구청', department: '문화체육과', year_month: '2026-09', total_amount: items.reduce((a, x) => a + x.amount, 0), member_count: items.length, batch_hash, agency_domain: 'gangnam.go.kr' },
+          ciphertext: { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(encKey), iv: u2b(iv), ct: u2b(ct) }
+        };
+      };
+      window.__inboxItems = [];
+      for (const sp of specs) window.__inboxItems.push(await mk(sp.sid, sp.items));
+      window.__approveStatus = status;
+      window.__notifyCalls = [];
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        const url = String(u);
+        if (url.includes('/api/inbox?')) return new Response(JSON.stringify(window.__inboxItems), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        if (url.includes('/api/approve')) {
+          window.__notifyCalls.push(String((o && o.body) || ''));
+          const st = window.__approveStatus;
+          return new Response(st === 200 ? '{"ok":true}' : JSON.stringify({ error: 'harness-forced-' + st }), { status: st, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.includes('/api/challenge')) {
+          const pk = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+          const cc = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pk, enc.encode('TESTTOKEN'));
+          return new Response(JSON.stringify({ challenge_ct: u2b(cc) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.includes('/api/ledger-backup')) return new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return orig(u, o);
+      };
+    }, { pubKey: relayMeta.pubKey, specs, status });
+    const metaOf = async key => ((await readDb(page)).meta.find(r => r.key === key) || {}).value;
+    const openInbox = async () => {
+      // 앞 단계에서 수신함 모달이 열린 채 남아 있을 수 있다(항목이 비어도 모달은 그대로다).
+      if (await count(page, '.modal-back')) {
+        await page.evaluate(() => { const b = document.querySelector('.modal-actions [data-a="close-modal"]'); if (b) b.click(); });
+        await page.waitForTimeout(200);
+      }
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator('[data-a="relay-inbox"]').first().click();
+      await page.waitForSelector('.modal h2:has-text("공공기관 명단 신청 수신함")', { timeout: 8000 });
+      await page.waitForTimeout(200);
+    };
+
+    // ── (a) 통보 실패(500): 거래는 1회, 항목은 남고, 상태 배지가 붙는다 ─────────────────────
+    await installOutboxSpy([{ sid: 'sum-outbox', items: [{ name: '아웃박스직원', dept: '문화체육과', amount: 11000 }] }], 500);
+    const txBeforeOutbox = (await readDb(page)).transactions.length;
+    await openInbox();
+    await page.locator('[data-a="relay-approve"][data-sid="sum-outbox"]').click();
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
+    await page.waitForTimeout(600);
+    const afterOutbox = await readDb(page);
+    await assert(afterOutbox.transactions.length === txBeforeOutbox + 1, `a failed server notification must not cost (or duplicate) the ledger write (got ${afterOutbox.transactions.length - txBeforeOutbox})`);
+    const approvedLog = await metaOf('approvedSummaryLog');
+    const pendingLog = await metaOf('pendingNotify');
+    await assert(Array.isArray(approvedLog) && approvedLog.some(r => r && r.sid === 'sum-outbox'), `the applied summary_id must be recorded (got ${JSON.stringify(approvedLog)})`);
+    await assert(Array.isArray(pendingLog) && pendingLog.some(r => r && r.sid === 'sum-outbox'), `a failed notification must stay queued in meta.pendingNotify (got ${JSON.stringify(pendingLog)})`);
+    const outboxModal = await page.locator('.modal').innerText();
+    await assert(outboxModal.includes('장부에 반영됨 · 서버 알림 대기'), `the inbox row must say the roster is already in the ledger (got ${JSON.stringify(outboxModal)})`);
+    await assert(await count(page, '[data-a="relay-approve"][data-sid="sum-outbox"]') === 0 && await count(page, '[data-a="relay-reject"][data-sid="sum-outbox"]') === 0,
+      'an already-applied roster must not offer 승인/거절 again (that is the double-credit path)');
+    await assert(await count(page, '[data-a="relay-notify"][data-sid="sum-outbox"]') === 1, 'an already-applied roster must offer [서버에 다시 알리기]');
+
+    // ── (b) 같은 항목을 다시 눌러도(재알림) 거래는 늘지 않는다 ────────────────────────────
+    const txBeforeRetry = (await readDb(page)).transactions.length;
+    await page.locator('[data-a="relay-notify"][data-sid="sum-outbox"]').click();
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
+    await page.waitForTimeout(400);
+    await assert((await readDb(page)).transactions.length === txBeforeRetry, 'retrying the notification must never touch the ledger again');
+    const stillPending = await metaOf('pendingNotify');
+    await assert(stillPending.some(r => r && r.sid === 'sum-outbox'), 'a notification that failed again must stay queued');
+    await assert(await count(page, '[data-a="relay-notify"][data-sid="sum-outbox"]') === 1, 'the row stays until the server actually acknowledges');
+
+    // ── (c) 재시작해도 대기열은 남는다 · 잠금(손님) 화면에서는 절대 통보하지 않는다 ─────────────
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('.cust-screen');
+    const afterRestartPending = await metaOf('pendingNotify');
+    await assert(Array.isArray(afterRestartPending) && afterRestartPending.some(r => r && r.sid === 'sum-outbox'),
+      `meta.pendingNotify must survive a restart (got ${JSON.stringify(afterRestartPending)})`);
+    await installOutboxSpy([{ sid: 'sum-outbox', items: [{ name: '아웃박스직원', dept: '문화체육과', amount: 11000 }] }], 200);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForTimeout(600);
+    await assert((await page.evaluate(() => window.__notifyCalls.length)) === 0,
+      'the customer (lock) screen must never run the ownership-proof notification — the private key is off limits there');
+    await assert((await metaOf('pendingNotify')).some(r => r && r.sid === 'sum-outbox'), 'the queue must stay untouched while the app is locked');
+    await unlock();
+    await page.waitForSelector('[data-a="quick-find-emp"]');
+    await page.waitForTimeout(700);
+    await assert((await page.evaluate(() => window.__notifyCalls.length)) >= 1, 'unlocking must retry the queued notification right away');
+    await assert(((await metaOf('pendingNotify')) || []).every(r => !r || r.sid !== 'sum-outbox'),
+      `a successful retry must clear the queue (got ${JSON.stringify(await metaOf('pendingNotify'))})`);
+
+    // ── (b') 서버가 같은 신청을 또 올려 보내도 승인 버튼은 돌아오지 않는다 ────────────────────
+    await openInbox();
+    await assert(await count(page, '[data-a="relay-approve"][data-sid="sum-outbox"]') === 0,
+      'a roster already in the ledger must never regain an 승인 button, even when the server lists it as PENDING again');
+    const txBeforeReNotify = (await readDb(page)).transactions.length;
+    await page.locator('[data-a="relay-notify"][data-sid="sum-outbox"]').click();
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
+    await page.waitForTimeout(400);
+    await assert((await readDb(page)).transactions.length === txBeforeReNotify, 're-notifying a listed-again roster must add zero transactions');
+
+    // ── (d) 409(이미 처리됨)·404(없음)는 성공으로 본다 ───────────────────────────────────
+    await installOutboxSpy([{ sid: 'sum-409', items: [{ name: '사구구직원', dept: '문화체육과', amount: 12000 }] }], 409);
+    const txBefore409 = (await readDb(page)).transactions.length;
+    await openInbox();
+    await page.locator('[data-a="relay-approve"][data-sid="sum-409"]').click();
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
+    await page.waitForTimeout(600);
+    await assert((await readDb(page)).transactions.length === txBefore409 + 1, 'the 409 path must still write the ledger exactly once');
+    await assert(((await metaOf('pendingNotify')) || []).every(r => !r || r.sid !== 'sum-409'),
+      `409 (already processed) must count as a delivered notification (got ${JSON.stringify(await metaOf('pendingNotify'))})`);
+    await assert(await count(page, '[data-a="relay-notify"][data-sid="sum-409"]') === 0 && await count(page, '[data-a="relay-approve"][data-sid="sum-409"]') === 0,
+      'a 409-acknowledged roster must leave the inbox list');
+    // ── 거절도 서버 응답을 보고 판단한다(beta.48) ────────────────────────────────────────
+    //   예전에는 응답을 보지 않고 항목을 지웠다 — 서버가 못 받았는데 화면에서는 사라지니 사장님은
+    //   처리됐다고 믿고, 그 신청은 다음 조회에서 PENDING으로 되살아난다.
+    await installOutboxSpy([{ sid: 'sum-reject', items: [{ name: '거절직원', dept: '문화체육과', amount: 5000 }] }], 500);
+    const txBeforeReject = (await readDb(page)).transactions.length;
+    await openInbox();
+    await page.locator('[data-a="relay-reject"][data-sid="sum-reject"]').click();
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
+    await page.waitForTimeout(400);
+    await assert(await count(page, '[data-a="relay-reject"][data-sid="sum-reject"]') === 1, 'a rejection the server did not accept must keep the row in the inbox');
+    await assert((await readDb(page)).transactions.length === txBeforeReject, 'a rejection must never touch the ledger');
+    await page.evaluate(() => { window.__approveStatus = 200; });
+    await page.locator('[data-a="relay-reject"][data-sid="sum-reject"]').click();
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
+    await page.waitForTimeout(400);
+    await assert(await count(page, '[data-a="relay-reject"][data-sid="sum-reject"]') === 0, 'an acknowledged rejection removes the row');
+
+    if (await count(page, '.modal-actions [data-a="close-modal"]')) await page.locator('.modal-actions [data-a="close-modal"]').click();
+    await page.waitForTimeout(150);
+
+    // ── beta.48: [저장] 연타(한 틱 안에 두 번)여도 거래는 **1건**이어야 한다 ────────────────
+    //   폰에서 오탭은 흔하다. 예전에는 두 번째 탭이 첫 저장이 끝나기 전에 같은 잔액을 읽어 같은 금액을
+    //   한 번 더 충전·차감했다(사장님은 나중에 늘어난 한 줄을 발견한다). withTxLock이 구조적으로 막는다.
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'employees');
+    const outboxEmpId = (await readDb(page)).employees.find(e => e.name === '아웃박스직원').id;
+    await page.locator('[data-a="toggle-dept"][data-dept="강남구청 문화체육과"]').click();
+    await page.waitForSelector(`[data-a="topup"][data-id="${outboxEmpId}"]`);
+    await page.locator(`[data-a="topup"][data-id="${outboxEmpId}"]`).click();
+    await page.waitForSelector('#topupAmount');
+    await page.locator('#topupAmount').fill('5000');
+    const beforeDoubleTap = (await readDb(page)).transactions.length;
+    const doubleTapHook = await page.evaluate(async () => {
+      const H = window.__prepaidTestHooks;
+      if (!H || typeof H.saveTopup !== 'function') return false;
+      await Promise.all([H.saveTopup(), H.saveTopup()]);
+      return true;
+    });
+    await assert(doubleTapHook, 'the e2e hook for saveTopup must be exposed on localhost (double-tap contract)');
+    await page.waitForTimeout(500);
+    const afterDoubleTap = (await readDb(page)).transactions.length;
+    await assert(afterDoubleTap === beforeDoubleTap + 1,
+      `a double-tapped [충전 저장] must record exactly one transaction (got ${afterDoubleTap - beforeDoubleTap})`);
+    await assert(await count(page, '#topupAmount') === 0, 'the topup modal must close after the (single) save');
+
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.waitForSelector('[data-a="quick-find-emp"]');
+    // 위 (c)에서 앱을 재시작했으므로 홈 그룹 펼침 상태(메모리 전용)가 초기화됐다 — 다시 펼쳐 둔다.
+    await expandHomeGroups(page);
 
     // ───────────────────────────────────────────────────────────────
     // 안드로이드 하단 뒤로가기: 히스토리 동기화 계층 (돈 다루는 앱 — 안전 최우선)
@@ -2638,6 +2879,68 @@ async function main() {
     // 게이트 경과 → 그때서야 활성화된다.
     await page.waitForTimeout(1000);
     await assert(!(await page.locator('[data-a="pin-reset"]').isDisabled()), 'the recovery buttons must become enabled once the gate elapses');
+
+    // ── beta.48(F1): 미인증 초기화의 최종 백업은 **잠긴 파일**이어야 한다 ─────────────────────
+    //   이 화면은 비밀번호를 모르는 사람도 누를 수 있다(그래야 잠긴 기기를 되살린다). 그런데 여태
+    //   그 경로가 직원 이름·금액이 평문으로 든 백업을 폰 다운로드 폴더에 떨궜다 — 가게에 놓인 태블릿을
+    //   잠깐 만진 사람이 [초기화]만 눌러 장부를 통째로 가져갈 수 있었다.
+    const lockedDl = [];
+    const onLockedDl = d => lockedDl.push(d);
+    page.on('download', onLockedDl);
+    const beforeLockedWipe = await readDb(page);
+    const lastBackupBefore = (beforeLockedWipe.meta.find(r => r.key === 'lastBackupAt') || {}).value;
+    const dialogsBeforeLockedBackup = dialogs.length;
+    confirmDecider = msg => !msg.includes('정말 지울까요');   // 1차 [확인] → 파일 저장, 2차(마지막 관문) [취소]
+    await page.locator('[data-a="pin-reset"]').click();
+    for (let i = 0; i < 40 && lockedDl.length < 1; i += 1) await page.waitForTimeout(100);
+    await page.waitForTimeout(400);
+    confirmDecider = null;
+    page.off('download', onLockedDl);
+    await assert(lockedDl.length === 1, `the un-authenticated reset must still save exactly one final backup file (got ${lockedDl.length})`);
+    const lockedName = lockedDl[0].suggestedFilename();
+    await assert(/^선입금대장_잠긴백업_\d{4}-\d{2}-\d{2}\.json$/.test(lockedName), `the PIN-recovery final backup must be a locked file (got ${lockedName})`);
+    const lockedRaw = await fsp.readFile(await lockedDl[0].path(), 'utf8');
+    const lockedJson = JSON.parse(lockedRaw);
+    await assert(lockedJson.type === 'prepaid-locked-backup' && lockedJson.v === 1, `the locked backup must declare its own type (got ${JSON.stringify(lockedJson.type)})`);
+    await assert(Boolean(lockedJson.blob && lockedJson.blob.encKey && lockedJson.blob.iv && lockedJson.blob.ct), 'the locked backup must carry the hybrid-encrypted blob');
+    await assert(!lockedRaw.includes('"employees"') && !lockedRaw.includes('"transactions"'), 'the locked backup must not carry the plain ledger structure');
+    const lockedNames = [...new Set(beforeLockedWipe.employees.map(e => e.name).filter(Boolean))];
+    await assert(lockedNames.length > 0 && lockedNames.every(n => !lockedRaw.includes(n)),
+      `no employee name may appear in the locked backup (checked ${lockedNames.length} names)`);
+    const afterLockedTry = await readDb(page);
+    await assert(String((afterLockedTry.meta.find(r => r.key === 'lastBackupAt') || {}).value) === String(lastBackupBefore),
+      'the locked final backup must not stamp meta.lastBackupAt — it is not a backup the owner chose to make');
+    await assert(JSON.stringify(afterLockedTry.employees) === JSON.stringify(beforeLockedWipe.employees)
+      && JSON.stringify(afterLockedTry.transactions) === JSON.stringify(beforeLockedWipe.transactions),
+      'cancelling the second confirm must leave the ledger untouched');
+    const lockedConfirms = dialogs.slice(dialogsBeforeLockedBackup).filter(d => d.type === 'confirm');
+    await assert(lockedConfirms.length === 2 && lockedConfirms[1].message.includes('🔒 잠긴 백업 파일을 저장했습니다'),
+      `the second confirm must say the saved file is locked (got ${JSON.stringify(lockedConfirms.map(d => d.message.slice(0, 60)))})`);
+
+    // 사장님에게는 막다른 길이 아니다 — 개인키가 살아 있는 이 기기에서 그 파일은 그대로 열린다.
+    await page.locator('[data-a="pin-forgot-restore"]').click();
+    await page.waitForTimeout(150);
+    await page.locator('#restoreFile').setInputFiles({ name: lockedName, mimeType: 'application/json', buffer: Buffer.from(lockedRaw, 'utf8') });
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
+    await page.waitForTimeout(500);
+    const restoredLocked = await readDb(page);
+    await assert(restoredLocked.employees.length === beforeLockedWipe.employees.length && restoredLocked.employees.length > 0,
+      `restoring the locked backup on the same device must bring the ledger back (got ${restoredLocked.employees.length}/${beforeLockedWipe.employees.length})`);
+    await assert(restoredLocked.transactions.length === beforeLockedWipe.transactions.length,
+      'the restored locked backup must carry every transaction');
+    // 복구 경로의 복원이므로 새 비밀번호를 설정하는 화면으로 간다 — 다시 잠그고 복구 화면으로 돌아와 초기화 검증을 잇는다.
+    await page.waitForSelector('[data-a="pin-key"]', { timeout: 8000 });
+    await typePin(page, ['1', '2', '3', '4']);
+    await typePin(page, ['1', '2', '3', '4']);
+    await page.waitForSelector('[data-a="quick-find-emp"]', { timeout: 8000 });
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('[data-a="lock-to-pin"]');
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.waitForSelector('[data-a="pin-forgot"]');
+    await page.locator('[data-a="pin-forgot"]').click();
+    await page.waitForSelector('[data-a="pin-reset"]');
+    await page.waitForTimeout(1000);
+    await assert(!(await page.locator('[data-a="pin-reset"]').isDisabled()), 'the recovery gate must elapse again after re-locking');
     const dialogsBeforeReset = dialogs.length;
     await page.locator('[data-a="pin-reset"]').click();
     await page.waitForTimeout(500);
@@ -4136,13 +4439,40 @@ async function main() {
     // ── (B-d) 잔액 초과 요청 차단 ──
     await composeTo('최소액', '2000');   // 잔액 1,000원
     await assert((await page.locator('#custAmtErr').innerText()).includes('잔액보다 많아요'), 'an over-balance amount must say so in the customer\'s own words');
-    await assert((await page.locator('#custAmtErr').innerText()).includes('사장님께 말씀해 주세요'), 'the over-balance notice must point the customer at the owner');
+    // beta.48(사용자 지시): "사장님께 말씀해 주세요"만으로는 손님이 무엇을 고쳐야 하는지 모른다 —
+    //   얼마까지 되는지(잔액)를 그 자리에서 말한다.
+    await assert((await page.locator('#custAmtErr').innerText()).includes('1,000원'),
+      `the over-balance notice must name the amount the customer can actually spend (got ${JSON.stringify(await page.locator('#custAmtErr').innerText())})`);
     // beta.22: 넘어갈 '다음 화면'이 없으므로 차단은 제출 지점에서 일어난다 — 요청 자체가 세워지지 않는다.
     await drawOn('.cust-sig #signCanvas');
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForTimeout(200);
     await assert((await lockSt2()).pendingCustomerId === '', 'an over-balance amount must not become a request even when the signature is there');
     await assert(await count(page, '#custAmountInput') === 1, 'the blocked customer must stay on the request screen');
+    // ── beta.48(사용자 지시): 막혔다는 사실을 **버튼 바로 위에서도** 말한다 ─────────────────
+    //   손님의 시선·손가락은 [사장님 확인 받기]에 가 있는데, 예전에는 그 슬롯을 오히려 비웠다
+    //   → "눌러도 아무 일이 없는 버튼"으로 읽혔다(현장 보고). 입력칸 테두리까지 빨개져 고칠 곳을 가리킨다.
+    const overState = await page.evaluate(() => ({
+      top: document.querySelector('#custAmtErr').innerText.trim(),
+      bottom: document.querySelector('#custSignErr').innerText.trim(),
+      inputErr: document.querySelector('#custAmountInput').classList.contains('err')
+    }));
+    await assert(overState.bottom.includes('잔액보다 많아요') && overState.bottom === overState.top,
+      `an over-balance submit must repeat the same notice right above the button (got ${JSON.stringify(overState)})`);
+    await assert(overState.bottom.includes('1,000원'), 'the notice above the button must also name the spendable balance');
+    await assert(overState.inputErr, 'an over-balance amount must mark the input itself with the danger border');
+    // 금액을 고치면 두 줄과 빨간 테두리가 그 자리에서 함께 걷힌다(부분 갱신 — 전체 render 금지 구간).
+    await page.locator('#custAmountInput').fill('900');
+    await page.waitForTimeout(150);
+    const fixedState = await page.evaluate(() => ({
+      top: document.querySelector('#custAmtErr').innerText.trim(),
+      bottom: document.querySelector('#custSignErr').innerText.trim(),
+      inputErr: document.querySelector('#custAmountInput').classList.contains('err'),
+      empty: window.__prepaidTestHooks.lockState().signPadEmpty
+    }));
+    await assert(fixedState.top === '' && fixedState.bottom === '' && !fixedState.inputErr,
+      `fixing the amount must clear both notices and the danger border (got ${JSON.stringify(fixedState)})`);
+    await assert(fixedState.empty === false, 'clearing the notices must not cost the customer the signature already drawn');
     await assert((await lockSt2()).signPadEmpty === false, 'the over-balance block must not cost the customer the signature already drawn');
     await page.locator('[data-a="cust-sign-clear"]').click();
     await page.waitForTimeout(100);

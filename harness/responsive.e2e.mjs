@@ -877,8 +877,35 @@ async function runViewport(context, url, w, h) {
   check((await page.locator('#custAmtErr').innerText()).includes('잔액보다 많아요'), `${w}px 손님 요청 화면: 잔액 초과는 금액 칸 바로 위에서 말해야 한다`);
   await fitsInFirstViewport(page, `${w}px(잔액 초과 오류)`);
   check(Math.abs((await submitTop()) - cleanTop) <= 1, `${w}px 손님 요청 화면: 잔액 초과 오류가 떴다고 [사장님 확인 받기]가 움직이면 안 된다 (${cleanTop} → ${await submitTop()})`);
+  // ── beta.48(사용자 지시): 잔액 초과로 버튼이 막히면 **버튼 바로 위에서도** 말한다 ────────────
+  //   현장 보고: 위쪽 작은 한 줄뿐이라, 시선과 손가락이 [사장님 확인 받기]에 가 있는 손님에게는
+  //   "눌러도 아무 일이 없는 버튼"으로 보였다. 두 줄이 동시에 차는 이 상태에서도 접힘 계약과
+  //   "오류가 떴다고 버튼이 움직이지 않는다" 계약은 그대로 지켜져야 한다(= 오류 문구는 한 줄에 들어온다).
+  await page.locator('[data-a="cust-sign-submit"]').click();
+  await page.waitForTimeout(180);
+  const overErr = await page.evaluate(() => ({
+    top: document.querySelector('#custAmtErr').innerText.trim(),
+    bottom: document.querySelector('#custSignErr').innerText.trim(),
+    inputErr: document.querySelector('#custAmountInput').classList.contains('err'),
+    fontPx: Math.round(parseFloat(getComputedStyle(document.querySelector('#custSignErr')).fontSize))
+  }));
+  check(overErr.bottom.includes('잔액보다 많아요'), `${w}px 손님 요청 화면: 잔액 초과로 막히면 버튼 바로 위 오류 줄에도 같은 문구가 떠야 한다 (got ${JSON.stringify(overErr.bottom)})`);
+  check(overErr.bottom === overErr.top, `${w}px 손님 요청 화면: 위·아래 오류 문구는 같아야 한다 (${JSON.stringify(overErr.top)} vs ${JSON.stringify(overErr.bottom)})`);
+  check(/1,234,567원/.test(overErr.bottom), `${w}px 손님 요청 화면: 잔액 초과 안내는 "얼마까지 되는지"(잔액)를 함께 말해야 한다 (got ${JSON.stringify(overErr.bottom)})`);
+  check(overErr.inputErr, `${w}px 손님 요청 화면: 잔액 초과면 금액 입력칸 테두리도 danger 색이어야 한다`);
+  check(overErr.fontPx >= 15, `${w}px 손님 요청 화면: 오류 글자는 15px 이상이어야 한다 (got ${overErr.fontPx}px)`);
+  await fitsInFirstViewport(page, `${w}px(잔액 초과 제출)`);
+  check(Math.abs((await submitTop()) - cleanTop) <= 1, `${w}px 손님 요청 화면: 오류가 두 줄 모두 떠도 [사장님 확인 받기]는 움직이면 안 된다 (${cleanTop} → ${await submitTop()})`);
   await page.locator('#custAmountInput').fill('9000');
   await page.waitForTimeout(120);
+  // 금액을 고치면 두 줄과 빨간 테두리가 **그 자리에서** 함께 걷힌다(부분 갱신 — 전체 render 금지 구간).
+  const fixed = await page.evaluate(() => ({
+    top: document.querySelector('#custAmtErr').innerText.trim(),
+    bottom: document.querySelector('#custSignErr').innerText.trim(),
+    inputErr: document.querySelector('#custAmountInput').classList.contains('err')
+  }));
+  check(fixed.top === '' && fixed.bottom === '' && !fixed.inputErr,
+    `${w}px 손님 요청 화면: 금액을 고치면 두 오류 줄과 빨간 테두리가 함께 사라져야 한다 (${JSON.stringify(fixed)})`);
   await page.locator('[data-a="cust-sign-submit"]').click();
   await page.waitForTimeout(180);
   check((await page.locator('#custSignErr').innerText()).includes('서명'), `${w}px 손님 요청 화면: 서명 누락은 캔버스 바로 아래에서 말해야 한다`);

@@ -8,7 +8,11 @@ CREATE TABLE IF NOT EXISTS public_key_registry (
   contact_kakao   TEXT,                -- 업무용 카카오 오픈채팅 링크(선택, https://open.kakao.com/ 로 시작)
   contact_email   TEXT,                -- 업무용 공식 접수 이메일(선택)
   district        TEXT,                -- 관할 지역(공개 사업장 정보, 예 "서울특별시 광진구"). 개인정보 아님(§0 허용). 등록 목록 조회용.
-  verified        INTEGER NOT NULL DEFAULT 0  -- 1=최초 등록 시 공공데이터에서 실존·상호 대조 성공, 0=미확인(공공API 장애 등). 개인정보 아님.
+  verified        INTEGER NOT NULL DEFAULT 0, -- 1=최초 등록 시 공공데이터에서 실존·상호 대조 성공, 0=미확인(공공API 장애 등). 개인정보 아님.
+  deregistered_at INTEGER              -- 등록 해제 시각(NULL=활성). 해제는 즉시 삭제가 아니라 **30일 휴지통**이다(§4.12):
+                                       -- 담당자에게는 즉시 '없는 가게'(public-key 404·목록 제외)지만, 소유 증명과
+                                       -- 원장 백업 되찾기는 30일간 그대로 된다. 30일이 지나면 TTL cron이 이 행과
+                                       -- ledger_backup을 함께 삭제한다. 활성 조회는 전부 `deregistered_at IS NULL`.
 );
 
 CREATE TABLE IF NOT EXISTS deposit_summary (
@@ -24,14 +28,21 @@ CREATE TABLE IF NOT EXISTS deposit_summary (
                                        -- 로컬파트 없음 → 개인정보 아님(§0 허용). 기관명은 자칭이라 서버가
                                        -- 검증할 수 없으므로, 검증 가능한 이 도메인을 음식점 앱에 함께 보내
                                        -- 사장님이 눈으로 대조하게 한다(PROTOCOL §4.11). 미인증·구버전 토큰이면 NULL.
-  batch_hash      TEXT NOT NULL,       -- 배치 무결성 해시
+  batch_hash      TEXT NOT NULL,       -- 배치 무결성 해시(canonical "name|dept|amount" — 불변)
+  dedupe_key      TEXT,                -- 중복 판정 키(§4.7): 접수번호가 있으면 'sid:<submission_id>',
+                                       -- 없으면(구버전 담당자 웹) 'bh:<batch_hash>|<year_month>'.
+                                       -- UNIQUE(restaurant_id, dedupe_key) — 같은 내용이라도 새 접수번호면 새 건이 된다.
   status          TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING|APPROVED|REJECTED|EXPIRED(미수령 72시간 경과)
   created_at      INTEGER NOT NULL,
   processed_at    INTEGER              -- APPROVED/REJECTED/EXPIRED 전이 시각(TTL 정리 30일 기준)
 );
 CREATE INDEX IF NOT EXISTS idx_summary_restaurant ON deposit_summary(restaurant_id, status);
--- 감사 항목: 동일 (restaurant_id,batch_hash) 중복 제출 방지(멱등 처리와 짝을 이룸).
-CREATE UNIQUE INDEX IF NOT EXISTS idx_summary_batch ON deposit_summary(restaurant_id, batch_hash);
+-- 중복 제출 방지(멱등 처리와 짝을 이룸). 2026-09부터 판정 키는 batch_hash가 아니라 dedupe_key다 —
+-- 예전 UNIQUE(restaurant_id,batch_hash)는 "같은 명단을 별도로 결제해 다시 보내는" 정상 업무를
+-- 영구히 삼켰고(달이 바뀌어도 막혔다), 담당자에게는 성공처럼 보였다.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_summary_dedupe ON deposit_summary(restaurant_id, dedupe_key);
+-- batch_hash는 이제 UNIQUE가 아니다 — 조회·운영 진단용 인덱스만 둔다.
+CREATE INDEX IF NOT EXISTS idx_summary_batch_lookup ON deposit_summary(restaurant_id, batch_hash);
 -- PENDING 72시간 만료 스캔(inbox 이중 방어·TTL cron)을 위한 인덱스.
 CREATE INDEX IF NOT EXISTS idx_summary_status_created ON deposit_summary(status, created_at);
 
@@ -99,6 +110,9 @@ CREATE TABLE IF NOT EXISTS agency_keycheck (
   restaurant_id TEXT NOT NULL,
   fingerprint   TEXT NOT NULL,   -- "ABCD-EF12" (SHA-256(SPKI) hex 앞 8자, 대문자 4자씩 하이픈)
   checked_at    INTEGER NOT NULL,
+  agency_domain TEXT,            -- 기록을 남긴 담당자가 OTP 인증한 이메일 도메인(로컬파트 없음 — 개인정보 아님).
+                                 -- 기관·부서명은 담당자 자칭이라, 남의 기관명을 적어 조회하면 그 부서의 거래처·지문을
+                                 -- 읽어갈 수 있었다. 조회는 **토큰 도메인과 같은 행만** 반환한다(NULL 레거시 행은 제외).
   PRIMARY KEY (institution, department, restaurant_id)
 );
 CREATE INDEX IF NOT EXISTS idx_keycheck_dept ON agency_keycheck(institution, department);

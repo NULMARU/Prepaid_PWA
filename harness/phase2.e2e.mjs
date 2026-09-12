@@ -79,7 +79,9 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
         .filter(r => !kw || r.name.includes(kw));
     }
   };
-  const badCipher = { ct: 'x', encKey: 'y' };
+  // 암호화 왕복이 필요 없는 시나리오용 더미 암호문. 2026-09부터 서버가 ciphertext를
+  // 화이트리스트(alg?·encKey·iv·ct)로 검사하므로 **세 필수 키를 모두** 갖춰야 한다.
+  const badCipher = { ct: 'x', encKey: 'y', iv: 'z' };
 
   // 1) 음식점 앱: 키페어 생성 → 공개키 등록
   const kp = await genKeyPair();
@@ -220,7 +222,7 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
   ok(r.status === 200, 'register-key 테스트: deregister 인증 후 200');
 
   r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID3, restaurant_name: '테스트', public_key: spki3b });
-  ok(r.status === 200, 'register-key: deregister 후 재등록(신규 최초 등록 취급) 200');
+  ok(r.status === 200 && (await r.json()).reactivated === true, 'register-key: deregister 후 같은 열쇠 재등록은 되돌리기 200(reactivated:true, §4.12)');
   r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: 'MGT-LEN', restaurant_name: 'x', public_key: 'A'.repeat(8193) });
   ok(r.status === 400, 'register-key: public_key 길이 상한(8KB) 초과 400');
 
@@ -291,7 +293,7 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
   const dumpLedger = store._dump();
   ok([...dumpLedger.ledgerBackups.values()].every(b => b.blob !== 'plaintext'), 'ledger-backup: 서버 저장본은 클라이언트 암호문 그대로(서버는 내용을 알지 못함)');
 
-  // 13b) ledger_backup 삭제 경로(감사 항목 2): deregister 시 백업도 함께 삭제
+  // 13b) deregister와 ledger_backup(§4.12): 해제는 즉시 삭제가 아니라 30일 휴지통이다.
   const RID6B = 'MGT-0006B';
   const kp6B = await genKeyPair();
   const spki6B = b64(await subtle.exportKey('spki', kp6B.publicKey));
@@ -303,10 +305,12 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
   const tok6Bd = await getAuthToken(store, env, RID6B, kp6B.privateKey);
   r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RID6B, auth_token: tok6Bd });
   ok(r.status === 200, 'ledger-backup 삭제: deregister 200');
-  // deregister로 공개키가 사라지면 더는 챌린지를 발급받을 수 없어(§4.1) 백업 조회 자체가 불가능해진다.
+  // 2026-09 변경(§4.12): 해제는 즉시 삭제가 아니라 **30일 휴지통**이다. 그래서 해제 뒤에도
+  // 소유 증명(챌린지 발급)은 그대로 되고, 그 토큰으로 백업을 되찾을 수 있다 — 예전 구현은
+  // 해제 순간 공개키·백업을 함께 지워 "일단 중단" 한 번으로 복구 경로가 닫혔다.
   r = await call(store, env, 'POST', '/api/challenge', { restaurant_id: RID6B });
-  ok(r.status === 404, 'ledger-backup 삭제: deregister 후에는 챌린지 발급도 불가(공개키 없음 — 백업을 되찾을 길이 없음을 방증)');
-  ok(!store._dump().ledgerBackups.has(RID6B), 'ledger-backup 삭제: deregister 시 ledger_backup도 함께 삭제됨(D1/메모리)');
+  ok(r.status === 200, 'ledger-backup 휴지통: deregister 후에도 챌린지 발급 가능(소유 증명 유지 — 백업을 되찾을 수 있음)');
+  ok(store._dump().ledgerBackups.has(RID6B), 'ledger-backup 휴지통: deregister 후에도 원장 백업은 30일간 보관됨');
 
   // POST /api/ledger-backup/delete: 무인증 401, 인증 후 200, 삭제 후 조회 404
   const RID6C = 'MGT-0006C';
@@ -775,18 +779,33 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
   const pk9b = await r.json();
   ok(pk9b.contact.kakao_link === null && pk9b.contact.email === null, 'contact: 빈 문자열 제출 후 연락처가 null로 삭제됨');
 
-  // deregister 시 연락처도 함께 소멸(같은 행이므로 행 삭제로 자동 삭제) — 재등록 후 연락처가 비어있는지로 확인.
+  // 해제(30일 휴지통, §4.12) 중에는 연락처가 외부에 보이지 않지만(public-key 404), **같은 열쇠로
+  // 되돌리면** 연락처도 그대로 살아난다 — 같은 기기·같은 사장님이기 때문이다.
   const tok9e = await getAuthToken(store, env, RID9, kp9.privateKey);
   r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RID9, auth_token: tok9e, kakao_link: 'https://open.kakao.com/o/xyz789' });
   ok(r.status === 200, 'contact: deregister 전 연락처 재등록 200');
   const tok9f = await getAuthToken(store, env, RID9, kp9.privateKey);
   r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RID9, auth_token: tok9f });
   ok(r.status === 200, 'contact: deregister 200');
+  r = await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RID9);
+  ok(r.status === 404, 'contact: 해제 중에는 연락처가 담당자에게 보이지 않음(public-key 404)');
   r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID9, restaurant_name: '연락처테스트', public_key: spki9 });
-  ok(r.status === 200, 'contact: deregister 후 재등록(신규 취급) 200');
+  const rj9re = await r.json();
+  ok(r.status === 200 && rj9re.reactivated === true, 'contact: deregister 후 같은 열쇠 재등록은 되돌리기(reactivated:true)');
   r = await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RID9);
   const pk9c = await r.json();
-  ok(pk9c.contact.kakao_link === null && pk9c.contact.email === null, 'contact: deregister로 이전 연락처가 소멸(재등록 후 null)');
+  ok(pk9c.contact.kakao_link === 'https://open.kakao.com/o/xyz789', 'contact: 같은 열쇠 되돌리기에서는 연락처가 보존됨');
+  // 반대로 해제된 가게를 '다른 열쇠'가 선착순으로 인수하면(다음 주인) 옛 연락처는 물려받지 않는다.
+  const tok9g = await getAuthToken(store, env, RID9, kp9.privateKey);
+  r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RID9, auth_token: tok9g });
+  ok(r.status === 200, 'contact: 인수 시나리오용 재해제 200');
+  const kp9b = await genKeyPair();
+  const spki9b = b64(await subtle.exportKey('spki', kp9b.publicKey));
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RID9, restaurant_name: '연락처테스트', public_key: spki9b });
+  ok(r.status === 200 && !(await r.json()).reactivated, 'contact: 해제 후 다른 열쇠 등록은 선착순 신규 등록(되돌리기 아님)');
+  r = await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RID9);
+  const pk9d = await r.json();
+  ok(pk9d.contact.kakao_link === null && pk9d.contact.email === null, 'contact: 다른 열쇠 인수 시 이전 연락처는 소멸(다음 주인이 물려받지 않음)');
 
   // 19) 비식별 집계 통계 + 관리자 통계 API + 피드백 수신
   // 현재 연월(UTC) — 서버의 stats_counter 월별 발송 키 및 admin this_month와 동일 규칙.
@@ -1537,6 +1556,342 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
   ok(chLimited, 'challenge: 강화된 레이트리밋(IP당 분당 20회) 초과 시 429');
   const chOther = await handle(new Request('http://x/api/registered?ids=ch-other', { method: 'GET', headers: { 'CF-Connecting-IP': '203.0.113.222' } }), env, store);
   ok(chOther.status === 200, 'challenge: 챌린지 전용 레이트리밋은 다른 엔드포인트에 영향 없음');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 2026-09(beta.48) — 접수번호·원자 저장·ciphertext 화이트리스트·등록 해제 휴지통·권한 경계
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // 35) 접수번호(submission_id)와 중복 판정(§4.7 개정)
+  const RIDS = 'MGT-SID-1';
+  const kSid = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDS, restaurant_name: '접수번호식당', public_key: kSid.spki });
+  ok(r.status === 200, 'submission_id: 테스트용 음식점 등록 200');
+  const submitSid = (submission_id, batch_hash, year_month = '2026-09') => call(store, env, 'POST', '/api/submit', {
+    summary: {
+      institution: '서울특별시 광진구', department: '총무과', restaurant_id: RIDS, restaurant_name: '접수번호식당',
+      year_month, total_amount: 50000, member_count: 1, batch_hash,
+      ...(submission_id ? { submission_id } : {})
+    },
+    blob: { restaurant_id: RIDS, ciphertext: badCipher }
+  });
+  const sidRows = () => store._dump().summaries.filter(x => x.restaurant_id === RIDS);
+
+  // 35-a) 같은 접수번호 재제출(담당자 웹의 [실패 재시도])은 멱등 — 행이 늘지 않는다.
+  r = await submitSid('sub-11111111-aaaa', 'h-sid-same');
+  const sidA = await r.json();
+  ok(r.status === 200 && !!sidA.summary_id && !sidA.deduped, 'submission_id: 최초 제출 200(신규 — deduped 없음)');
+  r = await submitSid('sub-11111111-aaaa', 'h-sid-same');
+  const sidA2 = await r.json();
+  ok(r.status === 200 && sidA2.deduped === true && sidA2.summary_id === sidA.summary_id && sidA2.status === 'PENDING',
+    'submission_id: 같은 접수번호 재제출은 deduped(재시도로만 발생)');
+  ok(sidRows().length === 1, 'submission_id: 같은 접수번호 재제출로 새 행이 생기지 않음');
+
+  // 35-b) 새 접수번호면 **같은 내용·같은 달이어도 새 건**이다(별도 결제분 재전송 — beta.48 핵심 변경).
+  r = await submitSid('sub-22222222-bbbb', 'h-sid-same');
+  const sidB = await r.json();
+  ok(r.status === 200 && !!sidB.summary_id && !sidB.deduped && sidB.summary_id !== sidA.summary_id,
+    'submission_id: 새 접수번호는 같은 명단·같은 달이어도 새 건으로 접수(구현 전에는 조용히 삼켜졌다)');
+  ok(sidRows().length === 2, 'submission_id: 새 접수번호 제출로 행이 2건');
+  r = await inboxOf(store, env, RIDS, kSid.kp.privateKey);
+  const inboxSid = await r.json();
+  ok(inboxSid.length === 2 && inboxSid.every(x => x.status === 'PENDING'),
+    'submission_id: 두 건 모두 PENDING으로 수신함에 노출(중복 여부는 음식점이 통장으로 판단)');
+
+  // 35-c) 구버전 담당자 웹(접수번호 없음): 같은 달 같은 내용은 멱등, 달이 바뀌면 새 건.
+  const RIDS2 = 'MGT-SID-2';
+  const kSid2 = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDS2, restaurant_name: '구버전식당', public_key: kSid2.spki });
+  const submitLegacy = (batch_hash, year_month) => call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RIDS2, restaurant_name: '구버전식당', year_month, total_amount: 1000, member_count: 1, batch_hash },
+    blob: { restaurant_id: RIDS2, ciphertext: badCipher }
+  });
+  r = await submitLegacy('h-legacy-same', '2026-09');
+  const legA = await r.json();
+  ok(r.status === 200 && !legA.deduped, '구버전 제출(접수번호 없음): 최초 200');
+  r = await submitLegacy('h-legacy-same', '2026-09');
+  const legB = await r.json();
+  ok(legB.deduped === true && legB.summary_id === legA.summary_id,
+    '구버전 제출: 같은 달 같은 내용은 여전히 멱등(deduped)');
+  r = await submitLegacy('h-legacy-same', '2026-10');
+  const legC = await r.json();
+  ok(!legC.deduped && legC.summary_id !== legA.summary_id,
+    '구버전 제출: 달이 바뀌면 같은 내용도 새 건(매달 같은 명단을 보내는 정상 운용을 막지 않음)');
+  ok(store._dump().summaries.filter(x => x.restaurant_id === RIDS2).length === 2, '구버전 제출: 총 2건(같은 달 1 + 다음 달 1)');
+
+  // 35-d) 접수번호 형식 검증 — 조용히 무시하면 "새 번호로 보냈다"고 믿은 재전송이 삼켜진다.
+  for (const bad of ['short', 'has space', 'bad_id_with_underscore', 'x'.repeat(65)]) {
+    r = await submitSid(bad, 'h-sid-bad');
+    ok(r.status === 400 && (await r.json()).error === 'submission_id 형식 오류',
+      'submission_id: 형식 오류 400 — ' + JSON.stringify(bad.length > 20 ? bad.slice(0, 12) + '…' : bad));
+  }
+  ok(sidRows().length === 2, 'submission_id: 형식 오류 제출은 어떤 행도 만들지 않음');
+
+  // 36) 원자 저장(§4.7) — summary·blob·consent는 전부 저장되거나 전부 저장되지 않는다.
+  const RIDAT = 'MGT-ATOMIC-1';
+  const kAt = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDAT, restaurant_name: '원자식당', public_key: kAt.spki });
+  const atomicBody = {
+    summary: { institution: '서울특별시 광진구', department: '회계과', restaurant_id: RIDAT, restaurant_name: '원자식당', year_month: '2026-09', total_amount: 7000, member_count: 1, batch_hash: 'h-atomic', submission_id: 'sub-atomic-0001' },
+    blob: { restaurant_id: RIDAT, ciphertext: badCipher },
+    consent: { institution: '서울특별시 광진구', department: '회계과', year_month: '2026-09' }
+  };
+  const d36a = store._dump();
+  const [sBefore, bBefore, cBefore] = [d36a.summaries.length, d36a.blobs.length, d36a.consents.length];
+  store._failNextBlobInsert();
+  r = await call(store, env, 'POST', '/api/submit', atomicBody);
+  ok(r.status === 500 && (await r.json()).error === 'internal', '원자 저장: 저장 고장 주입 시 500(internal)');
+  const d36b = store._dump();
+  ok(d36b.summaries.length === sBefore && d36b.blobs.length === bBefore && d36b.consents.length === cBefore,
+    '원자 저장: 실패 시 summary·blob·consent 어느 것도 남지 않음(부분 저장 0건)');
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDAT);
+  ok((await r.json()).count === 0, '원자 저장: 실패 후 수신함 0건(열 수 없는 유령 알림 없음)');
+  // 같은 접수번호로 정상 재시도 → 막다른 길 없이 정상 접수된다.
+  r = await call(store, env, 'POST', '/api/submit', atomicBody);
+  const atOk = await r.json();
+  ok(r.status === 200 && !!atOk.summary_id && !atOk.deduped, '원자 저장: 고장 뒤 같은 접수번호 재시도는 정상 신규 접수 200');
+  const d36c = store._dump();
+  ok(d36c.summaries.length === sBefore + 1 && d36c.blobs.length === bBefore + 1 && d36c.consents.length === cBefore + 1,
+    '원자 저장: 재시도 성공 시 summary·blob·consent가 각각 1건씩 저장');
+  r = await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + RIDAT);
+  ok((await r.json()).count === 1, '원자 저장: 재시도 후 수신함 1건');
+
+  // 36-b) 검증은 모두 '쓰기 앞'에서 끝난다 — consent 길이 초과가 400이면 요약·암호문도 남지 않는다.
+  const d36d = store._dump();
+  const [sBefore2, bBefore2] = [d36d.summaries.length, d36d.blobs.length];
+  r = await call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RIDAT, restaurant_name: '원자식당', year_month: '2026-09', total_amount: 100, member_count: 1, batch_hash: 'h-atomic-consent', submission_id: 'sub-atomic-0002' },
+    blob: { restaurant_id: RIDAT, ciphertext: badCipher },
+    consent: { institution: '가'.repeat(201), department: '회계과', year_month: '2026-09' }
+  });
+  ok(r.status === 400, '검증 선행: consent 길이 초과는 400');
+  const d36e = store._dump();
+  ok(d36e.summaries.length === sBefore2 && d36e.blobs.length === bBefore2,
+    '검증 선행: consent 검증 실패 시 summary·blob도 저장되지 않음(예전엔 요약만 남아 재전송이 dedupe로 막혔다)');
+
+  // 37) 고아 요약 복구 — PENDING·72시간 이내·암호문 없음일 때만.
+  const RIDR = 'MGT-REPAIR-1';
+  const kRep = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDR, restaurant_name: '복구식당', public_key: kRep.spki });
+  const submitRep = (submission_id, batch_hash) => call(store, env, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 광진구', department: '총무과', restaurant_id: RIDR, restaurant_name: '복구식당', year_month: '2026-09', total_amount: 3000, member_count: 1, batch_hash, submission_id },
+    blob: { restaurant_id: RIDR, ciphertext: badCipher }
+  });
+  const countInbox = async (rid) => (await (await call(store, env, 'GET', '/api/inbox-count?restaurant_id=' + rid)).json()).count;
+  const dropBlob = (summary_id) => { const d = store._dump(); const i = d.blobs.findIndex(b => b.summary_id === summary_id); if (i !== -1) d.blobs.splice(i, 1); };
+
+  // 37-a) 살아 있는 고아(PENDING·72h 이내)는 같은 접수번호 재제출로 되살아난다.
+  r = await submitRep('sub-repair-0001', 'h-repair-1');
+  const repA = await r.json();
+  dropBlob(repA.summary_id); // 예전 구현의 부분 저장 잔재를 그대로 재현
+  ok(await countInbox(RIDR) === 0, '고아 복구: 복구 전에는 수신함 0건(요약만 있고 암호문이 없어 열 수 없다)');
+  r = await submitRep('sub-repair-0001', 'h-repair-1');
+  const repB = await r.json();
+  ok(r.status === 200 && repB.deduped === true && repB.repaired === true && repB.status === 'PENDING' && repB.summary_id === repA.summary_id,
+    '고아 복구: 같은 접수번호 재제출로 암호문 복구(repaired:true)');
+  ok(await countInbox(RIDR) === 1, '고아 복구: 복구 후 수신함 1건(막다른 길 해소)');
+  ok(store._dump().summaries.filter(x => x.restaurant_id === RIDR).length === 1, '고아 복구: 새 summary 행은 생기지 않음');
+
+  // 37-b) 이미 처리된 건(APPROVED)에는 **절대** 암호문을 다시 만들지 않는다(보존 정책 §6).
+  r = await submitRep('sub-repair-0002', 'h-repair-2');
+  const repC = await r.json();
+  const tokRep = await getAuthToken(store, env, RIDR, kRep.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/approve', { summary_id: repC.summary_id, status: 'APPROVED', restaurant_id: RIDR, auth_token: tokRep });
+  ok(r.status === 200, '고아 복구: 승인 200(승인 즉시 암호문 파기)');
+  r = await submitRep('sub-repair-0002', 'h-repair-2');
+  const repD = await r.json();
+  ok(r.status === 200 && repD.deduped === true && repD.status === 'APPROVED' && !('repaired' in repD),
+    '고아 복구: APPROVED 건 재제출은 repaired 없이 상태만 알림');
+  ok(!store._dump().blobs.some(b => b.summary_id === repC.summary_id),
+    '고아 복구: 승인으로 파기된 암호문은 재제출로 되살아나지 않음(§6 보존 정책 우회 차단)');
+
+  // 37-c) 72시간이 지난 PENDING 고아도 복구하지 않는다(이미 만료 대상).
+  r = await submitRep('sub-repair-0003', 'h-repair-3');
+  const repE = await r.json();
+  dropBlob(repE.summary_id);
+  store._dump().summaries.find(s => s.id === repE.summary_id).created_at = Date.now() - (72 * 60 * 60 * 1000 + 60 * 1000);
+  r = await submitRep('sub-repair-0003', 'h-repair-3');
+  const repF = await r.json();
+  ok(r.status === 200 && repF.deduped === true && !('repaired' in repF),
+    '고아 복구: 72시간 지난 고아는 복구하지 않음(repaired 없음)');
+  ok(!store._dump().blobs.some(b => b.summary_id === repE.summary_id), '고아 복구: 72시간 지난 고아에는 암호문을 만들지 않음');
+  // cron이 EXPIRED로 전이시킨 뒤에도 마찬가지다(상태 조건으로도 한 번 더 막힌다).
+  await store.cleanupTTL(Date.now());
+  ok((store._dump().summaries.find(s => s.id === repE.summary_id) || {}).status === 'EXPIRED', '고아 복구: cron이 해당 건을 EXPIRED로 전이');
+  r = await submitRep('sub-repair-0003', 'h-repair-3');
+  const repG = await r.json();
+  ok(r.status === 200 && repG.deduped === true && repG.status === 'EXPIRED' && !('repaired' in repG),
+    '고아 복구: EXPIRED 건 재제출도 repaired 없이 상태만 알림');
+  ok(!store._dump().blobs.some(b => b.summary_id === repE.summary_id), '고아 복구: EXPIRED 건에도 암호문을 만들지 않음');
+
+  // 38) ciphertext 화이트리스트 — 평문 필드가 끼어들 자리를 구조적으로 없앤다(§0 불변식).
+  const RIDW = 'MGT-WHITELIST-1';
+  const kWl = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDW, restaurant_name: '화이트식당', public_key: kWl.spki });
+  const submitCt = (ciphertext, sid) => call(store, env, 'POST', '/api/submit', {
+    summary: { restaurant_id: RIDW, restaurant_name: '화이트식당', year_month: '2026-09', total_amount: 100, member_count: 1, batch_hash: 'h-wl-' + sid, submission_id: sid },
+    blob: { restaurant_id: RIDW, ciphertext }
+  });
+  const CT4 = { alg: 'RSA-OAEP-2048+AES-256-GCM', encKey: 'QUFBQQ==', iv: 'QkJCQg==', ct: 'Q0NDQw==' };
+  r = await submitCt({ ...CT4, phone: '010-1234-5678' }, 'sub-wl-00000001');
+  ok(r.status === 400 && (await r.json()).error === 'ciphertext 형식 오류(허용되지 않은 필드)',
+    '화이트리스트: 허용 밖 필드(phone)가 하나라도 있으면 400');
+  ok(!store._dump().blobs.some(b => String(b.ciphertext).includes('010-1234-5678')),
+    '화이트리스트: 거부된 요청의 평문 전화번호는 저장소 어디에도 없음(불변식 4)');
+  r = await submitCt({ ...CT4, items: [{ name: '홍길동', amount: 1 }] }, 'sub-wl-00000002');
+  ok(r.status === 400, '화이트리스트: 평문 명단(items)을 끼워 넣어도 400');
+  r = await submitCt(CT4, 'sub-wl-00000003');
+  ok(r.status === 200, '화이트리스트: 정상 4키(alg·encKey·iv·ct) 200');
+  r = await submitCt({ encKey: CT4.encKey, iv: CT4.iv, ct: CT4.ct }, 'sub-wl-00000004');
+  const wl3 = await r.json();
+  ok(r.status === 200 && !!wl3.summary_id, '화이트리스트: alg 없는 3키도 200(alg는 선택)');
+  const wlStored = JSON.parse(store._dump().blobs.find(b => b.summary_id === wl3.summary_id).ciphertext);
+  ok(Object.keys(wlStored).sort().join(',') === 'ct,encKey,iv', '화이트리스트: 저장값은 허용 키만으로 재조립됨(alg 없는 3키)');
+  r = await submitCt({ encKey: CT4.encKey, ct: CT4.ct }, 'sub-wl-00000005');
+  ok(r.status === 400, '화이트리스트: iv 없는 blob은 400(필수 3키)');
+  r = await submitCt({ encKey: CT4.encKey, iv: CT4.iv, ct: '' }, 'sub-wl-00000006');
+  ok(r.status === 400, '화이트리스트: 빈 ct는 400');
+  r = await submitCt({ encKey: CT4.encKey, iv: CT4.iv, ct: '평문이 그대로 들어온 경우' }, 'sub-wl-00000007');
+  ok(r.status === 400, '화이트리스트: base64가 아닌 ct는 400(평문 유입 차단)');
+  r = await submitCt({ ...CT4, alg: 'x'.repeat(65) }, 'sub-wl-00000008');
+  ok(r.status === 400, '화이트리스트: alg 길이 상한(64) 초과 400');
+  r = await submitCt('not-an-object', 'sub-wl-00000009');
+  ok(r.status === 400, '화이트리스트: 객체가 아닌 ciphertext는 400');
+
+  // 39) 관할(district) 변경 권한 경계(F5) — 공개키는 공개값이라 '같은 키 재등록'만으로 관할이
+  //     바뀌면 남이 그 가게를 다른 구의 담당자 목록으로 옮길 수 있다(명단 오배송 경로).
+  const RIDF5 = 'MGT-F5-1';
+  const kF5 = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDF5, restaurant_name: '권한식당', public_key: kF5.spki });
+  ok(r.status === 200, 'district 권한: district 없이 최초 등록 200(레거시 상태 재현)');
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDF5, restaurant_name: '권한식당', public_key: kF5.spki, district: '서울특별시 광진구' });
+  ok(r.status === 200 && store._dump().keys.get(RIDF5).district === '서울특별시 광진구',
+    'district 권한: 저장값이 비어 있으면 무인증 갱신 허용(레거시 자기치유 경로 유지)');
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDF5, restaurant_name: '권한식당', public_key: kF5.spki, district: '서울특별시 성동구' });
+  ok(r.status === 401 && (await r.json()).error === 'auth_required',
+    'district 권한: 저장값이 있는데 다른 값으로 바꾸려면 소유 증명 필요(401 auth_required)');
+  ok(store._dump().keys.get(RIDF5).district === '서울특별시 광진구', 'district 권한: 401 요청은 관할을 바꾸지 못함');
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDF5, restaurant_name: '권한식당', public_key: kF5.spki, district: '  서울특별시   광진구 ' });
+  ok(r.status === 200, 'district 권한: 같은 값(공백 변형 포함) 재등록은 무인증 200(앱 재시도 경로 보존)');
+  const tokF5 = await getAuthToken(store, env, RIDF5, kF5.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDF5, restaurant_name: '권한식당', public_key: kF5.spki, district: '서울특별시 성동구', auth_token: tokF5 });
+  ok(r.status === 200 && store._dump().keys.get(RIDF5).district === '서울특별시 성동구',
+    'district 권한: 소유 증명 토큰이 있으면 같은 키 재등록으로도 관할 갱신 200');
+
+  // 40) 열쇠 지문 확인 이력의 도메인 결속(F5) — 기관·부서명은 담당자 자칭이라, 남의 기관명을
+  //     적어 조회하면 그 부서가 어느 음식점과 거래하는지·지문까지 읽어갈 수 있었다.
+  const tokDomGu = await agencyTokenFor('keycheck-gu@gwangjin.go.kr');
+  const tokDomAc = await agencyTokenFor('keycheck-ac@univ.ac.kr');
+  const RIDKD = 'MGT-KCDOM-1';
+  const kKd = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDKD, restaurant_name: '도메인지문식당', public_key: kKd.spki });
+  const fpKd = await fingerprintOf(kKd.spki);
+  const KCQ = '/api/agency/keychecks?institution=' + encodeURIComponent('서울특별시 광진구') + '&department=' + encodeURIComponent('세무과');
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 광진구', department: '세무과', restaurant_id: RIDKD, fingerprint: fpKd }, { 'X-Agency-Token': tokDomGu });
+  ok(r.status === 200, 'keycheck 도메인: 구청 도메인 토큰으로 확인 기록 저장 200');
+  r = await callH(store, env, 'GET', KCQ, undefined, { 'X-Agency-Token': tokDomGu });
+  ok(r.status === 200 && (await r.json()).keychecks.length === 1, 'keycheck 도메인: 같은 도메인 토큰으로는 자기 기록이 보임');
+  r = await callH(store, env, 'GET', KCQ, undefined, { 'X-Agency-Token': tokDomAc });
+  ok(r.status === 200 && (await r.json()).keychecks.length === 0,
+    'keycheck 도메인: 같은 기관·부서명을 적어도 다른 도메인 토큰에는 보이지 않음(이력 유출 차단)');
+  // 레거시 행(agency_domain 없음)은 어느 도메인의 것인지 알 수 없으므로 돌려주지 않는다.
+  await store.upsertKeycheck({ institution: '서울특별시 광진구', department: '세무과', restaurant_id: 'MGT-KC-LEGACY', fingerprint: 'AAAA-BBBB', checked_at: Date.now() });
+  r = await callH(store, env, 'GET', KCQ, undefined, { 'X-Agency-Token': tokDomGu });
+  const kcDomList = await r.json();
+  ok(kcDomList.keychecks.length === 1 && kcDomList.keychecks[0].restaurant_id === RIDKD,
+    'keycheck 도메인: agency_domain 없는 레거시 행은 조회에서 제외(재확인 1회로 채워진다)');
+
+  // 41) 등록 해제 = 30일 휴지통(§4.12) 종합 시나리오
+  const RIDT = 'MGT-TRASH-1';
+  const kT = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDT, restaurant_name: '휴지통식당', public_key: kT.spki, district: '서울특별시 광진구' });
+  ok(r.status === 200, '휴지통: 등록 200(관할 포함)');
+  let tokT = await getAuthToken(store, env, RIDT, kT.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup', { restaurant_id: RIDT, auth_token: tokT, blob: 'dHJhc2gtYmFja3Vw', blob_hash: 'ht-1' });
+  ok(r.status === 200, '휴지통: 해제 전 원장 백업 업로드 200');
+  tokT = await getAuthToken(store, env, RIDT, kT.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RIDT, auth_token: tokT });
+  const deregJ = await r.json();
+  ok(r.status === 200 && deregJ.ok === true && typeof deregJ.backup_kept_until === 'number'
+    && deregJ.backup_kept_until - Date.now() > 29 * 24 * 60 * 60 * 1000,
+    '휴지통: 해제 응답에 backup_kept_until(약 30일 뒤)이 실린다');
+  ok((await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RIDT)).status === 404, '휴지통: 해제 후 public-key 404(담당자가 보낼 수 없음)');
+  r = await call(store, env, 'GET', '/api/registered?ids=' + RIDT);
+  ok((await r.json()).length === 0, '휴지통: 해제 후 /api/registered에서 제외');
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시') + '&sigungu=' + encodeURIComponent('광진구'));
+  ok(!(await r.json()).restaurants.some(x => x.restaurant_id === RIDT), '휴지통: 해제 후 관할 목록에서 제외');
+  r = await callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 광진구', department: '세무과', restaurant_id: RIDT, fingerprint: await fingerprintOf(kT.spki) }, { 'X-Agency-Token': tokDomGu });
+  ok(r.status === 404, '휴지통: 해제된 가게는 지문 확인 대상이 아님(404)');
+  tokT = await getAuthToken(store, env, RIDT, kT.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RIDT, auth_token: tokT, kakao_link: 'https://open.kakao.com/o/trash' });
+  ok(r.status === 404, '휴지통: 해제 상태에서는 연락처 등록도 404');
+  tokT = await getAuthToken(store, env, RIDT, kT.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup', { restaurant_id: RIDT, auth_token: tokT, blob: 'dHJhc2gtMg==', blob_hash: 'ht-2' });
+  ok(r.status === 409 && (await r.json()).error === 'deregistered',
+    '휴지통: 해제 상태에서 새 백업 저장은 409(30일 뒤 지워질 자리에 "백업해 뒀다"는 안심을 주지 않는다)');
+  tokT = await getAuthToken(store, env, RIDT, kT.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup/get', { restaurant_id: RIDT, auth_token: tokT });
+  const trashGet = await r.json();
+  ok(r.status === 200 && trashGet.blob === 'dHJhc2gtYmFja3Vw', '휴지통: 해제 후에도 30일 안에는 백업을 되찾을 수 있다(복구 경로 유지)');
+
+  // 41-b) 같은 열쇠로 되돌리기 → 목록 복귀 + 백업 유지 + 백업 저장 재개
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDT, restaurant_name: '휴지통식당', public_key: kT.spki, district: '서울특별시 광진구' });
+  ok(r.status === 200 && (await r.json()).reactivated === true, '휴지통: 같은 열쇠 재등록은 되돌리기(reactivated:true)');
+  ok((await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RIDT)).status === 200, '휴지통: 되돌린 뒤 public-key 200');
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시') + '&sigungu=' + encodeURIComponent('광진구'));
+  ok((await r.json()).restaurants.some(x => x.restaurant_id === RIDT), '휴지통: 되돌린 뒤 관할 목록에 다시 노출');
+  tokT = await getAuthToken(store, env, RIDT, kT.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup', { restaurant_id: RIDT, auth_token: tokT, blob: 'dHJhc2gtMw==', blob_hash: 'ht-3' });
+  ok(r.status === 200, '휴지통: 되돌린 뒤에는 백업 저장도 다시 200');
+
+  // 41-c) 해제된 가게를 '다른 열쇠'가 선착순 인수 → 새 열쇠로는 못 여는 옛 백업은 그 시점에 삭제
+  tokT = await getAuthToken(store, env, RIDT, kT.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RIDT, auth_token: tokT });
+  ok(r.status === 200, '휴지통: 인수 시나리오용 재해제 200');
+  const kT2 = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDT, restaurant_name: '휴지통식당', public_key: kT2.spki, district: '서울특별시 광진구' });
+  const takeoverJ = await r.json();
+  ok(r.status === 200 && !takeoverJ.reactivated, '휴지통: 다른 열쇠 등록은 선착순 신규 등록(되돌리기 아님)');
+  ok(!store._dump().ledgerBackups.has(RIDT), '휴지통: 인수 시점에 옛 원장 백업 삭제(새 열쇠로는 열 수 없는 데이터를 남기지 않음)');
+  ok(store._dump().keys.get(RIDT).public_key === kT2.spki && store._dump().keys.get(RIDT).deregistered_at == null,
+    '휴지통: 인수 후 공개키가 교체되고 활성 상태로 복귀');
+
+  // 41-d) 30일이 지나면 cron이 휴지통을 비운다(백업 먼저, 그다음 키 행).
+  tokT = await getAuthToken(store, env, RIDT, kT2.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup', { restaurant_id: RIDT, auth_token: tokT, blob: 'dHJhc2gtNA==', blob_hash: 'ht-4' });
+  ok(r.status === 200, '휴지통: 만료 시나리오용 백업 업로드 200');
+  tokT = await getAuthToken(store, env, RIDT, kT2.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/deregister', { restaurant_id: RIDT, auth_token: tokT });
+  ok(r.status === 200, '휴지통: 만료 시나리오용 해제 200');
+  const cleanupTrash0 = await store.cleanupTTL(Date.now());
+  ok(cleanupTrash0.purgedDeregistered === 0 && store._dump().keys.has(RIDT),
+    '휴지통: 해제 직후 cron은 아무것도 지우지 않는다(30일 유예)');
+  store._dump().keys.get(RIDT).deregistered_at = Date.now() - (30 * 24 * 60 * 60 * 1000 + 60 * 1000);
+  const cleanupTrash = await store.cleanupTTL(Date.now());
+  ok(cleanupTrash.purgedDeregistered >= 1, '휴지통: 30일 경과분은 cron이 정리(purgedDeregistered>=1)');
+  ok(!store._dump().keys.has(RIDT) && !store._dump().ledgerBackups.has(RIDT),
+    '휴지통: 30일 경과 후 공개키 행과 원장 백업이 함께 삭제됨');
+  ok((await call(store, env, 'POST', '/api/challenge', { restaurant_id: RIDT })).status === 404,
+    '휴지통: 완전 삭제 후에는 챌린지 발급도 404(되찾을 것이 남아 있지 않음)');
+
+  // 42) cron 바인딩 상한(D1은 문장당 100개) — CLEANUP_CHUNK=99 회귀 방지.
+  //     만료 전이 UPDATE는 processed_at 1개 + id N개를 함께 바인딩하므로 N=100이면 101개로 터진다.
+  //     목 store는 '한 문장에 몇 개를 묶었는가'를 세어 상한을 넘으면 D1처럼 실패한다.
+  const RIDBIG = 'MGT-CHUNK-1';
+  const kBig = await mkKey();
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDBIG, restaurant_name: '청크식당', public_key: kBig.spki });
+  const agedAt = Date.now() - (72 * 60 * 60 * 1000 + 60 * 1000);
+  for (let i = 0; i < 210; i++) {
+    await store.insertSubmission({
+      summary: { id: 'chunk-s-' + i, institution: '청크기관', department: '청크과', restaurant_id: RIDBIG, restaurant_name: '청크식당', year_month: '2026-09', total_amount: 0, member_count: 0, agency_domain: null, batch_hash: 'h-chunk-' + i, dedupe_key: 'sid:chunk-' + i, status: 'PENDING', created_at: agedAt },
+      blob: { id: 'chunk-b-' + i, summary_id: 'chunk-s-' + i, restaurant_id: RIDBIG, ciphertext: JSON.stringify(badCipher), delivered: 0, created_at: agedAt },
+      consent: null
+    });
+  }
+  const cleanupBig = await store.cleanupTTL(Date.now());
+  ok(cleanupBig.expiredSummaries >= 210, 'cron 상한: 만료 210건(청크 3개)도 예외 없이 한 번에 처리');
+  ok(store._dump().maxBindsSeen <= 100,
+    'cron 상한: 한 문장에 묶는 바인딩이 D1 상한 100 이내(CLEANUP_CHUNK=99 — 100으로 되돌리면 UPDATE가 101개로 터진다)');
+  ok(!store._dump().blobs.some(b => String(b.summary_id).startsWith('chunk-s-')), 'cron 상한: 만료 210건의 암호문이 모두 삭제됨');
 
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
