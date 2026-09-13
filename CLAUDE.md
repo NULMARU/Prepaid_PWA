@@ -97,11 +97,11 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 
 ## 현재 상태 (2026-09-12)
 
-- **⚠️ beta.48 배포 진행 중(부분)**: 커밋·푸시로 **음식점 앱만** GitHub Pages에 자동 배포된다. 서버와 담당자 웹은 계약 변경이라 **사용자 확인 후** 아래 순서로 배포할 것 — ① `server/migrations-2026-09.sql`의 7문을 `--command`로 문 단위 적용 ② `cd server && npx wrangler deploy` ③ `npx wrangler pages deploy agency-web --project-name=prepaid-agency --branch=main` ④ `node harness/phase2.live.mjs <URL>` + `bash harness/verify-all.sh` 12/12. 서버를 올리기 전까지 라이브는 구 dedupe(batch_hash)로 동작하며 앱 beta.48은 구 서버와 호환된다(앱이 보내는 `auth_token`·`transfer_id`는 구 서버가 무시). **담당자 웹은 서버보다 먼저 올리지 말 것**(접수번호 dedupe 문구가 구 서버에서는 뜻이 반대가 된다).
+- **beta.48 전 서피스 라이브 배포 완료(2026-09-13)**: D1 마이그레이션 7문(`server/migrations-2026-09.sql`) → `wrangler deploy` → 담당자 웹 `pages deploy --branch=main` 순서로 사용자가 배포했고, 라이브 스모크 11/11·verify-all 12/12·콘텐츠 문자열(앱 `beta.48`, 담당자 웹 `submission_id`, 서버 ciphertext 화이트리스트 400)로 확인했다. 라이브 D1에는 `dedupe_key`·`deregistered_at`·`agency_domain` 컬럼이 존재한다(재실행 시 ALTER는 duplicate column 오류 — 정상).
 - **필드테스트 진행 중**(2026-08~, 음식점 1개소 실사용). 현장 보고를 받아 수정·재배포하는 주기를 반복하고 있다. 전 기능 라이브: 이메일 OTP 인증 필수, 2모드 전달, 직원별 문자 동의·sms 자동 오픈, 약관·개인정보 동의 게이트(일회성), 클라우드 원장 백업(암호화·삭제 가능), 운영자 통계·의견, 도메인 통일(bapjangbu.com/app./agency. + noreply@/contact@). **운영 확인 필요**: 필드테스트 가게의 9월 명단이 구 dedupe(같은 내용 30일 차단)에 걸려 접수되지 않았을 가능성 — 담당자에게 확인하고, 그랬다면 서버 배포 후 재전송을 안내할 것.
 - **개인정보처리방침·이용약관: 확정본 적용 완료**(`docs/privacy.html`·`docs/terms.html`, 시행 2026-07-06). 검토가 끝났으므로 문서·안내서에서 **'초안'·'법률 검토 후 확정' 표현은 쓰지 않는다**. 모든 서피스(음식점 앱·담당자 웹·홈페이지·안내서 3종)가 확정본 HTML을 링크한다 — `docs/PRIVACY_POLICY.md`·`docs/TERMS.md`(같은 내용의 md 미러)는 어디서도 링크하지 않는다.
 - 남은 출시 게이트: 없음. 미결 항목은 `docs/handover/09-open-items.md`가 진실의 원본(현재 브랜드명 통일 1건).
-- **verify-all 11/12**(2026-09-12, 목 427 + 반응형 2,589 + 동 검색 25 + 음식점 e2e ok + 라이브 11 — 실패 1건은 배포 전 라이브 버전 비교뿐). 이 환경에서 Playwright는 정상 기동한다(09-01의 mach port 차단은 재현되지 않음). HEAD b60add2의 e2e는 라벨 없는 `console.error` 1건으로 실패 상태였고 beta.48에서 해소. 알려진 경미 이슈 1건: 홈 검색 입력 중 간헐 `NotFoundError`(blur 핸들러 중 innerHTML 교체 — 해당 렌더만 버려지고 다음 입력에 복구, beta.13 이전부터 존재, 사용자 체감 없음) — 추후 렌더 스케줄링 개선 후보.
+- **verify-all 12/12**(2026-09-13 배포 후, 목 427 + 반응형 2,589 + 동 검색 25 + 음식점 e2e ok + 라이브 11). 이 환경에서 Playwright는 정상 기동한다(09-01의 mach port 차단은 재현되지 않음). HEAD b60add2의 e2e는 라벨 없는 `console.error` 1건으로 실패 상태였고 beta.48에서 해소. 알려진 경미 이슈 1건: 홈 검색 입력 중 간헐 `NotFoundError`(blur 핸들러 중 innerHTML 교체 — 해당 렌더만 버려지고 다음 입력에 복구, beta.13 이전부터 존재, 사용자 체감 없음) — 추후 렌더 스케줄링 개선 후보.
 
 ## 완료 기록 (최신순)
 
