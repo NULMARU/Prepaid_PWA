@@ -330,6 +330,42 @@ async function runViewport(context, url, w, h) {
   // ── 그룹 헤더(아코디언): 손가락 터치 타겟 + 화면 안쪽 ──
   const clientW = await page.evaluate(() => document.documentElement.clientWidth);
 
+  // ── beta.49: 미등록 홈의 등록 상태 칩(닫기 없이 상시) ──
+  //   좁은 폰에서 최악은 **오프라인 칩과 동시에** 뜨는 순간이다 — 가로로 밀리지 않고 줄바꿈돼야 한다.
+  //   (시드는 등록하지 않은 가게라 '공공기관 명단 받기: 등록 안 됨' 칩이 기본으로 떠 있다.)
+  {
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await page.waitForTimeout(180);
+    const pills = await page.evaluate(() => {
+      const row = document.querySelector('.pill-row');
+      if (!row) return null;
+      return {
+        rowScroll: row.scrollWidth, rowClient: row.clientWidth,
+        items: [...row.children].map(el => { const r = el.getBoundingClientRect(); return { text: el.innerText.trim(), left: r.left, right: r.right, top: r.top, bottom: r.bottom }; })
+      };
+    });
+    check(Boolean(pills), `${w}px 홈(미등록·오프라인): 상태 칩 줄(.pill-row)이 있어야 한다`);
+    if (pills) {
+      check(pills.items.length === 2, `${w}px 홈(미등록·오프라인): 오프라인 칩과 '등록 안 됨' 칩이 함께 떠야 한다 (${pills.items.length}개)`);
+      check(pills.items.some(p => p.text.includes('공공기관 명단 받기: 등록 안 됨')),
+        `${w}px 홈(미등록·오프라인): '등록 안 됨' 칩 문구가 보여야 한다 (${JSON.stringify(pills.items.map(p => p.text))})`);
+      pills.items.forEach((p, i) => {
+        check(p.left >= -1 && p.right <= clientW + 1,
+          `${w}px 홈(미등록·오프라인): 상태 칩 ${i + 1}이 화면 밖으로 나갔다 (${Math.round(p.left)}~${Math.round(p.right)} / ${clientW})`);
+      });
+      check(pills.rowScroll <= pills.rowClient + 1, `${w}px 홈(미등록·오프라인): 칩 줄이 가로로 잘렸다 (${pills.rowScroll} > ${pills.rowClient})`);
+      if (pills.items.length === 2) {
+        const [a, b] = pills.items;
+        check(a.right <= b.left + 1 || b.top >= a.bottom - 1, `${w}px 홈(미등록·오프라인): 칩이 겹쳤다(줄바꿈되지 않음)`);
+      }
+    }
+    await noHorizontalOverflow(page, '홈(미등록·오프라인 칩)', w);
+    await context.setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForTimeout(180);
+  }
+
   // ── 홈 상단바 2행 구조(beta.17 → beta.29 개편) ──
   //   1행: 검색창 전폭(폰에서도 300px 이상, 지울 것이 있으면 ✕가 옆에 붙음) / 2행: 소속 필터 + 음성 검색
   //   상단바는 sticky를 유지하고, [장부 저장] 상시 버튼은 폐지 → [직원 목록 관리] 바로가기가 자리를 잇는다.

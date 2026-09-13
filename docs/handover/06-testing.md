@@ -14,7 +14,7 @@
 | `prepaid.e2e.js` | **실제 `index.html`** (로컬 정적 서버 + Playwright chromium) | ✅ | ❌ 전 `/api/**`를 `context.route`로 목킹 | `assert()` 호출 1,111곳 | fail-fast, `exit 1` + 성공 시 `{"ok": true, …}` JSON |
 | `phase2.e2e.mjs` | **실제 worker 코드** — `import { handle, makeMemoryStore } from '../server/src/worker.js'` | ❌ | ✅ 로직은 진짜, 저장소만 메모리 | 42개 섹션 · 최근 실행 **427 통과** | 누적 카운트, `결과: N 통과, M 실패` |
 | `phase2.live.mjs` | **배포된 라이브 서버 + 실제 D1** | ❌ | ✅ 진짜(프로덕션 D1을 실제로 쓴다) | 6단계 | 누적 카운트 |
-| `responsive.e2e.mjs` | **실제 `index.html`** 의 기하(레이아웃) | ✅ | ❌ `/api/**` 전부 `200 []` 스텁 | `check()` 318곳 × 4뷰포트(+디바이스 프로파일) · 최근 실행 **2,589 검사** | 누적, 실패 목록 출력 |
+| `responsive.e2e.mjs` | **실제 `index.html`** 의 기하(레이아웃) | ✅ | ❌ `/api/**` 전부 `200 []` 스텁 | `check()` 318곳 × 4뷰포트(+디바이스 프로파일) · 최근 실행 **2,625 검사**(beta.49) | 누적, 실패 목록 출력 |
 | `dongsearch.e2e.mjs` | **실제 `index.html`** 의 동 이름 검색(zipmap 순회 보조 경로) | ✅ | ❌ 공공 API 한글 장애를 목으로 재현 | **25 검사** | 누적 카운트 |
 
 보조: `harness/build-agencies.mjs`·`harness/build-zipmap.mjs`는 **테스트가 아니라 데이터 생성기**(기관 목록·우편번호 매핑 재생성). `verify-all.sh`가 돌리지 않는다.

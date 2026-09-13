@@ -226,12 +226,21 @@ async function runSearchOnboarding(browser, url, cors) {
     { restaurant_id: 'rid-mine-1', name: 'Harness Shop', address: '서울특별시 광진구 아차산로 399, 1층 B호 (구의동)', tel: '02-444-5555' }
   ];
   await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(results) }));
+  // beta.49: 검색 결과의 "다른 기기에서 이미 등록됨" 배지는 담당자 웹과 같은 공개 엔드포인트를 쓴다.
+  //   목이 없으면 이 호출이 라이브 서버로 새어 나간다 — 반드시 막는다.
+  await context.route('**/api/registered**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(['rid-other-1']) }));
   await context.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not found"}' }));
   await context.route('**/api/register-key**', route => {
     registerBodies.push(JSON.parse(route.request().postData() || '{}'));
     return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true}' });
   });
-  page.on('dialog', async d => { dialogs.push({ type: d.type(), message: d.message() }); await d.accept(); });
+  // beta.49: 배지가 붙은 가게를 고를 때의 확인창만 [취소]로 눌러 보는 스위치(그 외 모든 대화상자는 예전처럼 [확인]).
+  let dismissConfirmRe = null;
+  page.on('dialog', async d => {
+    dialogs.push({ type: d.type(), message: d.message() });
+    if (d.type() === 'confirm' && dismissConfirmRe && dismissConfirmRe.test(d.message())) await d.dismiss();
+    else await d.accept();
+  });
   page.on('pageerror', err => problems.push(err.message));
   // inbox-count 404(구서버 호환 경로)는 목이 일부러 내는 것이라 콘솔 소음에서 제외한다.
   page.on('console', msg => { if (['error', 'warning'].includes(msg.type()) && !/status of 404/.test(msg.text())) problems.push(`${msg.type()}: ${msg.text()}`); });
@@ -269,6 +278,39 @@ async function runSearchOnboarding(browser, url, cors) {
     await page.waitForSelector('[data-a="setup-store-pick"]');
     await assert(await count(page, '[data-a="setup-store-pick"]') === 2, 'both mocked search results should be listed');
     await assert(await count(page, '[data-a="setup-manual-toggle"]') === 1, 'the escape hatch must stay visible even when the search DOES return results');
+    // beta.49: 이미 다른 기기가 등록한 가게는 **고르기 전에** 말해 준다(예전에는 고른 뒤 401로만 알 수 있었다).
+    //   배지는 검색을 지연시키지 않고 뒤따라 붙으며, 붙는 동안 입력칸(#setupStoreName)이 교체되면 안 된다
+    //   — 폰에서 그것이 곧 한글 조합 유실이다(설계 원칙 ①). 그래서 전체 render가 아니라 슬롯만 갈아끼운다.
+    const searchInputBefore = await page.evaluateHandle(() => document.getElementById('setupStoreName'));
+    await page.waitForSelector('.badge-soft', { timeout: 8000 });
+    await assert(await count(page, '.badge-soft') === 1, 'only the already-registered result may carry the badge');
+    const badgedRow = await page.evaluate(() => {
+      const b = document.querySelector('.badge-soft');
+      const row = b && b.closest('div').parentElement;
+      return { text: b ? b.innerText.trim() : '', name: row ? row.querySelector('div').innerText.trim() : '' };
+    });
+    await assert(badgedRow.text === '다른 기기에서 이미 등록됨', `the badge must say the store is registered on another device (got ${JSON.stringify(badgedRow.text)})`);
+    await assert(badgedRow.name === '남의 김밥', `the badge must land on the already-registered row only (got ${JSON.stringify(badgedRow.name)})`);
+    await assert(await page.evaluate(el => el === document.getElementById('setupStoreName'), searchInputBefore),
+      'painting the badges must not replace the store-search input node (a full re-render would kill Korean IME input on a phone)');
+    // 배지가 붙은 가게를 고르면 확인창이 한 번 더 뜨고, [취소]면 **아무것도 고르지 않은 채 검색 결과에 그대로 남는다**.
+    //   (예전 설계인 alert는 "읽고 닫는" 문이라 잘못 고른 사장님에게 되돌릴 길을 주지 않았다.)
+    {
+      const takenPickRe = /그래도 이 가게로 계속할까요\?/;
+      const before = dialogs.length;
+      dismissConfirmRe = takenPickRe;
+      await page.locator('[data-a="setup-store-pick"]').nth(0).click();// 남의 김밥 = 이미 다른 기기가 등록한 가게
+      await page.waitForTimeout(300);
+      const asked = dialogs.slice(before).filter(d => d.type === 'confirm' && takenPickRe.test(d.message));
+      await assert(asked.length === 1, `picking a badged store must ask once before continuing (got ${asked.length})`);
+      await assert(asked[0].message.includes('다른 기기에서 이미 등록돼 있어요') && asked[0].message.includes("'내 열쇠 백업'"),
+        `the confirmation must keep the full explanation (got ${JSON.stringify(asked[0].message.slice(0, 120))})`);
+      await assert(await count(page, '[data-a="setup-next"]') === 0 && await count(page, '.setup-selected') === 0,
+        'declining the confirmation must leave the store unpicked (no selection card, no [다음])');
+      await assert(await count(page, '#setupStoreName') === 1 && await count(page, '[data-a="setup-store-pick"]') === 2,
+        'declining must leave the owner exactly where they were — in the search results, free to pick another store');
+      dismissConfirmRe = null;
+    }
     const dialogsBefore = dialogs.length;
     await page.locator('[data-a="setup-store-pick"]').nth(1).click();
     await page.waitForSelector('[data-a="setup-next"]');
@@ -1000,10 +1042,17 @@ async function main() {
   // 목 응답은 시나리오마다 바뀌므로 라우트는 한 번만 걸고 변수로 갈아끼운다.
   let storeSearchResults = [];        // 기본: 검색 결과 없음
   let inboxCountBody = null;          // null = 404(구서버 호환 경로)
+  // beta.49: 검색 결과 배지용 공개 엔드포인트. 기본은 "아무도 등록 안 함"(배지 0) — 배지가 켜지면
+  //   가게를 고를 때 안내 alert가 하나 더 붙어 다른 시나리오(401 안내 alert 1회)의 개수 단언이 흔들린다.
+  let registeredIdsBody = [];
+  let registeredFail = false;
   // 안전망: 목이 없는 중계 API 호출은 전부 500으로 끊는다 — 로컬 e2e가 라이브 서버에 절대 닿지 않게 한다.
   //   Playwright는 **나중에 등록한 라우트가 이긴다** → 이 catch-all을 먼저 걸고 개별 목을 뒤에 건다.
   await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
   await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(storeSearchResults) }));
+  await context.route('**/api/registered**', route => (registeredFail
+    ? route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"boom"}' })
+    : route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(registeredIdsBody) })));
   await context.route('**/api/inbox-count**', route => (inboxCountBody === 'netfail'
     ? route.abort('failed')
     : inboxCountBody === null
@@ -1294,9 +1343,37 @@ async function main() {
     // ── beta.48(F6): 접힘 요약은 **이 가게의 사실**만 말한다 ─────────────────────────
     //   미등록인데 "월말 자동 백업 켜짐"이 뜨면 사장님은 백업이 돌고 있다고 읽는다 — 실제로는 등록 전이라
     //   서버에 아무것도 저장되지 않는다(거짓 안심 = 폰을 잃었을 때 장부가 통째로 사라지는 길).
-    const cloudSummaryUnreg = (await page.locator('.card.settings-card:has(.fold-head[data-card="cloud"]) .fold-head .section-kicker').innerText()).trim();
-    await assert(cloudSummaryUnreg === '등록 후 사용 가능', `an unregistered store's cloud-backup card must summarise as 등록 후 사용 가능 (got ${JSON.stringify(cloudSummaryUnreg)})`);
+    const cloudCardScope = '.card.settings-card:has(.fold-head[data-card="cloud"])';
+    const cloudSummaryUnreg = (await page.locator(`${cloudCardScope} .fold-head .section-kicker`).innerText()).trim();
+    await assert(cloudSummaryUnreg === '가게 등록 후 사용 가능', `an unregistered store's cloud-backup card must summarise as 가게 등록 후 사용 가능 (got ${JSON.stringify(cloudSummaryUnreg)})`);
     await assert(!/켜짐|꺼짐/.test(cloudSummaryUnreg), 'the collapsed cloud card must not claim the monthly auto-backup is on before the store is registered');
+    // ── beta.49(e): 쓸 수 없는 조작은 회색 disabled가 아니라 **아예 뺀다** ─────────────────────
+    //   등록 전 클라우드 되찾기 카드는 제목에 🔒, 본문은 조작 없이 한 줄 + [우리 가게 등록하기] 하나뿐이다.
+    //   체크박스가 살아 있으면 사장님은 "켜 뒀으니 백업되고 있다"고 읽는다(거짓 안심 = 폰을 잃으면 장부도 잃는다).
+    const cloudTitleUnreg = (await page.locator(`${cloudCardScope} .fold-head .section-title`).innerText()).trim();
+    // 잠금 제목은 자물쇠 하나뿐이다 — 🔒와 📱이 나란히 붙으면 무엇을 말하는 아이콘인지 흐려진다.
+    await assert(cloudTitleUnreg === '🔒 폰을 잃어버려도 장부 되찾기',
+      `a locked cloud card must be titled "🔒 폰을 잃어버려도 장부 되찾기" (got ${JSON.stringify(cloudTitleUnreg)})`);
+    await openSettingsCard(page, 'cloud');
+    await assert(await count(page, `${cloudCardScope} input[type="checkbox"]`) === 0,
+      'the locked cloud card must not offer a (useless) auto-backup checkbox before the store is registered');
+    await assert(await count(page, `${cloudCardScope} [data-a="cloud-backup-now"]`) === 0 && await count(page, `${cloudCardScope} [data-a="cloud-backup-restore"]`) === 0,
+      'the locked cloud card must not offer the backup/restore buttons before the store is registered');
+    {
+      const lockedLines = (await page.locator(`${cloudCardScope}`).innerText()).split('\n').map(t => t.trim()).filter(Boolean);
+      await assert(lockedLines.includes('가게를 등록하면 쓸 수 있어요'), `the locked cloud card must state the one-line reason verbatim (got ${JSON.stringify(lockedLines)})`);
+      const btns = await page.locator(`${cloudCardScope} button:not([data-a="toggle-settings-card"])`).allInnerTexts();
+      await assert(btns.length === 1 && btns[0].trim() === '우리 가게 등록하기',
+        `the locked cloud card must offer exactly one way out, [우리 가게 등록하기] (got ${JSON.stringify(btns)})`);
+    }
+    // 잠긴 카드의 버튼은 막힌 상태가 아니면 검색 모달을 연다(go-register-store 재사용) — 막다른 길이 아니다.
+    await page.locator(`${cloudCardScope} [data-a="go-register-store"]`).click();
+    await page.waitForSelector('#storeName', { timeout: 8000 });
+    await page.locator('[data-a="close-modal"]').click();
+    await page.waitForTimeout(120);
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'enroll-auto');
+    await openSettingsCard(page, 'enroll-manual');
     // ── beta.40: 메뉴 재배치(사용자 지시) — 전달파일·QR 진입점은 자동 등록 카드가 아니라
     //    수동 등록 카드 하단("공공기관 담당자에게 직접 받기")에 있다. 이 시점은 미등록 상태지만
     //    수동 등록 카드 본문은 등록 여부와 무관하므로 여기서 구조를 고정한다.
@@ -1305,25 +1382,24 @@ async function main() {
     const manualCardScope = '.card.settings-card:has(.fold-head[data-card="enroll-manual"])';
     await assert(await count(page, `${autoCardScope} [data-a="direct-transfer-open"]`) === 0 && await count(page, `${autoCardScope} [data-a="qr-scan-open"]`) === 0,
       'the auto card must no longer contain the file/QR entry points (moved to 수동 등록)');
-    await assert(await count(page, `${manualCardScope} [data-a="direct-transfer-open"]`) === 1,
-      'the 수동 등록 card must hold the 담당자에게 받은 파일 entry point');
-    const manualCardText = await page.locator(manualCardScope).innerText();
-    // beta.45(현장 지시): 구역 이름은 '공공기관 담당자에게 전달받기'이고, 파일 버튼의 이름은 출처를 말한다
-    //   ('전달파일'이라는 말은 바로 위 [엑셀 명단(CSV)]과 구별되지 않아 사장님이 둘을 헷갈렸다).
-    await assert(manualCardText.includes('공공기관 담당자에게 전달받기'), 'the 수동 등록 card must label the 전달받기 section');
-    await assert(manualCardText.includes('카톡·메일로 보낸 명단 파일'), 'the file entry point must name where the file came from, so it is not confused with the CSV import');
-    await assert(manualCardText.includes('QR(사각 코드)'), 'the 수동 등록 card must hold the QR entry point (button or unsupported notice)');
-    // 순서 계약(현장 지시): ①엑셀 명단(CSV) → ②담당자에게 전달받기(파일·QR) → ③한 명씩 → ④빠른 등록.
-    const manualOrder = await page.evaluate(scope => {
-      const card = document.querySelector(scope);
-      const y = sel => { const el = card.querySelector(sel); return el ? el.getBoundingClientRect().top : NaN; };
-      return { csv: y('[data-a="csv-import"]'), file: y('[data-a="direct-transfer-open"]'), one: y('[data-a="add-employee"]'), quick: y('[data-a="quick-add-employee"]') };
-    }, manualCardScope);
-    await assert(manualOrder.csv < manualOrder.file && manualOrder.file < manualOrder.one && manualOrder.one < manualOrder.quick,
-      `수동 등록 order must read CSV → 담당자 파일 → 한 명씩 → 빠른 등록 (got ${JSON.stringify(manualOrder)})`);
-    // 카드 안의 진한 버튼은 하나뿐이다 — 여럿이면 "무엇부터"가 사라진다.
-    const manualPrimary = await page.evaluate(scope => document.querySelectorAll(scope + ' .btn-primary.action-btn').length, manualCardScope);
-    await assert(manualPrimary === 1, `the 수동 등록 card must have exactly one primary action button (got ${manualPrimary})`);
+    // ── beta.49(e): 전달받기 구역도 등록 전에는 잠긴다 ──────────────────────────────
+    //   담당자가 보낸 파일은 **우리 가게 번호로 잠긴 암호문**이라 등록 전에는 애초에 열리지 않는다.
+    //   버튼만 살려 두면 눌러 봐야 안 되는 것을 알게 된다 — 그 자리에 이유 한 줄과 되게 하는 버튼을 둔다.
+    await assert(await count(page, `${manualCardScope} [data-a="direct-transfer-open"]`) === 0 && await count(page, `${manualCardScope} [data-a="qr-scan-open"]`) === 0,
+      'before the store is registered the 전달받기 buttons must be removed (not left tappable-but-broken)');
+    const manualCardTextUnreg = await page.locator(manualCardScope).innerText();
+    await assert(manualCardTextUnreg.includes('공공기관 담당자에게 전달받기'), 'the 전달받기 section heading must stay even while it is locked');
+    await assert(manualCardTextUnreg.includes('담당자가 보낸 파일은 우리 가게 번호로 잠겨 있어요 — 가게를 등록하면 열 수 있어요'),
+      `the locked 전달받기 section must state the one-line reason (got ${JSON.stringify(manualCardTextUnreg.slice(0, 400))})`);
+    await assert(await count(page, `${manualCardScope} [data-a="go-register-store"]`) === 1,
+      'the locked 전달받기 section must offer exactly one way out ([우리 가게 등록하기])');
+    // 카드 안의 진한 버튼은 하나뿐이다 — 여럿이면 "무엇부터"가 사라진다(잠금 안내 버튼도 진하면 안 된다).
+    const manualPrimaryUnreg = await page.evaluate(scope => ({
+      primary: document.querySelectorAll(scope + ' .btn-primary.action-btn').length,
+      lockBtnClass: (document.querySelector(scope + ' [data-a="go-register-store"]') || {}).className || ''
+    }), manualCardScope);
+    await assert(manualPrimaryUnreg.primary === 1, `the 수동 등록 card must keep exactly one primary action button while locked (got ${manualPrimaryUnreg.primary})`);
+    await assert(!manualPrimaryUnreg.lockBtnClass.includes('btn-primary'), `the lock-notice button must not be a second 진한 버튼 (got ${JSON.stringify(manualPrimaryUnreg.lockBtnClass)})`);
     await page.locator('#quickAddDept').fill('Dept Q');
     await page.locator('#quickAddName').fill('User Q');
     await page.locator('#quickAddOpen').fill('12000');
@@ -1775,6 +1851,22 @@ async function main() {
     await assert(await count(page, '.banner[data-a="export-safe"]') === 0, 'a completed safe export must clear the reminder banner without a reload');
 
     // (4) 자동 백업 토글: 기본 켜짐 → 끄면 저장·복원되고 [장부 저장] 버튼 설명에 "꺼져 있어요" 경고가 붙는다
+    // beta.49: 토글은 **등록된 가게에만** 있다(등록 전 카드는 잠금 안내 한 줄 + [우리 가게 등록하기]뿐).
+    //   그래서 이 구간은 등록 상태를 먼저 심는다 — 아래 (6) 자동 클라우드 트리거도 같은 상태를 쓴다.
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta'], 'readwrite');
+        tx.objectStore('meta').put({ key: 'restaurantId', value: 'test-rid' });
+        tx.objectStore('meta').put({ key: 'relayStoreName', value: 'Harness Shop' });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }));
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await openSettingsCard(page, 'cloud');// beta.27 아코디언 — 자동 백업 토글은 접힌 [폰 분실 대비] 카드 안에 있다
     await page.waitForSelector('[data-a="toggle-auto-cloud"]');
@@ -1952,6 +2044,27 @@ async function main() {
     // ───────────────────────────────────────────────────────────────
     const metaNow = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
     await assert(Boolean(metaNow.pubKey), 'a keypair should exist before the store-registration scenarios');
+    // ── beta.49(a): 미등록 홈은 등록 상태를 **항상** 말한다 ────────────────────────────
+    //   예전에는 가게 이름만 크게 뜨고 상태는 ✕로 닫히는 배너뿐이라 "등록된 것처럼" 읽혔다(현장 결함).
+    //   이름(내 가게 정보)은 사실이니 그대로 두고, 상태는 이름 옆의 칩이 닫기 없이 계속 말한다.
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(150);
+    {
+      const chip = page.locator('.pill-muted');
+      await assert(await chip.count() === 1, 'an unregistered home must always carry the "등록 안 됨" status chip');
+      await assert((await chip.innerText()).trim() === '공공기관 명단 받기: 등록 안 됨',
+        `the unregistered status chip must name what is missing (got ${JSON.stringify((await chip.innerText()).trim())})`);
+      const chipShape = await page.evaluate(() => {
+        const el = document.querySelector('.pill-muted');
+        return { tag: el.tagName, buttons: el.querySelectorAll('button').length };
+      });
+      await assert(chipShape.tag === 'SPAN' && chipShape.buttons === 0, 'the status chip must not be dismissible (no ✕, not a button)');
+      await assert(await count(page, '.pill-alert-soft') === 0, 'an ordinary unregistered store must not claim it is registered on another device');
+      // 배너는 "왜 등록해야 하는가"를 두 가지로 말한다 — 명단 받기 + 폰 분실 시 장부 되찾기.
+      const bannerTxt = await page.locator('.banner[data-a="go-register-store"]').innerText();
+      await assert(bannerTxt.includes('우리 가게 등록을 마무리하세요') && bannerTxt.includes('장부 되찾기'),
+        `the finish-registration banner must name both reasons (got ${JSON.stringify(bannerTxt.replace(/\n/g, ' '))})`);
+    }
     // 온보딩에서 직접 입력을 택했으니 아직 미등록이다 — 접힌 자동 등록 헤더가 '등록 필요'를 알리고,
     // 펼치면 [우리 가게 등록(처음 한 번)]이 **보여야** 한다(beta.29 접힘).
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
@@ -1965,8 +2078,78 @@ async function main() {
       { restaurant_id: 'rid-other-1', name: '남의 김밥', address: '서울특별시 강남구 역삼동 1-1' },
       { restaurant_id: 'rid-mine-1', name: 'Harness Shop', address: '서울특별시 광진구 아차산로 399, 1층 B호 (구의동)' }
     ];
+    // ── beta.49(d): 검색 결과에 "다른 기기에서 이미 등록됨"을 **고르기 전에** 표시한다 ──────────
+    //   예전에는 고른 뒤 401이 나야만 알 수 있었다. 판정 근거는 담당자 웹과 같은 공개 엔드포인트다.
+    //   ⚠️ 진단용 __diag_ 접두 id는 배지 대상이 아니다(라이브 스모크용 가짜 가게 — "남이 가져갔다"가 아니다).
+    {
+      const withDiag = storeSearchResults.concat([{ restaurant_id: '__diag_smoke-1', name: '진단용 가게', address: '서울특별시 광진구 진단로 1' }]);
+      storeSearchResults = withDiag;
+      registeredIdsBody = ['rid-other-1', '__diag_smoke-1'];
+      await page.locator(`${autoCardScope} [data-a="relay-find-store"]`).click();
+      await page.waitForSelector('#storeName');
+      await page.locator('#storeName').fill('하네스김밥');
+      await page.locator('[data-a="relay-search-stores"]').click();
+      await page.waitForSelector('[data-a="relay-pick-store"]');
+      await page.waitForSelector('.badge-soft', { timeout: 8000 });
+      const rows = await page.evaluate(() => [...document.querySelectorAll('[data-a="relay-pick-store"]')].map(b => {
+        const slot = b.parentElement.querySelector('.store-badge-slot');
+        return { id: b.dataset.id, badge: slot ? slot.innerText.trim() : '(no slot)' };
+      }));
+      await assert(JSON.stringify(rows) === JSON.stringify([
+        { id: 'rid-other-1', badge: '다른 기기에서 이미 등록됨' },
+        { id: 'rid-mine-1', badge: '' },
+        { id: '__diag_smoke-1', badge: '' }
+      ]), `only the already-registered, non-diagnostic row may carry the badge (got ${JSON.stringify(rows)})`);
+      // 조회가 실패하면(오프라인·서버 오류) 조용히 배지 없음 — 검색 자체는 그대로 된다(가용성 우선).
+      registeredFail = true;
+      await page.locator('[data-a="relay-search-stores"]').click();
+      await page.waitForSelector('[data-a="relay-pick-store"]');
+      await page.waitForTimeout(600);
+      await assert(await count(page, '.badge-soft') === 0, 'a failed /api/registered lookup must simply leave the badges off');
+      await assert(await count(page, '[data-a="relay-pick-store"]') === 3, 'a failed badge lookup must never swallow the search results themselves');
+      registeredFail = false;
+      // 배지가 붙은 가게를 고르면 **되돌릴 수 있는 확인창**이 뜬다(alert가 아니다 — 잘못 골랐을 때 빠져나갈 길).
+      registeredIdsBody = ['rid-mine-1'];
+      await page.locator('[data-a="relay-search-stores"]').click();
+      await page.waitForSelector('.badge-soft', { timeout: 8000 });
+      const takenPickRe = /그래도 이 가게로 계속할까요\?/;
+      {
+        const callsBefore = registerCalls.length;
+        const dialogsBefore = dialogs.length;
+        confirmDecider = msg => !takenPickRe.test(msg);// 이 확인창만 [취소]
+        await page.locator('[data-a="relay-pick-store"][data-id="rid-mine-1"]').click();
+        await page.waitForTimeout(400);
+        const asked = dialogs.slice(dialogsBefore).filter(d => d.type === 'confirm' && takenPickRe.test(d.message));
+        await assert(asked.length === 1, `picking a badged store must ask once before continuing (got ${asked.length})`);
+        await assert(asked[0].message.includes('다른 기기에서 이미 등록돼 있어요') && asked[0].message.includes("'내 열쇠 백업'"),
+          `the confirmation must keep the full explanation (got ${JSON.stringify(asked[0].message.slice(0, 120))})`);
+        await assert(registerCalls.length === callsBefore, 'declining the confirmation must not attempt any registration');
+        const m = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+        await assert(!m.restaurantId, 'declining the confirmation must leave the store unpicked');
+        await assert(await count(page, '[data-a="relay-pick-store"]') === 3,
+          'declining must leave the owner exactly where they were — in the search results, free to pick another store');
+        confirmDecider = null;
+      }
+      {
+        // [확인]이면 예전 흐름 그대로 등록을 시도한다(여기서는 500 목이라 그대로 롤백된다).
+        const callsBefore = registerCalls.length;
+        registerStatus = 500;
+        await page.locator('[data-a="relay-pick-store"][data-id="rid-mine-1"]').click();
+        await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 8000 });
+        await page.waitForTimeout(300);
+        await assert(registerCalls.length === callsBefore + 1, 'accepting the confirmation must go on to the normal registration attempt');
+        registerStatus = 200;
+        await page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 }).catch(() => {});
+      }
+      registeredIdsBody = [];
+      if (await page.locator('[data-a="close-modal"]').count()) await page.locator('[data-a="close-modal"]').click();
+      await page.waitForTimeout(120);
+      storeSearchResults = withDiag.filter(x => !/^__diag_/.test(x.restaurant_id));
+    }
     // 등록 성공 경로는 소유증명(challenge)·연락처 저장까지 이어지므로 페이지 fetch 스파이로 막는다.
-    await page.evaluate(({ pubKey }) => {
+    // beta.49: 이 구간은 재시작(reload) 시나리오가 생겼다 — 스파이는 페이지와 함께 사라지므로 다시 심는다.
+    //   안 심으면 등록 직후의 연락처 저장이 목 없는 500으로 떨어져 콘솔 오류 단언(마지막 구간)이 깨진다.
+    const installRelaySpy = async () => page.evaluate(({ pubKey }) => {
       const orig = window.fetch.bind(window);
       const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
       const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
@@ -1981,6 +2164,7 @@ async function main() {
         return orig(u, opts);
       };
     }, { pubKey: metaNow.pubKey });
+    await installRelaySpy();
 
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.waitForSelector('[data-a="go-register-store"]');
@@ -2041,6 +2225,81 @@ async function main() {
     await assert(!regMeta.restaurantId, 'an auth_required registration must roll back restaurantId like any failure');
     await assert(regMeta.storeRegisterPending === true, 'an auth_required registration must keep storeRegisterPending');
 
+    // ── beta.49(c): 401은 "등록 안 됨"이 아니라 **"다른 기기에 등록됨"** 이다 ─────────────────
+    //   alert는 한 번 닫으면 사라진다 — 표지를 남겨 홈 칩·배너·설정 카드가 계속 같은 사실을 말하게 한다.
+    await assert(regMeta.storeRegisterBlocked && regMeta.storeRegisterBlocked.id === 'rid-mine-1' && regMeta.storeRegisterBlocked.name === 'Harness Shop',
+      `an auth_required registration must remember which store is taken (got ${JSON.stringify(regMeta.storeRegisterBlocked)})`);
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(150);
+    await assert((await page.locator('.pill-alert-soft').innerText()).trim() === '공공기관 명단 받기: 다른 기기에 등록됨',
+      'a blocked store must say so on the home status chip (not the generic 등록 안 됨)');
+    await assert(await count(page, '.pill-muted') === 0, 'the generic "등록 안 됨" chip must not stack on top of the blocked chip');
+    {
+      const b = await page.locator('.banner[data-a="go-register-store"]').innerText();
+      await assert(b.includes('예전 폰(다른 기기)에 등록된 가게예요') && b.includes('Harness Shop'),
+        `the blocked banner must name the store it is talking about (got ${JSON.stringify(b.replace(/\n/g, ' '))})`);
+    }
+    // (f) 재시작해도 표지가 남는다(META_KEYS 등재 — 등재하지 않으면 저장돼도 재시작 후 사라진다).
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await installRelaySpy();
+    await page.waitForTimeout(200);
+    await assert(await count(page, '.pill-alert-soft') === 1, 'the blocked state must survive a restart (meta.storeRegisterBlocked in META_KEYS)');
+    // 배너를 누르면 검색 모달이 아니라 **해결 방법**으로 간다 — 같은 가게를 다시 고르면 같은 실패로 되돌아온다.
+    await page.locator('.banner[data-a="go-register-store"]').click({ position: { x: 30, y: 40 } });
+    await page.waitForTimeout(250);
+    await assert(await count(page, '#storeName') === 0, 'a blocked store must not be sent back into the store-search modal');
+    await assert((await page.locator('.fold-head[data-card="enroll-auto"]').getAttribute('aria-expanded')) === 'true',
+      'tapping the blocked banner must open the auto-enroll card with the guidance');
+    {
+      const cardTxt = await page.locator(autoCardScope).innerText();
+      await assert(cardTxt.includes('이미 등록되어 있어요') && cardTxt.includes('Harness Shop'), 'the card must repeat the "already registered" fact inline');
+      await assert(cardTxt.includes('자동 등록 중단') && cardTxt.includes('내 열쇠 백업') && cardTxt.includes('contact@bapjangbu.com'),
+        `the inline guidance must keep all three ways out (got ${JSON.stringify(cardTxt.slice(0, 400))})`);
+      await assert(await count(page, `${autoCardScope} [data-a="retry-blocked-register"]`) === 1, 'the blocked card must offer [다시 등록해 보기]');
+      await assert(await count(page, `${autoCardScope} [data-a="relay-find-store"]`) === 1, 'the blocked card must offer [다른 가게 고르기]');
+      await assert((await page.locator(`${autoCardScope} [data-a="relay-find-store"]`).innerText()).includes('다른 가게 고르기'),
+        'the blocked card must relabel the search entry as [다른 가게 고르기] (the old [우리 가게 등록] leads straight back into the same failure)');
+      await assert(await count(page, `${autoCardScope} [data-a="report-takeover"]`) === 1, 'the inline guidance must keep the takeover-report path reachable');
+      const primaries = await page.evaluate(scope => [...document.querySelectorAll(scope + ' .btn-primary')].map(b => b.dataset.a || ''), autoCardScope);
+      await assert(primaries.length === 1 && primaries[0] === 'retry-blocked-register',
+        `the blocked card must hold exactly one primary button, [다시 등록해 보기] (got ${JSON.stringify(primaries)})`);
+    }
+    // 예전 폰에서 등록을 해제한 뒤(= 서버가 200을 주기 시작) [다시 등록해 보기]로 그대로 끝낼 수 있어야 한다.
+    registerStatus = 200;
+    registerErrorCode = 'internal';
+    await page.locator(`${autoCardScope} [data-a="retry-blocked-register"]`).click();
+    await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 10000 });
+    await page.waitForTimeout(300);
+    {
+      const m = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+      await assert(m.restaurantId === 'rid-mine-1', '[다시 등록해 보기] must register the very store the blocked marker pointed at');
+      await assert(!m.storeRegisterBlocked, 'a successful registration must clear the blocked marker');
+    }
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.pill-alert-soft') === 0 && await count(page, '.pill-muted') === 0,
+      'once registered, neither the blocked nor the unregistered chip may remain');
+    await assert((await page.locator('.pill-relay').innerText()).includes('공공기관 명단 받는 중'), 'a retry that succeeds must flip the chip to 공공기관 명단 받는 중');
+    // 아래 (2) 성공 경로는 "아직 미등록" 상태를 전제로 하므로 등록을 되돌려 둔다(서버 목만 바꾸는 구간이라 실제 해제는 불필요).
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta'], 'readwrite');
+        const ms = tx.objectStore('meta');
+        ['restaurantId', 'relayStoreName', 'relayRegisteredAt', 'storeAddr', 'districtSyncedAt', 'storeRegisterBlocked'].forEach(k => ms.delete(k));
+        ms.put({ key: 'storeRegisterPending', value: true });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }));
+    await page.reload({ waitUntil: 'load' });
+    await unlock();
+    await installRelaySpy();
+    await page.waitForTimeout(200);
+
     // (2) 성공 경로: register-key 200 → 등록 확정 + 열쇠 백업 유도 + 새 신청 칩
     registerStatus = 200;
     registerErrorCode = 'internal';
@@ -2066,6 +2325,60 @@ async function main() {
       await assert(cls.includes('btn-primary') && !cls.includes('btn-idle'), `with pending requests the 온라인 자동 등록 button must be active btn-primary (got ${JSON.stringify(cls)})`);
       await assert((await activeInbox.innerText()).includes('2'), 'the active 온라인 자동 등록 button must carry the pending-count badge');
     }
+    // ── beta.49(e 원복): 등록되면 잠겼던 두 곳이 원래 모습으로 돌아온다 ──────────────────────
+    {
+      await openSettingsCard(page, 'cloud');
+      await assert(await count(page, `${cloudCardScope} input[type="checkbox"][data-a="toggle-auto-cloud"]`) === 1,
+        'the cloud card must get its auto-backup checkbox back once the store is registered');
+      await assert(await count(page, `${cloudCardScope} [data-a="cloud-backup-now"]`) === 1 && await count(page, `${cloudCardScope} [data-a="cloud-backup-restore"]`) === 1,
+        'the cloud card must get its backup/restore buttons back once the store is registered');
+      const cloudTitleReg = (await page.locator(`${cloudCardScope} .fold-head .section-title`).innerText()).trim();
+      await assert(cloudTitleReg === '📱 폰을 잃어버려도 장부 되찾기',
+        `a registered cloud card must go back to its 📱 title (got ${JSON.stringify(cloudTitleReg)})`);
+      await openSettingsCard(page, 'enroll-manual');
+      await assert(await count(page, `${manualCardScope} [data-a="direct-transfer-open"]`) === 1,
+        'the 수동 등록 card must hold the 담당자에게 받은 파일 entry point once the store is registered');
+      await assert(await count(page, `${manualCardScope} [data-a="go-register-store"]`) === 0, 'the lock notice must be gone once the store is registered');
+      const manualCardText = await page.locator(manualCardScope).innerText();
+      // beta.45(현장 지시): 구역 이름은 '공공기관 담당자에게 전달받기'이고, 파일 버튼의 이름은 출처를 말한다
+      //   ('전달파일'이라는 말은 바로 위 [엑셀 명단(CSV)]과 구별되지 않아 사장님이 둘을 헷갈렸다).
+      await assert(manualCardText.includes('공공기관 담당자에게 전달받기'), 'the 수동 등록 card must label the 전달받기 section');
+      await assert(manualCardText.includes('카톡·메일로 보낸 명단 파일'), 'the file entry point must name where the file came from, so it is not confused with the CSV import');
+      await assert(manualCardText.includes('QR(사각 코드)'), 'the 수동 등록 card must hold the QR entry point (button or unsupported notice)');
+      // 순서 계약(현장 지시): ①엑셀 명단(CSV) → ②담당자에게 전달받기(파일·QR) → ③한 명씩 → ④빠른 등록.
+      const manualOrder = await page.evaluate(scope => {
+        const card = document.querySelector(scope);
+        const y = sel => { const el = card.querySelector(sel); return el ? el.getBoundingClientRect().top : NaN; };
+        return { csv: y('[data-a="csv-import"]'), file: y('[data-a="direct-transfer-open"]'), one: y('[data-a="add-employee"]'), quick: y('[data-a="quick-add-employee"]') };
+      }, manualCardScope);
+      await assert(manualOrder.csv < manualOrder.file && manualOrder.file < manualOrder.one && manualOrder.one < manualOrder.quick,
+        `수동 등록 order must read CSV → 담당자 파일 → 한 명씩 → 빠른 등록 (got ${JSON.stringify(manualOrder)})`);
+      // 카드 안의 진한 버튼은 하나뿐이다 — 여럿이면 "무엇부터"가 사라진다.
+      const manualPrimary = await page.evaluate(scope => document.querySelectorAll(scope + ' .btn-primary.action-btn').length, manualCardScope);
+      await assert(manualPrimary === 1, `the 수동 등록 card must have exactly one primary action button (got ${manualPrimary})`);
+    }
+    // ── beta.49(d 계속): 검색 결과에 **이 기기가 등록한 우리 가게**가 나오면 "남이 가져갔다"가 아니다 ──
+    {
+      registeredIdsBody = ['rid-mine-1', 'rid-other-1'];
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator(`${autoCardScope} [data-a="relay-find-store"]`).click();
+      await page.waitForSelector('#storeName');
+      await page.locator('#storeName').fill('하네스김밥');
+      await page.locator('[data-a="relay-search-stores"]').click();
+      await page.waitForSelector('[data-a="relay-pick-store"]');
+      await page.waitForSelector('.badge-soft.mine', { timeout: 8000 });
+      const rows = await page.evaluate(() => [...document.querySelectorAll('[data-a="relay-pick-store"]')].map(b => {
+        const slot = b.parentElement.querySelector('.store-badge-slot');
+        return { id: b.dataset.id, badge: slot ? slot.innerText.trim() : '(no slot)' };
+      }));
+      await assert(JSON.stringify(rows) === JSON.stringify([
+        { id: 'rid-other-1', badge: '다른 기기에서 이미 등록됨' },
+        { id: 'rid-mine-1', badge: '우리 가게(등록됨)' }
+      ]), `our own registered store must read 우리 가게(등록됨), not "다른 기기에서 이미 등록됨" (got ${JSON.stringify(rows)})`);
+      registeredIdsBody = [];
+      await page.locator('[data-a="close-modal"]').click();
+      await page.waitForTimeout(150);
+    }
     // ── beta.48(F5): 이미 등록된 기기가 **다시** 등록을 보낼 때는 소유 증명을 함께 싣는다 ─────────
     //   서버는 "같은 열쇠라도 저장된 관할(district)을 다른 값으로 덮어쓰려면" 인증을 요구한다.
     //   토큰 없이 보내면 401 → 앱이 "이미 등록되어 있어요"로 오안내한다(자기 가게인데 막힌다).
@@ -2085,6 +2398,9 @@ async function main() {
     await page.waitForTimeout(300);
     await assert(await count(page, '[data-a="go-register-store"]') === 0, 'the finish-registration banner must disappear once the store is registered');
     await assert((await page.locator('.pill-relay').innerText()).includes('공공기관 명단 받는 중'), 'home should show the 공공기관 명단 받는 중 status chip');
+    // beta.49(b): 등록되면 "등록 안 됨"·"다른 기기에 등록됨" 칩은 사라진다(상태는 하나만 말한다).
+    await assert(await count(page, '.pill-muted') === 0 && await count(page, '.pill-alert-soft') === 0,
+      'a registered store must not keep an "unregistered"/"blocked" chip beside the receiving chip');
     await assert(await count(page, '[data-a="dismiss-key-banner"]') === 1, 'home should nudge an un-backed-up key with a dismissible banner (B3)');
     const inboxPill = await page.locator('[data-a="relay-inbox"]').innerText();
     await assert(inboxPill.includes('📩') && inboxPill.includes('2건'), 'a 200 inbox-count should render the 📩 new-request chip on home');

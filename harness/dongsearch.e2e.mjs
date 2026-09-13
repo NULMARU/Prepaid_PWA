@@ -49,6 +49,9 @@ async function newPage(ctx, calls) {
     route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(rows) });
   });
   await ctx.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"nf"}' }));
+  // beta.49: 검색 결과의 "다른 기기에서 이미 등록됨" 배지는 /api/registered 를 조회한다.
+  //   목이 없으면 이 로컬 하니스가 **라이브 중계 서버로 실제 요청을 보낸다** — 반드시 막는다(배지는 이 하니스의 관심사가 아니므로 빈 배열).
+  await ctx.route('**/api/registered**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
