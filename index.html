@@ -543,7 +543,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.50',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.51',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -575,7 +575,7 @@ const COMMON_DEPTS=[...DEFAULT_DEPTS];
 //   custAmount = 작성 중인 금액, pendingAmount·pendingSign = 사장님께 넘긴 요청의 내용.
 //   저장소·서버·백업 어디에도 나가지 않는다(state.data 바깥이라 backupCore/repo.apply의 사정권 밖이다).
 //   "손님은 요청을 만들고, 사장님은 기록을 만든다" — 이 4개는 요청이지 기록이 아니다.
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreZip:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},webauthnAvailable:false,qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreZip:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 // lastInputAt = 마지막 **사용자 조작** 시각. 유휴 만료의 유일한 기준이다(렌더는 이 값을 건드리지 못한다).
 //   init()이 첫 render를 부르기 전에 반드시 초기화돼 있어야 하므로 선언을 여기(최상단 상태 묶음)에 둔다.
 let lastInputAt=Date.now();
@@ -1009,7 +1009,8 @@ async function getPrivateKey(extractable){const m=state.data.meta;if(!m.privKeyW
 // 그래서 실제로 값이 있는 조치만 넣었다: 잠금 중에는 개인키를 쓰는 경로를 전면 금지하고(relayBackupSilent·
 //   maybeMonthlyAutoBackup), 개인키는 extractable:false로 임포트하며, 설정 화면에서 "PIN은 화면 잠금이지
 //   장부 암호화가 아니다"라고 정직하게 밝힌다. 기기 자체의 방어는 OS 잠금(지문·패턴)에 맡긴다.
-// 다음 라운드 후보: WebAuthn PRF가 있는 기기에서만 그 확장으로 KEK를 파생해 결속(폴백 없이, 옵트인).
+// 생체 인증(WebAuthn)은 **도입하지 않는다**(사용자 결정 2026-09-13, beta.51): 여러 명이 함께 쓰는 가게가 있어 개인 생체를 앱 잠금에 묶을 수 없고,
+//   PRF로 열쇠를 결속하면 기기 생체 재등록 시 장부를 영영 못 여는 경로가 생긴다. 기기 방어는 OS 잠금에 맡긴다.
 async function getPhone(emp){if(!emp||!emp.phone||!state.data.meta.deviceSecret)return '';try{return await aesDecryptStr(emp.phone,state.data.meta.deviceSecret)}catch(e){console.error('phone decrypt',e);return ''}}
 async function setPhone(empId,phoneRaw){const emp=state.data.employees.find(v=>v.id===empId);if(!emp)return;if(!state.data.meta.deviceSecret)await ensureKeyPair();const enc=phoneRaw?await aesEncryptStr(phoneRaw,state.data.meta.deviceSecret):'';const next={...emp,phone:enc,phoneConsent:!!phoneRaw,updatedAt:now()};await repo.apply({employees:[next]});upsertEmp(next)}
 async function setPhoneConsent(empId,consent){const emp=state.data.employees.find(v=>v.id===empId);if(!emp||!emp.phone)return;const next={...emp,phoneConsent:!!consent,updatedAt:now()};await repo.apply({employees:[next]});upsertEmp(next)}
@@ -2138,7 +2139,7 @@ return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-labe
 //     (beta.20 모바일 IME 사고, beta.21 토스트·네트워크 사고와 같은 계열의 사고다.)
 //     방어는 3중이다 — 셋 다 있어야 한다:
 //       (1) 금액 입력·빠른 금액은 render를 부르지 않는다 → custAmountPatch가 표시 세 조각만 갈아끼운다.
-//       (2) 비동기 render(토스트·online/offline·visibilitychange·refreshInboxCount·QR/WebAuthn 감지)는
+//       (2) 비동기 render(토스트·online/offline·visibilitychange·refreshInboxCount·QR 감지)는
 //           renderIsDisruptive() 게이트를 지난다 — 획이 있으면 signInProgress()가 true라 전부 미뤄진다.
 //       (3) 최후의 방벽: render() 자체가 custComposeGuard()로 강등된다(획이 있는 통합 화면에서는
 //           전체 재렌더 대신 부분 갱신). 어떤 경로가 실수로 render를 불러도 서명은 살아남는다.
@@ -3424,11 +3425,6 @@ signResizeTimer=setTimeout(()=>{signResizeTimer=null;if(signPad&&typeof signPad.
 window.addEventListener('resize',onSignViewportChange);
 window.addEventListener('orientationchange',onSignViewportChange);
 
-// WebAuthn 생체 잠금 — 보수적 축소 구현: PRF 확장을 이용한 deviceSecret 추가 래핑은 검증 없이 도입 시
-// 기존 사용자의 데이터 접근이 막힐 위험이 있어, 이번 반영에서는 지원 여부 감지 + 안내만 제공한다.
-// (사유: 실기기 PRF 지원 검증 환경이 없어 안전성을 담보할 수 없음 — §4 항목8 축소 허용 조건에 따름)
-async function detectWebauthn(){try{if(!window.PublicKeyCredential||!PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable){state.webauthnAvailable=false;return}const ok=await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();state.webauthnAvailable=!!ok;if(state.loaded&&!renderIsDisruptive())render()}catch(e){state.webauthnAvailable=false}}
-function webauthnCardHtml(){if(!state.webauthnAvailable)return '';return `<div class="meta" style="margin-top:10px;padding-top:10px;border-top:1px solid #eef1f4">🔒 이 기기는 생체 인증(지문/얼굴)을 지원합니다. 생체 인증으로 잠금을 강화하는 기능은 안전성 검증 후 제공될 예정이며, 현재는 비밀번호로만 잠금이 유지됩니다.</div>`}
 
 // 무결성 검증 결과 — 쉬운 말 요약 + 기술 상세는 접기(스펙 §4 항목4)
 function verifyResultHtml(){const v=state.verifyResult;if(!v)return '';const okAll=v.chain.ok&&v.reconcile;const simple=okAll?'✅ 장부에 이상이 없습니다':'⚠️ 장부 기록에 이상이 발견됐습니다';// 레거시(txHash 없음·구 형식)는 이제 "제외"가 아니라 **경고**다 — 체인을 지워서 검증을 우회하는 길을 막는다.
@@ -3625,7 +3621,7 @@ ${shopExtra}`)
 +foldCard('pin','화면잠금 비밀번호','앱을 열 때 쓰는 4자리 숫자 — 가게 열쇠(지문)와는 다른 것이에요',`
 <div class="section-actions"><button class="btn-secondary action-btn" data-a="change-pin"><span class="action-icon">🔒</span><div><strong>화면잠금 비밀번호 변경</strong><span>새 4자리 숫자로 바꿔요</span></div></button></div>
 <div class="meta" style="line-height:1.6;margin-top:8px">이 비밀번호는 <b>화면 잠금</b>이에요 — 곁에 있는 사람이 장부를 들여다보지 못하게 막아 줍니다. 공공기관 담당자에게 읽어 주는 <b>열쇠 지문</b>(자동 등록 카드)과는 전혀 다른 값이니 헷갈리지 마세요.<br>장부 내용 자체를 암호로 잠그는 것은 아니에요(폰을 통째로 가져가 분해하는 사람까지 막지는 못합니다). 폰에는 반드시 <b>기기 잠금(지문·패턴)</b>도 함께 걸어 주세요.</div>
-${webauthnCardHtml()}`)
+`)
 +`<div class="card settings-card">
 <details><summary style="cursor:pointer;font-weight:800;font-size:15px;color:var(--danger)">위험 작업 — 전체 초기화</summary>
 <div class="section-actions" style="margin-top:10px">
@@ -3658,7 +3654,7 @@ setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!rep
 state.pinFails=num(state.data.meta.pinFails);state.pinDelayUntil=num(state.data.meta.pinDelayUntil);
 // 마지막으로 확인한 신청 배지를 되살린다(beta.46) — 오프라인 재시작에서도 배지가 사라지지 않게.
 if(state.data.meta.inboxCountCache!=null&&relayRegistered())state.inboxCount=num(state.data.meta.inboxCountCache);
-try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectWebauthn();detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}
+try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}
 // 1회성 마이그레이션(D1): 이 기능이 생기기 전에 설정을 마친 기존 사용자는 pending 플래그가 없어 등록 안내를 못 받는다.
 if(state.data.meta.setupComplete&&!relayRegistered()&&state.data.meta.storeRegisterPending===undefined){state.data.meta.storeRegisterPending=true;try{await repo.apply({meta:{storeRegisterPending:true}})}catch(e){console.error('pending migration',e)}}
 state.loaded=true;clearBusy();render();maybeMonthlyAutoBackup();refreshInboxCount();relayDistrictSyncSilent();flushPendingNotify()}
