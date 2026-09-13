@@ -2210,8 +2210,9 @@ async function main() {
     await assert(takenAlerts[0].message.includes('자동 등록 중단') && takenAlerts[0].message.includes('내 열쇠 백업') && takenAlerts[0].message.includes('contact@bapjangbu.com'),
       'the guidance alert must offer all three ways out (old-phone deregister · key-backup restore · operator contact)');
     await assert(!takenAlerts[0].message.includes('인터넷'), 'the auth_required guidance must not blame the network');
-    // beta.31 ⑩ 선점 신고: 안내 뒤에 [신고하기] 제안이 이어지고, 눌렀을 때 열리는 메일에는
+    // beta.31 ⑩ 선점 신고: 안내가 [신고하기]의 위치(자동 등록 카드)를 가리키고, 그 링크가 여는 메일에는
     //   가게 이름·가게 번호·시각·열쇠 지문만 담긴다(직원 명단·금액은 절대 담기지 않는다).
+    //   beta.50부터 안내 뒤 confirm은 없다 — 훅(__lastReportHref)은 거절 시점에 링크를 만들며 채워진다.
     await assert(takenAlerts[0].message.includes('신고하기'), 'the auth_required guidance must point at the takeover report path');
     const report = await page.evaluate(() => window.__lastReportHref || '');
     await assert(report.startsWith('mailto:contact@bapjangbu.com?'), `accepting the report offer must open a prefilled mail draft (got ${JSON.stringify(report.slice(0, 60))})`);
@@ -2261,6 +2262,15 @@ async function main() {
       await assert((await page.locator(`${autoCardScope} [data-a="relay-find-store"]`).innerText()).includes('다른 가게 고르기'),
         'the blocked card must relabel the search entry as [다른 가게 고르기] (the old [우리 가게 등록] leads straight back into the same failure)');
       await assert(await count(page, `${autoCardScope} [data-a="report-takeover"]`) === 1, 'the inline guidance must keep the takeover-report path reachable');
+      // beta.50: [신고하기]는 confirm 뒤 location.href가 아니라 **진짜 mailto 링크**여야 한다 — 확인창을 읽는 동안
+      //   브라우저의 사용자 활성(약 5초)이 만료돼 메일이 조용히 안 열리던 현장 결함. 메일 앱이 없는 폰을 위한 [복사]도 함께.
+      const reportLink = await page.evaluate(scope => { const a = document.querySelector(scope + ' [data-a="report-takeover"]'); return a ? { tag: a.tagName, href: a.getAttribute('href') || '' } : null; }, autoCardScope);
+      await assert(reportLink && reportLink.tag === 'A' && reportLink.href.startsWith('mailto:contact@bapjangbu.com?'),
+        `[신고하기] must be a real mailto link, not a confirm+location.href handoff (got ${JSON.stringify(reportLink)})`);
+      const reportLinkBody = decodeURIComponent((reportLink.href.split('&body=')[1] || ''));
+      await assert(/가게 번호: \S/.test(reportLinkBody) && reportLinkBody.includes('열쇠 지문:') && !/원|직원|명단/.test(reportLinkBody),
+        `the mailto link must carry the blocked store id and fingerprint and nothing about employees (got ${JSON.stringify(reportLinkBody.slice(0, 160))})`);
+      await assert(await count(page, `${autoCardScope} [data-a="report-copy"]`) === 1, 'the inline guidance must offer [신고 내용 복사] for phones without a mail app');
       const primaries = await page.evaluate(scope => [...document.querySelectorAll(scope + ' .btn-primary')].map(b => b.dataset.a || ''), autoCardScope);
       await assert(primaries.length === 1 && primaries[0] === 'retry-blocked-register',
         `the blocked card must hold exactly one primary button, [다시 등록해 보기] (got ${JSON.stringify(primaries)})`);
