@@ -80,6 +80,7 @@ bash harness/verify-all.sh     # 12/12 기대 (약 2~4분)
 | `docs/COST_MODEL.md` | 비용 추계(무료 한도 분석) |
 | `docs/STATUS.md` | 옛 현황 문서(**내용이 낡음** — [10](10-code-review.md) R2) |
 | `docs/phase2-deploy.md` | 옛 배포 절차(→ [07](07-deploy-runbook.md)이 대체) |
+| `~/.codex/audits/bapjangbu-20260912/` | 2026-09 외부 검토 원문(검토보고서·독립 리뷰·격리 재현 스크립트·결과 JSON·캡처 6장). 요약과 판정은 [12](12-external-review-2026-09.md) |
 
 그리고 **직원용 앱은 별도 리포**다: `NULMARU/bapjangbu-staff` → https://staff.bapjangbu.com
 
@@ -110,3 +111,4 @@ cd server && npx wrangler deploy                  # 중계 서버
 ```
 
 - [`11-security-review-2026-08.md`](11-security-review-2026-08.md) — **보안 점검 보고서(2026-08-06)**. OWASP Top 10·STRIDE·NIST 기준 4개 독립 조사 종합. 초보자용 서술 + 우선순위. 🔴 6건은 필드테스트 전 조치 권장.
+- [`12-external-review-2026-09.md`](12-external-review-2026-09.md) — **외부 검토 반영 기록(2026-09-12~13, beta.48)**. 외부 코드 리뷰 2건을 소스로 재검토한 판정표(동의/반박/격상), 사용자 결정 3건과 감수한 것, 구현·검증·배포 기록, 배운 것 5가지. 같은 지적이 다시 나오면 여기부터.

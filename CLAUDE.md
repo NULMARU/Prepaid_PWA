@@ -158,8 +158,12 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
   Playwright 22/22(리포 미편입 — 편입 후보). **HEAD(b60add2)의 e2e는 이미 실패 상태였음**(라벨 없는
   `console.error` 1건 — 09-01 Playwright 차단으로 못 잡음) → 라벨 부여로 해소. 배포 게이트로
   `pages.yml`에 phase2 job 추가.
+- **후속(2026-09-13)**: 사용자가 마이그레이션→서버→담당자 웹 순으로 배포(verify-all 12/12). 안내서 PDF 2종을
+  Playwright `page.pdf`(A4·`preferCSSPageSize`)로 재생성 — 예전의 "브라우저 인쇄" 수작업을 대체하는 방법이며,
+  리포 `node_modules`의 playwright를 쓰려면 스크립트를 리포 디렉터리에서 `node --input-type=module -e`로 돌린다.
+  판정·결정·교훈은 `docs/handover/12-external-review-2026-09.md`에 정리.
 - **미착수(다음)**: P2 UI(승인 확인창 모달화·CSV 추가/교체/취소·설정 재분류·F7) — 현장 관찰 후,
-  일별 조용한 클라우드 백업, `pin-forgot-restore` 파괴 경로의 기기 내 암호화 스냅샷, 안내서 PDF 재생성.
+  일별 조용한 클라우드 백업, `pin-forgot-restore` 파괴 경로의 기기 내 암호화 스냅샷, 담당자 웹 하니스 리포 편입.
   상세는 `docs/handover/09-open-items.md`.
 
 ### 완료 (2026-09-01 — 제로페이 결제구분 + 담당자 웹 단계별 화면 + 문구 전면 통일, beta.47)
@@ -576,7 +580,7 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 
 - 사용법: `docs/manual-restaurant.html`(음식점), `docs/manual-agency.html`(기관), `docs/manual-staff.html`(직원)
 - 릴리스 이력: `CHANGELOG.md`(릴리스 요약 — 외부용). 배경·판단은 이 파일의 "완료 기록"
-- 이관 문서: `docs/handover/`(11종 — 아키텍처·데이터 모델·계약 C1~C8·미결 항목 등). 이관받는 개발자는 여기부터
+- 이관 문서: `docs/handover/`(12종 — 아키텍처·데이터 모델·계약 C1~C14·미결 항목·보안 점검(11)·외부 검토 반영 기록(12) 등). 이관받는 개발자는 여기부터. 외부 검토 원문은 리포 밖(`~/.codex/audits/bapjangbu-20260912/`)
 - 홍보물: `docs/marketing/`(전단·기관 안내문·협회 덱 + 1페이지 홍보 PDF 2종·SNS 카드뉴스, 인쇄용)
 - 프로토콜·API 계약: `server/PROTOCOL.md`
 - 사업·운영 민감 문서: 리포 미포함(로컬 보관, .gitignore 등재) — 커밋 금지 유지
