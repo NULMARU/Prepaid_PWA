@@ -5,11 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="단체 손님·직원 식대 선입금을 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다. 음식점 사장님·공공기관 담당자(서무)·직원 모두 가입 없이 바로 시작하세요.">
 <link rel="canonical" href="https://bapjangbu.com/">
+<link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로</title>
 <!-- Open Graph -->
 <meta property="og:title" content="밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로">
 <meta property="og:description" content="단체 손님·직원 식대를 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다.">
 <meta property="og:image" content="https://bapjangbu.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로. 완전 무료·가입 없음.">
 <meta property="og:url" content="https://bapjangbu.com/">
 <meta property="og:type" content="website">
 <!-- Twitter -->
@@ -19,266 +24,221 @@
 <meta name="twitter:image" content="https://bapjangbu.com/og-image.png">
 <style>
 :root{
-  --primary:#1e4e86;
-  --primary-dark:#173c66;
-  --primary-soft:#eef3fa;
-  --primary-tint:#f5f8fc;
-  --accent:#c0894f;
-  --accent-soft:#f7efe4;
-  --accent-line:#ecdcc4;
-  --heading:#1b2635;
-  --text:#1f2937;
-  --muted:#516072;
-  --line:#e6e8ec;
-  --bg:#faf9f7;
-  --bg-soft:#f6f7f9;
-  --card:#ffffff;
-  --ok:#1a7f4b;--ok-soft:#e9f6ef;--ok-line:#cfe8da;
-  --warn:#b7791f;--warn-soft:#fbf3e4;--warn-line:#ecdcbb;
-  /* 이용 주체 3색: 사장님=파랑, 공공기관 담당자(서무)=금색, 직원=초록 */
-  --owner:#1e4e86;--agency:#8a5a22;--staff:#1a7f4b;--staff-soft:#e9f6ef;--staff-line:#cfe8da;
-  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--s12:48px;--s16:64px;
-  --r-sm:10px;--r:14px;--r-lg:18px;
-  --shadow-xs:0 1px 2px rgba(16,32,64,.05);
-  --shadow-sm:0 2px 8px rgba(16,32,64,.05);
-  --shadow:0 6px 22px rgba(16,32,64,.07);
-  --shadow-lg:0 14px 40px rgba(16,32,64,.12);
+  --primary:#1e4e86;--primary-dark:#173c66;--primary-soft:#eaf0f6;
+  --accent:#8a5a38;--accent-soft:#efe6d8;--heading:#252b28;--text:#252b28;
+  --muted:#5a605b;--line:#d7d3c9;--bg:#f7f3ea;--card:#fffdf8;
+  --staff:#355d49;--s6:24px;
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{
-  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
-  color:var(--text);line-height:1.7;font-size:17px;margin:0;background:var(--bg);
-  -webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
-}
-.wrap{max-width:860px;margin:0 auto;padding:0 20px}
-h1,h2,h3{color:var(--heading);line-height:1.3;letter-spacing:-.01em}
-a{color:var(--primary)}
-img{max-width:100%}
-
-/* ---------- big buttons (elderly-friendly) ---------- */
-.btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  border-radius:14px;padding:16px 24px;font-weight:800;font-size:18px;
-  min-height:54px;text-decoration:none;cursor:pointer;border:2px solid var(--primary);
-  transition:transform .16s ease,box-shadow .16s ease,background .16s ease,border-color .16s ease;
-  letter-spacing:-.01em;font-family:inherit;line-height:1.25;
-}
-.btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow-sm)}
-.btn-primary:hover{background:var(--primary-dark);border-color:var(--primary-dark);box-shadow:var(--shadow);transform:translateY(-1px)}
-.btn-outline{background:var(--card);color:var(--primary)}
-.btn-outline:hover{background:var(--primary-soft);transform:translateY(-1px)}
-/* 역할별 외곽선 버튼 — 색으로 대상을 구분해 준다 */
-.btn-agency{background:var(--card);color:var(--agency);border-color:var(--accent)}
-.btn-agency:hover{background:var(--accent-soft);transform:translateY(-1px)}
-.btn-staff{background:var(--card);color:var(--staff);border-color:var(--staff)}
-.btn-staff:hover{background:var(--staff-soft);transform:translateY(-1px)}
-.btn-lg{font-size:20px;padding:20px 26px;min-height:62px;width:100%}
+html{scroll-behavior:smooth;scroll-padding-top:88px}
+body{margin:0;background:var(--bg);color:var(--text);font:18px/1.8 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;-webkit-text-size-adjust:100%;word-break:keep-all;overflow-wrap:anywhere}
+.wrap{width:min(100% - 48px,1100px);margin-inline:auto}
+h1,h2,h3,h4,p,figure{margin:0}
+h1,h2,h3,h4{line-height:1.35;letter-spacing:-.04em}
+h2{font-size:36px;font-weight:800;margin-bottom:20px}
+h3{font-size:21px;margin-bottom:8px}
+h4{font-size:18px;margin-bottom:8px}
+p+p{margin-top:12px}
+a{color:var(--primary);text-underline-offset:5px}
+a:hover{text-decoration-thickness:2px}
+button,input,textarea{font:inherit}
+button,a,summary,input,textarea{-webkit-tap-highlight-color:transparent}
+:focus-visible{outline:3px solid var(--primary);outline-offset:5px}
+img{display:block;max-width:100%;height:auto}
+section{padding:88px 0;border-top:1px solid var(--line);scroll-margin-top:72px}
+section .wrap{max-width:860px}
+.kicker,.role-badge{display:block;color:var(--accent);font-size:17px;font-weight:700;margin:0 0 16px;letter-spacing:.02em}
+.intro{color:var(--muted);margin-bottom:32px;max-width:750px}
+.sr-only,.skip{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.skip:focus{position:fixed;top:8px;left:8px;width:auto;height:auto;clip:auto;background:var(--card);padding:12px 20px;z-index:99}
+header.site{background:var(--bg);border-bottom:1px solid var(--line)}
+header.site .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:80px}
+.brand{display:inline-flex;align-items:baseline;gap:12px;text-decoration:none;color:var(--heading);font-size:27px;font-weight:900;letter-spacing:-.06em;min-height:44px}
+.brand small{font-size:16px;font-weight:500;letter-spacing:0;color:var(--muted)}
+header.site nav{display:flex;gap:24px}
+header.site nav a{display:inline-flex;align-items:center;min-height:44px;font-size:17px;color:var(--text);text-decoration:none}
+header.site nav a:hover{color:var(--primary);text-decoration:underline}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:56px;padding:15px 20px;border:1px solid var(--primary);border-radius:5px;font-size:18px;font-weight:700;line-height:1.5;text-decoration:none;cursor:pointer;color:var(--primary);background:transparent;transition:background .15s}
+.btn-primary{background:var(--primary);color:white}
+.btn-primary:hover{background:var(--primary-dark)}
+.btn-agency,.btn-staff,.btn-outline{background:var(--card);color:var(--text);border-color:#a8ada5}
+.btn-agency:hover,.btn-staff:hover,.btn-outline:hover{background:var(--accent-soft)}
+.btn-lg{min-height:64px}
 .btn-block{width:100%}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
-
-/* ---------- header ---------- */
-header.site{border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:20;backdrop-filter:saturate(180%) blur(8px);-webkit-backdrop-filter:saturate(180%) blur(8px)}
-header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:58px}
-.brand{font-weight:800;color:var(--heading);font-size:19px;text-decoration:none;letter-spacing:-.01em}
-.brand small{font-weight:600;color:var(--muted);font-size:12px;letter-spacing:0}
-header.site nav{display:flex;align-items:center;gap:6px}
-header.site nav a{font-size:14.5px;font-weight:700;color:var(--muted);text-decoration:none;padding:8px 10px;border-radius:10px;white-space:nowrap;min-height:40px;display:inline-flex;align-items:center}
-header.site nav a:hover{color:var(--primary);background:var(--primary-soft)}
-@media(max-width:420px){
-  .brand{font-size:17px}.brand small{display:none}
-  header.site nav a{font-size:13.5px;padding:8px 7px}
-}
-
-/* ---------- hero ---------- */
-.hero{background:radial-gradient(120% 90% at 50% -10%,var(--primary-soft) 0%,var(--primary-tint) 42%,var(--bg) 100%);padding:40px 0 44px;text-align:center}
-.hero h1{font-size:40px;font-weight:800;margin:0 0 var(--s3);letter-spacing:-.025em}
-.hero .sub{font-size:22px;font-weight:700;color:var(--heading);margin:0 auto var(--s6);line-height:1.45;max-width:520px}
-.hero-cta{display:flex;flex-direction:column;gap:12px;max-width:440px;margin:0 auto}
-.hero-hint{font-size:14px;color:var(--muted);margin:14px 0 0;line-height:1.7}
-
-/* ---------- sections ---------- */
-section{padding:var(--s16) 0;border-top:1px solid var(--line)}
-section h2{font-size:27px;font-weight:800;margin:0 0 var(--s2);letter-spacing:-.02em}
-section .kicker{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:800;letter-spacing:.12em;color:var(--primary);text-transform:uppercase;margin:0 0 var(--s3)}
-section .kicker::before{content:"";width:18px;height:2px;background:var(--accent);border-radius:2px}
-section p.intro{color:var(--muted);font-size:17px;margin:0 0 var(--s6);max-width:640px;line-height:1.7}
-@media(max-width:640px){section{padding:var(--s12) 0}section h2{font-size:23px}.hero h1{font-size:33px}.hero .sub{font-size:19px}}
-
-/* ---------- 한눈에 보는 사용 흐름 (인포그래픽) ---------- */
-.flow-legend{display:flex;gap:10px;justify-content:flex-start;flex-wrap:wrap;margin:0 0 var(--s4)}
-.fl-chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:7px 15px;font-size:14px;font-weight:800;border:1.5px solid}
-.fl-chip.owner{color:var(--primary);background:var(--primary-soft);border-color:#cfe0f2}
-.fl-chip.agency{color:var(--agency);background:var(--accent-soft);border-color:var(--accent-line)}
-.fl-chip.staff{color:var(--staff);background:var(--staff-soft);border-color:var(--staff-line)}
-
-.flow{list-style:none;margin:0;padding:0;position:relative}
-.flow::before{content:"";position:absolute;left:23px;top:14px;bottom:14px;width:3px;background:linear-gradient(var(--line),var(--line));border-radius:2px}
-.f-step{position:relative;display:flex;gap:16px;align-items:flex-start;padding:0 0 var(--s4)}
-.f-step:last-child{padding-bottom:0}
-.f-num{flex:0 0 auto;width:48px;height:48px;border-radius:50%;color:#fff;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-sm);position:relative;z-index:1;border:3px solid var(--bg)}
-.f-step.owner .f-num{background:var(--primary)}
-.f-step.agency .f-num{background:var(--accent)}
-.f-card{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 18px;box-shadow:var(--shadow-xs);border-left:5px solid var(--primary)}
-.f-step.agency .f-card{border-left-color:var(--accent)}
-.f-actor{display:inline-block;font-size:12.5px;font-weight:800;border-radius:999px;padding:2px 10px;margin:0 0 6px}
-.f-step.owner .f-actor{color:var(--primary);background:var(--primary-soft)}
-.f-step.agency .f-actor{color:var(--agency);background:var(--accent-soft)}
-.f-card h3{font-size:18px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
-.f-card h3 .f-ic{font-size:22px}
-.f-card p{margin:0;font-size:15px;color:var(--muted);line-height:1.65}
-.f-card p b{color:var(--heading)}
-.flow-note{display:flex;gap:10px;align-items:flex-start;background:var(--ok-soft);border:1px solid var(--ok-line);border-radius:var(--r);padding:14px 16px;margin-top:var(--s6);font-size:15px;color:var(--text);line-height:1.65;text-align:left}
-.flow-note .ic{font-size:20px;flex:0 0 auto}
-.flow-note b{color:var(--ok)}
-@media(max-width:480px){
-  .flow::before{left:19px}
-  .f-num{width:40px;height:40px;font-size:17px}
-  .f-card{padding:12px 14px}
-  .f-card h3{font-size:16.5px}
-}
-
-/* 흐름 아래 직원 안내 한 줄 (직원은 이 흐름의 어디에 있는지) */
-.flow-staff{display:flex;gap:10px;align-items:flex-start;background:var(--staff-soft);border:1px solid var(--staff-line);border-radius:var(--r);padding:14px 16px;margin-top:var(--s3);font-size:15px;line-height:1.65}
-.flow-staff .ic{font-size:20px;flex:0 0 auto}
+.hero{padding:48px 0 56px}
+.hero .wrap{max-width:1100px;display:grid;grid-template-columns:1.04fr 1fr;gap:56px;align-items:center}
+.hero .eyebrow{font-size:17px;color:var(--accent);font-weight:700;margin-bottom:16px}
+.hero h1{font-size:54px;line-height:1.18;letter-spacing:-.055em;font-weight:850}
+.hero h1 span{color:var(--primary)}
+.hero .sub{font-size:19px;color:var(--muted);margin:22px 0 16px;max-width:460px}
+.hero-free{font-size:17px;font-weight:700;margin-bottom:18px}
+.hero-cta{display:grid;gap:10px}
+.hero-cta .btn{justify-content:space-between;text-align:left;width:100%}
+.hero-cta .btn span{display:block}
+.hero-cta .btn small{display:block;font-size:17px;font-weight:400;opacity:1}
+.hero-cta .btn .action{font-size:17px;white-space:nowrap}
+.hero-hint{font-size:16px;color:var(--muted);margin-top:12px}
+.hero-hint a{display:inline-block;font-size:18px;font-weight:700;line-height:1.4;padding:10px 2px;min-height:44px;box-sizing:border-box}
+.hero-photo{align-self:stretch;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.hero-photo img{width:100%;height:520px;object-fit:cover;object-position:60% 55%;border-radius:2px}
+.hero-photo figcaption{display:flex;justify-content:space-between;gap:12px;font-size:16px;color:var(--muted);padding-top:12px}
+.hero-photo figcaption b{font-weight:500}
+.promise{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:20px 0;background:var(--card)}
+.promise .wrap{font-size:17px;display:flex;gap:24px;justify-content:space-between}
+.promise strong{color:var(--primary);white-space:nowrap}
+.section-heading{max-width:660px;margin-bottom:36px}
+.flow-legend{display:none}
+.flow{list-style:none;padding:0;margin:0;border-top:2px solid var(--text)}
+.f-step{display:grid;grid-template-columns:64px 1fr;gap:24px;padding:26px 0;border-bottom:1px solid var(--line)}
+.f-num{font-size:34px;line-height:1.3;font-weight:500;letter-spacing:-.05em;color:var(--accent)}
+.f-actor{font-size:16px;font-weight:700;color:var(--accent);display:block;margin-bottom:6px}
+.f-step.owner .f-actor{color:var(--primary)}
+.f-card p{font-size:18px;color:var(--muted)}
+.f-card b{color:var(--text)}
+.f-ic,.ic{display:none}
+.flow-note,.flow-staff,.device-note{padding:22px 24px;border-left:3px solid var(--accent);background:var(--accent-soft);margin-top:24px;font-size:18px}
+.flow-staff{background:#edf1e9;border-color:var(--staff)}
 .flow-staff b{color:var(--staff)}
-.flow-staff a{font-weight:800;color:var(--staff)}
-
-/* ---------- 손님 셀프 조회·요청 (사장님 손 덜어주기) ---------- */
-.selfserve{background:var(--ok-soft);border:1px solid var(--ok-line);border-radius:var(--r);padding:18px 20px;margin-top:var(--s4);scroll-margin-top:72px}
-.selfserve h3{font-size:19px;margin:0 0 6px;display:flex;align-items:flex-start;gap:8px}
-.selfserve h3 .ic{font-size:22px;line-height:1.2;flex:0 0 auto}
-.selfserve>p{margin:0;font-size:15.5px;color:var(--text);line-height:1.65}
-.ss-list{list-style:none;counter-reset:ss;margin:14px 0 0;padding:0;display:grid;gap:8px}
-.ss-list li{counter-increment:ss;position:relative;background:var(--card);border:1px solid var(--ok-line);border-radius:12px;padding:11px 14px 11px 44px;font-size:15px;line-height:1.6;color:var(--text)}
-.ss-list li::before{content:counter(ss);position:absolute;left:12px;top:11px;width:23px;height:23px;border-radius:50%;background:var(--ok);color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center}
-.ss-foot{margin:14px 0 0;font-size:15px;line-height:1.65;color:var(--text)}
-.ss-foot b{color:var(--ok)}
-@media(max-width:480px){.selfserve{padding:16px 14px}.selfserve h3{font-size:17.5px}}
-
-/* ---------- 전용 기기 권장 안내 ---------- */
-.device-note{display:flex;gap:10px;align-items:flex-start;background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:var(--r);padding:14px 16px;margin-top:var(--s4);font-size:15px;color:var(--text);line-height:1.65}
-.device-note .ic{font-size:20px;flex:0 0 auto}
-.device-note b{color:var(--warn)}
-
-/* ---------- steps ---------- */
-.steps{display:grid;gap:var(--s4);margin-top:var(--s6)}
-.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;display:flex;gap:16px;align-items:flex-start;box-shadow:var(--shadow-xs)}
-.step .n{flex:0 0 auto;width:38px;height:38px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:17px}
-.step h3{font-size:18px;margin:0 0 4px}
-.step p{margin:0;font-size:15.5px;color:var(--muted);line-height:1.6}
-.acc{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
-.acc summary{cursor:pointer;font-weight:800;font-size:15.5px;color:var(--primary);padding:14px 16px;list-style:none}
-.acc summary::-webkit-details-marker{display:none}
-.acc summary::after{content:"▾";float:right;transition:transform .2s}
-.acc[open] summary::after{transform:rotate(180deg)}
-.acc-body{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:0 16px 16px}
-@media(max-width:560px){.acc-body{grid-template-columns:1fr}}
-.acc-col{background:var(--bg-soft);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-.acc-col strong{display:block;font-size:15px;color:var(--heading);margin-bottom:6px}
-.acc-col p{margin:0;font-size:14.5px;color:var(--text);line-height:1.85}
-.more{display:inline-block;margin-top:16px;font-weight:800;text-decoration:none;font-size:16px;color:var(--primary)}
-.more:hover{text-decoration:underline}
-.sec-cta{margin-top:var(--s6)}
-.sec-cta .btn{max-width:440px}
-
-/* 역할 섹션 색 코딩 (사장님 파랑 / 공공기관 담당자(서무) 금색 / 직원 초록) */
-.role-agency .kicker{color:var(--agency)}
-.role-agency .step .n{background:var(--accent)}
-.role-agency .more{color:var(--agency)}
-.role-staff .kicker{color:var(--staff)}
-.role-staff .step .n{background:var(--staff)}
-.role-staff .more{color:var(--staff)}
-.role-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 14px;font-size:14px;font-weight:800;border:1.5px solid;margin:0 0 var(--s3)}
-.role-owner .role-badge{color:var(--primary);background:var(--primary-soft);border-color:#cfe0f2}
-.role-agency .role-badge{color:var(--agency);background:var(--accent-soft);border-color:var(--accent-line)}
-.role-staff .role-badge{color:var(--staff);background:var(--staff-soft);border-color:var(--staff-line)}
-
-/* agency band */
-.agency{background:var(--bg-soft)}
-
-/* ---------- 사용 매뉴얼 카드 ---------- */
-.man-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:var(--s6)}
-@media(max-width:720px){.man-grid{grid-template-columns:1fr}}
-.man{display:block;background:var(--card);border:1px solid var(--line);border-top:4px solid var(--primary);border-radius:var(--r);padding:18px 20px;text-decoration:none;box-shadow:var(--shadow-xs);transition:transform .16s ease,box-shadow .16s ease}
-.man:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
-.man.agency-card{border-top-color:var(--accent)}
-.man.staff-card{border-top-color:var(--staff)}
-.man .ic{font-size:27px;line-height:1;display:block}
-.man h3{font-size:17.5px;margin:10px 0 4px}
-.man p{margin:0;font-size:14.5px;color:var(--muted);line-height:1.6}
-.man .go{display:inline-block;margin-top:12px;font-weight:800;font-size:14.5px;color:var(--primary)}
-.man.agency-card .go{color:var(--agency)}
-.man.staff-card .go{color:var(--staff)}
-.man .tag{display:inline-block;font-size:12px;font-weight:800;color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:middle}
-
-/* ---------- safety ---------- */
-.safe{background:var(--primary-dark);color:#fff;border-top:none}
-.safe .kicker{color:#a9c5e6}
-.safe .kicker::before{background:var(--accent)}
-.safe h2{color:#fff}
-.safe .safe-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:var(--s4)}
-@media(max-width:640px){.safe .safe-grid{grid-template-columns:1fr}}
-.safe .s{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:16px 18px;display:flex;gap:14px;align-items:flex-start}
-.safe .s .ic{font-size:24px;line-height:1;flex:0 0 auto}
-.safe .s h3{color:#fff;font-size:16.5px;margin:0 0 3px}
-.safe .s p{margin:0;font-size:14.5px;color:#cfe0f2;line-height:1.6}
-.safe .relay{margin:var(--s6) 0 0;font-size:14px;color:#b9cfe8;line-height:1.7}
-.safe .relay a{color:#fff;font-weight:700}
-
-/* ---------- FAQ ---------- */
-.faq details{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;box-shadow:var(--shadow-xs)}
-.faq summary{cursor:pointer;font-weight:800;font-size:17px;color:var(--heading);padding:16px 18px;list-style:none;line-height:1.4}
-.faq summary::-webkit-details-marker{display:none}
-.faq summary::after{content:"+";float:right;color:var(--primary);font-weight:800;font-size:20px;line-height:1}
-.faq details[open] summary::after{content:"–"}
-.faq details p{margin:0;padding:0 18px 16px;font-size:15.5px;color:var(--muted);line-height:1.7}
-
-/* ---------- feedback form ---------- */
-.form-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:24px 22px;max-width:620px;box-shadow:var(--shadow-sm)}
-.form-row{margin:0 0 var(--s6)}
-.form-row label{display:block;font-weight:700;font-size:15.5px;margin-bottom:var(--s2);color:var(--heading)}
-.roles{display:flex;gap:var(--s2);flex-wrap:wrap}
-.roles label{display:inline-flex;align-items:center;gap:6px;background:var(--bg-soft);border:1.5px solid var(--line);border-radius:10px;padding:11px 17px;font-weight:600;font-size:15.5px;cursor:pointer;margin:0;min-height:48px;transition:border-color .15s,background .15s}
-.roles input{accent-color:var(--primary);width:18px;height:18px}
-.roles label:has(input:checked){border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
-textarea{width:100%;font-family:inherit;font-size:16px;color:var(--text);border:1.5px solid var(--line);border-radius:10px;padding:13px;background:var(--card);transition:border-color .15s,box-shadow .15s;min-height:120px;resize:vertical;line-height:1.6}
-textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(30,78,134,.12)}
-.counter{float:right;font-size:13px;color:var(--muted);font-weight:600}
-.counter.over{color:#c0392b;font-weight:700}
-.form-msg{margin:var(--s4) 0 0;font-size:15.5px;font-weight:700;display:none}
-.form-msg.ok{color:var(--ok);display:block}
-.form-msg.err{color:#c0392b;display:block}
-button.submit{background:var(--primary);color:#fff;border:none;border-radius:12px;padding:15px 32px;font-size:18px;font-weight:800;cursor:pointer;min-height:54px;transition:background .16s,transform .16s,box-shadow .16s;box-shadow:var(--shadow-sm);font-family:inherit}
-button.submit:hover{background:var(--primary-dark);transform:translateY(-1px);box-shadow:var(--shadow)}
-button.submit:disabled{opacity:.6;cursor:default;transform:none;box-shadow:none}
-
-/* ---------- footer ---------- */
-footer.site{background:var(--bg-soft);border-top:1px solid var(--line);padding:var(--s12) 0 var(--s12);font-size:13.5px;color:var(--muted)}
-footer.site h4{color:var(--heading);font-size:14.5px;margin:0 0 var(--s2)}
-footer.site a{color:var(--primary);text-decoration:none}
-footer.site a:hover{text-decoration:underline}
-footer.site .cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--s6);margin-bottom:var(--s6)}
-@media(max-width:640px){footer.site .cols{grid-template-columns:1fr}}
-footer.site .disclaimer{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13.5px;margin-bottom:var(--s6);line-height:1.6}
-footer.site .copy{border-top:1px solid var(--line);padding-top:var(--s4);font-size:12.5px}
-
-/* ---------- sticky mobile CTA ---------- */
-.stickybar{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:rgba(255,255,255,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-top:1px solid var(--line);box-shadow:0 -4px 18px rgba(16,32,64,.08);transform:translateY(140%);transition:transform .25s ease}
-.stickybar.show{transform:none}
-.stickybar .btn{width:100%;font-size:18px;min-height:56px}
-@media(min-width:761px){.stickybar{display:none}}
-body.has-sticky{padding-bottom:84px}
-@media(min-width:761px){body.has-sticky{padding-bottom:0}}
-
-/* ---------- reduced motion ---------- */
-@media (prefers-reduced-motion: reduce){
+.owner-opening{display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center;margin-bottom:36px}
+.owner-opening img{width:100%;height:280px;object-fit:cover;object-position:50% 63%}
+.owner-opening figcaption{font-size:16px;color:var(--muted);padding-top:8px}
+.role-owner{background:var(--card)}
+.steps{display:grid;gap:0;margin-top:28px}
+.step{display:grid;grid-template-columns:42px 1fr;gap:20px;padding:24px 0;border-top:1px solid var(--line)}
+.step:last-child{border-bottom:1px solid var(--line)}
+.step .n{font-size:26px;line-height:1.4;color:var(--primary)}
+.step p{font-size:18px;color:var(--muted)}
+.step b{color:var(--text)}
+.acc{margin-top:16px;border:1px solid var(--line);border-radius:4px}
+.acc summary{padding:16px;font-size:18px;font-weight:700;cursor:pointer;min-height:56px}
+.acc-body{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:0 20px 20px}
+.acc-col p{font-size:17px}
+.acc-col strong{display:block;margin-bottom:8px}
+.selfserve{margin-top:44px;padding-top:32px;border-top:2px solid var(--primary);scroll-margin-top:40px}
+.selfserve h3{font-size:26px;margin-bottom:16px}
+.ss-list{list-style:none;padding:0;margin:24px 0;display:grid;gap:16px;counter-reset:self}
+.ss-list li{counter-increment:self;padding-left:40px;position:relative;font-size:18px}
+.ss-list li::before{content:counter(self,decimal-leading-zero);position:absolute;left:0;color:var(--primary);font-weight:700;font-size:17px}
+.ss-foot{padding:20px 24px;background:var(--primary-soft);font-size:18px}
+.more{display:inline-flex;align-items:center;min-height:48px;margin-top:20px;font-size:18px;font-weight:700}
+.sec-cta{margin-top:20px}
+.sec-cta .btn{width:100%;max-width:520px}
+.agency{background:var(--accent-soft)}
+.role-agency .n{color:var(--accent)}
+.role-staff .n{color:var(--staff)}
+.role-staff .role-badge{color:var(--staff)}
+.man-grid{border-top:2px solid var(--text);display:grid}
+.man{display:grid;grid-template-columns:230px 1fr auto;align-items:center;gap:24px;padding:26px 0;border-bottom:1px solid var(--line);text-decoration:none;color:var(--text)}
+.man h3{font-size:20px;margin:0}
+.man p{font-size:17px;color:var(--muted)}
+.man .go{font-size:17px;color:var(--primary);font-weight:700;white-space:nowrap}
+.man:hover .go{text-decoration:underline}
+.tag{font-size:16px;color:var(--muted);margin-left:6px;font-weight:500}
+.safe{background:#233b36;color:#fffdf8}
+.safe h2{color:#fffdf8}
+.safe .kicker{color:#d9c4a3}
+.safe-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px 40px;margin-top:36px}
+.safe .s{border-top:1px solid #70827b;padding-top:24px}
+.safe .s h3{font-size:21px;margin-bottom:12px}
+.safe .s p{font-size:18px;color:#e3e9e0}
+.safe a{color:#fffdf8}
+.safe :focus-visible{outline-color:#fffdf8}
+.relay{margin-top:32px;color:#e3e9e0;font-size:17px}
+.faq{background:var(--card)}
+.faq details{border-bottom:1px solid var(--line)}
+.faq details:first-of-type{border-top:2px solid var(--text)}
+.faq summary{font-size:19px;line-height:1.6;padding:23px 0;cursor:pointer;font-weight:700;min-height:60px}
+.faq details[open] summary{color:var(--primary)}
+.faq details p{padding:0 0 26px;font-size:18px;color:var(--muted);max-width:790px}
+.faq details b{color:var(--text)}
+.form-card{border:0;border-top:2px solid var(--text);padding:30px 0 0;max-width:760px}
+.form-row{margin:0 0 26px}
+.form-row>label,fieldset legend{display:block;font-weight:700;font-size:18px;margin-bottom:12px}
+fieldset.form-row{border:0;padding:0;min-width:0}
+.roles{display:flex;flex-wrap:wrap;gap:8px 16px}
+.roles label{display:flex;gap:10px;align-items:center;min-height:48px;font-size:18px;padding:6px 8px;cursor:pointer}
+.roles input{width:22px;height:22px;accent-color:var(--primary);flex:0 0 auto}
+textarea{display:block;width:100%;min-height:180px;padding:18px;border:1px solid #878f85;border-radius:4px;background:var(--card);color:var(--text);resize:vertical;font-size:18px;line-height:1.7}
+textarea::placeholder{color:var(--muted)}
+.counter{font-size:16px;font-weight:400;float:right;color:var(--muted)}
+.submit{min-height:56px;padding:14px 32px;font-size:18px;font-weight:700;border:0;border-radius:5px;background:var(--primary);color:#fff;cursor:pointer}
+.submit:hover{background:var(--primary-dark)}
+.submit:disabled{opacity:.65;cursor:wait}
+.form-msg{margin-top:16px;font-size:18px}
+.form-msg.ok{color:#23573a}.form-msg.err,.over{color:#9e3023}
+.privacy-hint{font-size:16px;color:var(--muted);margin-top:14px}
+footer.site{background:#ece7dc;border-top:1px solid var(--line);padding:48px 0 28px;font-size:17px;color:var(--muted)}
+.disclaimer{padding-bottom:28px;border-bottom:1px solid #bcbeb3;color:var(--text)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:40px;padding-top:28px}
+footer.site a{display:inline-block;min-height:44px;padding-block:6px}
+.copy{margin-top:32px;padding-top:24px;border-top:1px solid #bcbeb3;font-size:16px}
+@media(min-width:1100px){
+  #try .wrap{max-width:1100px;display:grid;grid-template-columns:340px 1fr;gap:0 64px}
+  #try .section-heading{grid-column:1;grid-row:1 / span 3}
+  #try .flow,#try .flow-note,#try .flow-staff{grid-column:2}
+  #try .flow{margin-top:0}
+}
+@media(max-width:900px){
+  .hero .wrap{gap:28px}.hero h1{font-size:44px}
+  .hero-photo img{height:510px}
+  .brand small{display:none}
+  .man{grid-template-columns:1fr auto;gap:12px 24px}
+  .man p{grid-column:1;grid-row:2}
+  .man .go{grid-column:2;grid-row:1 / span 2}
+}
+@media(max-width:700px){
+  .wrap{width:calc(100% - 40px)}
+  header.site .wrap{min-height:64px}
+  .brand{font-size:25px;align-items:center}
+  header.site nav{gap:14px}
+  header.site nav a{font-size:17px}
+  section{padding:52px 0}
+  h2{font-size:29px}
+  .hero{padding:24px 0 32px}
+  .hero .wrap{display:flex;flex-direction:column;align-items:stretch;gap:28px}
+  .hero .eyebrow{font-size:16px;margin-bottom:12px}
+  .hero h1{font-size:39px;line-height:1.2}
+  .hero .sub{font-size:18px;margin:14px 0 10px;line-height:1.6}
+  .hero-free{font-size:16px;margin-bottom:14px}
+  .hero-cta{gap:8px}
+  .hero-cta .btn{min-height:54px;padding:11px 14px}
+  .hero-cta .btn-primary{min-height:70px}
+  .hero-hint{margin-top:10px}
+  .hero-photo img{height:240px;object-position:50% 63%}
+  .hero-photo figcaption{font-size:16px}
+  .promise .wrap{display:block;font-size:16px}
+  .promise strong{display:block;margin-bottom:6px}
+  .section-heading{margin-bottom:28px}
+  .f-step{grid-template-columns:38px 1fr;gap:16px;padding:24px 0}
+  .f-num{font-size:28px}
+  .f-card h3{font-size:21px}
+  .f-card p{font-size:18px}
+  .flow-note,.flow-staff,.device-note{padding:18px;font-size:18px}
+  .owner-opening{display:block}
+  .owner-opening img{height:240px;margin-top:24px}
+  .step{grid-template-columns:28px 1fr;gap:14px}
+  .selfserve h3{font-size:24px}
+  .acc-body{grid-template-columns:1fr}
+  .man{display:block;padding:24px 0}
+  .man p{margin:10px 0}.man .go{display:inline-block;min-height:44px;padding-top:6px}
+  .safe-grid,.cols{grid-template-columns:1fr;gap:26px}
+  .safe h2{font-size:30px}
+  .faq summary{font-size:18px}
+  .submit{width:100%}
+}
+@media(max-width:370px){
+  .wrap{width:calc(100% - 32px)}
+  .hero h1{font-size:36px}
+  header.site nav{gap:10px}
+}
+@media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
-  .btn,button.submit,.roles label,.stickybar,.acc summary::after{transition:none !important}
+  *,*::before,*::after{transition:none!important;animation:none!important}
 }
 </style>
 </head>
 <body>
+<a class="skip" href="#main">본문으로 바로 가기</a>
 
 <header class="site">
   <div class="wrap">
@@ -290,90 +250,105 @@ body.has-sticky{padding-bottom:84px}
   </div>
 </header>
 
+<main id="main">
 <!-- 1. 히어로 -->
-<section id="top" class="hero" style="border-top:none">
+<section id="top" class="hero" style="border-top:none" aria-labelledby="hero-title">
   <div class="wrap">
-    <h1>밥장부</h1>
-    <p class="sub">단체 손님·직원 식대 장부,<br>수첩 대신 폰으로</p>
-    <div class="hero-cta">
-      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 사장님</a>
-      <a class="btn btn-agency" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 공공기관 담당자(서무)</a>
-      <a class="btn btn-staff" href="https://staff.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🙋</span> 직원 <span style="font-weight:700;font-size:14px">(베타)</span></a>
+    <div class="hero-copy">
+      <p class="eyebrow">동네 음식점과 공공기관을 위한 식대 장부</p>
+      <h1 id="hero-title">정성은 밥상에.<br><span>장부는 폰 안에.</span></h1>
+      <p class="sub">단체·직원 식대 장부, 수첩 대신 폰으로.<br>받은 선금과 식사 기록을 한곳에 적어요.</p>
+      <p class="hero-free">완전 무료·가입 없음 · 결제앱이 아닙니다</p>
+      <div class="hero-cta" aria-label="내 역할에 맞게 시작하기">
+        <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span>음식점 사장님<small>가게 장부를 쓰고 싶어요</small></span><span class="action">앱 열기</span></a>
+        <a class="btn btn-agency" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span>공공기관 담당자(서무)</span><span class="action">웹 열기</span></a>
+        <a class="btn btn-staff" href="https://staff.bapjangbu.com/" target="_blank" rel="noopener"><span>직원 · 개인 기록장(베타)</span><span class="action">앱 열기</span></a>
+      </div>
+      <p class="hero-hint">가입 없이 바로 시작해요. 새 탭으로 열려요.<br>처음이세요? <a href="#try">사용 순서부터 볼게요</a></p>
     </div>
-    <p class="hero-hint">가입 절차·비용 없이 바로 시작해요. (새 탭으로 열려요)<br>처음이시면 <a href="#try">아래 사용 흐름</a>이나 <a href="#manuals">사용 매뉴얼</a>을 먼저 보세요.</p>
+    <figure class="hero-photo">
+      <img src="img/restaurant-ledger.webp" width="1200" height="800" loading="eager" fetchpriority="high" alt="동네 음식점의 나무 탁자에 펼친 종이 장부와 태블릿, 따뜻한 한 끼">
+      <figcaption><b>수첩을 펼치던 그 자리에, 밥장부.</b><span>AI 생성 이미지</span></figcaption>
+    </figure>
   </div>
 </section>
+<aside class="promise" aria-label="밥장부는 기록 도구예요">
+  <div class="wrap"><strong>돈은 앱을 거치지 않아요</strong><span>결제(제로페이, 카드 등)는 가게에서 따로 해요</span></div>
+</aside>
 
 <!-- 2. 한눈에 보는 사용 모습 (인포그래픽) -->
 <section id="try">
   <div class="wrap">
-    <p class="kicker">한눈에 보는 사용 모습</p>
+    <div class="section-heading">
+    <p class="kicker">01 · 함께 쓰는 순서</p>
     <h2>시작부터 식사까지, 5단계로 끝나요</h2>
     <p class="intro">사장님이 앱을 설치하고 <b>우리 가게 등록</b>을 마치면, 공공기관 담당자(서무)가 선입금대장을 보내요. 사장님이 받은 금액을 확인하면 바로 직원 사용이 시작돼요. <b>회사(사기업)·개인 선금</b>은 이 흐름을 거치지 않고 <b>사장님이 앱에서 직접 등록</b>하면 돼요.</p>
 
+    </div>
     <div class="flow-legend" aria-hidden="true">
-      <span class="fl-chip owner">🍚 음식점 사장님</span>
-      <span class="fl-chip agency">🏛️ 공공기관 담당자(서무)</span>
-      <span class="fl-chip staff">🙋 직원</span>
+      <span class="fl-chip owner"> 음식점 사장님</span>
+      <span class="fl-chip agency"> 공공기관 담당자(서무)</span>
+      <span class="fl-chip staff"> 직원</span>
     </div>
 
     <ol class="flow">
       <li class="f-step owner">
         <div class="f-num" aria-hidden="true">1</div>
         <div class="f-card">
-          <span class="f-actor">🍚 음식점 사장님</span>
-          <h3><span class="f-ic" aria-hidden="true">📲</span>앱 설치</h3>
+          <span class="f-actor"> 음식점 사장님</span>
+          <h3>앱 설치</h3>
           <p><b>app.bapjangbu.com</b>에 접속해 '홈 화면에 추가'만 하면 설치 끝이에요.</p>
         </div>
       </li>
       <li class="f-step owner">
         <div class="f-num" aria-hidden="true">2</div>
         <div class="f-card">
-          <span class="f-actor">🍚 음식점 사장님</span>
-          <h3><span class="f-ic" aria-hidden="true">🏪</span>우리 가게 등록</h3>
-          <p><b>설치할 때 한 번만</b> 하면 되는 필수 단계예요. 가게 이름으로 찾아 등록해야 <b>공공기관 담당자(서무)가 우리 가게를 찾을 수 있어요.</b></p>
+          <span class="f-actor"> 음식점 사장님</span>
+          <h3>우리 가게 등록</h3>
+          <p><b>공공기관 명단을 받으려면 필수</b>예요. 가게 이름으로 찾아 등록해야 <b>공공기관 담당자(서무)가 우리 가게를 찾을 수 있어요.</b></p>
           <p style="margin-top:6px">회사(사기업)·개인 선금만 받으신다면 이 등록 없이도 <b>수동 등록</b>으로 바로 장부를 쓸 수 있어요.</p>
         </div>
       </li>
       <li class="f-step agency">
         <div class="f-num" aria-hidden="true">3</div>
         <div class="f-card">
-          <span class="f-actor">🏛️ 공공기관 담당자(서무)</span>
-          <h3><span class="f-ic" aria-hidden="true">✅</span>음식점 선택 · 명단 작성</h3>
+          <span class="f-actor"> 공공기관 담당자(서무)</span>
+          <h3>음식점 선택 · 명단 작성</h3>
           <p><b>agency.bapjangbu.com</b>에서 등록된 음식점을 고르고(여러 곳을 한 번에 고를 수 있어요), 직원 명단과 금액을 입력해요.</p>
         </div>
       </li>
       <li class="f-step agency">
         <div class="f-num" aria-hidden="true">4</div>
         <div class="f-card">
-          <span class="f-actor">🏛️ 공공기관 담당자(서무)</span>
-          <h3><span class="f-ic" aria-hidden="true">🔒</span>선입금대장 전달</h3>
-          <p>명단은 <b>암호화되어</b> 음식점 앱으로 전달돼요(바로 보내기 또는 담당자 전달파일·QR). 음식점 앱에서는 <b>자동 등록 — 공공기관에서 보낸 명단 받기</b>로 도착해요. 선금(돈)은 음식점에 <b>결제(제로페이, 카드 등)로 직접 지급</b>해요. 여러 음식점에 보낼 때도 <b>결제는 음식점마다 따로</b> 이뤄져요.</p>
+          <span class="f-actor"> 공공기관 담당자(서무)</span>
+          <h3>선입금대장 전달</h3>
+          <p>명단은 <b>암호화되어</b> 음식점 앱으로 전달돼요(바로 보내기 또는 담당자 전달파일·QR). 음식점 앱에서는 <b>자동 등록 — 공공기관에서 보낸 명단 받기</b>로 도착해요. 선금(돈)은 <b>앱 밖에서 음식점에 직접 지급</b>해요. 여러 음식점에 보낼 때도 <b>음식점마다 따로</b> 지급해요.</p>
         </div>
       </li>
       <li class="f-step owner">
         <div class="f-num" aria-hidden="true">5</div>
         <div class="f-card">
-          <span class="f-actor">🍚 음식점 사장님</span>
-          <h3><span class="f-ic" aria-hidden="true">🧾</span>결제 확인 → 직원 사용 시작</h3>
-          <p>명단에 적힌 금액을 <b>실제로 받으셨는지</b> 확인한 뒤 장부에 올리세요. <b>카드로 받으셨다면</b> 카드 단말기 매출전표·POS 매출 내역에서 금액과 승인일시를, <b>계좌이체로 받으셨다면</b> 통장 입금 내역에서 입금자명과 금액을 맞춰 보면 돼요. 여러 부서 명단이 왔는데 결제가 한 번뿐이라면 명단 여러 건의 합계와 맞춰 보세요.</p>
-          <p style="margin-top:6px">확인이 끝나면 사용 시작! 식사 때 직원 이름을 누르면 잔액이 자동으로 차감돼요.</p>
+          <span class="f-actor"> 음식점 사장님</span>
+          <h3>받은 금액 확인 → 직원 사용 시작</h3>
+          <p>명단에 적힌 금액을 <b>실제로 받으셨는지</b> 확인한 뒤 장부에 올리세요. <b>카드로 받으셨다면</b> 카드 단말기 매출전표·POS 매출 내역에서 금액과 승인일시를, <b>계좌이체로 받으셨다면</b> 통장 입금 내역에서 입금자명과 금액을 맞춰 보면 돼요. <b>제로페이로 받으셨다면</b> 가맹점 앱 정산 내역이나 통장 입금 내역을 보세요. 여러 부서 명단이 왔는데 받은 돈이 한 건이라면 명단 여러 건의 합계와 맞춰 보세요.</p>
+          <p style="margin-top:6px">확인이 끝나면 사용을 시작해요. 식사 때 직원 이름과 금액을 확인해 사용 기록을 저장하면 잔액에서 차감돼요.</p>
           <p style="margin-top:6px">바쁠 때는 <b>손님이 직접</b> 태블릿에서 이름을 찾아 금액·서명까지 해 두고, <b>사장님은 확인만</b> 하면 돼요. (아래 <a href="#selfserve">손님 셀프 조회</a>)</p>
         </div>
       </li>
     </ol>
 
-    <div class="flow-note"><span class="ic" aria-hidden="true">💡</span><span><b>돈은 앱 밖에서 움직여요.</b> 밥장부 안에서는 돈이 오가지 않아요. <b>선금(돈)은 기관과 음식점이 앱 밖에서 직접 결제(제로페이, 카드 등)로 주고받고, 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b> 여러 음식점에 명단을 한 번에 보내도 <b>결제는 음식점별로 각각</b> 이뤄져요.</span></div>
+    <div class="flow-note"><span><b>돈은 앱 밖에서 움직여요.</b> 밥장부 안에서는 돈이 오가지 않아요. <b>선금(돈)은 기관과 음식점이 앱 밖에서 직접 주고받고, 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b> 여러 음식점에 명단을 한 번에 보내도 <b>돈은 음식점별로 각각</b> 주고받아요.</span></div>
 
-    <div class="flow-staff"><span class="ic" aria-hidden="true">🙋</span><span><b>직원은 어디에 있나요?</b> 직원은 ⑤에서 음식점 앱에 이름을 눌러 식사만 하면 돼요. 따로 설치할 것은 없고, 가게 태블릿에서 <a href="#selfserve">내 잔액을 직접 확인하고 사용 요청</a>도 할 수 있어요. 내 폰에서 따로 적어 두고 싶으면 <a href="#staff">직원용(베타)</a>을 쓸 수 있어요.</span></div>
+    <div class="flow-staff"><span><b>직원은 어디에 있나요?</b> 직원은 ⑤에서 음식점 앱에 이름을 눌러 식사만 하면 돼요. 따로 설치할 것은 없고, 가게 태블릿에서 <a href="#selfserve">내 잔액을 직접 확인하고 사용 요청</a>도 할 수 있어요. 내 폰에서 따로 적어 두고 싶으면 <a href="#staff">직원용(베타)</a>을 쓸 수 있어요.</span></div>
   </div>
 </section>
 
 <!-- 3. 사장님 시작 (앱 열기 → 홈 화면 추가 → 처음 설정 4단계) -->
 <section id="owner" class="role-owner">
   <div class="wrap">
-    <span class="role-badge">🍚 음식점 사장님용</span>
-    <h2>앱 열고, 처음 설정 4단계면 시작이에요</h2>
+    <div class="owner-opening"><div><span class="role-badge">02 · 음식점 사장님</span>
+    <h2>밥상 챙기듯,<br>장부도 차근차근.</h2><p class="intro">가게에 둘 기기 한 대를 준비해요.<br>앱을 열고 처음 설정 4단계를 따라가면 돼요.</p></div>
+    <figure><img src="img/restaurant-meal.webp" width="1100" height="733" loading="lazy" alt="남색 앞치마를 입은 음식점 사장님이 밥과 국, 반찬을 담은 쟁반을 내려놓는 모습"><figcaption>매일의 한 끼를 챙기는 분들을 위해. · AI 생성 이미지</figcaption></figure></div>
     <div class="steps">
       <div class="step">
         <div class="n">1</div>
@@ -388,15 +363,15 @@ body.has-sticky{padding-bottom:84px}
           <h3>홈 화면에 추가하기</h3>
           <p>한 번 추가해 두면, 다음부터 앱처럼 바로 열려요.</p>
           <details class="acc">
-            <summary><span aria-hidden="true">📲</span> 홈 화면에 추가하는 법 보기</summary>
+            <summary> 홈 화면에 추가하는 법 보기</summary>
             <div class="acc-body">
               <div class="acc-col">
                 <strong>아이폰 (사파리)</strong>
-                <p>1. 아래 공유 <span aria-hidden="true">⬆️</span> 버튼 누르기<br>2. '홈 화면에 추가' 고르기<br>3. '추가' 누르면 끝</p>
+                <p>1. 아래 공유 버튼 누르기<br>2. '홈 화면에 추가' 고르기<br>3. '추가' 누르면 끝</p>
               </div>
               <div class="acc-col">
                 <strong>안드로이드 (크롬)</strong>
-                <p>1. 오른쪽 위 <span aria-hidden="true">⋮</span> 버튼 누르기<br>2. '홈 화면에 추가' 고르기<br>3. '추가' 누르면 끝</p>
+                <p>1. 오른쪽 위 더보기 메뉴 누르기<br>2. '홈 화면에 추가' 고르기<br>3. '추가' 누르면 끝</p>
               </div>
             </div>
           </details>
@@ -406,25 +381,25 @@ body.has-sticky{padding-bottom:84px}
         <div class="n">3</div>
         <div>
           <h3>처음 설정 4단계 따라가기</h3>
-          <p>가게 정보 → <b>우리 가게 등록</b>(가게 이름 검색) → 부서 목록 → 연락처·약관 동의 순서로 안내해 줘요. 끝나면 바로 장부를 쓸 수 있어요.</p>
+          <p>① <b>우리 가게 찾기</b>(이름 검색하면 주소·전화가 자동으로 채워져요) → ② 부서 목록 → ③ 연락처·약관 동의 → ④ 화면잠금 비밀번호 순서로 안내해 줘요. 끝나면 바로 장부를 쓸 수 있어요.</p>
         </div>
       </div>
     </div>
     <div class="selfserve" id="selfserve">
-      <h3><span class="ic" aria-hidden="true">🙋</span>바쁠 땐 손님이 직접 — 사장님은 확인만 하면 돼요</h3>
+      <h3>바쁠 땐 손님이 직접 — 사장님은 확인만 하면 돼요</h3>
       <p>태블릿을 <b>90초</b> 동안 만지지 않거나 홈에서 <b>[손님 셀프 조회]</b>를 누르면, 잠금 화면이 <b>손님(직원)이 직접 쓰는 화면</b>으로 바뀌어요. 손님이 이름 찾고 금액·서명까지 해 두면, 사장님은 확인만 하면 돼요.</p>
       <ol class="ss-list">
         <li><b>이름 검색</b> — 자기 이름을 검색해요(초성도 돼요). 목록에는 <b>기관·부서와 이름만</b> 보이고 잔액은 안 보여요. 없는 이름이면 "등록된 이름이 없어요"라고 알려 줘요.</li>
-        <li><b>본인 확인</b> — <b>[네, 맞아요]</b>를 누르면 곧바로 다음 화면으로 넘어가요(중간에 따로 누를 것이 없어요).</li>
+        <li><b>이름 확인</b> — 내 이름이 맞는지 보고 <b>[네, 맞아요]</b>를 누르면 다음 화면으로 넘어가요. 비밀번호 인증 단계는 아니에요.</li>
         <li><b>금액·서명</b> — 이름·잔액이 위에 보이는 한 화면에서 금액을 넣고(<b>잔액을 넘길 수 없어요</b>) 바로 아래에 서명해요. 지난 사용 내역이 궁금하면 <b>[최근 사용 내역 보기]</b>로 확인하고 돌아오면 되고(<b>적어 둔 금액은 그대로</b> 있어요), 금액을 정하기 어려우면 <b>[금액을 모르겠어요 · 사장님 부르기]</b>를 누르면 돼요.</li>
-        <li><b>사장님 확인 받기</b> — 다 되었으면 <b>[사장님 확인 받기]</b>를 누르고 태블릿을 건네요. 화면에 손님이 넣은 <b>금액과 서명이 크게</b> 떠요. 사장님이 PIN을 넣으면 그 내용이 채워진 사용 등록 창이 열리고, <b>금액을 확인·수정해 저장</b>해야 그때 장부에 기록돼요.</li>
+        <li><b>사장님 확인 받기</b> — 다 되었으면 <b>[사장님 확인 받기]</b>를 누르고 태블릿을 건네요. 화면에 손님이 넣은 <b>금액과 서명이 크게</b> 떠요. 사장님이 비밀번호(PIN)을 넣으면 그 내용이 채워진 사용 등록 창이 열리고, <b>금액을 확인·수정해 저장</b>해야 그때 장부에 기록돼요.</li>
       </ol>
-      <p class="ss-foot"><b>손님은 요청만, 기록은 사장님이.</b> 2분 안에 사장님이 확인하지 않은 요청은 자동으로 사라지고 장부에는 아무것도 남지 않아요. 손님은 조회·요청만 할 수 있고, 장부 기록·수정·설정은 <b>사장님 PIN</b> 없이는 못 해요.</p>
+      <p class="ss-foot"><b>손님은 요청만, 기록은 사장님이.</b> 2분 안에 사장님이 확인하지 않은 요청은 자동으로 사라지고 장부에는 아무것도 남지 않아요. 손님은 조회·요청만 할 수 있고, 장부 기록·수정·설정은 <b>사장님 비밀번호(PIN)</b> 없이는 못 해요.</p>
     </div>
-    <div class="device-note"><span class="ic" aria-hidden="true">📟</span><span><b>가게에 항상 두는 전용 태블릿(또는 전용 폰)에 설치하세요.</b> 장부는 설치한 그 기기에 저장돼요. 사장님 개인 폰보다는 가게에 비치해 둔 전용 기기에 설치해야, 사장님이 자리를 비워도 직원 식사 기록이 끊기지 않고 장부도 안전해요.</span></div>
+    <div class="device-note"><span><b>가게에 항상 두는 전용 태블릿(또는 전용 폰)에 설치하세요.</b> 장부는 설치한 그 기기에 저장돼요. 사장님 개인 폰보다는 가게에 비치해 둔 전용 기기에 설치해야, 사장님이 자리를 비워도 직원 식사 기록을 계속 남기기 편해요. 기기를 잃거나 고장 날 때에 대비해 백업도 해 주세요.</span></div>
     <a class="more" href="https://app.bapjangbu.com/docs/manual-restaurant.html" target="_blank" rel="noopener">음식점 사용법 자세히 보기 →</a>
     <div class="sec-cta">
-      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 음식점 사장님 시작하기</a>
+      <a class="btn btn-primary btn-lg" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"> 음식점 사장님 시작하기</a>
     </div>
   </div>
 </section>
@@ -432,7 +407,7 @@ body.has-sticky{padding-bottom:84px}
 <!-- 4. 공공기관 담당자(서무) 3단계 -->
 <section id="agency" class="agency role-agency">
   <div class="wrap">
-    <span class="role-badge">🏛️ 공공기관 담당자(서무)용</span>
+    <span class="role-badge">03 · 공공기관 담당자(서무)</span>
     <h2>서무 담당자는 이렇게 써요</h2>
     <p class="intro">직원 식대 선금 명단을 음식점에 안전하게 전달하는 일만 하면 돼요. 설치·계약·비용이 없고, 브라우저로 접속해 쓰면 돼요.</p>
     <div class="steps">
@@ -440,7 +415,7 @@ body.has-sticky{padding-bottom:84px}
         <div class="n">1</div>
         <div>
           <h3>공공기관 이메일로 본인 확인</h3>
-          <p>공공기관 이메일(go.kr · korea.kr)로 받은 인증번호(OTP)로 로그인해요. 복지관·공단(or.kr), 학교(ac.kr) 이메일도 됩니다.</p>
+          <p>공공기관 이메일(go.kr · korea.kr)로 받은 인증번호(OTP)로 로그인해요. 복지관·공단(or.kr), 학교(ac.kr) 이메일도 돼요.</p>
         </div>
       </div>
       <div class="step">
@@ -454,13 +429,13 @@ body.has-sticky{padding-bottom:84px}
         <div class="n">3</div>
         <div>
           <h3>암호화해 전송</h3>
-          <p>명단은 암호화되어 전송돼요. 선금은 음식점에 <b>결제(제로페이, 카드 등)로 직접</b> 지급하며, <b>음식점마다 따로</b> 결제해요.</p>
+          <p>명단은 암호화되어 전송돼요. 선금은 <b>앱 밖에서 음식점에 직접</b> 지급해요. 여러 곳에 명단을 보내도 <b>음식점마다 따로</b> 지급해요.</p>
         </div>
       </div>
     </div>
     <a class="more" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">공공기관 담당자(서무) 사용법 자세히 보기 →</a>
     <div class="sec-cta">
-      <a class="btn btn-agency btn-lg" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"><span aria-hidden="true">🏛️</span> 공공기관 담당자(서무)로 시작하기</a>
+      <a class="btn btn-agency btn-lg" href="https://agency.bapjangbu.com" target="_blank" rel="noopener"> 공공기관 담당자(서무)로 시작하기</a>
     </div>
   </div>
 </section>
@@ -468,10 +443,10 @@ body.has-sticky{padding-bottom:84px}
 <!-- 4.5 직원 (베타) -->
 <section id="staff" class="role-staff">
   <div class="wrap">
-    <span class="role-badge">🙋 직원용 <span style="font-weight:800">(베타)</span></span>
-    <h2>내 선금 잔액, 내 폰에서 확인해요</h2>
-    <p class="intro">직원은 음식점에서 <b>이름만 눌러</b> 식사하면 되고, 따로 설치할 것은 없어요. 다만 <b>내 잔액을 내 폰에서 확인</b>하고 싶다면 <b>밥장부 직원용(베타)</b>을 쓸 수 있어요. 회원가입·로그인이 없고, 기록은 내 폰에만 저장돼요.</p>
-    <div class="flow-staff" style="margin-top:0;margin-bottom:var(--s6)"><span class="ic" aria-hidden="true">📟</span><span><b>음식점 태블릿에서도 내 잔액을 직접 확인할 수 있어요.</b> 태블릿이 잠겨 있을 때 <b>내 이름을 검색하고(초성 가능) [네, 맞아요]</b>를 누르면 <b>내 잔액이 보이는 화면에서 금액과 서명까지</b> 바로 할 수 있어요. 지난 사용 내역은 <b>[최근 사용 내역 보기]</b>로 언제든 열어 볼 수 있고요. 사장님이 금액을 확인해 저장하면 장부에 기록돼요. (자세히: <a href="#selfserve">손님 셀프 조회</a>)</span></div>
+    <span class="role-badge">04 · 직원용 개인 기록장(베타)</span>
+    <h2>내 식사 기록을<br>따로 적어 두고 싶다면.</h2>
+    <p class="intro">직원은 음식점에서 <b>이름만 눌러</b> 식사하면 되고, 따로 설치할 것은 없어요. 다만 <b>내가 적은 선금·사용 내역을 내 폰에서 확인</b>하고 싶다면 <b>밥장부 직원용(베타)</b>을 쓸 수 있어요. 회원가입·로그인이 없고, 기록은 내 폰에만 저장돼요.</p>
+    <div class="flow-staff" style="margin-top:0;margin-bottom:var(--s6)"><span><b>음식점 태블릿에서도 내 잔액을 직접 확인할 수 있어요.</b> 태블릿이 잠겨 있을 때 <b>내 이름을 검색하고(초성 가능) [네, 맞아요]</b>를 누르면 <b>내 잔액이 보이는 화면에서 금액과 서명까지</b> 바로 할 수 있어요. 지난 사용 내역은 <b>[최근 사용 내역 보기]</b>로 언제든 열어 볼 수 있고요. 사장님이 금액을 확인해 저장하면 장부에 기록돼요. (자세히: <a href="#selfserve">손님 셀프 조회</a>)</span></div>
     <div class="steps">
       <div class="step">
         <div class="n">1</div>
@@ -490,15 +465,15 @@ body.has-sticky{padding-bottom:84px}
       <div class="step">
         <div class="n">3</div>
         <div>
-          <h3>충전·사용 눌러 기록</h3>
-          <p>선금을 넣으면 [충전], 밥을 먹으면 [사용]을 눌러요. <b>"만리성에 27000원 충전"</b>처럼 말로도 기록돼요.</p>
+          <h3>선금·식사 내역 기록</h3>
+          <p>음식점에 선금을 낸 뒤 그 금액을 적고, 밥을 먹으면 사용한 금액을 적어요. <b>말로 입력하는 기능</b>도 있어요. 앱에서 돈을 보내는 것이 아니라 이미 주고받은 금액을 기록하는 거예요.</p>
         </div>
       </div>
     </div>
-    <div class="device-note"><span class="ic" aria-hidden="true">🧾</span><span><b>공식 잔액은 음식점 장부가 기준이에요.</b> 직원용 앱은 내가 직접 적어 확인하는 개인 기록장이라 음식점 앱과 자동으로 연결되지 않아요. 금액이 다르면 음식점에서 확인해 주세요.</span></div>
+    <div class="device-note"><span><b>공식 잔액은 음식점 장부가 기준이에요.</b> 직원용 앱은 내가 직접 적어 확인하는 개인 기록장이라 음식점 앱과 자동으로 연결되지 않아요. 금액이 다르면 음식점에서 확인해 주세요.</span></div>
     <a class="more" href="https://app.bapjangbu.com/docs/manual-staff.html" target="_blank" rel="noopener">직원 사용법 자세히 보기 →</a>
     <div class="sec-cta">
-      <a class="btn btn-staff btn-lg" href="https://staff.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🙋</span> 직원용(베타) 시작하기</a>
+      <a class="btn btn-staff btn-lg" href="https://staff.bapjangbu.com/" target="_blank" rel="noopener"> 직원용(베타) 시작하기</a>
     </div>
   </div>
 </section>
@@ -506,26 +481,26 @@ body.has-sticky{padding-bottom:84px}
 <!-- 4.8 사용 매뉴얼 (역할별) -->
 <section id="manuals">
   <div class="wrap">
-    <p class="kicker">사용 매뉴얼</p>
+    <p class="kicker">05 · 곁에 두는 안내서</p>
     <h2>내 역할에 맞는 안내서를 보세요</h2>
     <p class="intro">그림처럼 화면 순서대로 따라 하는 안내서예요. 인쇄해서 나눠 주셔도 돼요.</p>
     <div class="man-grid">
       <a class="man" href="https://app.bapjangbu.com/docs/manual-restaurant.html" target="_blank" rel="noopener">
-        <span class="ic" aria-hidden="true">🍚</span>
+
         <h3>음식점 사장님</h3>
         <p>설치 · 가게 등록 · 직원 선금대장 등록(자동·수동) · 매일 쓰기 · 장부 백업</p>
         <span class="go">안내서 보기 →</span>
       </a>
       <a class="man agency-card" href="https://app.bapjangbu.com/docs/manual-agency.html" target="_blank" rel="noopener">
-        <span class="ic" aria-hidden="true">🏛️</span>
+
         <h3>공공기관 담당자(서무)</h3>
         <p>본인 확인 · 음식점 선택(여러 음식점 한 번에 보내기) · 명단(CSV) 작성 · 전달 방식 2가지 · 보낸 후 할 일</p>
         <span class="go">안내서 보기 →</span>
       </a>
       <a class="man staff-card" href="https://app.bapjangbu.com/docs/manual-staff.html" target="_blank" rel="noopener">
-        <span class="ic" aria-hidden="true">🙋</span>
+
         <h3>직원<span class="tag">베타</span></h3>
-        <p>이용 지역 설정 · 음식점 등록 · 충전·사용 기록 · 말로 입력 · 기록 백업</p>
+        <p>이용 지역 설정 · 음식점 등록 · 선금·사용 기록 · 말로 입력 · 기록 백업</p>
         <span class="go">안내서 보기 →</span>
       </a>
     </div>
@@ -535,13 +510,13 @@ body.has-sticky{padding-bottom:84px}
 <!-- 5. 안심 섹션 -->
 <section id="safe" class="safe">
   <div class="wrap">
-    <p class="kicker">안심하세요</p>
+    <p class="kicker">06 · 밥장부의 역할</p>
     <h2>돈은 다루지 않아요. 기록만 해요.</h2>
     <div class="safe-grid">
-      <div class="s"><span class="ic" aria-hidden="true">💸</span><div><h3>완전 무료</h3><p>이용료·수수료가 전혀 없어요.</p></div></div>
-      <div class="s"><span class="ic" aria-hidden="true">🚫</span><div><h3>앱 안에서 돈이 오가지 않음</h3><p>이 앱에는 결제·정산 기능이 없고 <b>운영자는 자금을 받거나 보관하지 않습니다.</b> 선금 결제(제로페이, 카드 등)는 기관과 음식점이 <b>앱 밖에서 직접</b> 진행합니다.</p></div></div>
-      <div class="s"><span class="ic" aria-hidden="true">📵</span><div><h3>전화번호 미수집</h3><p>손님 전화번호를 받지 않아요.</p></div></div>
-      <div class="s"><span class="ic" aria-hidden="true">📱</span><div><h3>장부는 내 폰에만</h3><p>장부와 기록은 내 폰 안에 저장돼요.</p></div></div>
+      <div class="s"><div><h3>완전 무료</h3><p>이용료·수수료가 전혀 없어요.</p></div></div>
+      <div class="s"><div><h3>앱 안에서 돈이 오가지 않음</h3><p>결제앱이 아닙니다. <b>운영자는 자금을 받거나 보관하지 않아요.</b> 선금은 기관과 음식점이 <b>앱 밖에서 직접</b> 주고받아요.</p></div></div>
+      <div class="s"><div><h3>전화번호 미수집</h3><p>손님 전화번호를 받지 않아요.</p></div></div>
+      <div class="s"><div><h3>장부는 내 폰에만</h3><p>장부와 기록은 내 폰 안에 저장돼요.</p></div></div>
     </div>
     <p class="relay">암호화된 명단은 Cloudflare 기반 중계 서버로 전달될 수 있으며, 자세한 내용은 <a href="https://app.bapjangbu.com/docs/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에서 확인할 수 있어요.</p>
   </div>
@@ -550,11 +525,11 @@ body.has-sticky{padding-bottom:84px}
 <!-- 6. FAQ -->
 <section id="faq" class="faq">
   <div class="wrap">
-    <p class="kicker">자주 묻는 질문</p>
+    <p class="kicker">07 · 자주 묻는 질문</p>
     <h2>궁금한 점을 모았어요</h2>
     <details>
       <summary>저는 음식점 사장님·공공기관 담당자(서무)·직원 중 어디에 해당하나요?</summary>
-      <p><b>음식점 사장님</b>은 가게에서 장부를 쓰는 분(<a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a>), <b>공공기관 담당자(서무)</b>는 구청 같은 공공기관에서 직원 식대 명단을 음식점에 보내고 선금을 결제(제로페이, 카드 등)하는 분(<a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">담당자 웹</a>), <b>직원</b>은 그 식당에서 밥을 먹는 분이에요. 직원은 따로 설치할 것이 없고, 가게 태블릿에서 <a href="#selfserve">내 잔액 확인·사용 요청</a>을 직접 할 수 있어요. 내 폰에서 따로 적어 두고 싶을 때만 <a href="#staff">직원용(베타)</a>을 쓰면 돼요.</p>
+      <p><b>음식점 사장님</b>은 가게에서 장부를 쓰는 분(<a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a>), <b>공공기관 담당자(서무)</b>는 구청 같은 공공기관에서 직원 식대 명단을 음식점에 보내고 선금을 앱 밖에서 음식점에 직접 지급하는 분(<a href="https://agency.bapjangbu.com" target="_blank" rel="noopener">담당자 웹</a>), <b>직원</b>은 그 식당에서 밥을 먹는 분이에요. 직원은 따로 설치할 것이 없고, 가게 태블릿에서 <a href="#selfserve">내 잔액 확인·사용 요청</a>을 직접 할 수 있어요. 내 폰에서 따로 적어 두고 싶을 때만 <a href="#staff">직원용(베타)</a>을 쓰면 돼요.</p>
     </details>
     <details>
       <summary>정말 무료인가요?</summary>
@@ -562,7 +537,7 @@ body.has-sticky{padding-bottom:84px}
     </details>
     <details>
       <summary>이 앱으로 돈이 오가나요?</summary>
-      <p>아니요. 밥장부 안에서는 돈이 오가지 않아요. 앱에는 결제·정산 기능이 없고 <b>운영자는 자금을 받거나 보관하지 않아요.</b> 누가 얼마를 언제 먹었는지 <b>장부에 기록만</b> 해요. 선금 결제(제로페이, 카드 등)는 선금을 보내는 쪽(공공기관·회사 등)과 음식점이 <b>앱 밖에서 직접</b> 진행해요.</p>
+      <p>아니요. 밥장부 안에서는 돈이 오가지 않아요. 결제앱이 아닙니다. <b>운영자는 자금을 받거나 보관하지 않아요.</b> 누가 얼마를 언제 먹었는지 <b>장부에 기록만</b> 해요. 선금은 선금을 보내는 쪽(공공기관·회사 등)과 음식점이 <b>앱 밖에서 직접</b> 주고받아요.</p>
     </details>
     <details>
       <summary>어떤 기기에 설치하는 게 좋나요?</summary>
@@ -570,11 +545,11 @@ body.has-sticky{padding-bottom:84px}
     </details>
     <details>
       <summary>손님이 태블릿을 만져도 되나요?</summary>
-      <p>네, 괜찮아요. 태블릿이 잠겨 있을 때(무조작 90초 또는 홈의 <b>[손님 셀프 조회]</b>) 손님에게 열리는 화면에서는 <b>이름 검색 → 본인 확인 → 금액·서명 → 사장님 확인 받기</b>만 할 수 있어요(잔액과 최근 5건도 그 화면에서 볼 수 있어요). <b>장부 기록·수정과 설정은 사장님 PIN이 있어야</b> 열려서, 손님이 장부를 바꾸거나 다른 사람 잔액을 볼 수 없어요. 검색 목록에도 기관·부서와 이름만 나오고 잔액은 본인 확인을 거친 뒤에만 보여요. 손님 화면은 30초 동안 아무 조작이 없으면 처음으로 돌아가요(<b>금액을 적어 둔 동안에는 60초</b>를 기다려 줘요 — 최근 내역을 보는 사이에도 적어 둔 금액이 사라지지 않아요).</p>
+      <p>네, 괜찮아요. 태블릿이 잠겨 있을 때(무조작 90초 또는 홈의 <b>[손님 셀프 조회]</b>) 손님에게 열리는 화면에서는 <b>이름 검색 → 본인 확인 → 금액·서명 → 사장님 확인 받기</b>만 할 수 있어요(잔액과 최근 5건도 그 화면에서 볼 수 있어요). <b>장부 기록·수정과 설정은 사장님 비밀번호(PIN)가 있어야</b> 열려서, 손님 요청만으로 장부가 바뀌지는 않아요. 검색 목록에는 기관·부서와 이름만 나오고, <b>[네, 맞아요]로 이름을 확인하면 잔액이 보여요. 이 이름 확인은 비밀번호 인증이 아니므로</b> 다른 사람의 이름을 선택하지 않도록 가게에서 안내해 주세요. 손님 화면은 30초 동안 아무 조작이 없으면 처음으로 돌아가요(<b>금액을 적어 둔 동안에는 60초</b>를 기다려 줘요 — 최근 내역을 보는 사이에도 적어 둔 금액이 사라지지 않아요).</p>
     </details>
     <details>
       <summary>손님이 금액을 직접 넣으면 위험하지 않나요?</summary>
-      <p>손님이 넣는 것은 <b>요청일 뿐이고 장부에는 남지 않아요.</b> 손님은 잔액을 넘는 금액을 넣을 수 없고, 금액과 서명을 넣고 <b>[사장님 확인 받기]</b>를 누르면 화면에 그 내용이 크게 표시돼요. 사장님이 PIN을 넣어 <b>금액을 확인·수정한 뒤 저장해야</b> 비로소 장부에 기록돼요(자동 저장은 없어요). 2분 안에 사장님이 확인하지 않은 요청은 자동으로 사라지고 장부·서버에 아무것도 남지 않아요. 금액을 손님이 정하기 어려우면 <b>[사장님 부르기]</b>만 눌러 사장님에게 넘길 수도 있어요.</p>
+      <p>손님이 넣는 것은 <b>요청일 뿐이고 장부에는 남지 않아요.</b> 손님은 잔액을 넘는 금액을 넣을 수 없고, 금액과 서명을 넣고 <b>[사장님 확인 받기]</b>를 누르면 화면에 그 내용이 크게 표시돼요. 사장님이 비밀번호(PIN)을 넣어 <b>금액을 확인·수정한 뒤 저장해야</b> 비로소 장부에 기록돼요(자동 저장은 없어요). 2분 안에 사장님이 확인하지 않은 요청은 자동으로 사라지고 장부·서버에 아무것도 남지 않아요. 금액을 손님이 정하기 어려우면 <b>[사장님 부르기]</b>만 눌러 사장님에게 넘길 수도 있어요.</p>
     </details>
     <details>
       <summary>폰을 바꾸면 장부가 사라지나요?</summary>
@@ -586,11 +561,11 @@ body.has-sticky{padding-bottom:84px}
     </details>
     <details>
       <summary>인터넷이 없어도 되나요?</summary>
-      <p>네. 사용·충전 기록은 인터넷 없이도 돼요. 공공기관 명단 받기(자동 등록)와 가게 검색만 인터넷이 필요해요.</p>
+      <p>네. 사용·선금 기록은 인터넷 없이도 돼요. 공공기관 명단 받기(자동 등록)와 가게 검색만 인터넷이 필요해요.</p>
     </details>
     <details>
       <summary>구청 같은 공공기관은 어떻게 쓰나요?</summary>
-      <p>공공기관 담당자(서무)가 직원 명단과 금액을 입력해 음식점으로 암호화 전송해요(여러 음식점에 한 번에 보낼 수도 있어요). 음식점 앱에서는 <b>직원 선금대장 등록 → 자동 등록 — 공공기관에서 보낸 명단 받기</b>로 도착하고, 사장님이 확인해 등록하면 식사할 때마다 차감돼요. <b>선금(돈)은 앱이 아니라 앱 밖에서 결제(제로페이, 카드 등)로 음식점에 직접 지급돼요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b> 명단은 여러 음식점에 한 번에 보내더라도 <b>결제는 음식점마다 각각</b> 하게 돼요.</p>
+      <p>공공기관 담당자(서무)가 직원 명단과 금액을 입력해 음식점으로 암호화 전송해요(여러 음식점에 한 번에 보낼 수도 있어요). 음식점 앱에서는 <b>직원 선금대장 등록 → 자동 등록 — 공공기관에서 보낸 명단 받기</b>로 도착하고, 사장님이 확인해 등록하면 식사할 때마다 차감돼요. <b>선금(돈)은 앱 밖에서 음식점에 직접 지급해요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b> 명단은 여러 음식점에 한 번에 보내더라도 <b>선금은 음식점마다 각각</b> 지급해요.</p>
     </details>
     <details>
       <summary>회사(사기업)나 개인 선금도 되나요?</summary>
@@ -598,7 +573,7 @@ body.has-sticky{padding-bottom:84px}
     </details>
     <details>
       <summary>직원인데 제 잔액을 직접 보고 싶어요.</summary>
-      <p>가장 빠른 방법은 <b>음식점 태블릿</b>이에요 — 잠겨 있는 화면에서 내 이름을 검색하고(초성 가능) <b>[네, 맞아요]</b>를 누르면 <b>내 잔액이 보이는 화면에서 금액·서명까지</b> 바로 할 수 있어요. 지난 <b>최근 5건</b>은 그 화면의 <b>[최근 사용 내역 보기]</b>로 열어 보면 돼요(<a href="#selfserve">자세히</a>). 내 폰에서 따로 적어 두고 싶다면 <a href="#staff">직원용(베타)</a>에 이용 지역만 고르고 자주 가는 음식점을 등록해 충전·사용을 눌러 두면 돼요. 회원가입·로그인이 없고 기록은 내 폰에만 저장돼요. 다만 <b>공식 잔액은 음식점 장부가 기준</b>이라, 금액이 다르면 음식점에서 확인해 주세요.</p>
+      <p>가장 빠른 방법은 <b>음식점 태블릿</b>이에요 — 잠겨 있는 화면에서 내 이름을 검색하고(초성 가능) <b>[네, 맞아요]</b>를 누르면 <b>내 잔액이 보이는 화면에서 금액·서명까지</b> 바로 할 수 있어요. 지난 <b>최근 5건</b>은 그 화면의 <b>[최근 사용 내역 보기]</b>로 열어 보면 돼요(<a href="#selfserve">자세히</a>). 내 폰에서 따로 적어 두고 싶다면 <a href="#staff">직원용(베타)</a>에 이용 지역만 고르고 자주 가는 음식점을 등록해 선금·사용 내역을 적어 두면 돼요. 회원가입·로그인이 없고 기록은 내 폰에만 저장돼요. 다만 <b>공식 잔액은 음식점 장부가 기준</b>이라, 금액이 다르면 음식점에서 확인해 주세요.</p>
     </details>
     <details>
       <summary>직원 개인정보(이름·전화번호)는 어떻게 다루나요?</summary>
@@ -610,40 +585,43 @@ body.has-sticky{padding-bottom:84px}
 <!-- 7. 의견 폼 -->
 <section id="feedback">
   <div class="wrap">
-    <p class="kicker">의견 · 문의</p>
+    <p class="kicker">08 · 의견과 문의</p>
     <h2>의견을 들려주세요</h2>
     <p class="intro">불편한 점, 필요한 기능, 문의 사항을 자유롭게 남겨 주세요.</p>
     <form class="form-card" id="fbForm" novalidate>
       <input type="text" id="fbWebsite" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0">
-      <div class="form-row">
-        <label>어떤 분이신가요?</label>
+      <fieldset class="form-row">
+        <legend>어떤 분이신가요?</legend>
         <div class="roles">
           <label><input type="radio" name="role" value="음식점" checked> 음식점 사장님</label>
           <label><input type="radio" name="role" value="기관"> 공공기관 담당자(서무)</label>
           <label><input type="radio" name="role" value="직원"> 직원</label>
           <label><input type="radio" name="role" value="기타"> 기타</label>
         </div>
-      </div>
+      </fieldset>
       <div class="form-row">
         <label for="fbMsg">의견 <span style="color:#c0392b">*</span> <span class="counter" id="fbCounter">0 / 500</span></label>
         <textarea id="fbMsg" name="message" maxlength="500" required placeholder="의견을 입력해 주세요 (500자 이내)"></textarea>
       </div>
       <button type="submit" class="submit" id="fbSubmit">보내기</button>
+      <p class="privacy-hint">이름·전화번호·거래 내역 등 개인정보는 적지 말아 주세요.</p>
       <p class="form-msg" id="fbResult" role="status" aria-live="polite"></p>
     </form>
   </div>
 </section>
 
+</main>
+
 <!-- 8. 푸터 -->
 <footer class="site">
   <div class="wrap">
     <div class="disclaimer">
-      본 서비스는 <b>결제·정산 기능이 없는 무료 기록 도구</b>이며, <b>운영자는 자금을 수수·보관·이체·정산하지 않습니다.</b> 실제 금전 거래(제로페이·카드 등 결제)는 선금을 보내는 쪽(공공기관·회사 등)과 음식점이 앱 밖에서 직접 진행합니다.
+      <b>결제앱이 아닙니다. 완전 무료·가입 없음.</b> 밥장부는 기록 도구예요. <b>운영자는 자금을 받거나 보관·이체·정산하지 않아요.</b><br>돈은 앱을 거치지 않아요 — 결제(제로페이, 카드 등)는 가게에서 따로 해요. 실제 돈은 선금을 보내는 쪽(공공기관·회사 등)과 음식점이 앱 밖에서 직접 주고받아요.
     </div>
     <div class="cols">
       <div>
         <h4>운영</h4>
-        <p>운영자: 개인 개발자가 만든 <b>비영리·무료 파일럿 서비스</b>입니다.</p>
+        <p>운영자: 개인 개발자가 만든 <b>비영리·무료 파일럿 서비스</b>예요.</p>
         <p>문의: <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a></p>
         <p>
           <a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a> ·
@@ -666,14 +644,9 @@ body.has-sticky{padding-bottom:84px}
         <p>데이터 출처: 행정안전부 지방행정 인허가데이터</p>
       </div>
     </div>
-    <div class="copy">© 2026 밥장부(선입금대장) · 널마루. All rights reserved. · "있는 그대로(as-is)" 무상 제공되며 상세 면책은 이용약관을 따릅니다.</div>
+    <div class="copy">© 2026 밥장부(선입금대장) · 널마루. All rights reserved. · "있는 그대로(as-is)" 무상 제공되며 자세한 면책 내용은 이용약관을 확인해 주세요.</div>
   </div>
 </footer>
-
-<!-- 모바일 하단 고정 CTA -->
-<div class="stickybar" id="stickybar" aria-hidden="true">
-  <a class="btn btn-primary" href="https://app.bapjangbu.com/" target="_blank" rel="noopener"><span aria-hidden="true">🍚</span> 사장님 — 지금 시작하기</a>
-</div>
 
 <script>
 /* ---------- 의견 폼 (계약·동작 불변) ---------- */
@@ -763,41 +736,6 @@ body.has-sticky{padding-bottom:84px}
 })();
 </script>
 
-<script>
-/* ---------- 모바일 하단 고정 CTA 표시 제어 ---------- */
-(function(){
-  "use strict";
-  var bar = document.getElementById("stickybar");
-  if(!bar) return;
-  document.body.classList.add("has-sticky");
-  var footer = document.querySelector("footer.site");
-  var formArea = document.getElementById("feedback");
-  var footerVisible = false, formFocused = false;
 
-  function update(){
-    var show = !footerVisible && !formFocused;
-    bar.classList.toggle("show", show);
-    bar.setAttribute("aria-hidden", show ? "false" : "true");
-  }
-
-  if("IntersectionObserver" in window){
-    var io = new IntersectionObserver(function(entries){
-      entries.forEach(function(en){
-        if(en.target === footer) footerVisible = en.isIntersecting;
-      });
-      update();
-    }, {rootMargin:"0px 0px -10% 0px"});
-    if(footer) io.observe(footer);
-  }
-
-  // 폼 입력 중에는 겹치지 않도록 숨김
-  if(formArea){
-    formArea.addEventListener("focusin", function(){ formFocused = true; update(); });
-    formArea.addEventListener("focusout", function(){ formFocused = false; update(); });
-  }
-
-  update();
-})();
-</script>
 </body>
 </html>
