@@ -1,0 +1,25 @@
+/* Shared brand and quick-start layer. Existing detailed instructions remain intact. */
+:root{--primary:#1e4e86;--primary-dark:#173c66;--text:#252b28;--muted:#5a605b;--bg-soft:#f7f3ea}
+html{scroll-behavior:smooth}body{font-size:18px;word-break:keep-all;overflow-wrap:anywhere}
+.guide-brand{display:flex;align-items:center;gap:10px;color:#173c66;font-weight:800;font-size:26px;text-decoration:none;margin-bottom:20px}
+.guide-brand img{width:52px;height:52px;object-fit:contain}
+.guide-meta{font-size:16px;color:#5a605b}.quick-start{background:#f7f3ea;padding:20px;border-left:4px solid #173c66;margin:24px 0}
+.quick-start h2{border:0;padding:0;margin:0 0 12px;font-size:24px;page-break-before:auto}
+.quick-start ol{padding-left:24px}.quick-start li{margin:10px 0}.guide-links{display:flex;flex-wrap:wrap;gap:8px 20px}
+.guide-links a{display:inline-flex;align-items:center;min-height:44px;font-size:17px}
+.btn,.btn-secondary,.btn-danger,.field,code{font-size:16px}.top-link{font-size:17px;min-height:44px}
+.toc a{display:inline-block;padding:8px 0;min-height:44px}a:focus-visible{outline:3px solid #8a5a38;outline-offset:4px}
+span.tip{display:block}
+@media(max-width:480px){body{font-size:18px}h1{font-size:26px}h2{font-size:23px}.quick-start{padding:16px}.guide-links{display:block}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{
+ @page{size:A4;margin:15mm}
+ body{font-size:11pt;line-height:1.65;padding:0;max-width:none}
+ h1{font-size:23pt}h2{font-size:16pt;break-before:auto!important;break-after:avoid;margin-top:22px}h3{font-size:13pt;break-after:avoid}
+ h2 .num{font-size:11pt}.quick-start h2{font-size:16pt}.guide-brand{font-size:22pt}
+ .guide-meta,.lead{font-size:10pt}.toc{page-break-after:auto}.toc a{padding:0;min-height:0}
+ .quick-start{break-inside:auto;break-after:page}.toc{break-inside:auto}.guide-links,.top-link,footer{display:none}
+ .step{padding:12px 14px;break-inside:avoid}.step .step-num{position:static;display:inline-flex;float:left;margin-right:10px;width:22px;height:22px;font-size:10pt}.step-body{padding-top:0}
+ .btn,.btn-secondary,.btn-danger,.field,code{font-size:10pt}table{font-size:10pt}
+ a[href]::after{content:none!important}.tip,.callout{break-inside:avoid}.guide-brand::after{content:none!important}
+}

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>밥장부 — 음식점 사장님 안내서</title>
+<style>
+:root{--primary:#1a5fb4;--primary-dark:#134a8f;--text:#1b2430;--muted:#5b6672;--line:#e3e8ee;--bg-soft:#f4f7fb;--warn:#b7791f;--warn-soft:#fff4e5;}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:var(--text);line-height:1.7;font-size:17px;max-width:760px;margin:0 auto;padding:20px 18px 80px;background:#fff}
+h1{font-size:28px;font-weight:800;color:var(--primary-dark);margin:0 0 6px}
+h2{font-size:22px;font-weight:800;color:var(--primary-dark);margin:40px 0 12px;padding-top:10px;border-top:3px solid var(--line);scroll-margin-top:14px}
+h2 .num{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:var(--primary);color:#fff;font-size:16px;margin-right:8px;vertical-align:middle}
+h3{font-size:18px;font-weight:700;margin:22px 0 8px}
+p{margin:10px 0}
+.lead{color:var(--muted);font-size:16px;margin-bottom:18px}
+.toc{background:var(--bg-soft);border-radius:14px;padding:16px 18px;margin:22px 0 30px}
+.toc h2{margin:0 0 10px;font-size:18px;border:none;padding:0}
+.toc ol{margin:0;padding-left:22px}
+.toc li{margin:6px 0}
+.toc a{color:var(--primary-dark);text-decoration:none;font-weight:600}
+.toc a:hover{text-decoration:underline}
+.step{background:var(--bg-soft);border-radius:14px;padding:16px 18px;margin:14px 0;position:relative}
+.step .step-num{position:absolute;top:-14px;left:16px;background:var(--primary);color:#fff;font-weight:800;font-size:15px;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(26,95,180,.3)}
+.step-body{padding-top:6px}
+.step-title{font-weight:800;font-size:17px;margin-bottom:4px}
+.btn{display:inline-block;background:var(--primary);color:#fff !important;border-radius:8px;padding:5px 14px;font-weight:700;font-size:15px;text-decoration:none;margin:2px 1px}
+.btn-secondary{display:inline-block;background:#fff;color:var(--primary) !important;border:2px solid var(--primary);border-radius:8px;padding:3px 12px;font-weight:700;font-size:15px;margin:2px 1px}
+.btn-danger{display:inline-block;background:#c0392b;color:#fff !important;border-radius:8px;padding:5px 14px;font-weight:700;font-size:15px;margin:2px 1px}
+.field{display:inline-block;background:#fff;border:1.5px dashed #9fb3cc;border-radius:8px;padding:3px 10px;font-size:15px;color:var(--primary-dark);font-weight:600;margin:2px 1px}
+.callout{background:var(--warn-soft);border-left:5px solid var(--warn);border-radius:8px;padding:14px 16px;margin:16px 0;font-weight:700;color:#7a5209}
+.tip{background:#eef6ff;border-left:5px solid var(--primary);border-radius:8px;padding:14px 16px;margin:16px 0}
+.card-list{list-style:none;padding:0;margin:14px 0}
+.card-list li{background:var(--bg-soft);border-radius:10px;padding:12px 14px;margin:8px 0}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:16px}
+th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}
+th{background:var(--bg-soft)}
+.qa{margin:14px 0}
+.qa dt{font-weight:800;color:var(--primary-dark);margin-top:14px}
+.qa dd{margin:4px 0 0}
+.top-link{position:fixed;right:16px;bottom:16px;background:var(--primary);color:#fff;border-radius:24px;padding:10px 16px;font-weight:700;text-decoration:none;box-shadow:0 3px 10px rgba(0,0,0,.2);font-size:14px}
+code{background:var(--bg-soft);padding:2px 6px;border-radius:4px;font-size:15px}
+hr{border:none;border-top:2px solid var(--line);margin:36px 0}
+footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
+@media print{
+  @page{size:A4;margin:15mm 14mm}
+  html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-size:13pt;max-width:none;padding:0;background:#fff}
+  .top-link{display:none}
+  h2{page-break-before:always;border-top:none}
+  h2:first-of-type{page-break-before:avoid}
+  /* 내용이 두세 줄뿐인 장은 앞 장에 이어서 인쇄 (빈 페이지 방지) */
+  h2.short-chapter{page-break-before:auto;page-break-inside:avoid}
+  .toc{page-break-after:always}
+  /* .step-num 음수 오프셋이 페이지 경계에서 잘리지 않도록 인쇄에서는 박스 안으로 넣는다 */
+  .step{page-break-inside:avoid;padding-top:44px;margin-top:12px}
+  .step .step-num{top:8px;box-shadow:none}
+  .step-body{padding-top:0}
+  .callout,.tip,table,.card-list li{page-break-inside:avoid}
+  a[href]::after{content:" (" attr(href) ")";font-size:10pt;color:var(--muted)}
+  /* 내부 앵커·안내서 간 링크는 URL 각주를 붙이지 않는다 */
+  .toc a::after,a[href^="#"]::after,a[href$=".html"]::after{content:"" !important}
+}
+@media (max-width:480px){
+  body{font-size:16px;padding:16px 14px 70px}
+  h1{font-size:24px}
+  h2{font-size:19px}
+}
+</style>
+<link rel="stylesheet" href="manual-common.css">
+
+<a id="top" class="guide-brand" href="https://bapjangbu.com/"><img src="assets/bapjangbu-mascot.png" alt="" width="52" height="52">밥장부</a>
+<p><a href="manual-restaurant.html">← 짧은 사용 안내로 돌아가기</a></p>
+<h1>밥장부 — 음식점 사장님 상세 도움말</h1>
+<p class="lead">직원 식대 선입금을 쉽고 안전하게 관리하는 앱이에요. 처음부터 차근차근 따라 해 보세요.</p>
+<p class="guide-meta">2026년 10월 3일 개정 · 앱 beta.51 기준</p>
+<nav class="guide-links" aria-label="안내서 바로가기"><a href="https://bapjangbu.com/">홈페이지</a><a href="https://bapjangbu.com/help.html#faq">전체 도움말</a><a href="guest-tablet-guide.html">손님용 A4 안내문</a><a href="manuals/밥장부-안내서-음식점-사장님.pdf" download>PDF 내려받기</a></nav>
+<section class="quick-start" aria-labelledby="quick"><h2 id="quick">매일 쓰는 순서부터 볼게요</h2><ol><li><b>손님에게 건네기 전</b> — [손님 셀프 조회]를 눌러요.</li><li><b>손님이 입력해요</b> — 이름·소속 확인 → 금액·서명 → [사장님 확인 받기].</li><li><b>사장님이 마무리해요</b> — 앱 비밀번호(PIN) → 이름·금액·서명 확인 → 저장. 금액을 바꾸면 서명을 다시 받아요.</li></ol><p>가게마다 태블릿 또는 스마트폰 <b>한 대</b>로 써요. 설정·전체 거래 내역은 첫 손님 화면 하단의 <b>[사장님용 잠금 해제]</b>에서 비밀번호를 넣어 들어가요.</p><p><b>입력만으로 저장되지 않아요.</b> 기기의 화면 잠금도 설정하고, 손님에게 넘기기 전 손님 화면인지 확인해 주세요.</p></section>
+
+<div class="toc" aria-label="전체 흐름">
+<h2>전체 흐름 한눈에 (5단계)</h2>
+<ol>
+<li><b>[사장님] 앱 설치</b> — <code>app.bapjangbu.com</code> 접속 후 홈 화면에 추가</li>
+<li><b>[사장님] 우리 가게 등록</b> — 처음 설정 1/3에서 가게 이름으로 검색해 고르면 자동 등록 (설치할 때 한 번만·필수 — 이걸 해야 공공기관 담당자(서무)가 우리 가게를 찾을 수 있어요)</li>
+<li><b>[공공기관 담당자] 음식점 선택·명단 작성</b> — 담당자가 우리 가게를 골라 직원 명단·금액을 입력</li>
+<li><b>[공공기관 담당자] 선입금대장 전달</b> — 명단이 암호화되어 앱으로 전달 (선금은 우리 가게에 <b>결제(제로페이, 카드 등)</b>로 직접 지급)</li>
+<li><b>[사장님] 결제 확인 → 직원 사용 시작</b> — 명단에 적힌 금액을 <b>실제로 받으셨는지</b> 확인한 뒤 장부에 올리세요.
+  <ul style="margin:6px 0 0;padding-left:18px">
+  <li><b>카드로 받으셨다면</b> 카드 단말기 매출전표나 POS 매출 내역에서 그 결제 건의 금액·승인일시가 명단 합계와 맞는지 봅니다.</li>
+  <li><b>계좌이체로 받으셨다면</b> 통장 입금 내역에서 입금자명과 금액을 맞춰 봅니다.</li>
+  <li>여러 부서 명단이 한 가게로 왔는데 결제가 한 번뿐이라면, 명단 여러 건의 합계가 그 결제 금액과 맞는지 보시면 됩니다.</li>
+  </ul></li>
+</ol>
+<p style="margin:12px 0 0"><b>회사(사기업)·개인 선금은요?</b> 위 ③④를 거치지 않아요. <b>사장님이 앱에서 직접 입력</b>(수동 등록, <a href="#employee">3장</a>)하면 공공기관 명단과 <b>한 장부에서 함께</b> 관리돼요.</p>
+</div>
+
+<nav class="toc" aria-label="목차">
+<h2>목차</h2>
+<ol>
+<li><a href="#install">설치하기</a></li>
+<li><a href="#setup">처음 설정 (3단계)</a></li>
+<li><a href="#employee">직원 선금대장 등록 — 수동 등록(직접 입력) · 회사·개인 선금</a></li>
+<li><a href="#daily">매일 쓰기</a></li>
+<li><a href="#agency">직원 선금대장 등록 — 자동 등록(공공기관에서 보낸 명단 받기)</a></li>
+<li><a href="#backup">장부 지키기 (중요)</a></li>
+<li><a href="#pin">비밀번호를 잊었을 때</a></li>
+<li><a href="#faq">자주 묻는 질문</a></li>
+</ol>
+</nav>
+
+<h2 id="install"><span class="num">1</span>설치하기</h2>
+<p>아래 주소로 접속하세요.</p>
+<p><code>https://app.bapjangbu.com/</code></p>
+
+<div class="callout">꼭 홈 화면에 추가해서 쓰세요! 그래야 앱처럼 편하게 열 수 있어요.</div>
+
+<div class="callout">📟 <b>가게에 항상 두는 전용 태블릿(또는 전용 폰)에 설치하세요.</b> 장부는 설치한 그 기기에 저장돼요. 사장님 개인 폰에 설치하면 사장님이 자리를 비울 때 직원 식사를 기록할 수 없고, 개인 폰 교체·분실 때 장부까지 위험해져요. 계산대 옆에 전용 기기를 비치해 두고 쓰는 것이 가장 안전하고 편해요.</div>
+
+<h3>안드로이드(크롬)에서 추가하기</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">크롬으로 위 주소에 접속해요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">오른쪽 위 점 3개(⋮) 메뉴를 눌러요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><span class="field">홈 화면에 추가</span>를 눌러요.</div></div>
+
+<h3>아이폰(사파리)에서 추가하기</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">사파리로 위 주소에 접속해요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">아래쪽 공유 버튼(⬆️)을 눌러요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><span class="field">홈 화면에 추가</span>를 눌러요.</div></div>
+
+<h2 id="setup"><span class="num">2</span>처음 설정 (3단계)</h2>
+<p>앱을 처음 열면 <b>인사 화면</b>이 한 장 뜨고, <span class="btn">시작하기</span>를 누르면 <b>1/3 → 3/3</b> 순서로 화면이 나와요. 화면 위에 지금 몇 번째인지 표시되니 그대로 따라가면 돼요.</p>
+<div class="callout">👋 <b>맨 처음 뜨는 환영 화면</b> — 밥장부가 무엇을 해주는지 세 줄로 알려드리는 화면이에요. 여기서 고르거나 적을 것은 없고 <span class="btn">시작하기</span> 버튼 하나뿐이에요. 한 번 지나가면 다시 뜨지 않아요(앱을 껐다 켜도 마찬가지예요). 이 화면에는 <b>단계 번호가 붙지 않아요</b> — 처음 설정은 그대로 <b>3단계</b>예요.<br>이 화면에서 꼭 기억하실 것 하나: <b>이 앱은 돈을 받거나 보내지 않아요. 선금(돈)은 앱 밖에서 가게가 직접 결제(제로페이, 카드 등)로 받아요.</b> 앱이 다루는 것은 <b>장부(기록)</b>뿐이에요. 그리고 <b>완전 무료</b>예요.</div>
+<div class="callout">✍️ <b>가게 정보를 손으로 적을 일이 없어졌어요.</b> 예전에는 가게 이름·주소·전화를 직접 적고, 그다음 화면에서 또 검색해 고르느라 같은 내용을 두 번 넣어야 했어요. 이제는 <b>1/3에서 검색으로 한 번 고르면</b> 이름·주소·전화가 한꺼번에 채워지고, 가게 등록까지 자동으로 이어져요.</div>
+
+<div class="step"><div class="step-num">1</div><div class="step-body">
+<div class="step-title">우리 가게 찾기 (1/3)</div>
+<p><b>가게 이름</b>을 넣고 <span class="btn">가게 찾기</span>를 누르세요. 아래 목록에서 우리 가게의 <span class="btn">이 가게</span>를 누르면 끝이에요 — <b>가게 이름·주소·전화가 자동으로 채워져요.</b></p>
+<p class="tip">같은 이름의 가게가 여러 곳일 수 있어요. <span class="btn">이 가게</span>를 누르면 <b>주소가 적힌 확인 창</b>이 한 번 더 떠요. <b>주소가 우리 가게 주소와 같은지</b> 꼭 확인하고 [확인]을 누르세요. 이름이 비슷한 <b>남의 가게를 고르면 우리 가게로 와야 할 명단이 그 가게로 갈 수 있어요.</b></p>
+<p><b>가게 이름만으로 안 나올 때는 지역 칸에 <span class="field">광진구 구의동</span>처럼 구·군과 동을 함께 적어 주세요.</b> 이름으로 못 찾으면 그 동네 전체를 자동으로 끝까지 살펴봐 줘요 — 따로 누를 것도 없어요. 동네 크기에 따라 몇십 초쯤 걸릴 수 있는데, 화면에 <b>진행 상황(몇/몇 구역)과 남은 시간</b>이 표시되고 찾으면 바로 멈춰요. 중간에 [그만 찾기]를 누를 수도 있어요. 같은 이름의 동이 여러 지역에 있으면 우리 동네를 고르는 단추가 먼저 나와요.</p>
+<p>우리 가게 <b>우편번호(5자리)를 아는 경우</b>에는 우편번호 칸에 넣으면 더 빨리 찾아져요(예: <code>05021</code> — 사업자등록증이나 우편물 주소에 있어요). 몰라도 전혀 상관없어요.</p>
+<p>이름이 너무 흔하면 <span class="field">지역(선택)</span> 칸에 <b>"광진구 구의동"</b>처럼 적어 결과를 좁힐 수 있어요.</p>
+<p>고른 뒤에는 <b>전화번호 칸</b>이 하나 나와요. 공공데이터에 전화번호가 없으면 비어 있으니, 필요하면 직접 적어 두세요(안 적어도 됩니다). 그다음 <span class="btn">다음</span>을 누르세요. 다른 가게를 고르고 싶으면 <span class="btn-secondary">다시 고르기</span>를 누르면 돼요.</p>
+<div class="callout">🏪 <b>왜 검색해서 골라야 하나요?</b> 이렇게 고른 가게가 <b>마지막 약관 동의 뒤에 자동으로 등록</b>돼요. 등록이 돼야 <b>공공기관 담당자(서무)가 담당자 웹에서 우리 가게를 찾아 명단을 보낼 수 있어요.</b> 설치할 때 한 번만 하면 되고, 다시 할 필요가 없어요.</div>
+<div class="tip">🔎 <b>가게 이름이 안 나올 때</b> — 간판에 쓰는 이름과 <b>사업자등록증에 적힌 상호</b>가 다른 경우가 많아요(예: 간판은 '엄마손칼국수', 상호는 '○○식당'). 검색되지 않으면 <b>사업자등록증 상호</b>로 다시 찾아보세요. 앱 화면에도 같은 안내가 나와요.</div>
+<h3>검색에 없거나 인터넷이 안 될 때 — <span class="btn-secondary">직접 입력할게요</span></h3>
+<p>검색 칸 바로 아래에 <span class="btn-secondary">직접 입력할게요</span> 버튼이 <b>항상</b> 있어요. 누르면 <b>가게 이름 · 주소 · 전화번호</b>를 손으로 넣을 수 있어요.</p>
+<div class="callout">📍 <b>주소는 꼭 넣어야 해요. 시·도부터 적어 주세요</b>(예: <code>서울특별시 광진구 구의동 123-45</code>). 앱은 이 주소로 <b>담당 공공기관과 관할 지역</b>을 찾아내요. 주소가 없거나 지역을 알아볼 수 없으면 <b>담당자 웹의 '관할 음식점' 목록에 우리 가게가 뜨지 않아요.</b></div>
+<p>직접 입력으로 넘어가면 <b>가게 등록(서버 전송)은 보류</b>돼요. 장부는 그대로 쓸 수 있지만, <b>공공기관 명단을 받으려면 결국 등록을 해야 해요.</b> 홈 화면에 <b>안내 배너</b>가 떠요 — 배너는 <b>닫을 수 있지만</b>, 앱을 다시 열면 등록을 마칠 때까지 또 나와요. <span class="field">설정</span> 탭의 <span class="btn">우리 가게 등록 (처음 한 번)</span>에서 마무리하세요. (회사·개인 선금만 받으신다면 이 등록 없이도 <a href="#employee">수동 등록</a>으로 장부를 쓸 수 있어요.)</p>
+<div class="callout">🔑 <b>등록에 성공하면 바로 “내 열쇠 백업”을 하라는 안내가 떠요. 꼭 하세요.</b> 우리 가게 열쇠는 <b>이 기기에만</b> 있어요. 폰을 잃어버렸는데 열쇠 백업이 없으면 <b>공공기관 명단을 받는 것도, 가게 등록을 해제하는 것도 모두 불가능</b>해요. 방법은 <a href="#backup">6장 장부 지키기</a>를 보세요.</div>
+</div></div>
+
+<div class="step"><div class="step-num">2</div><div class="step-body">
+<div class="step-title">공공기관 부서 목록 설정 (2/3)</div>
+<p>1/3에서 고른 가게 <b>주소를 보고 담당 구청이 이미 골라져 있어요.</b> 필요한 부서(과)를 고르거나, 직접 부서명을 입력해 <span class="btn-secondary">추가</span>할 수 있어요. 나중에 <span class="field">설정</span> 탭의 <b>공공기관 부서 목록 관리</b> 카드(접혀 있어요 — 제목 줄을 한 번 누르면 펼쳐져요)에서 언제든 바꿀 수 있어요.</p>
+<div class="tip">🏛️ <b>부서 고르기는 세 단계로 하나씩 나와요.</b> ① <b>시·도</b>를 고르고 → ② <b>거래 공공기관</b>을 고르면 → ③ 그 기관의 <b>과 목록</b>이 그때 나타나요. <b>공공기관을 고르기 전에는 과 목록이 보이지 않아요</b> — 예전처럼 우리 가게와 상관없는 기관의 과가 미리 깔려 있지 않으니, 순서대로 하나씩만 고르시면 돼요. 주소로 자동으로 골라진 경우에는 곧바로 ③이 보입니다.</div>
+<p class="tip">회사 부서(예: 영업1팀)는 여기에 미리 넣지 않아도 돼요. <b>빠른 등록</b>에서 새 부서명을 적으면 목록에 자동으로 추가돼요.</p>
+</div></div>
+
+<div class="step"><div class="step-num">3</div><div class="step-body">
+<div class="step-title">연락처 (선택·권장) — 3/3</div>
+<p>화면 제목은 <b>“연락처 (선택·권장)”</b>이고, <b>이용약관·개인정보처리방침 동의도 같은 화면</b>에 함께 있어요. 연락처는 공공기관 담당자(서무)가 명단 파일을 보낼 곳이에요. 카카오톡 오픈채팅 링크나 접수 이메일을 입력하세요. 지금 몰라도 <span class="btn">나중에 하기</span>를 누르면 돼요.</p>
+<p>마지막으로 이용약관·개인정보처리방침 동의에 <b>체크</b>하면 설정이 끝나요.</p>
+<div class="callout">✅ <b>동의에 체크하기 전에는 <span class="btn">나중에 하기</span>도 눌리지 않아요.</b> 연락처를 나중에 넣더라도, 약관 동의 체크는 먼저 해야 다음으로 넘어갈 수 있어요. <b>우리 가게 등록(서버 전송)은 이 동의 뒤에 처음 일어나요</b> — 그 전에는 아무것도 서버로 보내지 않아요.</div>
+</div></div>
+
+<div class="step"><div class="step-num">4</div><div class="step-body">
+<div class="step-title">비밀번호(PIN) 설정</div>
+<p>앱을 열 때 쓸 숫자 4자리를 정해요. 한 번 더 입력해 확인해요.</p>
+</div></div>
+
+<div class="step"><div class="step-num">5</div><div class="step-body">
+<div class="step-title">완료 화면</div>
+<p>약관에 동의하면 <b>1/3에서 고른 우리 가게가 자동으로 서버에 등록</b>돼요. (혹시 실패하면 홈 화면에 다시 안내하는 띠가 떠요. 눌러서 다시 등록하면 돼요.)</p>
+<p>이제 <b>직원 선금대장 등록</b>을 할 차례예요. 완료 화면에 나오는 버튼은 이래요.</p>
+<ul class="card-list">
+<li><span class="btn">한 명씩 등록</span> — 직원과 선금을 사장님이 직접 적어 넣어요. <b>회사(사기업)·개인 선금도 이 방법</b>이에요. (<a href="#employee">3장</a>)</li>
+<li><span class="btn">공공기관에서 보낸 명단 받기</span> — 공공기관 담당자(서무)가 보낸 직원 명단을 받아 한 번에 올려요. (<a href="#agency">5장</a>)<br>※ 1/3에서 <b>직접 입력</b>을 택해 등록이 보류됐다면, 이 자리에 <span class="btn">우리 가게 등록 마무리하기</span>가 대신 나와요. 먼저 그것부터 눌러 등록하세요.</li>
+<li><span class="btn-secondary">나중에 할게요 (홈으로)</span> — 둘 다 지금 하지 않고 홈으로 가요.</li>
+</ul>
+<div class="tip">📍 <b>등록이 끝나면</b> <span class="field">설정</span> 탭의 <b>자동 등록</b> 카드에 <b>“관할 지역: 서울특별시 광진구”</b>처럼 우리 가게가 어느 관할로 등록됐는지 표시돼요. 여기가 <b>“아직 없음”</b>이면 담당자 화면의 관할 목록에 우리 가게가 뜨지 않아요 — 카드의 <span class="btn-secondary">변경</span>으로 가게를 다시 고르거나 <span class="btn-secondary">관할 정보 보내기</span>를 누르면 돼요.</div>
+</div></div>
+
+<h2 id="employee"><span class="num">3</span>직원 선금대장 등록 — 수동 등록(직접 입력) · 회사·개인 선금</h2>
+<div class="callout">📂 <b>설정 화면이 짧아졌어요 (카드 접기)</b><br>
+설정 탭의 카드는 <b>모두 접혀</b> 있고, 큰 묶음 제목 세 개가 자리를 알려줘요.<br>
+① <b>직원 선금대장 등록</b> — 자동 등록 · 수동 등록 · 직원 목록 관리 · 공공기관 부서 목록 관리 &nbsp;② <b>장부 지키기</b> — 장부 안전 저장·복원·검사 · 폰을 잃어버려도 장부 되찾기 &nbsp;③ <b>가게 기본설정</b> — 가게 정보 · 가게 연락처 등록 · 화면잠금 비밀번호. 맨 아래에 위험 작업(전체 초기화)과 앱 정보가 있어요.<br>
+접힌 카드도 <b>제목과 한 줄 설명은 그대로 보여요.</b> 공공기관에서 새 명단 신청이 오면 자동 등록 카드 제목에 <b>📩 몇 건</b> 표시가, 아직 가게를 등록하지 않았으면 <b>⚠️ 등록 필요</b> 표시가 접힌 채로도 보여요.<br>
+제목 줄(오른쪽 끝에 ▶ 표시)을 <b>한 번 누르면 펼쳐지고</b>, 다시 누르면 접혀요. 기능이 없어진 것이 아니라 <b>한 번 더 누르는 자리</b>로 옮겨진 것뿐이에요.<br>
+펼친 상태는 <b>앱을 켜 둔 동안만</b> 유지돼요. 앱을 껐다 켜면 다시 접힌 짧은 설정 화면으로 돌아와요.</div>
+<div class="tip"><b>직원 선금대장 등록에는 두 가지 방법이 있어요.</b> 공공기관에서 보낸 명단을 받는 <b>자동 등록</b>(<a href="#agency">5장</a>)과, 사장님이 직접 적어 넣는 <b>수동 등록</b>(이 장)이에요. 둘을 섞어 써도 괜찮아요. <b>회사(사기업)·개인 선금은 이 장의 수동 등록으로</b> 넣으시면 돼요.</div>
+<div class="tip">🚀 <b>가장 빠른 길</b> — 아직 직원이 한 명도 없으면 <b>홈 화면에 <span class="btn">＋ 한 명씩 올리기</span> 버튼이 바로 보여요.</b> 설정 탭까지 가지 않고 그 버튼을 눌러 첫 직원을 등록해도 돼요.</div>
+<p><span class="field">설정</span> 탭 맨 위 <b>직원 선금대장 등록</b> 그룹의 <b>[수동 등록]</b> 카드에서 해요. 제목 줄을 <b>한 번 눌러 펼치면</b> 버튼들이 <b>위에서부터 순서대로</b> 나와요.</p>
+<ol class="card-list">
+<li><b>엑셀 명단(CSV) 불러오기</b> — 여러 명을 한 번에 (아래 <b>방법 1</b>)</li>
+<li><b>공공기관 담당자에게 전달받기</b> — 담당자가 카톡·메일로 보낸 명단 파일, QR (<a href="#agency">5장</a>)</li>
+<li><b>한 명씩 등록</b> — 한 사람씩 자세히 (아래 <b>방법 2</b>)</li>
+<li><b>빠른 등록</b> — 한두 명을 급히 (아래 <b>방법 3</b>)</li>
+</ol>
+<div class="tip">🎯 <b>카드 안에서 진한 버튼은 맨 위 하나뿐이에요.</b> 무엇부터 눌러야 할지 헷갈리지 않도록, 여러 명을 한 번에 올리는 <b>엑셀 명단(CSV) 불러오기</b>를 맨 위 진한 버튼으로 두었어요. 나머지는 그 아래 순서대로 있어요.</div>
+<p class="tip">이미 등록한 직원은 그 아래 <b>직원 목록 관리</b> 카드에서 다뤄요. <b>조회·수정뿐 아니라 충전·조정·숨김·복원도 모두 여기</b>에서 해요. 카드를 펼치면 <b>맨 위에 “활성 직원 ○명 · 잔액 합계”</b> 요약이 보여요.</p>
+
+<h3>방법 3 — 빠른 등록</h3>
+<p>화면 아래쪽 빠른 등록 칸에 <span class="field">소속(선택)</span> · <span class="field">부서명</span> · <span class="field">직원명</span> · <span class="field">선입금액(선택)</span>을 입력하고 <span class="btn">추가</span>를 누르면 바로 등록돼요. 부서가 없으면 자동으로 만들어져요. 한두 명을 급히 넣을 때 가장 빨라요.</p>
+
+<h3>방법 2 — 한 명씩 등록</h3>
+<p>카드 안의 <b>주요 버튼</b>인 <span class="btn">한 명씩 등록</span>을 누르면 한 사람씩 자세히 넣는 화면이 열려요. <span class="field">소속(선택)</span>·<span class="field">부서명</span>·<span class="field">직원명</span>·<span class="field">초기 선입금액</span>을 넣은 뒤 <span class="btn">직원 저장</span>을 누르면 돼요. 부서를 골라 가며 차분히 넣을 때 편해요.</p>
+<p><b>부서명은 직접 입력하는 칸</b>이에요. 칸 아래에 이미 쓰던 부서가 <b>추천 목록</b>으로 뜨니 눌러서 넣어도 되고, 없는 부서는 그냥 새로 적으면 돼요.</p>
+<div class="tip">🏛️ <b>소속(선택) 칸에도 추천 목록이 떠요.</b> <b>빠른 등록</b>과 <b>한 명씩 등록</b> 모두, 소속 칸을 누르면 <code>개인</code>과 함께 <b>장부에 등록된 공공기관 이름</b>(예: <code>광진구청</code>)이 함께 나와요. <b>공공기관 직원이 단체 명단과 따로 개인적으로 선금을 넣을 때</b> 그 기관 이름을 골라 두면, 홈 화면에서 <b>그 기관 그룹(맨 위 공공기관 자리)에 나란히 정리</b>돼요. 물론 회사 이름을 새로 적어 넣어도 되고, 비워 두셔도 돼요.</div>
+<p>금액 칸 옆에는 <span class="btn-secondary">9,000</span> <span class="btn-secondary">18,000</span> <span class="btn-secondary">27,000</span> <b>빠른 금액</b> 버튼이 있어요. 자주 쓰는 금액은 숫자를 다 치지 말고 이 버튼을 누르세요.</p>
+<p>전화번호와 문자 안내 동의는 등록한 뒤 직원 목록에서 넣어도 돼요(아래 참고).</p>
+
+<h3>방법 1 — 엑셀 명단(CSV) 불러오기</h3>
+<p><span class="btn-secondary">엑셀 명단(CSV) 불러오기</span> 버튼을 눌러 엑셀에서 저장한 CSV 파일을 불러오면 여러 명을 한 번에 등록할 수 있어요. 이미 등록된 직원은 금액이 추가로 충전돼요 — <b>화면에 같은 소속·부서·이름으로 보이는 직원이면 새 카드가 생기지 않고 그 직원 잔액에 충전</b>돼요.</p>
+<p>엑셀 첫 줄(제목 줄)에는 <b><code>소속</code> · <code>부서</code> · <code>이름</code> · <code>금액</code></b> 칸을 넣어 주세요.</p>
+<ul class="card-list">
+<li><b><code>소속</code></b> — <b>공공기관명·회사명</b>을 적고(예: <code>광진구청</code>, <code>한빛물산</code>), 개인 선금이면 <b><code>개인</code></b>이라고 적어요. 제목이 <code>회사</code>여도 소속으로 알아들어요. <b>없으면 비워 두셔도 그대로 불러와져요</b>(선택 칸이에요).</li>
+<li><b><code>부서</code></b> — 화면에서 직원을 묶어 보여주는 기준이라 넣어 주시는 게 좋아요.</li>
+<li><b><code>이름</code> · <code>금액</code></b> — 반드시 있어야 해요.</li>
+</ul>
+<div class="callout">⚠️ <b>소속과 부서는 반드시 별도 열로</b> 만들어 주세요. <code>소속부서</code>처럼 하나로 합친 열은 <b>부서</b>로 처리돼요.</div>
+<div class="tip">🏢 <b>회사에 명단을 부탁하실 때</b> — “<b>부서</b> 칸을 꼭 넣어 주세요”라고 말씀하세요. 회사가 여러 곳이면 <b>소속</b> 칸(회사 이름)까지 넣어 달라고 하면 가장 깔끔해요.</div>
+
+<h3>회사(사기업)·개인 선금도 이 방법으로</h3>
+<p>공공기관이 아닌 <b>회사(사기업) 선금</b>과 <b>개인 손님 선금</b>은 자동으로 들어오지 않아요. 위의 세 가지 방법 중 편한 것으로 <b>사장님이 직접 등록</b>하시면 돼요.</p>
+<ul class="card-list">
+<li><b>회사(사기업)</b> — <span class="field">소속(선택)</span> 칸에 <b>회사 이름</b>을 적어요. (예: <code>한빛물산</code>) 부서 칸에는 회사 부서명(예: <code>영업1팀</code>)을 적으면 돼요.</li>
+<li><b>개인 손님</b> — <span class="field">소속(선택)</span> 칸에 <b>개인</b>이라고 적어요. 홈 화면에서는 <b>‘개인’ 그룹</b>으로 한데 묶여 보여요.</li>
+<li><b>비워도 돼요</b> — 소속을 적지 않으면 지금까지 쓰시던 모습 그대로예요. 나중에 <b>직원 목록 관리</b>에서 채워 넣어도 돼요.</li>
+</ul>
+<div class="tip">한 장부 안에서 <b>공공기관 · 회사 · 개인</b>이 <b>소속</b>으로 구분돼요. 홈 화면에서는 이 소속을 기준으로 <b>그룹별로 접혀서</b> 보여요(<a href="#daily">4장 — 홈 화면에서 직원 찾기</a>). 잔액증표·리포트에는 <b>“소속 부서”</b> 형태(예: <code>한빛물산 영업1팀</code>)로 함께 보여요.</div>
+
+<h3>전화번호 등록 + 문자 안내 동의</h3>
+<p><b>직원 목록 관리</b>에서 각 직원 줄의 <span class="btn-secondary">번호 등록</span>을 눌러 전화번호를 넣고, <b>문자 안내 동의</b> 체크박스를 켜면 사용 등록 후 문자 앱이 자동으로 열려요.</p>
+<div class="tip">전화번호는 이 폰에만 저장되고, 서버로 전송되지 않아요.</div>
+
+<h2 id="daily"><span class="num">4</span>매일 쓰기</h2>
+
+<h3>홈 화면에서 직원 찾기</h3>
+<p>홈 화면 직원 명단은 <b>소속별 그룹으로 접혀 있어요.</b> 그룹 제목 줄에 <b>인원수와 잔액 소계</b>가 함께 보이고, <b>제목을 탭하면 그 그룹의 직원 카드가 펼쳐져요.</b> 다시 탭하면 접혀요. 그룹이 <b>하나뿐이면 처음부터 펼쳐진 채로</b> 보여요.</p>
+<p>그룹 제목은 소속에 따라 이렇게 붙어요.</p>
+<ul class="card-list">
+<li><b>공공기관 명단 — “기관명 부서명”</b> (예: <code>광진구청 재무과</code>) 기관 이름이 <b>항상 함께</b> 붙어서, 여러 기관을 받아도 헷갈리지 않아요.</li>
+<li><b>회사(사기업) — 회사명</b> (예: <code>한빛물산</code>) 펼치면 그 안에 <b>부서가 하위 소제목</b>으로 나뉘어 보여요.</li>
+<li><b>개인 손님 — <code>개인</code> 그룹</b>으로 한데 묶여요.</li>
+</ul>
+<p>그룹이 놓이는 <b>순서</b>는 <b>공공기관이 맨 위</b>(기관명 가나다순, 같은 기관 안에서는 부서명 가나다순)이고, <b>그다음은 나머지 전부</b>(회사·개인·소속 없음 구분 없이) <b>그룹 이름 가나다순</b>이에요. <span class="field">설정</span> 탭의 <b>직원 목록 관리</b> 그룹도 <b>같은 순서</b>로 보여요.</p>
+<div class="tip">🔎 <b>이름이 기억나면 검색이 가장 빨라요.</b> 홈 화면 맨 위 <b>검색창</b>에 이름을 넣거나, 그 아래 <b>소속 필터</b>(첫 항목이 <b>전체 소속</b>이에요)를 걸면 그룹이 <b>자동으로 펼쳐져서</b> 결과가 바로 보여요. 그룹 제목을 하나씩 열어볼 필요가 없어요.</div>
+<div class="tip">⌨️ <b>초성만 쳐도 찾아져요.</b> <code>ㄱㅁㅅ</code>처럼 <b>자음만</b> 입력하면 <b>김민수</b>가 나와요(이름 초성으로 찾기). 이름 사이에 <b>띄어쓰기를 넣어도</b> 괜찮아요 — <code>이 순신</code>으로 쳐도 <b>이순신</b>이 나와요. 검색은 <b>직원 이름</b>에만 걸려요(소속·부서로는 찾지 않아요).</div>
+<div class="tip">🙋 <b>검색 결과가 딱 한 명이면</b> 그룹 제목 없이 <b>그 한 사람 카드만 크게</b> 떠요. 이름·잔액이 커지고 <span class="btn">사용</span> 버튼도 커져서, <b>손님에게 화면을 그대로 보여드려도</b> 다른 직원 정보나 가게 매출 요약은 보이지 않아요.</div>
+
+<h3>사용(차감) 기록하기</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">홈 화면에서 그 직원이 속한 <b>그룹 제목을 탭해 펼쳐요.</b> (그룹이 하나뿐이거나 검색·소속 필터 중이면 이미 펼쳐져 있어요. 검색 결과가 한 명뿐이면 그룹 없이 <b>큰 카드 한 장</b>만 떠요.)</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">직원 카드의 <span class="btn">사용</span> 버튼을 눌러요. (직원 <b>이름</b>을 누르면 그 직원의 <b>이력</b> 화면으로 넘어가요.)</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">사용 금액을 <b>직접 입력</b>해요. 창이 열리면 커서가 이미 금액 칸에 있어요.<br>💡 예전에 있던 <b>빠른 금액</b>(9,000·18,000·27,000) 버튼은 이 창에서 <b>없앴어요.</b> 손님이 스스로 금액을 적고 서명해 보낸 경우, 저장 버튼 옆의 버튼을 잘못 한 번 누르면 <b>손님이 서명한 금액과 다른 숫자</b>가 되기 때문이에요.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">화면에 직원 서명을 받아요. 서명판이 비어 있으면 <b>“여기에 손가락으로 서명해 주세요”</b>라는 흐린 안내가 판 안에 떠 있고, <b>첫 획을 긋는 순간 사라져요.</b> 이 안내는 <b>저장되는 서명 그림에는 들어가지 않아요.</b></div></div>
+<div class="step"><div class="step-num">5</div><div class="step-body"><span class="btn">저장</span>을 눌러 저장해요. <b>저장 버튼은 서명 바로 아래 첫 번째 버튼</b>이에요(그 아래가 <span class="btn-secondary">서명 다시 받기</span>, 맨 아래가 <span class="btn-secondary">취소</span>).<br>저장하면 <b>잔액증표(명함) 화면이 곧바로</b> 떠요 — 손님에게 그대로 보여드리고 <span class="btn">닫기</span>를 누르면 홈으로 돌아와요.</div></div>
+<div class="tip">📅 <b>지난 기록을 옮겨 적을 때는 날짜 칸을 바꾸세요.</b> 사용 등록·충전·잔액 조정 창에는 <span class="field">날짜</span> 칸이 있고 기본값은 오늘이에요. 종이 대장에 있던 기록을 소급해서 넣을 때 실제 사용한 날짜로 바꾸면, 이력 화면과 엑셀 저장에서 <b>그 날짜로 묶여</b> 보이고 비고에 <b>“실사용일”</b>이 자동으로 남아요(미래 날짜는 안 돼요). 잔액 계산에는 영향이 없어요.</div>
+
+<p>저장이 끝나면 <b>검색창은 저절로 비워져요</b>(다음 손님을 바로 찾을 수 있게). <b>소속 필터</b>는 그대로 남아 있어요 — 같은 단체 손님이 이어서 오는 경우가 많으니까요.</p>
+<p>문자 안내 동의와 전화번호가 등록된 직원은, 저장 직후 문자 앱이 자동으로 열려요. <span class="btn">보내기</span>만 눌러 주면 끝이에요(자동으로 발송되지는 않아요).</p>
+
+<p>선입금을 더 받았을 때는 <span class="field">설정</span> 탭의 <b>직원 목록 관리</b>에서 그 직원의 <span class="btn-secondary">충전</span> 버튼을 누르세요. (충전·조정·숨김·복원은 모두 <b>직원 목록 관리</b>에 있어요.)</p>
+<p>홈 화면 <b>위쪽</b>에서는 <b>오늘 사용 금액</b>과 <b>전체 잔액</b>을 바로 확인할 수 있어요. 그룹별 인원수·잔액 소계는 <b>그룹 제목 줄</b>에서 보고요. <b>“활성 직원 ○명 · 잔액 합계”</b> 요약은 <span class="field">설정</span> 탭의 <b>직원 목록 관리</b> <b>맨 위</b>에 있어요(홈 화면 아래쪽에 있던 것이 옮겨졌어요).</p>
+
+<div class="tip"><b>🧾 잔액증표 보기</b> — 손님이 “제 잔액 얼마 남았어요?”라고 물을 때, 직원 카드의 <span class="btn-secondary">🧾 증표</span> 버튼(아이콘 아래에 <b>“증표”</b>라고 적혀 있어요)을 누르거나, <b>사용(차감)을 저장하면 증표 화면이 곧바로 떠요</b>(예전처럼 “보여줄까요?” 확인 창을 한 번 더 누르지 않아요). 손님에게 현재 잔액을 <b>명함 형태 화면</b>으로 보여줄 수 있어요. 화면에는 가게명, “○○과 ○○○님”(소속을 적어 두셨다면 “한빛물산 영업1팀 ○○○님”처럼 <b>소속까지 함께</b> 나와요), 현재 잔액, 날짜, “○○식당 전용·잔액 확인용·양도 불가”가 나와요. 손님은 그 화면을 <b>사진 찍어</b> 보관하면 돼요(앱은 이미지를 저장·전송·인쇄하지 않고 화면에만 보여줘요). 결제나 상품권이 아니라 <b>잔액을 확인해 드리는 안내</b>일 뿐이에요.<br>
+📸 <b>증표 화면 아래에 안내 한 줄이 떠요</b> — “이 화면을 사진으로 찍어 두시면 나중에 잔액을 확인하실 수 있어요.” 손님이 직접 잠금 화면에서 자기 잔액을 연 화면(<a href="#daily">아래 “손님이 직접 잔액을 확인해요”</a>)에도 같은 안내가 잔액 바로 밑에 나와요. 손님이 사진을 남겨 두면 다음부터 사장님을 부르지 않아도 대략 얼마인지 알 수 있어요. (안내 글은 <b>명함 그림 바깥</b>에 있어서, 손님이 찍은 사진에는 들어가지 않아요.)</div>
+
+<h3>손님이 직접 잔액을 확인해요 (잠금 화면)</h3>
+<p>앱이 <b>잠겨 있을 때의 화면은 손님(직원)이 직접 쓰는 화면</b>이에요. 손님이 “제 잔액 얼마 남았어요?” 하고 물을 때마다 사장님이 화면을 들여다볼 필요가 없어요. <b>태블릿을 그대로 건네주시면</b> 손님이 스스로 자기 잔액을 확인해요.</p>
+
+<p>화면이 잠기는 때는 두 가지예요.</p>
+<ul class="card-list">
+<li><b>아무 조작이 없으면 90초 뒤 자동으로</b> 잠겨요. 바쁠 때 따로 신경 쓰지 않아도 계산대 위 태블릿은 늘 잠금(=손님) 화면이 되어 있어요. 누군가 <span class="btn-secondary">사장님용 잠금 해제</span>를 눌러 비밀번호 화면을 열어 둔 채 자리를 떠도, <b>120초 뒤에는 손님 화면으로 저절로 돌아와요.</b></li>
+<li>홈 화면 위쪽의 <span class="btn">손님 셀프 조회</span> 버튼을 누르면 바로 잠겨요. 손님에게 태블릿을 건네기 직전에 한 번 눌러 주시면 돼요.</li>
+</ul>
+
+<p>손님은 이렇게 써요 (사장님이 알려 주실 내용이에요). <b>모두 4단계</b>예요 — <b>이름 검색 → 본인 확인 → 금액·서명 → 사장님 확인 받기</b>.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body">화면 가운데 <b>큰 검색창</b>에 <b>자기 이름</b>을 입력해요. <b>초성만 쳐도</b> 찾아져요(<code>ㄱㅁㅅ</code> → 김민수). 스마트폰·태블릿에서 <b>키보드가 닫히지 않고</b> 글자를 치는 대로 아래 결과만 바뀌어요(한글 조합도 끊기지 않아요).<br><b>이름의 ‘앞글자’로 찾아요.</b> <code>영</code>을 치면 <b>영</b>업맨처럼 <b>‘영’으로 시작하는 이름</b>만 나오고, 홍룬<b>영</b>처럼 뒤에 ‘영’이 든 이름은 나오지 않아요. 초성도 같아요(<code>ㅇㅇ</code> → 영업맨). 남의 이름이 섞이지 않아 자기 이름을 바로 고를 수 있어요. <span class="tip">(사장님이 홈 화면에서 쓰는 검색은 예전 그대로 <b>이름 어디든</b> 걸리면 찾아져요.)</span></div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">결과에는 <b>“기관명 부서명 + 이름”</b>만 나와요(예: <code>광진구청 재무과</code> 김민수). 목록에서는 잔액이 보이지 않지만, 이름을 선택해 확인하면 잔액이 보여요. <b>[네, 맞아요]는 이름 확인이지 비밀번호 인증은 아니에요.</b><br>검색은 <b>이름 앞글자부터</b> 맞춰요(홍길동은 ‘홍’·‘홍길’ — ‘길동’으로는 안 나와요). 이름을 쳤는데 <b>아무도 안 나오면</b> <b>“‘○○○’(으)로 시작하는 이름이 없어요. 이름 뒷부분 말고 앞글자부터 입력해 보세요.”</b>라고 알려 줘요. 아직 명단에 없거나 이름 표기가 다른 경우예요 — 사장님이 <a href="#daily">직접 등록</a>하거나 이름을 확인해 주시면 돼요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">본인을 골라요. <b>“본인이 맞나요?”</b> 확인 창이 한 번 더 떠요. <span class="btn">네, 맞아요</span>를 누르면 <b>곧바로 금액·서명 화면</b>이에요 — 예전처럼 잔액 화면을 한 번 더 거치지 않아요(손님이 눌러야 하는 버튼이 하나 줄었어요).</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body"><b>금액과 서명을 한 화면에서</b> 끝내요.
+<br>· 맨 위에 <b>이름·소속과 현재 잔액</b>이 떠요 — <b>잔액만 확인하러 온 손님도 이 화면에서 바로 확인</b>하고 <span class="btn-secondary">처음으로</span>를 누르면 돼요.
+<br>· 맨 위에 <b>“잔액 ○○○원이 남아있어요”</b>가 <b>큰 글씨 한 줄</b>로 떠요. 이 숫자는 <b>지금 잔액</b>이고, 금액을 쳐도 <b>바뀌지 않아요</b>(실제 차감은 사장님이 저장할 때 한 번만 일어나요).
+<br>· <b>얼마를 쓰는지</b> 골라요. <span class="btn-secondary">9,000원</span>·<span class="btn-secondary">18,000원</span>·<span class="btn-secondary">27,000원</span> 빠른 버튼이 있고 직접 칠 수도 있어요. 손님이 넣은 금액은 <b>입력칸에 큰 숫자로</b> 보여요.
+<br>· 그 아래 <b>“여기에 서명하시고, 사장님 확인받기를 클릭해주세요”</b> 안내가 있는 <b>서명칸</b>에 <b>손가락으로 이름</b>을 쓰고 <span class="btn">사장님 확인 받기</span>를 눌러요.
+<br>· 서명이 마음에 안 들면 <span class="btn-secondary">지우고 다시</span>를 누르세요 — <b>서명만 지워지고 적어 둔 금액은 그대로</b>예요. 반대로 <b>금액을 고쳐 써도 이미 한 서명은 지워지지 않아요.</b>
+<br>· <b>금액을 적지 않았거나 서명하지 않으면 넘어가지 않아요.</b> 무엇이 빠졌는지 그 칸 바로 아래에 한 줄로 알려 줘요.
+<br>· <b>잔액보다 많은 금액은 넘어가지 않아요</b> — <b>“잔액보다 많아요. ○○○원까지만 돼요.”</b>라고 <b>얼마까지 되는지 함께</b> 알려 줘요. 안내는 <b>금액칸 위와 <span class="btn">사장님 확인 받기</span> 버튼 바로 위, 두 곳에 빨간 글씨</b>로 뜨고 <b>금액칸 테두리도 빨개져요</b> — 손님이 버튼만 보고 있어도 왜 안 넘어가는지 알 수 있어요. 금액을 고치면 그 자리에서 사라져요. 잔액보다 많이 써야 하면 맨 아래 <span class="btn-secondary">금액을 모르겠어요 / 사장님 부르기</span>를 쓰시면 돼요.
+<br>· <span class="btn-secondary">처음으로</span>를 누르면 <b>적던 금액과 서명이 함께 지워지고</b> 검색 화면으로 돌아가요.</div></div>
+<div class="step"><div class="step-num">＋</div><div class="step-body"><b>이 화면 맨 아래에 작은 버튼 두 개</b>가 더 있어요. 손님이 자주 묻는 두 가지가 여기 있어요.
+<br>· <span class="btn-secondary">최근 사용 내역 보기</span> — <b>내 잔액과 최근 5건</b>이 열려요. 서명 이미지는 보이지 않고 <b>“서명 있음 ✓”</b>로만 표시되며, 취소된 건은 <b>회색 “취소됨”</b>으로 구분돼요. 여기서 <span class="btn">사용 요청 계속하기</span>를 누르면 <b>적어 둔 금액은 그대로</b> 살아 있고 <b>서명만 다시</b> 하면 돼요(화면에도 그렇게 적혀 있어요). 조회만 하러 온 손님은 <span class="btn-secondary">처음으로</span>로 끝내면 돼요.
+<br>· <span class="btn-secondary">금액을 모르겠어요 / 사장님 부르기</span> — <b>대상만</b> 사장님께 넘겨요. 금액을 손님이 정할 수 없을 때(단체 식사, 사장님이 금액을 정하는 경우, 잔액이 모자라 상의가 필요할 때) 이 길을 쓰면 돼요. <b>이 길은 반드시 남아 있어요.</b></div></div>
+<div class="step"><div class="step-num">5</div><div class="step-body">어느 길이든 <b>곧바로 비밀번호 화면</b>으로 바뀌고, 제목이 <b>“사장님 확인”</b>, 그 아래에 <b>“○○○님 · 사장님이 비밀번호를 입력해 주세요”</b>(소속·부서까지)가 떠요. 손님은 이 화면 그대로 <b>사장님께 태블릿을 건네주면</b> 돼요.</div></div>
+<p>손님이 아무것도 누르지 않고 <b>30초</b>가 지나면 <b>처음(검색창) 화면으로 저절로 되돌아가요.</b> 다만 <b>금액을 적어 둔 동안에는 60초</b>를 기다려 줘요(숫자를 고르고 서명하는 데 30초는 짧으니까요). 적어 둔 금액이 있으면 <b>최근 사용 내역을 보는 동안에도 60초</b>가 적용돼요. 서명을 <b>천천히 그리는 동안에는 시계가 다시 시작</b>돼서 도중에 화면이 바뀌지 않아요. 시간이 지나면 <b>쓰던 금액과 서명은 모두 지워지고</b> 처음 화면으로 돌아가요. “사장님 확인” 화면은 <b>30초</b>예요 — 손님이 부르고 그냥 가 버려도 앞 손님의 요청이 남지 않아요. 손님이 잘못 눌렀으면 <span class="btn-secondary">처음으로</span>를 누르면 바로 취소돼요. 사장님이 직접 <span class="btn-secondary">사장님용 잠금 해제</span>를 눌러 연 <b>비밀번호 화면</b>은 조금 더 넉넉하게 <b>120초(2분)</b>를 기다렸다가 손님 화면으로 돌아가요(비밀번호를 고르는 도중에 화면이 바뀌지 않도록). 이때 <b>입력하던 숫자도 함께 지워져요.</b></p>
+
+<h3>사장님은 PIN만 풀면 돼요</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">건네받은 화면이 이미 <b>“사장님 확인”</b>이면 그대로 PIN(숫자 4자리)을 입력하면 돼요. <b>잠금 해제 버튼을 따로 찾을 필요가 없어요.</b> (손님 호출 없이 사장님이 직접 열 때는 화면 <b>아래쪽</b>의 <span class="btn-secondary">사장님용 잠금 해제</span>를 누르고 PIN을 입력해요.)</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">손님이 <b>금액·서명을 적어</b> 넘겼다면, <b>PIN을 누르기 전에</b> 이 화면에서 <b>“손님이 입력한 금액”</b>과 <b>서명 그림</b>이 함께 보여요. <b>금액을 먼저 눈으로 확인</b>하고 PIN을 입력하세요 — 이 숫자는 앱이 정한 게 아니라 <b>손님이 적은 숫자</b>예요.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">손님이 넘긴 지 <b>2분 이내</b>라면, PIN이 맞는 순간 <b>그 직원의 사용 등록 창이 저절로 열려요.</b> 이름을 다시 찾을 필요가 없어요.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">손님이 <b>금액·서명을 적어</b> 넘겼다면 <b>금액과 서명이 이미 채워져 있어요.</b> 확인하고 <span class="btn">저장</span>만 누르면 끝이에요.
+<br>· <b>금액은 언제든 고칠 수 있어요</b> — 실제 나간 밥값이 다르면 사장님이 고친 숫자가 장부에 남아요.
+<br>· ✍️ <b>금액을 바꾸면 서명을 다시 받아요.</b> 손님은 <b>자기가 적은 금액</b>에 서명한 거예요. 사장님이 금액을 고친 채 <span class="btn">저장</span>을 누르면 앱이 <b>“금액이 손님 요청과 달라 서명을 다시 받아야 해요”</b>라고 알려 주고 <b>빈 서명칸</b>을 띄워요. 손님께 그 자리에서 다시 서명을 받고 저장하면 돼요(<b>나중에 “나는 그 금액에 서명한 적 없다”는 다툼을 막아 줘요</b>). 고친 금액과 적어 둔 비고는 그대로 남아 있으니 다시 칠 필요 없어요.
+<br>· 요청으로 들어온 기록에는 <b>“손님 요청 금액 ○○○원”</b>이 비고에 함께 남아요 — 손님이 처음 적은 숫자와 실제로 저장된 숫자를 나중에 대조할 수 있어요(금액이 같아도 남아요).
+<br>· 서명을 다시 받고 싶으면 <span class="btn-secondary">서명 다시 받기</span>를 누르면 빈 서명칸으로 돌아가요.
+<br>· <b>사장님 부르기</b>로 왔다면 예전과 똑같이 <b>금액은 사장님이 입력</b>하고 서명을 받아요.
+<br>· ⚡ <b>손님이 적은 금액 그대로 저장할 때는 확인 창이 뜨지 않고 바로 저장돼요.</b> 사장님이 <b>비밀번호 화면에서 그 금액을 이미 크게 보고</b> 확인했기 때문이에요 — 같은 숫자를 두 번 묻지 않아요. 다만 <b>사장님이 금액을 고쳤거나 지난 날짜로 넣을 때</b>는 그 숫자를 아직 큰 화면에서 본 적이 없으니 <b>금액과 잔액 변화를 보여주는 확인 창</b>이 그대로 떠요.
+<br>· <b>사장님 부르기</b>로 왔거나 사장님이 직접 금액을 입력한 경우에도 <b>확인 창이 한 번 떠요.</b></div></div>
+<p>2분이 지났거나 손님이 확인만 하고 갔다면 사용 등록 창은 열리지 않고 평소의 홈 화면이 나와요. 그때는 평소처럼 <a href="#daily">검색해서 <span class="btn">사용</span></a>을 누르시면 돼요.</p>
+<div class="callout">💰 <b>손님이 만드는 것은 ‘요청’이지 ‘기록’이 아니에요.</b> 손님이 금액을 적고 서명까지 해도 <b>그 순간에는 장부에 아무것도 남지 않아요.</b> 장부에 줄이 생기는 때는 오직 <b>사장님이 PIN을 풀고 <span class="btn">저장</span>을 누른 순간</b>이에요. 사장님이 창을 그냥 닫으면 그 요청은 <b>그대로 사라져요</b>(다시 살아나지 않아요). 시간이 지나 자동으로 저장되는 일도, 사장님 없이 처리되는 일도 <b>절대 없어요.</b></div>
+
+<div class="callout">🔒 <b>잠금 상태에서 손님이 할 수 있는 것은 ‘조회’와 ‘요청’뿐이에요.</b> 손님이 태블릿을 들고 있어도 <b>사용·충전 기록, 직원 추가·수정, 설정, 백업, 명단 받기 같은 기능은 모두 막혀 있어요.</b> 손님이 적은 금액·서명은 <b>태블릿에 저장되지도, 어디로 전송되지도 않아요</b> — 사장님이 확인해 저장하기 전까지는 화면 위에만 잠깐 있다가 사라져요. PIN을 모르면 열리지 않으니 안심하고 건네주셔도 돼요.</div>
+<div class="tip">👥 <b>이름이 같은 직원이 둘 이상이면</b> 목록에 <b>“홍길동 (동명이인 2명) — 사장님께 말씀해 주세요”</b>라고 뜨고 <b>고를 수 없어요.</b> 다른 사람 잔액을 잘못 보는 일을 막기 위해서예요. 이때는 사장님이 잠금을 풀고 <b>부서까지 확인해서</b> 처리해 주세요.</div>
+
+<h2 id="agency"><span class="num">5</span>직원 선금대장 등록 — 자동 등록(공공기관에서 보낸 명단 받기)</h2>
+<div class="callout">💡 <b>먼저 오해부터 풀고 갈게요.</b> <b>선금(돈)은 앱이 아니라 앱 밖에서 결제(제로페이, 카드 등)로 받아요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b> 이 기능은 "돈을 받는" 기능이 아니라, 공공기관 담당자(서무)가 만든 <b>직원 명단과 금액을 우리 장부에 한 번에 올려 주는</b> 기능이에요.</div>
+
+<p><span class="field">설정</span> 탭 맨 위 <b>직원 선금대장 등록</b> 그룹의 <b>[자동 등록 — 공공기관에서 보낸 명단 받기]</b> 카드에서 해요. <b>공공기관(구청·시청 등)이 보낸 명단만</b> 이렇게 자동으로 들어와요. 회사(사기업)·개인 선금은 <a href="#employee">3장 수동 등록</a>으로 넣어 주세요.</p>
+<div class="tip">🔒 <b>설정에서 제목 앞에 🔒가 붙고 <span class="field">가게 등록 후 사용 가능</span>이라고 적힌 곳은, 가게를 등록해야 쓸 수 있는 기능이에요.</b> 눌러 봐야 안 되는 버튼을 남겨 두는 대신 <b>이유 한 줄과 <span class="btn">우리 가게 등록하기</span> 버튼</b>만 보여 드려요.</div>
+
+<h3>먼저: 우리 가게 등록 (처음 한 번)</h3>
+<p>처음 설정 <b>1/3</b>에서 가게를 <b>검색으로 골랐다면</b> 등록이 이미 끝나 있어요 — 이 단계는 건너뛰고 아래 "받는 방법"으로 가면 돼요. 아직 안 했다면 이 카드에서 <span class="btn">우리 가게 등록 (처음 한 번)</span>을 눌러 등록하세요.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body">가게 이름과 지역으로 검색해요 (예: 지역 <code>광진구 구의동</code>).</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">검색 결과에서 우리 가게를 찾아 <span class="btn">이 가게</span>를 눌러 등록해요.</div></div>
+<p>등록이 끝나면 <span class="field">공공기관 명단 받는 중</span> 표시가 <b>두 군데</b>에 켜져요 — <b>홈 화면 위쪽 상태칩</b>과, 이 카드 안 <b>가게 이름 옆의 초록 칩</b>이에요. 둘 다 보이면 제대로 등록된 거예요. 그만 받고 싶으면 <span class="btn-secondary">자동 등록 중단 (가게 등록 해제)</span>을 누르면 돼요.</p>
+
+<div class="tip">🏷️ <b>홈 화면 상태칩은 항상 사실만 말해요(닫기 버튼이 없어요).</b> 세 가지 중 하나가 늘 보입니다.
+<ul class="card-list">
+<li><span class="field">공공기관 명단 받는 중</span> — 등록이 끝났어요. 이제 명단을 받을 수 있어요.</li>
+<li><span class="field">공공기관 명단 받기: 등록 안 됨</span> — 아직 등록 전이에요. 홈의 안내(<b>우리 가게 등록을 마무리하세요</b>)를 눌러 마저 등록하세요.</li>
+<li><span class="field">공공기관 명단 받기: 다른 기기에 등록됨</span> — 그 가게가 <b>예전 폰(또는 지우기 전의 앱)</b>에 이미 등록돼 있어요. 아래 안내를 보세요.</li>
+</ul>
+<b>가게 이름은 등록과 상관없이 화면 위에 그대로 떠요</b> — 이름이 보인다고 등록이 끝난 것은 아니에요. 등록 여부는 <b>이 칩</b>으로 확인하세요.</div>
+
+<div class="callout">📵 <b>“다른 기기에 등록됨”이 뜨면</b> — 홈의 안내를 누르면 <b>[자동 등록] 카드</b>가 열리면서 <b>해결 방법 세 가지</b>가 카드 안에 그대로 적혀 있어요(① 예전 폰에서 <span class="btn-secondary">자동 등록 중단</span> ② <b>내 열쇠 백업</b> 파일 복원 ③ contact@bapjangbu.com 문의). 해결한 뒤에는 그 카드의 <span class="btn">다시 등록해 보기</span>만 누르면 돼요 — 가게를 다시 검색할 필요가 없어요. 가게를 잘못 고른 것이라면 <span class="btn-secondary">다른 가게 고르기</span>로 다시 찾으세요. 이 안내는 <b>앱을 껐다 켜도 그대로 남아</b> 있어요.
+<br>다른 사람이 우리 가게 이름으로 먼저 등록한 것 같으면 카드 안의 <span class="btn-secondary">신고하기 (메일 열기)</span>를 누르세요 — 가게 이름·가게 번호·발생 시각이 채워진 메일 창이 <b>바로</b> 열려요(직원 명단·금액은 담기지 않아요). 폰에 메일 앱이 없으면 <span class="btn-secondary">신고 내용 복사</span>를 누른 뒤 문자·카톡으로 <b>contact@bapjangbu.com</b> 에 붙여 넣어 보내 주세요.</div>
+
+<div class="tip">🔎 <b>가게를 고르기 전에 미리 알려드려요.</b> 검색 결과에서 <b>이미 다른 기기가 등록한 가게</b>에는 <span class="field">다른 기기에서 이미 등록됨</span> 표시가 붙어요. 우리 가게가 이미 등록돼 있으면 <span class="field">우리 가게(등록됨)</span>로 보여요. (인터넷이 느리거나 끊기면 이 표시가 안 나올 수 있어요 — 표시가 없다고 등록이 안 된 것은 아니에요.)
+<br>그 가게를 고르면 <b>“그래도 이 가게로 계속할까요?”</b> 하고 한 번 더 물어봐요. <b>내 예전 폰이 등록한 것이면 [확인]</b>을 눌러 그대로 진행하시고(설치는 계속돼요), <b>잘못 골랐으면 [취소]</b>를 누르면 검색 결과 그 자리로 돌아와 다른 가게를 고를 수 있어요.</div>
+<div class="tip">🗑️ <b>중단해도 서버의 잠긴 장부 백업은 30일 동안 남아 있어요.</b> 확인 창에도 그렇게 적혀 있어요 — <b>30일 안에 다시 등록하면 그 백업을 되찾을 수 있고</b>, 30일이 지나면 서버에서 지워져요. (기기 안의 장부와 직원 명단·잔액은 중단과 상관없이 그대로예요.)</div>
+
+<div class="callout">📵 <b>앱을 삭제하거나 기기를 바꾸기 전에는 꼭 가게 등록을 먼저 해제하세요.</b> 앱만 지우면 서버의 가게 등록이 그대로 남아서 ① 공공기관 담당자 화면과 직원용 앱 목록에 우리 가게가 계속 보이고(담당자가 명단을 보내도 받을 사람이 없어요) ② 나중에 다시 설치해도 <b>“이 가게는 이미 등록되어 있어요”</b>라며 재등록이 막혀요. 삭제 전에 <span class="btn-secondary">자동 등록 중단 (가게 등록 해제)</span> 또는 설정 맨 아래 <b>전체 초기화</b>(장부까지 지워져요 — 인터넷이 연결된 상태에서)를 실행하세요. 이미 지워 버리셨다면 contact@bapjangbu.com 으로 연락 주시면 정리해 드려요.</div>
+<div class="callout">🔑 <b>등록 성공 직후 “내 열쇠 백업”을 하라는 안내가 떠요. 꼭 하세요.</b> 폰을 잃어버렸는데 열쇠 백업이 없으면 <b>공공기관 명단을 받는 것도, 가게 등록을 해제하는 것도 모두 불가능</b>해요. (<a href="#backup">6장 장부 지키기</a>)</div>
+
+<div class="tip">🗂️ <b>자동 등록 카드는 위에서부터 이렇게 되어 있어요</b> — ① <b>등록된 우리 가게</b>(오른쪽 <span class="btn-secondary">변경</span>) → ② <span class="btn">온라인 자동 등록</span>(매일 누르는 버튼) → ③ <b>우리 가게 열쇠 지문</b>과 <span class="btn">내 열쇠 백업</span> → ④ <b>관할 지역</b> → ⑤ <span class="btn-secondary">자동 등록 중단</span>. <b>지금 할 일은 위쪽, 되돌리는 일은 맨 아래</b>에 있어요.</div>
+
+<div class="tip">🔑 <b>‘열쇠 지문’과 ‘화면잠금 비밀번호’는 전혀 다른 것이에요.</b> <b>열쇠 지문</b>(예: <code>9834-F5E5</code>)은 <b>공공기관 담당자가 전화로 물어보면 읽어 주는 확인용 값</b>이에요 — 우리 가게가 <b>중복으로 등록되는 것을 막는</b> 절차죠. 남에게 알려져도 괜찮은 값이에요. <b>화면잠금 비밀번호</b>는 앱을 열 때 누르는 <b>4자리 숫자</b>로, 누구에게도 알려주면 안 돼요.</div>
+
+<h3>받는 방법은 두 가지</h3>
+
+<h3>① 앱으로 바로 받기 (온라인 자동 등록)</h3>
+<p>설정의 자동 등록 카드에 있는 <span class="btn">온라인 자동 등록</span> 버튼을 눌러 <b>공공기관 명단 신청 수신함</b>을 열고, 내용을 확인한 뒤 등록해요. 받는 즉시 서버에서 삭제되고, 받지 않으면 최대 3일까지만 보관돼요. 이 버튼은 <b>새 명단이 없을 때는 흐리게</b> 쉬고 있다가, <b>공공기관에서 명단을 보내면 알림 숫자와 함께 켜져요</b>(흐린 상태에서도 눌러서 다시 확인할 수 있어요).</p>
+
+<div class="callout">📶 <b>명단을 받으려면 인터넷(와이파이)이 필요해요.</b> 명단은 사장님이 <b>승인하기 전까지는 기기에 내려오지 않고</b> 서버에 암호로 잠긴 채 기다려요. 그래서 <b>인터넷이 끊긴 곳에서는 새 명단을 열거나 승인할 수 없어요</b>(장부 기록·사용·충전은 인터넷 없이도 그대로 돼요).
+<br>이럴 때 홈 화면에 <b>“오프라인 — 장부는 쓸 수 있어요 · 새 명단 확인은 인터넷(와이파이) 연결 후 가능해요”</b>라고 안내가 떠고, 📩 알림은 <b>“인터넷 연결 후 확인”</b>으로 바뀌어요. 와이파이에 연결하면 잠시 뒤 자동으로 다시 확인돼요.</div>
+
+<div class="tip">🔔 <b>한 번 본 알림은 사라지지 않아요.</b> 예전에는 사무실 와이파이에서 📩 알림을 본 태블릿을 가게로 옮기면(인터넷이 안 잡힐 때) 알림이 없어진 것처럼 보였어요. 지금은 <b>마지막으로 확인한 알림 개수를 기기가 기억</b>해서, 인터넷이 없거나 잠시 끊겨도 숫자가 그대로 남아 있어요. 서버의 명단도 <b>3일(72시간) 동안 그대로 기다려요</b> — 알림이 안 보인다고 명단이 사라진 것은 아니에요.</div>
+<div class="tip">📩 <b>기다릴 필요 없어요.</b> 새 명단 신청이 오면 <b>앱을 열 때 자동으로 확인</b>해서, 홈 화면에 <b>📩 새 명단 신청 N건</b> 칩이 떠요. 그 칩을 누르면 바로 내용을 보고 승인할 수 있어요.</div>
+
+<div class="tip">📡 <b>“✅ 장부에 반영됨 · 서버 알림 대기”라고 적힌 줄이 보이면</b> — 승인은 두 걸음이에요. ①<b>명단을 우리 장부에 올리고</b> ②<b>서버에 “처리했다”고 알려요.</b> ①은 끝났는데 ②가 인터넷 문제로 실패하면 그 신청이 수신함에 이 표시와 함께 남아요. <b>이미 장부에는 들어가 있으니 다시 승인하실 필요가 없고</b>(그래서 승인·거절 버튼도 나오지 않아요), <b>선금이 두 번 들어갈 걱정도 없어요.</b> 인터넷이 연결되면 <b>앱이 알아서 다시 알리고</b> 그 줄은 사라져요. 급하면 <span class="btn">서버에 다시 알리기</span>를 눌러도 돼요.</div>
+
+<h3>② 담당자에게 직접 받기 (파일·QR)</h3>
+<p>담당자가 <b>카톡·메일로 보낸 명단 파일</b>을 열거나, 담당자가 보여주는 <b>QR</b>을 스캔해요. 이 방법은 서버를 거치지 않아요. 버튼은 <b>[수동 등록] 카드의 “공공기관 담당자에게 전달받기”</b> 구역(<b>엑셀 명단(CSV) 불러오기 바로 아래</b>)에 있어요 — <span class="btn-secondary">담당자가 카톡·메일로 보낸 명단 파일 열기</span>와 <span class="btn-secondary">QR(사각 코드)로 받기</span>.</p>
+<div class="tip">🔒 <b>이 두 버튼은 가게를 등록해야 보여요.</b> 등록 전에는 그 자리에 <b>“담당자가 보낸 파일은 우리 가게 번호로 잠겨 있어요 — 가게를 등록하면 열 수 있어요”</b>와 <span class="btn-secondary">우리 가게 등록하기</span>만 있어요. 담당자가 보낸 파일은 <b>우리 가게 열쇠로만 열리는 암호문</b>이라, 등록 전에는 열어도 내용을 볼 수 없기 때문이에요.</div>
+<div class="tip">🚫 <b>같은 파일(QR)을 두 번 열면 앱이 막아요.</b> <b>“이 파일(QR)은 ○월 ○일 ○○:○○에 이미 장부에 올렸어요”</b>라고 알려 주고 그대로 멈춰요 — 같은 파일을 두 번 올리면 <b>선금이 두 번 들어가기</b> 때문이에요. <b>새로 결제받은 명단</b>이라면 담당자에게 <b>새 파일을 다시 만들어</b> 달라고 하세요(내용이 같아도 새로 만든 파일은 그대로 등록돼요).</div>
+<div class="tip">📄 <b>바로 위의 [엑셀 명단(CSV) 불러오기]와 다른 버튼이에요.</b> 엑셀(CSV)은 <b>사장님이나 회사가 만든 표</b>를 여는 것이고, 이 버튼은 <b>담당자가 앱으로 보낸 명단 파일(.json)</b>을 여는 것이에요. 담당자에게 받은 파일이 <code>.json</code>으로 끝나면 이쪽 버튼입니다.</div>
+
+<p>등록되면 공공기관·부서·직원·금액이 우리 가게 <b>선금대장에 자동으로 추가</b>돼요. 홈 화면에서는 <b>“기관명 부서명”이 그룹 제목</b>이 되어(예: <code>광진구청 재무과</code>) 그 아래에 직원이 묶여 보여요. 제목을 탭해 펼치면 돼요. (<a href="#daily">4장</a>)</p>
+
+<div class="tip">🔁 <b>매달 명단이 다시 와도 직원 카드가 늘어나지 않아요.</b> 이미 장부에 있는 직원(<b>같은 소속·부서·이름</b>)은 새 카드가 생기지 않고 <b>그 직원 잔액에 충전</b>돼요. 등록 전 확인 창에 <b>충전되는 직원의 이름과 잔액 변화(현재 → 이후)</b>가 그대로 나오니 훑어보고 승인하세요. 앱으로 바로 받기(온라인 자동 등록)와 전달파일·QR로 받기 <b>둘 다 똑같이</b> 동작해요.</div>
+
+<div class="callout">✅ <b>승인 = 결제 확인이에요.</b> 공공기관이 보낸 선금은 앱을 거치지 않고 우리 가게가 <b>직접 결제(제로페이, 카드 등)로</b> 받아요. 그래서 승인 버튼도 <span class="btn">결제 확인 후 승인</span>이라고 적혀 있어요 — <b>명단에 적힌 금액을 실제로 받으셨는지</b> 확인한 뒤에 누르시라는 뜻이에요. 등록 전 확인 창 맨 위에 <b>결제 확인 금액</b>이 크게 나와요.
+<br>· <b>카드로 받으셨다면</b> 카드 단말기 매출전표나 POS 매출 내역에서 그 결제 건의 <b>금액·승인일시</b>가 명단 합계와 맞는지 보세요.
+<br>· <b>계좌이체로 받으셨다면</b> 통장 입금 내역에서 <b>입금자명</b>과 금액을 맞춰 보세요.
+<br>· <b>제로페이로 받으셨다면</b> 제로페이 가맹점 앱의 정산 내역이나 통장 입금 내역에서 금액을 맞춰 보세요(제로페이는 가게 계좌로 들어와요). 담당자가 명단에 결제구분을 적어 보냈다면 확인 창에 <b>“결제 방식: 제로페이”</b>라고 나와요.
+<br>· <b>여러 부서 명단이 한 가게로 왔는데 결제가 한 번뿐이라면</b>, 명단 여러 건의 합계가 그 결제 금액과 맞는지 보시면 돼요. 반대로 팀·개인별로 나눠 결제하는 경우도 흔하니, 그때는 명단 1건 = 결제 1건씩 대조하는 것이 확실해요.</div>
+
+<div class="tip">🧾 <b>확인 창에서 함께 봐 두실 것</b> — <b>입금자명</b>은 담당자가 적었을 때만 나와요. 비어 있으면 <b>“(명단에 없음 — 카드결제면 비어 있을 수 있어요)”</b>라고 표시돼요. 카드로 받으셨다면 비어 있는 것이 정상이니, 이때는 매출전표로 대조하시면 돼요.
+<br>또 확인 창에는 담당자가 로그인에 쓴 <b>인증 도메인</b>(예: <code>인증 도메인: gwangjin.go.kr</code>)이 함께 나와요. <b>기관명은 담당자가 스스로 적은 것</b>이라 누구나 아무 이름이나 쓸 수 있지만, 인증 도메인은 그 기관 메일 주소로 실제 인증을 마쳤다는 표시예요. <b>기관명과 도메인을 같이 놓고</b> 아는 곳이 맞는지 판단하세요.</div>
+
+<div class="tip">↩️ <b>지금 확인이 안 되면 취소하셔도 돼요.</b> 취소해도 그 신청은 <b>수신함에 3일(72시간) 동안 그대로 남아</b> 있어요. 카드 전표나 통장을 확인한 뒤 다시 <span class="btn">온라인 자동 등록</span>으로 들어가 승인하시면 돼요. 3일이 지나면 자동으로 사라지니, 그때는 담당자에게 다시 보내 달라고 하세요.</div>
+
+<div class="tip">⚠️ <b>“이미 올린 명단과 완전히 같아요” 경고가 뜨면</b> — 같은 명단이 두 번 온 것일 수 있어요(다른 담당자가 또 보냈거나, 앱과 파일로 두 번 전달). <b>그 금액을 별도로 한 번 더 받으신 경우에만</b>(카드 전표 2건 또는 통장 입금 2건) 계속하고, 아니면 취소한 뒤 담당자에게 확인하세요.</div>
+
+<div class="tip">📋 <b>담당자 쪽 화면은 이렇게 되어 있어요</b>(사장님이 알아 두시면 좋은 것) — 담당자가 명단을 만들 때 <b>입금자명은 선택 항목</b>이라 카드로 결제하면 비워 두는 경우가 많고, 명단 파일(CSV)에 <b>결제구분(카드/계좌이체)</b>을 골라 넣을 수 있어요. 그리고 담당자 화면에는 <b>앱에서 우리 가게 등록을 마친 음식점만</b> 나와요 — 등록하지 않은 가게는 목록에서 빠지고 명단도 전달되지 않으니, <b>처음 설정에서 가게 등록을 꼭 마쳐 두세요.</b></div>
+
+<h2 id="backup"><span class="num">6</span>장부 지키기 (중요)</h2>
+<p><span class="field">설정</span> 탭의 <b>장부 지키기</b> 카드에서 관리해요. 이 카드는 <b>접혀 있어요</b> — 제목 줄(<b>장부 지키기</b>)을 한 번 누르면 펼쳐져요.</p>
+
+<div class="tip">💾 <b>장부를 저장한 지 30일이 넘고 그 뒤에 새 기록이 있으면, 홈 화면에 “장부를 저장한 지 오래됐어요” 안내가 떠요.</b> 안내를 누르면 <b>엑셀용 CSV와 복원용 데이터 파일</b>이 함께 저장돼요. 평소에 저장하고 싶을 때는 설정의 <b>장부 지키기 &gt; [장부 안전 저장]</b>을 누르면 돼요. 홈 맨 위에 있던 <span class="btn">장부 저장</span> 버튼은 이 안내로 바뀌었고, 그 자리에는 <span class="btn">직원 목록 관리</span> 바로가기가 생겼어요. <span class="btn">검색 초기화</span>는 검색창 옆의 <b>✕</b> 버튼이 되었어요(지울 검색어가 있을 때만 보여요).</div>
+
+<table>
+<thead><tr><th>버튼</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><span class="btn-secondary">장부 안전 저장</span></td><td>엑셀용 CSV와 복원용 데이터 파일을 함께 저장해요. 잔액표 CSV에는 <b>소속</b> 열도 함께 들어가서, 회사·개인 선금을 엑셀에서 바로 구분할 수 있어요. (단, 가게 열쇠는 이 파일에 들어가지 않아요)</td></tr>
+<tr><td><span class="btn">저장한 데이터 불러오기(복원)</span></td><td>안전 저장해둔 데이터 파일(JSON)로 되돌려요.</td></tr>
+<tr><td><span class="btn-secondary">장부 검사</span></td><td>거래 기록에 이상이 없는지 쉬운 말로 확인해요.</td></tr>
+</tbody>
+</table>
+
+<div class="callout">🔑 <b>[내 열쇠 백업]은 이 카드가 아니라 <span class="field">설정 &gt; 자동 등록</span> 카드에 있어요.</b> ‘우리 가게 열쇠 지문’ 바로 아래예요 — <b>열쇠</b>와 관련된 것을 한자리에 모았습니다. 아직 백업하지 않았으면 접힌 카드 제목 줄에도 <b>⚠️ 내 열쇠 백업 아직 안 함</b>이라고 보여요. 암호는 8자 이상으로 정해야 해요.</div>
+
+<h3>📱 폰을 잃어버려도 장부 되찾기</h3>
+<p>우리 가게 등록을 마치고 <b>자동 등록(공공기관 명단 받기)</b>을 쓰기 시작하면 함께 쓸 수 있는 기능이에요. 이 카드도 <b>접혀 있어요</b> — 제목 줄(<b>📱 폰을 잃어버려도 장부 되찾기</b>)을 한 번 누르면 펼쳐져요.</p>
+<div class="callout">🔒 <b>가게를 등록하기 전에는 이 카드가 잠겨 있어요.</b> 제목이 <b>🔒 폰을 잃어버려도 장부 되찾기</b>로 바뀌고 요약이 <span class="field">가게 등록 후 사용 가능</span>으로 보이며, 안에는 <b>“가게를 등록하면 쓸 수 있어요”</b> 한 줄과 <span class="btn">우리 가게 등록하기</span> 버튼만 있어요(눌러 봐야 안 되는 버튼을 남겨 두지 않으려는 거예요). <b>등록 전에도 장부는 지킬 수 있어요</b> — 같은 그룹의 <span class="btn-secondary">장부 안전 저장</span>으로 <b>파일 백업</b>을 받아 두세요. 같은 이유로 <b>[수동 등록] 카드의 “공공기관 담당자에게 전달받기”</b>도 등록 전에는 잠겨 있어요(담당자가 보낸 파일은 <b>우리 가게 번호로 잠긴 암호문</b>이라 등록 전에는 열리지 않아요).</div>
+<ul class="card-list">
+<li><span class="btn">지금 저장하기</span> — 내용을 잠근 채로 서버에 보관해요.</li>
+<li><span class="btn-secondary">새 폰에서 불러오기</span> — 보관된 내용을 새 기기로 가져와요.</li>
+</ul>
+<div class="tip">내용은 잠겨 있어서 서버도 내용을 볼 수 없어요.</div>
+
+<h2 id="pin"><span class="num">7</span>비밀번호를 잊었을 때</h2>
+<p>잠금 화면 아래쪽 <span class="btn-secondary">사장님용 잠금 해제</span>를 눌러 PIN 입력 화면을 연 뒤, <span class="btn-secondary">PIN을 잊으셨나요?</span>를 누르세요.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body"><span class="btn">① 백업 파일로 복구</span> — 저장해둔 백업 파일이 있으면 선택하세요. 데이터를 확인한 뒤 새 비밀번호를 설정해요.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">백업 파일이 없다면 모든 데이터를 지우고 처음부터 다시 시작할 수 있어요. 지우기 전에 <b>마지막 백업 파일이 자동으로 저장</b>돼요(<code>선입금대장_잠긴백업_날짜.json</code>).</div></div>
+
+<div class="callout">🔒 <b>이 화면에서 저장되는 마지막 백업은 ‘잠긴 파일’이에요.</b> 비밀번호를 모르는 사람도 누를 수 있는 화면이라, 직원 이름·금액이 <b>그대로 보이는 파일을 남기지 않아요</b> — 내용을 <b>우리 가게 열쇠로 잠가서</b> 저장해요. 여는 방법은 두 가지뿐이에요. ① <b>이 기기</b>(열쇠가 살아 있으면 그대로 열려요) ② 다른 기기라면 <b><a href="#backup">내 열쇠 백업</a> 파일을 먼저 가져온 뒤</b> 이 파일을 선택하기.
+<br>👉 그래서 <b>‘내 열쇠 백업’을 미리 해 두는 것이 중요해요.</b> 설정 &gt; <b>자동 등록</b> 카드의 <span class="btn">내 열쇠 백업(중요)</span>에서 할 수 있어요. 열쇠 백업이 없으면 이 잠긴 파일은 <b>아무도 열 수 없어요.</b> (설정 맨 아래의 <b>전체 초기화</b>는 비밀번호를 아는 사장님만 쓰는 길이라 예전처럼 <b>바로 읽을 수 있는 백업</b>을 저장해요.)</div>
+
+<div class="callout">⏳ <b>PIN을 5번 틀리면 60초 동안 입력이 잠겨요.</b> 손님에게 태블릿을 건네줘도 남이 번호를 계속 찍어 볼 수 없게 하려는 거예요. 잠깐 기다렸다가 다시 입력하시면 되고, 번호가 정말 기억나지 않으면 위의 <span class="btn-secondary">PIN을 잊으셨나요?</span>로 복구하세요.</div>
+<div class="tip">🧹 <b>“전체 초기화(지우고 다시 시작)” 버튼은 복구 화면 안에만 있어요.</b> 평소 잠금 화면이나 홈 화면에서는 보이지 않아서, 손님이 실수로 눌러 장부를 지울 걱정은 없어요.</div>
+
+<h2 id="faq"><span class="num">8</span>자주 묻는 질문</h2>
+<dl class="qa">
+<dt>돈이 드나요?</dt>
+<dd>아니요, 무료예요.</dd>
+<dt>이 앱으로 돈이 오가나요?</dt>
+<dd>아니요. 이 앱은 장부만 기록해요. <b>선금(돈)은 앱이 아니라 앱 밖에서 결제(제로페이, 카드 등)로 가게가 직접 받아요. 앱이 받는 것은 암호화된 직원 명단뿐이에요.</b> 밥장부 운영자는 그 돈을 받거나 보관하지 않아요.</dd>
+<dt>회사(사기업)나 개인 선금도 되나요?</dt>
+<dd>네. <b>공공기관 명단은 자동으로 받고</b>, 회사·개인 선금은 <a href="#employee">3장 수동 등록</a>(한 명씩 · 엑셀 명단 · 빠른 등록)으로 직접 넣으시면 <b>한 장부에서 함께</b> 관리돼요. <span class="field">소속(선택)</span> 칸에 회사 이름을 적거나 개인이면 '개인'이라고 적어 두면 구분해 보기 편해요(비워 두셔도 돼요). 회사에서 엑셀 명단을 받으실 때는 <b>'부서' 칸을 포함해</b> 달라고 하세요.</dd>
+<dt>손님이 태블릿을 만져도 괜찮나요?</dt>
+<dd>네, 괜찮아요. 화면이 잠겨 있으면(무조작 90초 또는 <span class="btn">손님 셀프 조회</span>) 손님은 <b>자기 이름을 검색해 본인 잔액과 최근 5건을 확인하고, 쓸 금액과 서명을 적어 사장님께 ‘요청’을 넘기는 것</b>까지만 할 수 있어요. <b>장부 기록(사용·충전)·직원 수정·설정·백업은 PIN 없이는 전혀 열리지 않고</b>, 검색 결과 목록에도 <b>잔액은 나오지 않아요.</b> 손님 화면과 “사장님 확인” 화면은 <b>30초</b>(금액·서명을 쓰는 중에는 <b>60초</b>), 사장님이 직접 연 <b>비밀번호 화면은 120초</b> 동안 아무 조작이 없으면 처음 화면으로 되돌아가서 앞 손님 정보도 남지 않아요. (<a href="#daily">4장 — 손님이 직접 잔액을 확인해요</a>)</dd>
+<dt>손님이 금액을 적어서 넘기면 그대로 장부에 들어가나요?</dt>
+<dd>아니요. 손님이 만드는 것은 <b>‘요청’일 뿐</b>이고, 장부에 줄이 생기는 순간은 <b>사장님이 PIN을 풀고 저장 확인 창을 누른 때</b>예요. 손님이 적은 금액은 “사장님 확인” 화면과 사용 등록 창에 <b>“손님이 입력한 금액”</b>이라고 출처가 적힌 채 보이고, <b>사장님이 얼마든지 고칠 수 있어요.</b> 다만 <b>금액을 고치면 손님 서명을 다시 받아야 저장돼요</b>(손님은 자기가 적은 금액에 서명한 것이니까요). 사장님이 창을 닫으면 요청은 <b>그대로 사라지고</b> 다시 살아나지 않아요. 시간이 지나 저절로 저장되는 일은 <b>없어요.</b> (<a href="#daily">4장</a>)</dd>
+<dt>홈 화면에 직원이 안 보여요.</dt>
+<dd>직원 명단이 <b>소속별 그룹으로 접혀 있어서</b> 그래요. <b>그룹 제목을 탭하면</b> 그 안의 직원 카드가 펼쳐져요. 이름으로 <b>검색</b>(초성만 쳐도 돼요)하거나 <b>소속 필터</b>를 걸면 그룹이 <b>자동으로 펼쳐져요.</b> (<a href="#daily">4장</a>)</dd>
+<dt>홈 화면 아래에 있던 “활성 직원 ○명 · 잔액 합계”는 어디 갔나요?</dt>
+<dd><span class="field">설정</span> 탭의 <b>직원 목록 관리</b> <b>맨 위</b>로 옮겨졌어요. 홈 화면 위쪽 <b>전체 잔액</b> 카드는 그대로 있고, 그룹별 인원수·잔액 소계는 <b>그룹 제목 줄</b>에서 보여요.</dd>
+<dt>스마트폰 화면에서는 글씨가 잘려 보이지 않나요?</dt>
+<dd>그룹을 펼치면 스마트폰에서는 직원 카드가 <b>두 줄로</b> 표시돼요. 첫 줄에 이름·소속·부서가, 둘째 줄에 잔액과 버튼이 나와서 <b>이름도 잔액도 잘리지 않고 온전히</b> 보여요. 태블릿은 지금까지와 똑같이 한 줄로 보여요.</dd>
+<dt>내 자료는 어디에 저장되나요?</dt>
+<dd>앱을 설치한 이 기기에 저장돼요.</dd>
+<dt>앱을 삭제하면 가게 등록도 사라지나요?</dt>
+<dd>아니요. <b>앱만 지우면 서버의 가게 등록은 그대로 남아요.</b> 공공기관 담당자 화면과 직원용 앱 목록에 우리 가게가 계속 보이고, 다시 설치해도 재등록이 막혀요. 앱을 그만 쓰거나 기기를 바꿀 때는 <b>먼저</b> <span class="btn-secondary">자동 등록 중단 (가게 등록 해제)</span>(<a href="#agency">5장</a>) 또는 설정 맨 아래 <b>전체 초기화</b>를 실행하세요. 이미 지워 버리셨다면 contact@bapjangbu.com 으로 연락 주세요.</dd>
+<dt>어떤 기기에 설치하는 게 좋나요?</dt>
+<dd>가게에 항상 두는 <b>전용 태블릿(또는 전용 폰)</b>을 권장해요. 장부가 그 기기에 저장되기 때문에, 사장님 개인 폰보다 가게 비치용 기기가 안전하고 편해요.</dd>
+<dt>인터넷이 없어도 되나요?</dt>
+<dd>장부 기록(사용·충전·조정)과 손님 셀프 조회는 인터넷 없이도 돼요. <b>인터넷이 필요한 것은 세 가지</b>예요 — ① 가게 검색·등록 ② <b>공공기관 명단 받기·승인</b> ③ 클라우드 장부 백업. 인터넷이 없을 때는 홈 화면에 그 사실이 안내로 뜨고, <b>한 번 확인한 📩 알림 개수는 그대로 남아 있어요</b>(서버의 명단도 3일간 유지돼요).</dd>
+<dt>폰을 바꾸면 어떻게 하나요?</dt>
+<dd>6번 "장부 지키기"를 참고하세요.</dd>
+</dl>
+
+<hr>
+<p>다른 안내서: <a href="manual-agency.html">공공기관 담당자(서무)</a> · <a href="manual-staff.html">직원(베타)</a></p>
+
+<footer>밥장부 — 음식점 사장님 안내서</footer>
+<a class="top-link" href="#top" onclick="window.scrollTo({top:0,behavior:'smooth'});return false">맨 위로</a>

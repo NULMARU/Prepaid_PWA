@@ -20,3 +20,6 @@ docs/proposal/
 
 # 로컬 전용 — 공공데이터 인증키(probe용)
 server/.public-api-key
+
+# 이메일 전달용 PDF 사본 — 배포용 원본은 docs/manuals/에서 관리
+/output/pdf/
