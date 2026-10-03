@@ -33,12 +33,16 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('✅ ' + m); } else { fail++; console.log('❌ ' + m); } };
 const cors = { 'Access-Control-Allow-Origin': '*' };
 
-async function newPage(ctx, calls) {
+async function newPage(ctx, calls, respond) {
   await ctx.route('**/api/restaurants**', async route => {
     const u = new URL(route.request().url());
     calls.push({ q: u.searchParams.get('q') || '', zip: u.searchParams.get('zip') || '' });
     const zip = u.searchParams.get('zip');
     const q = u.searchParams.get('q') || '';
+    if (respond) {
+      const r = await respond({ q, zip, n: calls.length });
+      return route.fulfill({ status: r.status || 200, contentType: 'application/json', headers: cors, body: JSON.stringify(r.body) });
+    }
     // 실서버 계약 재현: zip으로 후보를 받고 상호(q)는 서버가 부분일치로 거른다. 한글 q 단독은 0건(장애).
     // 응답에 지연을 줘서 진행 표시·[그만 찾기]를 실제로 검증할 수 있게 한다.
     await new Promise(r => setTimeout(r, 90));
@@ -162,6 +166,127 @@ const browser = await chromium.launch();
   ok(calls.filter(c => c.zip).length === GUUI_ZIPS.length, '소진 시 정확히 동네 전 구역만 두드렸다(중복·초과 없음)');
 
   ok(errors.length === 0, 'C: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── beta.52 현장 결함: "같은 검색(가게 이름 + 광진구 구의동)이 될 때도, 안 될 때도 있다" ──
+//   중계 서버는 IP당 분당 60회 한도(429)가 있고, 구의동은 구역이 49개다. 예전에는 실패한 구역을 '가게 없음'으로 치고
+//   버렸고, 끝나면 "전 구역을 모두 살펴봤지만"이라고 말했다. 이제는 실패 구역을 다시 세우고(최대 3번) 429면 쉬었다 잇는다.
+//   대기 시간은 하니스에서만 1초로 줄인다(window.__zipScanWaitSec — 앱은 localhost일 때만 읽는다).
+const fastWait = ctx => ctx.addInitScript(() => { window.__zipScanWaitSec = [1, 1, 1]; });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ── 시나리오 D: 이름 검색부터 429 → 동네 순회로 넘어가고, 429 구역은 쉬었다가 다시 물어 결국 찾는다 ──
+{
+  const ctx = await browser.newContext();
+  await fastWait(ctx);
+  const calls = [];
+  let zipCalls = 0;
+  const { page, errors } = await newPage(ctx, calls, async ({ q, zip }) => {
+    await sleep(40);
+    if (!zip) return { status: 429, body: { error: 'rate_limited' } };          // 이름 검색: 한도 초과
+    zipCalls++;
+    if (zipCalls <= 6) return { status: 429, body: { error: 'rate_limited' } }; // 첫 두 묶음(6구역) 전부 429
+    return { body: zip === EARLY_ZIP ? mkRow(zip, '육회바른연어 구의점') : [] };
+  });
+  await page.fill('#setupStoreName', '육회바른연어');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  // ⚠️ body.textContent에는 앱 인라인 스크립트 원문도 들어 있다(같은 문구가 있다) — 화면에 보이는 글자(innerText)로 판정한다.
+  await page.waitForFunction(() => /서버에 요청이 몰려 잠깐 쉬고 있어요/.test(document.querySelector('.setup').innerText), null, { timeout: 15000 });
+  ok(true, '429를 받으면 "서버에 요청이 몰려 잠깐 쉬고 있어요 — N초 뒤 이어서" 안내를 보여 준다');
+  ok(await page.locator('[data-a="dong-scan-stop"]').count() === 1, '쉬는 동안에도 [그만 찾기]가 있다');
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 60000 });
+  const t = await page.textContent('.setup');
+  ok(t.includes('육회바른연어 구의점'), '처음에 429로 막혔던 구역(5번째)의 가게도 다시 물어 결국 찾아낸다');
+  ok(calls.filter(c => c.zip === EARLY_ZIP).length >= 2, '429였던 구역은 버리지 않고 다시 묻는다 (' + calls.filter(c => c.zip === EARLY_ZIP).length + '회)');
+  ok(!/rate_limited/.test(await page.innerText('body')), '서버 영문 오류 코드(rate_limited)를 사장님께 그대로 보이지 않는다');
+  ok(errors.length === 0, 'D: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 E: 끝까지 실패하는 구역이 있으면 "모두 살펴봤다"고 말하지 않고, 남은 구역을 다시 찾게 한다 ──
+{
+  const ctx = await browser.newContext();
+  await fastWait(ctx);
+  const calls = [];
+  const BAD = [GUUI_ZIPS[10], GUUI_ZIPS[11]];
+  let healed = false;
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => {
+    await sleep(20);
+    if (zip && BAD.includes(zip) && !healed) return { status: 500, body: { error: 'internal' } };
+    if (zip === BAD[1] && healed) return { body: mkRow(zip, '깊은가게 구의점') };
+    return { body: [] };
+  });
+  await page.fill('#setupStoreName', '깊은가게');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="dong-scan"][data-resume="1"]', { timeout: 60000 });
+  const t = await page.textContent('.setup');
+  ok(t.includes('2개 구역은 서버가 바빠 확인하지 못했어요'), '확인 못 한 구역 수를 정직하게 알린다');
+  ok(!/모두 살펴봤지만/.test(t), '확인 못 한 구역이 남았는데 "모두 살펴봤지만 찾지 못했어요"라고 말하지 않는다');
+  ok(BAD.every(z => calls.filter(c => c.zip === z).length === 3), '실패 구역은 구역당 정확히 3번까지만 묻는다 (' + BAD.map(z => calls.filter(c => c.zip === z).length).join('/') + ')');
+  ok((await page.textContent('[data-a="dong-scan"][data-resume="1"]')).includes('확인 못 한 2개 구역 다시 찾기'), '[확인 못 한 2개 구역 다시 찾기] 버튼을 준다');
+  healed = true;
+  const before = calls.length;
+  await page.click('[data-a="dong-scan"][data-resume="1"]');
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 20000 });
+  ok((await page.textContent('.setup')).includes('깊은가게 구의점'), '다시 찾기로 그 구역의 가게를 찾아낸다');
+  ok(calls.slice(before).every(c => !c.zip || BAD.includes(c.zip)), '다시 찾기는 확인 못 한 구역만 다시 묻는다(이미 본 구역 재요청 없음)');
+  ok(errors.length === 0, 'E: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 F: 순회 중에 가게 이름을 고쳐 쳐도 글자가 되돌아가지 않고 커서(키보드)가 유지된다 ──
+{
+  const ctx = await browser.newContext();
+  const calls = [];
+  const { page, errors } = await newPage(ctx, calls, async () => { await sleep(250); return { body: [] }; });
+  await page.fill('#setupStoreName', '육회');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="dong-scan-stop"]', { timeout: 20000 });
+  const inputBefore = await page.evaluateHandle(() => document.getElementById('setupStoreName'));
+  await page.click('#setupStoreName');
+  await page.keyboard.press('End');
+  const progressAt = async () => (await page.textContent('.setup')).match(/(\d+)\/\d+ 구역/);
+  const p0 = await progressAt();
+  await page.keyboard.type('바른연어', { delay: 120 });
+  await page.waitForFunction(n => { const m = document.querySelector('.setup').textContent.match(/(\d+)\/\d+ 구역/); return m && Number(m[1]) >= n; }, Number(p0 ? p0[1] : 0) + 6, { timeout: 20000 });
+  ok(await page.inputValue('#setupStoreName') === '육회바른연어', '순회 진행 중에 친 글자가 되돌아가지 않는다 (지금 값: ' + JSON.stringify(await page.inputValue('#setupStoreName')) + ')');
+  ok(await page.evaluate(() => document.activeElement && document.activeElement.id) === 'setupStoreName', '순회 진행 표시가 바뀌어도 입력칸 포커스(폰 키보드)가 유지된다');
+  ok(await page.evaluate(el => el === document.getElementById('setupStoreName'), inputBefore), '입력 중에는 진행 표시만 갈아끼우고 입력칸 노드는 그대로 둔다(한글 조합 보호)');
+  await page.click('[data-a="dong-scan-stop"]');
+  await page.click('#setupStoreName');
+  await page.keyboard.press('End');
+  await page.keyboard.type('X');
+  await page.waitForSelector('[data-a="dong-scan"][data-resume="1"]', { timeout: 10000 });
+  ok(await page.inputValue('#setupStoreName') === '육회바른연어X', '순회가 끝나 화면을 다시 그려도 고친 이름이 남는다');
+  ok(errors.length === 0, 'F: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 G: 찾은 가게가 우리 가게가 아닐 때 [남은 구역 계속 찾기]가 실제로 더 찾는다 ──
+//   (예전 조건 !ds.found.length 때문에 이미 찾은 곳이 있으면 한 바퀴도 돌지 않았다)
+{
+  const ctx = await browser.newContext();
+  const calls = [];
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => {
+    await sleep(20);
+    if (zip === EARLY_ZIP) return { body: mkRow(zip, '두집 다른점') };
+    if (zip === LATE_ZIP) return { body: [{ ...mkRow(zip, '두집 구의점')[0], restaurant_id: '3040000-101-2026-9999' }] };
+    return { body: [] };
+  });
+  await page.fill('#setupStoreName', '두집');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="dong-scan"][data-resume="1"]', { timeout: 20000 });
+  ok((await page.textContent('.setup')).includes('두집 다른점'), '먼저 찾은 가게를 보여 준다');
+  await page.click('[data-a="dong-scan"][data-resume="1"]');
+  await page.waitForFunction(() => /두집 구의점/.test(document.querySelector('.setup').textContent), null, { timeout: 20000 });
+  const t = await page.textContent('.setup');
+  ok(t.includes('두집 구의점') && t.includes('두집 다른점'), '[계속 찾기]가 남은 구역을 돌아 다음 가게를 찾고, 먼저 찾은 가게도 목록에 남는다');
+  ok(errors.length === 0, 'G: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
 }
 
