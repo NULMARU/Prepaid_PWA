@@ -251,6 +251,9 @@
    사진으로 남긴 증표에도 앱 사용법이 함께 찍힌다. 닫기 버튼 근처에 작은 글씨로만 둔다. */
 .receipt-tip{margin-top:12px;font-size:12.5px;line-height:1.6;color:var(--muted);text-align:center;word-break:keep-all}
 .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.pass-back{z-index:50}.pass-modal{width:min(100%,460px)}.pass-modal .help{line-height:1.6}
+.pass-show{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:14px;color:var(--muted);cursor:pointer;min-height:40px}.pass-show input{width:20px;height:20px;min-height:0;margin:0;padding:0;flex:none}
+.pass-hint{min-height:22px;margin-top:6px;font-size:14px;line-height:1.5;color:var(--muted)}.pass-hint.bad{color:var(--danger);font-weight:700}.pass-hint.ok{color:var(--success);font-weight:700}
 .modal-actions button{flex:1;font-size:16px;font-weight:700}
 
 /* ─── 토스트/로딩 ─── */
@@ -543,7 +546,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.51',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.52',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -1016,11 +1019,66 @@ async function setPhone(empId,phoneRaw){const emp=state.data.employees.find(v=>v
 async function setPhoneConsent(empId,consent){const emp=state.data.employees.find(v=>v.id===empId);if(!emp||!emp.phone)return;const next={...emp,phoneConsent:!!consent,updatedAt:now()};await repo.apply({employees:[next]});upsertEmp(next)}
 function formatPhone(v){const s=str(v).replace(/[^0-9]/g,'');if(s.length===11)return s.slice(0,3)+'-'+s.slice(3,7)+'-'+s.slice(7);if(s.length===10)return s.slice(0,3)+'-'+s.slice(3,6)+'-'+s.slice(6);return s}
 // 개인키 암호화 백업 (스펙 STEP 12) — 사용자 passphrase로 래핑, 기기 분실 대비 별도 파일
-async function exportKeyBackup(){if(!cryptoOk()){toast('이 브라우저는 열쇠 백업을 지원하지 않습니다.');return}const priv=await getPrivateKey(true);if(!priv||!state.data.meta.pubKey){toast('등록된 열쇠가 없습니다.');return}const pass=window.prompt('내 열쇠 백업 암호를 입력하세요 (분실 시 복구 불가).\n이 암호는 어디에도 저장되지 않습니다.','');if(pass===null)return;if(str(pass).length<8){toast('암호는 8자 이상이어야 합니다.');return}setBusy('내 열쇠 백업을 만드는 중입니다.');try{const pkBackup=await wrapPrivateKey(priv,pass),body={type:'prepaid-key-backup',v:1,appVersion:APP_VERSION,exportedAt:now(),pubKey:state.data.meta.pubKey,pkBackup};downloadFile(JSON.stringify(body,null,2),`선입금대장_내열쇠백업_${dateStamp()}.json`,'application/json');const myKeyBackedUpAt=now();state.data.meta.myKeyBackedUpAt=myKeyBackedUpAt;try{await repo.apply({meta:{myKeyBackedUpAt}})}catch(e2){console.error('key-backup flag save:',e2)}clearBusy();toast('내 열쇠 백업 파일을 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('내 열쇠 백업 오류')}}
+async function exportKeyBackup(){if(!cryptoOk()){toast('이 브라우저는 열쇠 백업을 지원하지 않습니다.');return}const priv=await getPrivateKey(true);if(!priv||!state.data.meta.pubKey){toast('등록된 열쇠가 없습니다.');return}const pass=await askKeyPass('export');if(pass==null||pass.length<KEY_PASS_MIN)return;setBusy('내 열쇠 백업을 만드는 중입니다.');try{const pkBackup=await wrapPrivateKey(priv,pass),body={type:'prepaid-key-backup',v:1,appVersion:APP_VERSION,exportedAt:now(),pubKey:state.data.meta.pubKey,pkBackup};downloadFile(JSON.stringify(body,null,2),`선입금대장_내열쇠백업_${dateStamp()}.json`,'application/json');const myKeyBackedUpAt=now();state.data.meta.myKeyBackedUpAt=myKeyBackedUpAt;try{await repo.apply({meta:{myKeyBackedUpAt}})}catch(e2){console.error('key-backup flag save:',e2)}clearBusy();toast('내 열쇠 백업 파일을 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('내 열쇠 백업 오류')}}
 // 장부 백업(JSON) 다운로드에는 개인키가 포함되지 않는다(backupCore가 제외). 기관 연동용 키가 있는데 아직
 // '내 열쇠 백업'을 한 번도 받지 않았다면, 장부 백업만 믿고 있다가 기기 분실 시 신청을 못 받는 상황을 막기 위해 안내한다.
 function maybeWarnKeyMissing(){if(state.data.meta.pubKey&&!state.data.meta.myKeyBackedUpAt){window.alert("저장한 파일에는 '가게 열쇠'가 들어있지 않아요.\n자동 등록(공공기관 명단 받기)을 쓰신다면 설정 > 자동 등록의 [내 열쇠 백업]도 한 번 따로 보관해 주세요.")}}
-async function importKeyBackup(parsed){if(!parsed||parsed.type!=='prepaid-key-backup'||!parsed.pkBackup){throw new Error('내 열쇠 백업 형식이 아닙니다.')}const pass=window.prompt('내 열쇠 백업 암호를 입력하세요.','');if(pass===null)return false;const priv=await unwrapPrivateKey(parsed.pkBackup,pass,true);let secret=state.data.meta.deviceSecret;if(!secret){secret=bufToB64(randBytes(32))}const privKeyWrapped=await wrapPrivateKey(priv,secret),pubKey=str(parsed.pubKey)||state.data.meta.pubKey,keyCreatedAt=now();await repo.apply({meta:{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt}});Object.assign(state.data.meta,{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt});refreshKeyFingerprint();return true}
+async function importKeyBackup(parsed){if(!parsed||parsed.type!=='prepaid-key-backup'||!parsed.pkBackup){throw new Error('내 열쇠 백업 형식이 아닙니다.')}
+// 암호 창이 '바쁨' 가림막(.busy) 밑에 깔리지 않게 먼저 걷는다 — 호출부(onRestoreFile)가 파일을 읽는 동안 걸어 둔 것이다.
+// 암호가 틀리면 파일을 다시 고르게 하지 않고 같은 창에서 다시 묻는다(취소하면 그대로 끝).
+clearBusy();let priv=null,err='';for(;;){const pass=await askKeyPass('import',err);if(pass==null)return false;setBusy('내 열쇠를 확인하는 중입니다.');priv=await unwrapKeyBackupPass(parsed.pkBackup,pass);if(priv)break;clearBusy();err='암호가 맞지 않아요. 내 열쇠 백업을 만들 때 정한 암호를 다시 입력해 주세요.'}let secret=state.data.meta.deviceSecret;if(!secret){secret=bufToB64(randBytes(32))}const privKeyWrapped=await wrapPrivateKey(priv,secret),pubKey=str(parsed.pubKey)||state.data.meta.pubKey,keyCreatedAt=now();await repo.apply({meta:{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt}});Object.assign(state.data.meta,{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt});refreshKeyFingerprint();return true}
+// ── 내 열쇠 백업 암호 입력창 (beta.52 현장 결함 수정) ─────────────────────────────
+// 예전에는 기기 기본 팝업(window.prompt)으로 암호를 받았다. 그 팝업에는 '8자 이상' 조건이 보이지 않고,
+//   짧은 암호는 3초짜리 토스트 한 줄로만 거절돼 사장님은 "입력해도 반영이 안 된다"고 느꼈다(설정 카드·
+//   가입 직후 안내 두 곳 모두). 오타 한 번이면 그 백업 파일은 영영 못 여는데 다시 확인하는 칸도 없었다.
+//   → 앱 안 입력창: 조건을 미리 보여 주고, 두 번 입력해 맞춰 보고, 거절 사유는 창 안에 계속 남긴다.
+// state.modal이 아니라 오버레이(overlaysHtml)로 그린다 — 가입 직후 안내 화면(setupGuide)과 PIN 분실 복구 화면은
+//   모달을 그리지 않는 분기라, 모달로 만들면 그 두 곳에서는 창이 아예 뜨지 않는다.
+// 입력 중에는 전체 render를 부르지 않는다(폰 키보드·한글 조합이 끊긴다) — 안내 한 줄만 직접 고친다(paintPassHint).
+// 암호 공백: 새 백업은 앞뒤 공백을 떼고 만든다(모바일 자판 자동 띄어쓰기 대비). 예전 백업은 입력한 그대로로
+//   만들어졌으므로 복원할 때는 '입력 그대로 → 앞뒤 공백 뗀 값' 순서로 둘 다 시도한다(unwrapKeyBackupPass).
+const KEY_PASS_MIN=8;
+function askKeyPass(mode,err){return new Promise(resolve=>{const prev=state.passDialog;state.passDialog={mode:mode==='import'?'import':'export',p1:'',p2:'',err:typeof err==='string'?err:'',show:false,focused:false,resolve};if(prev&&typeof prev.resolve==='function'){try{prev.resolve(null)}catch(e){}}render()})}
+function closePassDialog(val){const d=state.passDialog;if(!d)return;state.passDialog=null;render();try{d.resolve(val==null?null:val)}catch(e){}}
+// 화면이 손님 화면으로 넘어가는 순간(자동 잠금·복구 화면 유휴 복귀)에는 창을 조용히 닫는다 — 손님 화면 위에 남지 않게.
+function dismissPassDialog(){const d=state.passDialog;if(!d)return;state.passDialog=null;try{d.resolve(null)}catch(e){}}
+async function unwrapKeyBackupPass(pk,pass){const raw=String(pass==null?'':pass),tries=[raw],t=raw.trim();if(t&&t!==raw)tries.push(t);for(const p of tries){try{return await unwrapPrivateKey(pk,p,true)}catch(e){}}return null}
+function passDialogCheck(d){if(!d)return{ok:false,msg:'',field:'keyPass1'};const a=String(d.p1||''),b=String(d.p2||'');
+if(d.mode==='import')return a?{ok:true,msg:''}:{ok:false,msg:'암호를 입력해 주세요.',field:'keyPass1'};
+const n=a.trim().length;
+if(n<KEY_PASS_MIN)return{ok:false,msg:n?'암호가 너무 짧아요. '+KEY_PASS_MIN+'자 이상 입력해 주세요 (지금 '+n+'자).':KEY_PASS_MIN+'자 이상의 암호를 입력해 주세요.',field:'keyPass1'};
+if(!b)return{ok:false,msg:'확인을 위해 같은 암호를 아래 칸에 한 번 더 입력해 주세요.',field:'keyPass2'};
+if(a.trim()!==b.trim())return{ok:false,msg:'두 칸의 암호가 서로 달라요. 다시 확인해 주세요.',field:'keyPass2'};
+return{ok:true,msg:''}}
+// 입력하는 동안 보여 주는 안내 — 아직 [저장]을 누르지 않았으니 빨간 오류가 아니라 회색 안내로 보여 준다.
+function passDialogHint(d){if(!d)return{text:'',tone:''};if(d.err)return{text:d.err,tone:'bad'};
+if(d.mode==='import')return{text:'',tone:''};const a=String(d.p1||''),b=String(d.p2||''),n=a.trim().length;
+if(!a)return{text:'',tone:''};if(n<KEY_PASS_MIN)return{text:'지금 '+n+'자 — '+KEY_PASS_MIN+'자 이상이어야 해요.',tone:''};
+if(!b)return{text:'좋아요. 아래 칸에 같은 암호를 한 번 더 입력해 주세요.',tone:''};
+if(a.trim()!==b.trim())return{text:'두 칸의 암호가 아직 달라요.',tone:''};
+return{text:'✓ 두 암호가 같아요. [백업 파일 저장]을 눌러 주세요.',tone:'ok'}}
+function paintPassHint(){const d=state.passDialog,el=qs('keyPassHint');if(!d||!el)return;const h=passDialogHint(d);el.textContent=h.text;el.className='pass-hint'+(h.tone?' '+h.tone:'')}
+function passDialogHtml(){const d=state.passDialog;if(!d)return '';const exp=d.mode==='export',t=d.show?'text':'password',h=passDialogHint(d);
+const attrs='class="key-pass" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="'+(exp?'next':'done')+'"';
+return `<div class="modal-back pass-back"><div class="modal pass-modal" role="dialog" aria-modal="true" aria-labelledby="keyPassTitle"><h2 id="keyPassTitle">${exp?'🔑 내 열쇠 백업 — 암호 정하기':'🔑 내 열쇠 백업 — 암호 입력'}</h2>
+<p class="help">${exp?'<b>'+KEY_PASS_MIN+'자 이상</b>으로 정해 주세요. 화면을 여는 숫자 4자리 비밀번호와는 다른 암호예요.<br>이 암호는 어디에도 저장되지 않아요 — <b>잊으면 이 백업 파일을 열 수 없으니 꼭 적어 두세요.</b>':'내 열쇠 백업 파일을 만들 때 정한 암호를 입력해 주세요.'}</p>
+<div class="form"><div class="field"><label for="keyPass1">${exp?'암호 ('+KEY_PASS_MIN+'자 이상)':'암호'}</label><input id="keyPass1" type="${t}" autocomplete="${exp?'new-password':'current-password'}" ${attrs} value="${esc(d.p1)}"></div>
+${exp?`<div class="field"><label for="keyPass2">암호 한 번 더</label><input id="keyPass2" type="${t}" autocomplete="new-password" ${attrs.replace('enterkeyhint="next"','enterkeyhint="done"')} value="${esc(d.p2)}"></div>`:''}</div>
+<label class="pass-show"><input type="checkbox" id="keyPassShow" data-a="pass-toggle"${d.show?' checked':''}> 입력한 암호 보기</label>
+<div id="keyPassHint" class="pass-hint${h.tone?' '+h.tone:''}" aria-live="polite">${esc(h.text)}</div>
+<div class="modal-actions"><button class="btn" data-a="pass-cancel">취소</button><button class="btn-primary" data-a="pass-ok">${exp?'백업 파일 저장':'확인'}</button></div></div></div>`}
+// 창이 처음 그려질 때 첫 칸에 커서를 둔다(한 번만 — 이후 렌더는 각 분기의 포커스 보존이 맡는다).
+function focusPassDialog(){const d=state.passDialog;if(!d||d.focused)return;const el=qs('keyPass1');if(!el)return;d.focused=true;try{el.focus()}catch(e){}}
+function passOk(){const d=state.passDialog;if(!d)return;const a=qs('keyPass1'),b=qs('keyPass2');if(a)d.p1=a.value||'';if(b)d.p2=b.value||'';const v=passDialogCheck(d);
+if(!v.ok){d.err=v.msg;paintPassHint();const f=qs(v.field);if(f){try{f.focus()}catch(e){}}return}
+closePassDialog(d.mode==='export'?String(d.p1).trim():String(d.p1))}
+function passToggle(el){const d=state.passDialog;if(!d)return;d.show=!!(el&&el.checked);document.querySelectorAll('.key-pass').forEach(i=>{try{i.type=d.show?'text':'password'}catch(e){}})}
+// Enter: 첫 칸 → 둘째 칸 → [저장]. Esc: 취소. 한글 조합 중 Enter는 조합 확정용이라 건드리지 않는다.
+document.addEventListener('keydown',function(e){const d=state.passDialog;if(!d)return;
+if(e.key==='Escape'){e.preventDefault();closePassDialog(null);return}
+if(e.key!=='Enter'||e.isComposing||composing)return;const id=e.target&&e.target.id;
+if(id==='keyPass1'&&d.mode==='export'){e.preventDefault();const b=qs('keyPass2');if(b){try{b.focus()}catch(x){}}return}
+if(id==='keyPass1'||id==='keyPass2'){e.preventDefault();passOk()}});
 // SMS 안내 (스펙 §수정4) — 직원별 전화번호+동의가 모두 있을 때만, 차감 저장 직후 기기 문자앱을 sms: URI로 자동 오픈 시도한다.
 // 웹 특성상 완전 자동 발송은 불가능하다(문자 앱에서 사장님이 '보내기'를 한 번 눌러야 실제 전송됨) — 화면 안내 문구로 이 한계를 명시한다.
 // iOS는 'sms:번호&body=' , Android는 'sms:번호?body=' 형식을 쓴다. 데스크톱 등 미지원 환경에서는 조용히 생략하고 토스트만 띄운다.
@@ -1243,7 +1301,7 @@ return true}catch(e){console.error('relay district sync',e);return false}}
 // 검색 본체(모달·온보딩 공용) — 서버 응답을 지역 토큰으로 좁혀 {ok,error,results,regionFilteredOut}을 돌려준다.
 // 우편번호(zip)는 5자리 숫자일 때만 조건으로 붙인다 — 공공데이터 API가 한글 조건값에 0건을 돌려주는 기간에도(2026-08) 우편번호는 ASCII라 정상 동작한다.
 // 이름(q)만 있는 호출도 그대로 유지(상대 서비스가 복구되면 자동으로 다시 먹힌다). q가 비어도 zip만으로 검색 가능.
-async function searchStoresRaw(q,regionText,zip){const z=str(zip).replace(/\D/g,'');const qq=str(q);const usedZip=z.length===5;const params=[];if(qq)params.push('q='+encodeURIComponent(qq));if(usedZip)params.push('zip='+z);const r=await fetch(relayBase()+'/api/restaurants'+(params.length?'?'+params.join('&'):''));const list=await r.json();const ok=Array.isArray(list);const all=ok?list:[];const tokens=str(regionText).split(/\s+/).map(str).filter(Boolean);const filtered=tokens.length?all.filter(x=>tokens.every(t=>str(x.address).includes(t))):all;return{ok,error:ok?'':((list&&list.error)||'검색 오류'),results:filtered,regionFilteredOut:tokens.length>0&&all.length>0&&filtered.length===0,usedZip}}
+async function searchStoresRaw(q,regionText,zip){const z=str(zip).replace(/\D/g,'');const qq=str(q);const usedZip=z.length===5;const params=[];if(qq)params.push('q='+encodeURIComponent(qq));if(usedZip)params.push('zip='+z);const r=await fetch(relayBase()+'/api/restaurants'+(params.length?'?'+params.join('&'):''));const list=await r.json();const ok=Array.isArray(list);const all=ok?list:[];const tokens=str(regionText).split(/\s+/).map(str).filter(Boolean);const filtered=tokens.length?all.filter(x=>tokens.every(t=>str(x.address).includes(t))):all;return{ok:ok&&r.ok,status:r.status,error:(ok&&r.ok)?'':((list&&list.error)||'검색 오류'),results:filtered,regionFilteredOut:tokens.length>0&&all.length>0&&filtered.length===0,usedZip}}
 // ── 검색 결과 "다른 기기에서 이미 등록됨" 배지(beta.49) ──────────────────────────
 // 왜: 예전에는 이미 남이(또는 내 예전 폰이) 등록한 가게를 고른 뒤에야 401로 막혔다 — 고르기 전에 말해 준다.
 // 원천은 담당자 웹이 쓰는 공개 엔드포인트 GET /api/registered?ids=… (등록된 id 배열). 실패·오프라인·타임아웃은
@@ -1332,7 +1390,20 @@ if(!t)return '가게 이름만으로는 찾지 못했어요. 지역 칸에 "광�
 if(!dong)return '가게 이름만으로는 찾지 못했어요. 지역 칸의 "'+t+'" 뒤에 동(읍·면) 이름까지 붙여 주세요 — 예: "'+t+' 구의동"처럼요.';
 return '가게 이름만으로는 찾지 못했어요. 지역이 맞는지 확인하고 다시 검색해 주세요.'}
 function setDongState(kind,v){if(kind==='setup')state.setupDong=v;else if(state.modal)state.modal.dong=v}
-// 동 순회 검색 실행. resume=true 면 남은 구역에서 한 라운드만 더 돈다.
+// 동 순회 검색 실행. resume=true 면 남은 구역(+확인하지 못한 구역)에서 이어서 돈다.
+// beta.52 현장 결함 "같은 검색(육회바른연어·광진구 구의동)이 될 때도, 안 될 때도 있다":
+//   구역 하나의 조회가 실패하면(중계 서버 IP당 분당 60회 한도 429·공공API 장애 500·네트워크 끊김) 예전에는
+//   그 구역을 '가게 없음'으로 치고 버렸다. 구의동은 구역이 49개라 검색 한 번에 요청이 ~50번 — 1분 안에 다시
+//   검색하면 뒤쪽 구역은 전부 429로 버려졌다. 그러고도 끝나면 "전 구역을 모두 살펴봤지만"이라고 말했다(사실이 아니다).
+//   → 실패 구역은 줄 뒤에 다시 세우고(구역당 최대 3번), 429면 잠깐 쉬었다가 잇는다. 끝까지 확인하지 못한 구역은
+//     따로 세어 "N개 구역은 확인하지 못했어요"라고 정직하게 말하고 [다시 찾기]를 준다.
+// 같은 결함의 다른 얼굴 "검색 중 가게 이름을 고치려는데 입력이 안 먹는다": 구역 묶음마다 전체 render가 돌아
+//   입력칸이 통째로 다시 그려졌다(친 글자는 되돌아가고 폰 키보드는 닫힌다). → 입력 중이면 안내 블록만 갈아끼운다.
+const ZIP_SCAN_MAX_TRIES=3,ZIP_SCAN_WAIT_SEC=[20,30,45];
+// 하니스만 대기 시간을 줄일 수 있다(localhost·?e2e=1 전용 — 배포본에서는 무시된다).
+function zipScanWaitSec(i){const o=E2E_HOOKS&&Array.isArray(window.__zipScanWaitSec)&&window.__zipScanWaitSec.length?window.__zipScanWaitSec:ZIP_SCAN_WAIT_SEC;return Math.max(0,num(o[Math.min(i,o.length-1)]))}
+// 진행 표시: 사장님이 입력칸에 글자를 치는 중이거나(설정 모달 포함) 다른 모달이 떠 있으면 안내 블록만 갈아끼운다.
+function dongProgressPaint(kind){if(renderIsDisruptive()&&patchDongBlock(kind))return;render()}
 async function runDongScan(kind,sidoPick,sigunguPick,resume){
 if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}
 // 전면 재렌더 앱 규칙: 입력값을 render() 전에 상태로 흡수한다.
@@ -1347,26 +1418,51 @@ setDongState(kind,{status:'resolving'});render();
 let res;try{res=await resolveDongZips(regionText,sidoPick,sigunguPick)}catch(e){console.error(e);setDongState(kind,{status:'error',msg:e.message||'동네 자료를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'});render();return}
 if(res.error){setDongState(kind,{status:'error',msg:res.error});render();return}
 if(res.choices){setDongState(kind,{status:'choices',choices:res.choices});render();return}
-ds={status:'scanning',label:res.sido+' '+res.sigungu+' '+res.dong,dong:res.dong,zips:res.zips.slice(),total:res.zips.length,done:0,found:[],seen:{},spentMs:0,stopped:false};
+ds={status:'scanning',label:res.sido+' '+res.sigungu+' '+res.dong,dong:res.dong,zips:res.zips.slice(),total:res.zips.length,done:0,found:[],seen:{},spentMs:0,stopped:false,tries:{},failed:[],waits:0,waitLeft:0};
 setDongState(kind,ds)}
-else{ds.status='scanning';ds.stopped=false}
+else{
+// 이어 찾기: 확인하지 못했던 구역을 다시 줄에 세운다(시도 횟수도 새로 센다).
+if(!Array.isArray(ds.failed))ds.failed=[];if(!ds.tries)ds.tries={};
+if(ds.failed.length){for(const z of ds.failed){ds.tries[z]=0;ds.zips.push(z)}ds.failed=[]}
+ds.status='scanning';ds.stopped=false;ds.waits=0;ds.waitLeft=0}
 render();
+const sleepMs=ms=>new Promise(r=>setTimeout(r,ms));
+// [계속 찾기]는 "이미 찾은 곳 말고 더" 찾는 것이다 — 예전 조건(!ds.found.length)은 이미 찾은 곳이 있으면
+//   한 바퀴도 돌지 않아 버튼이 아무 일도 하지 않았다. 이번 라운드에서 새로 찾을 때까지로 바꾼다(첫 검색은 0곳 기준 = 예전과 같다).
+const foundBase=ds.found.length;
 // 동네 전체를 끝까지 자동 순회 — 찾는 즉시(배치 단위) 멈추고, [그만 찾기]를 누르면 배치 경계에서 멈춘다.
-while(ds.zips.length&&!ds.found.length&&!ds.stopped){
+while(ds.zips.length&&ds.found.length===foundBase&&!ds.stopped){
 const batch=ds.zips.splice(0,ZIP_SCAN_BATCH);
 const t0=now();
-const rs=await Promise.all(batch.map(z=>searchStoresRaw(q,'',z).catch(()=>({ok:false,results:[]}))));
+const rs=await Promise.all(batch.map(z=>searchStoresRaw(q,'',z).catch(()=>({ok:false,status:0,results:[]}))));
 if(dongState(kind)!==ds)return;// 화면 전환·새 검색으로 상태가 바뀌었으면 조용히 중단
 ds.spentMs+=now()-t0;
-for(const rr of rs)for(const x of rr.results||[]){const k=str(x.restaurant_id);if(!k||ds.seen[k])continue;ds.seen[k]=1;ds.found.push(x)}
-ds.done+=batch.length;render()}
-ds.status='done';
+let limited=false,failedAny=false;
+rs.forEach((rr,i)=>{const z=batch[i];
+if(rr&&rr.ok){ds.done++;for(const x of rr.results||[]){const k=str(x.restaurant_id);if(!k||ds.seen[k])continue;ds.seen[k]=1;ds.found.push(x)}return}
+// 실패는 '가게 없음'이 아니다 — 다시 줄에 세우거나(최대 3번), 끝내 안 되면 '확인 못 한 구역'으로 남긴다.
+failedAny=true;if(rr&&rr.status===429)limited=true;
+const n=(ds.tries[z]=num(ds.tries[z])+1);if(n<ZIP_SCAN_MAX_TRIES)ds.zips.push(z);else ds.failed.push(z)});
+if(!failedAny)ds.waits=0;
+if(ds.zips.length&&ds.found.length===foundBase&&!ds.stopped){
+if(limited){
+// 서버 분당 한도(429): 창이 풀릴 때까지 쉬었다가 잇는다. 기다리는 동안에도 [그만 찾기]는 듣는다.
+const sec=zipScanWaitSec(ds.waits);ds.waits++;
+for(let left=sec;left>0;left--){ds.waitLeft=left;dongProgressPaint(kind);await sleepMs(1000);if(dongState(kind)!==ds)return;if(ds.stopped)break}
+ds.waitLeft=0}
+else if(failedAny){await sleepMs(1500);if(dongState(kind)!==ds)return}}
+dongProgressPaint(kind)}
+ds.status='done';ds.waitLeft=0;
 // 찾은 결과는 기존 결과 목록에 그대로 실어 기존 [이 가게] 선택 흐름을 재사용한다.
 if(kind==='setup'){state.setupStoreResults=ds.found.slice();state.setupStoreSearched=true;state.setupStoreFilteredOut=false;state.setupStoreUsedZip=true}
 else{state.modal.results=ds.found.slice();state.modal.searched=true;state.modal.regionFilteredOut=false;state.modal.usedZip=true}
 render();markRegisteredIds(kind,kind==='setup'?state.setupStoreResults:(state.modal&&state.modal.results))}
-// 검색 화면 하단의 동 검색 안내 블록(온보딩·설정 모달 공용).
-function dongScanBlockHtml(kind,regionText,searched,resultCount){
+// 검색 화면 하단의 동 검색 안내 블록(온보딩·설정 모달 공용). 고정 컨테이너(id)로 감싸 진행 중 부분 갱신을 받는다.
+function dongScanBlockHtml(kind,regionText,searched,resultCount){return '<div id="dongBlock-'+esc(kind)+'">'+dongScanBlockInner(kind,regionText,searched,resultCount)+'</div>'}
+function patchDongBlock(kind){const el=qs('dongBlock-'+kind);if(!el)return false;
+const a=kind==='setup'?[state.setupStoreRegion,state.setupStoreSearched,(state.setupStoreResults||[]).length]:(state.modal?[state.modal.region,state.modal.searched,(state.modal.results||[]).length]:null);
+if(!a)return false;el.innerHTML=dongScanBlockInner(kind,a[0],a[1],a[2]);return true}
+function dongScanBlockInner(kind,regionText,searched,resultCount){
 const ds=dongState(kind);const dong=dongTokenOf(regionText);
 if(!ds){if(searched&&!resultCount&&dong)return '<div style="margin-top:10px"><button class="btn" data-a="dong-scan" data-kind="'+esc(kind)+'" style="width:100%">『'+esc(dong)+'』 동네 전체에서 찾아보기</button><div class="meta" style="margin-top:6px;line-height:1.5">동네의 우편번호 구역을 차례로 살펴봐요. 우편번호를 몰라도 돼요.</div></div>';return ''}
 if(ds.status==='error')return '<div class="meta" style="margin-top:10px;line-height:1.5;color:var(--danger)">'+esc(ds.msg||'동네를 찾지 못했어요.')+'</div>';
@@ -1375,26 +1471,38 @@ if(ds.status==='choices')return '<div style="margin-top:10px"><div class="meta" 
 if(ds.status==='scanning'){
 // 남은 시간 추정 — 3구역쯤 지나 평균이 잡히면 보여준다(5초 단위 올림, 과소 약속 방지).
 let eta='';if(ds.done>=3&&ds.spentMs>0){const sec=Math.ceil((ds.spentMs/ds.done)*ds.zips.length/1000/5)*5;if(sec>0)eta=' · 약 '+(sec>=60?Math.ceil(sec/60)+'분':sec+'초')+' 남음'}
+if(num(ds.waitLeft)>0)return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 동네 전체에서 찾는 중… <b>'+ds.done+'/'+ds.total+' 구역</b><br>서버에 요청이 몰려 잠깐 쉬고 있어요 — <b>'+num(ds.waitLeft)+'초</b> 뒤 이어서 찾아요. 그대로 기다려 주세요.</div><button class="btn small" data-a="dong-scan-stop" data-kind="'+esc(kind)+'" style="margin-top:6px">그만 찾기</button></div>';
 return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 동네 전체에서 찾는 중… <b>'+ds.done+'/'+ds.total+' 구역</b>'+esc(eta)+(ds.found.length?' — '+ds.found.length+'곳 찾음':'')+'<br>찾으면 바로 멈추고 보여드려요.</div><button class="btn small" data-a="dong-scan-stop" data-kind="'+esc(kind)+'" style="margin-top:6px">그만 찾기</button></div>'}
-const remain=ds.zips.length;
+const failedN=Array.isArray(ds.failed)?ds.failed.length:0,remain=ds.zips.length+failedN;
 if(ds.status==='done'){
+// 확인하지 못한 구역이 있으면 "모두 살펴봤다"고 말하지 않는다 — 몇 구역이 남았는지 알리고 다시 찾게 한다.
+if(!ds.found.length&&failedN&&!ds.zips.length)return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 '+ds.done+'/'+ds.total+' 구역을 살펴봤지만 아직 찾지 못했어요. <b>'+failedN+'개 구역은 서버가 바빠 확인하지 못했어요.</b> 잠시 뒤 아래 버튼을 눌러 마저 찾아 주세요.</div><button class="btn small" data-a="dong-scan" data-kind="'+esc(kind)+'" data-resume="1" style="margin-top:6px">확인 못 한 '+failedN+'개 구역 다시 찾기</button></div>';
 if(ds.found.length)return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 '+ds.done+'/'+ds.total+' 구역에서 '+ds.found.length+'곳을 찾았어요.'+(remain?' 우리 가게가 아니면 남은 구역을 더 찾아볼 수 있어요.':'')+'</div>'+(remain?'<button class="btn small" data-a="dong-scan" data-kind="'+esc(kind)+'" data-resume="1" style="margin-top:6px">남은 '+remain+'개 구역 계속 찾기</button>':'')+'</div>';
 if(remain)return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">검색 결과가 없습니다. ('+ds.done+'/'+ds.total+' 구역 확인) 남은 구역을 더 찾아보시겠습니까?</div><button class="btn small" data-a="dong-scan" data-kind="'+esc(kind)+'" data-resume="1" style="margin-top:6px">남은 '+remain+'개 구역 계속 찾기</button></div>';
 return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 동네 전 구역('+ds.total+'곳)을 모두 살펴봤지만 찾지 못했어요. 가게 이름 표기를 바꿔 다시 검색하거나, 아래 [직접 입력]으로 등록해 주세요.</div></div>'}
 return ''}
-async function relaySearchStores(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const q=str(qs('storeName')&&qs('storeName').value),regionText=str(qs('storeRegion')&&qs('storeRegion').value),zip=str(qs('storeZip')&&qs('storeZip').value);state.modal.dong=null;state.modal.registeredIds=[];
+async function relaySearchStores(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}blurSearchInput();const q=str(qs('storeName')&&qs('storeName').value),regionText=str(qs('storeRegion')&&qs('storeRegion').value),zip=str(qs('storeZip')&&qs('storeZip').value);state.modal.dong=null;state.modal.registeredIds=[];
 // 전면 재렌더 앱이라 입력값은 render() 전에 반드시 상태로 흡수한다.
-state.modal.q=q;state.modal.region=regionText;state.modal.zip=zip;if(!q&&str(zip).replace(/\D/g,'').length!==5){toast('가게 이름이나 우편번호를 입력하세요.');return}state.modal.searching=true;render();try{const res=await searchStoresRaw(q,regionText,zip);state.modal.searching=false;state.modal.searched=true;state.modal.results=res.results;state.modal.regionFilteredOut=res.regionFilteredOut;state.modal.usedZip=res.usedZip;render();markRegisteredIds('modal',res.results);if(!res.ok)toast(res.error);
+state.modal.q=q;state.modal.region=regionText;state.modal.zip=zip;if(!q&&str(zip).replace(/\D/g,'').length!==5){toast('가게 이름이나 우편번호를 입력하세요.');return}state.modal.searching=true;render();try{const res=await searchStoresRaw(q,regionText,zip);state.modal.searching=false;state.modal.searched=true;state.modal.results=res.results;state.modal.regionFilteredOut=res.regionFilteredOut;state.modal.usedZip=res.usedZip;render();markRegisteredIds('modal',res.results);
 // 프로세스 순서(사용자 확정): ① 이름 검색(공공데이터 정상 경로) ② 0건이면 지역(구·군+동)으로 동네 자동 검색.
 // 우편번호를 직접 넣은 검색(usedZip)은 이미 동네를 콕 집은 것이라 자동 이어가기를 하지 않는다.
-else if(!res.results.length&&!res.usedZip&&q&&dongTokenOf(regionText))await runDongScan('modal','','',false)}catch(e){console.error(e);state.modal.searching=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
+// beta.52: 이름 검색이 실패해도 지역이 있으면 동네 순회로 넘어간다(온보딩과 같은 규칙).
+const canDong=!!(!res.usedZip&&q&&dongTokenOf(regionText));
+if(!res.ok&&!canDong)toast(searchErrMsg(res));
+else if((!res.ok||!res.results.length)&&canDong)await runDongScan('modal','','',false)}catch(e){console.error(e);state.modal.searching=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
 // 온보딩 1/3 전용 검색(모달이 없는 화면이라 state에 직접 보관). 서버로 보내는 것은 검색어뿐이며 아무것도 저장되지 않는다.
-async function setupSearchStores(){const q0=str(qs('setupStoreName')&&qs('setupStoreName').value),region0=str(qs('setupStoreRegion')&&qs('setupStoreRegion').value),zip0=str(qs('setupStoreZip')&&qs('setupStoreZip').value);
+function blurSearchInput(){try{const a=document.activeElement;if(a&&a.tagName==='INPUT'&&typeof a.blur==='function')a.blur()}catch(e){}}
+// 서버 오류 코드(rate_limited·internal 등 영문)를 사장님 말로 바꾼다. 한글 사유는 그대로 보여 준다.
+function searchErrMsg(res){const e=str(res&&res.error);if((res&&res.status===429)||e==='rate_limited')return '검색 요청이 잠시 몰렸어요. 30초쯤 뒤에 다시 검색해 주세요.';if(!e||/^[A-Za-z0-9_ .:-]+$/.test(e))return '공공데이터 서버가 잠시 응답하지 않아요. 잠시 뒤 다시 검색해 주세요.';return e}
+async function setupSearchStores(){blurSearchInput();const q0=str(qs('setupStoreName')&&qs('setupStoreName').value),region0=str(qs('setupStoreRegion')&&qs('setupStoreRegion').value),zip0=str(qs('setupStoreZip')&&qs('setupStoreZip').value);
 // 전면 재렌더 앱이라 입력값은 render() 전에 반드시 상태로 흡수한다(오프라인 조기 반환보다도 먼저).
 state.setupStoreQ=q0;state.setupStoreRegion=region0;state.setupStoreZip=zip0;state.setupDong=null;state.setupStoreRegisteredIds=[];
-if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');state.setupStoreSearched=true;state.setupStoreResults=[];render();return}const q=q0,regionText=region0,zip=zip0;if(!q&&str(zip).replace(/\D/g,'').length!==5){toast('가게 이름이나 우편번호를 입력하세요.');return}state.setupStoreSearching=true;render();try{const res=await searchStoresRaw(q,regionText,zip);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=res.results;state.setupStoreFilteredOut=res.regionFilteredOut;state.setupStoreUsedZip=res.usedZip;render();markRegisteredIds('setup',res.results);if(!res.ok)toast(res.error);
+if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');state.setupStoreSearched=true;state.setupStoreResults=[];render();return}const q=q0,regionText=region0,zip=zip0;if(!q&&str(zip).replace(/\D/g,'').length!==5){toast('가게 이름이나 우편번호를 입력하세요.');return}state.setupStoreSearching=true;render();try{const res=await searchStoresRaw(q,regionText,zip);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=res.results;state.setupStoreFilteredOut=res.regionFilteredOut;state.setupStoreUsedZip=res.usedZip;render();markRegisteredIds('setup',res.results);
 // 프로세스 순서(사용자 확정): ① 이름 검색 ② 0건이면 지역(구·군+동)으로 동네 자동 검색. usedZip이면 생략.
-else if(!res.results.length&&!res.usedZip&&q&&dongTokenOf(regionText))await runDongScan('setup','','',false)}catch(e){console.error(e);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
+// beta.52: 이름 검색이 실패해도(서버 분당 한도·공공API 장애) 지역이 있으면 동네 순회로 넘어간다 — 순회가 재시도·대기를 맡는다.
+const canDong=!!(!res.usedZip&&q&&dongTokenOf(regionText));
+if(!res.ok&&!canDong)toast(searchErrMsg(res));
+else if((!res.ok||!res.results.length)&&canDong)await runDongScan('setup','','',false)}catch(e){console.error(e);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
 // 새 명단 신청 개수 — 등록·온라인일 때만 조회. 실패·404(구서버)는 조용히 무시하고 폴링 타이머는 만들지 않는다.
 let lastInboxCountAt=0;
 // 비동기 렌더가 입력을 날리지 않도록(S8) 모달이 열려 있거나 입력/서명 조작 중이면 카운트만 갱신하고 다음 자연 렌더에 맡긴다.
@@ -1409,7 +1517,7 @@ function signInProgress(){if(!signPad)return false;try{if(typeof signPad.drawing
 //   두 조건이 그대로 그 화면을 덮는다 — 금액을 치는 중이면 activeElement가 INPUT(아래), 서명이 그려져
 //   있으면 signInProgress(위). 빈 캔버스 + 포커스 없음일 때만 false이고, 그때는 전체 render가 잃을 것이 없다.
 //   그래도 게이트는 호출부가 지켜야 동작하므로, 마지막 방벽으로 render() 입구의 custComposeGuard가 한 겹 더 있다.
-function renderIsDisruptive(){if(state.modal)return true;if(signInProgress())return true;const ae=document.activeElement;if(!ae)return false;const tag=str(ae.tagName).toUpperCase();return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||tag==='CANVAS'}
+function renderIsDisruptive(){if(state.modal||state.passDialog)return true;if(signInProgress())return true;const ae=document.activeElement;if(!ae)return false;const tag=str(ae.tagName).toUpperCase();return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||tag==='CANVAS'}
 // 배지 값은 기기에 저장한다(meta.inboxCountCache — 장부 백업에는 실리지 않는다). 현장 결함(beta.46):
 //   사무실 와이파이에서 배지를 본 태블릿이 가게(오프라인)에서 다시 열리면, 예전에는 확인값을
 //   저장하지 않아 배지가 사라져 보였다(서버에는 신청이 그대로 있는데도). 이제 마지막 확인값을
@@ -1418,9 +1526,31 @@ function setInboxCount(n){state.inboxCount=n;const v=(n==null?null:num(n));if(st
 let inboxRetryTimer=null;
 // 조회 실패는 배지를 지우지 않는다(마지막 확인값 유지). 일시 장애(5xx·네트워크 오류)는 5초→15초 2회 재시도.
 // 404(구서버 호환)·4xx·429는 예전처럼 조용히 무시하고 재시도하지 않는다(서버 보호).
-async function refreshInboxCount(retriesLeft=2){try{if(!relayRegistered()||!navigator.onLine)return;lastInboxCountAt=now();const rid=str(state.data.meta.restaurantId);const r=await fetch(relayBase()+'/api/inbox-count?restaurant_id='+encodeURIComponent(rid));if(!r.ok){if(r.status>=400&&r.status<500)return;throw new Error('inbox-count '+r.status)}const j=await r.json().catch(()=>null);if(!j||typeof j.count!=='number')throw new Error('inbox-count 형식');if(inboxRetryTimer){clearTimeout(inboxRetryTimer);inboxRetryTimer=null}setInboxCount(j.count);if(state.loaded&&!renderIsDisruptive())render()}catch(e){const left=num(retriesLeft);if(left>0&&navigator.onLine&&!inboxRetryTimer){inboxRetryTimer=setTimeout(()=>{inboxRetryTimer=null;refreshInboxCount(left-1)},left===2?5000:15000)}}}
+async function refreshInboxCount(retriesLeft=2){try{if(!relayRegistered()||!navigator.onLine)return;lastInboxCountAt=now();const rid=str(state.data.meta.restaurantId);const r=await fetch(relayBase()+'/api/inbox-count?restaurant_id='+encodeURIComponent(rid));if(!r.ok){if(r.status>=400&&r.status<500)return;throw new Error('inbox-count '+r.status)}const j=await r.json().catch(()=>null);if(!j||typeof j.count!=='number')throw new Error('inbox-count 형식');if(inboxRetryTimer){clearTimeout(inboxRetryTimer);inboxRetryTimer=null}setInboxCount(j.count);announceInbox();if(state.loaded&&!renderIsDisruptive())render()}catch(e){const left=num(retriesLeft);if(left>0&&navigator.onLine&&!inboxRetryTimer){inboxRetryTimer=setTimeout(()=>{inboxRetryTimer=null;refreshInboxCount(left-1)},left===2?5000:15000)}}}
 // 앱으로 돌아왔을 때 stale 배지 보완(S10) — 마지막 조회 후 60초가 지난 경우에만 다시 조회한다.
 document.addEventListener('visibilitychange',function(){if(document.visibilityState!=='visible')return;if(!state.loaded)return;if(now()-lastInboxCountAt<60000)return;refreshInboxCount()});
+// ── 사장님이 화면을 '보기 시작하는' 순간에 바로 확인 (beta.52 현장 결함) ─────────────────────────
+// 현장: 서무가 명단을 보냈는데 [온라인 자동 등록]이 계속 회색이었다(눌러 보니 신청은 와 있었다).
+//   원인 — 개수 조회는 앱 시작·온라인 복귀·다른 앱에서 돌아올 때(visibilitychange)뿐이었다. 계산대 태블릿은
+//   앱을 켠 채 두므로 셋 다 일어나지 않아, 하루 종일 한 번도 다시 묻지 않았다.
+// 사용자 결정: 주기 폴링(타이머)은 넣지 않는다(서버 무료 한도 보호). 대신 **잠금 해제**와 **설정 화면 진입** 때 묻는다.
+//   진입 경로가 여럿이라(하단 탭·홈 안내·가입 직후 안내 등) 버튼마다 걸지 않고 render 꼬리에서 '상태 전이'로 잡는다.
+//   15초 안에 이미 물었으면 다시 묻지 않는다(화면을 오가며 연타할 때 서버 보호) — 그래도 알림 판정은 한다.
+const INBOX_ATTN_MIN_MS=15000;
+let attnLocked=null,attnScreen='';
+function noteAttention(){if(!state.loaded||!state.data.meta.setupComplete)return;const locked=!!state.pinLocked,scr=(!locked&&!state.setupGuide)?state.screen:'';
+const unlocked=attnLocked===true&&!locked,enteredSettings=scr==='settings'&&attnScreen!=='settings';attnLocked=locked;attnScreen=scr;
+if(unlocked||enteredSettings)setTimeout(inboxCheckOnAttention,0)}
+// 하니스만 15초 간격을 줄일 수 있다(localhost·?e2e=1 전용 — 배포본에서는 무시된다).
+function inboxAttnMinMs(){return E2E_HOOKS&&typeof window.__inboxAttnMinMs==='number'?Math.max(0,window.__inboxAttnMinMs):INBOX_ATTN_MIN_MS}
+function inboxCheckOnAttention(){if(!state.loaded||!relayRegistered())return;announceInbox();if(now()-lastInboxCountAt<inboxAttnMinMs())return;refreshInboxCount()}
+// 새 명단 알림 — 사장님께 알린 개수(state.inboxNotified)보다 늘었을 때만 띄운다(같은 신청으로 반복해서 울리지 않게).
+//   손님 화면(잠금)에서는 띄우지 않고 미뤄 둔다 → 잠금을 풀면 위의 noteAttention이 다시 불러 그때 알린다.
+//   알림은 6초 토스트이고, 사라진 뒤에도 홈의 📩 칩과 설정의 [온라인 자동 등록] 버튼은 켜진 채 남는다.
+function announceInbox(){if(state.inboxCount==null)return;const n=num(state.inboxCount),told=num(state.inboxNotified);
+if(n<told){state.inboxNotified=n;return}
+if(n<=told||n<=0)return;if(!state.loaded||!state.data.meta.setupComplete||state.setupGuide||lockScreenActive())return;
+state.inboxNotified=n;toast('📩 공공기관에서 보낸 명단 신청이 '+n+'건 와 있어요. 설정 > 자동 등록의 [온라인 자동 등록]을 눌러 확인해 주세요.',6000)}
 // 가게 선택 → 서버 등록. 실패하면 '받는 중'으로 잘못 보이지 않도록 로컬 상태를 되돌린다(finishStoreRegistration과 동일한 성공 판정: relayRegisteredAt 증가).
 // addr = 검색 결과의 공식 주소(LOCALDATA 도로명 전체주소). 이것을 meta.storeAddr에 남겨야 관할 지역(district)이 산출된다.
 async function relayPickStore(id,name,addr){
@@ -1449,7 +1579,7 @@ async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결
 async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}
 // 목록을 받기 전에 밀린 통보부터 비운다 — 그래야 이미 처리한 신청이 PENDING으로 다시 올라오지 않는다.
 await flushPendingNotify();
-setBusy('신청을 불러오는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid),{headers:{'X-Auth-Token':authToken}});const items=await r.json();clearBusy();if(r.status===401){toast('가게 확인에 실패했어요. 설정에서 우리 가게 등록 상태를 확인해 주세요.');return}if(!Array.isArray(items))throw new Error(items.error||'수신 오류');setInboxCount(items.length);state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
+setBusy('신청을 불러오는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid),{headers:{'X-Auth-Token':authToken}});const items=await r.json();clearBusy();if(r.status===401){toast('가게 확인에 실패했어요. 설정에서 우리 가게 등록 상태를 확인해 주세요.');return}if(!Array.isArray(items))throw new Error(items.error||'수신 오류');setInboxCount(items.length);state.inboxNotified=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
 // 처리 도중 뒤로가기(popstate)로 모달이 닫혀도 TypeError 없이 끝나도록 진입 시 모달을 지역 변수로 캡처한다(A6).
 async function relayReject(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;// 이미 장부에 반영한 신청은 거절할 수 없다(버튼 자체가 없지만, 오래된 모달 데이터로 도달할 수 있다).
 if(approvedSummaryHas(sid)){await relayNotifyOnly(sid,modal);return}
@@ -1708,7 +1838,7 @@ function paintToast(){if(!renderIsDisruptive())return false;const app=qs('app');
 if(!state.toast){if(cur&&cur.parentNode)cur.parentNode.removeChild(cur);return true}
 if(cur){cur.textContent=state.toast;return true}
 const el=document.createElement('div');el.className='toast';el.textContent=state.toast;app.appendChild(el);return true}
-function toast(msg){clearTimeout(state.toastTimer);if(lockScreenActive()){state.toast='';return}state.toast=msg;if(!paintToast())render();state.toastTimer=setTimeout(()=>{state.toast='';if(!paintToast())render()},3000)}
+function toast(msg,ms){clearTimeout(state.toastTimer);if(lockScreenActive()){state.toast='';return}state.toast=msg;if(!paintToast())render();state.toastTimer=setTimeout(()=>{state.toast='';if(!paintToast())render()},num(ms)>0?num(ms):3000)}
 // ── 저장 연타 잠금 (beta.48) ───────────────────────────────────────────────────
 // 손가락이 미끄러져 [저장]이 두 번 눌리면 이 앱은 **거래를 두 건** 만든다(두 번째 탭은 첫 저장이 끝나기
 //   전에 같은 잔액을 읽어 같은 금액을 또 차감한다). 폰에서는 오탭이 흔하고, 사장님은 늘어난 한 건을
@@ -2010,7 +2140,7 @@ if(!at||now()-at>TIMERS.pendingTtl)return{id:'',expired:true,amount:0,sign:''};
 const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);return emp?{id,expired:false,amount,sign}:{id:'',expired:true,amount:0,sign:''}}
 // 잠금 해제 상태에서 손님 화면(잠금)으로 되돌리기 — 자동 잠금·[손님 셀프 조회] 공용.
 //   pinFails/pinDelayUntil은 사장님이 인증을 마친 뒤에만 여기 오므로 함께 비운다(meta까지 영속).
-function lockToCustomer(){state.pinLocked=true;state.lockView='customer';state.pinContext='';state.pinInput='';state.pinSetup1='';state.pinMsg='';leaveRecovery();stopPinDelayTick();state.modal=null;
+function lockToCustomer(){dismissPassDialog();state.pinLocked=true;state.lockView='customer';state.pinContext='';state.pinInput='';state.pinSetup1='';state.pinMsg='';leaveRecovery();stopPinDelayTick();state.modal=null;
 clearTimeout(state.toastTimer);state.toast='';// 사장님용 토스트가 손님 화면으로 넘어가지 않게 한다
 resetCustomerState();clearPinGuard();render()}
 // 손님 화면을 띄울 수 있는 조건 — PIN이 없거나(최초 설정) 변경 중이면 절대 띄우지 않는다.
@@ -2385,14 +2515,14 @@ rec.start()}catch(e){console.error(e);toast('음성 인식을 시작할 수 없�
 // ── 렌더 (포커스 보존) ──
 // ⚠️ 소속 추천 datalist는 여기(문서 끝)에 **딱 한 번** 붙는다 — 화면·모달이 각자 그리면 id가 겹치고,
 //   브라우저는 앞의 것만 참조한다(뒤에 그려진 모달 입력이 엉뚱한/빈 목록을 보는 사고의 원인).
-function overlaysHtml(){return `${orgDatalistHtml()}${state.toast?`<div class="toast">${esc(state.toast)}</div>`:''}${state.busy?`<div class="busy"><div>${esc(state.busy)}</div></div>`:''}`}
+function overlaysHtml(){return `${orgDatalistHtml()}${passDialogHtml()}${state.toast?`<div class="toast">${esc(state.toast)}</div>`:''}${state.busy?`<div class="busy"><div>${esc(state.busy)}</div></div>`:''}`}
 // render()는 그대로 두고 바깥에서 유휴 타이머만 **다시 계산**한다(화면이 바뀌면 시계의 길이가 달라진다 —
 //   예: 조회 30초 ↔ 요청 작성 60초 ↔ 자동 잠금 90초). armIdle은 만료 **시각**을 다시 계산할 뿐
 //   시계를 연장하지 않는다(만료 기준은 lastInputAt = 마지막 사용자 조작 시각).
 //   ⚠️ beta.23 이전에는 armIdle이 곧 "리셋"이었다 → 반복 호출되는 렌더 하나가 유휴 복귀를 영원히 밀어냈다.
 // ⚠️ beta.22: 서명 획이 살아 있는 손님 통합 요청 화면에서는 renderCore를 아예 부르지 않는다
 //   (custComposeGuard가 부분 갱신으로 대신 처리한다).
-function render(){if(!custComposeGuard())renderCore();armIdle()}
+function render(){if(!custComposeGuard())renderCore();armIdle();focusPassDialog();noteAttention()}
 // ── 사용 모달 입력값 흡수 (beta.21 수정) ─────────────────────────────────
 // 사용 모달의 금액·비고는 지금까지 **DOM에만** 있었다. state에 없는 값은 재렌더에서 살아남지 못한다 —
 //   사장님이 손님 요청 9,000원을 25,000원으로 고쳐 놓아도, 그 사이에 render가 한 번 돌면(온/오프라인 이벤트,
@@ -2410,7 +2540,11 @@ if(n)m.noteDraft=String(n.value==null?'':n.value);
 if(dd)m.dateDraft=String(dd.value==null?'':dd.value)}
 function renderCore(){captureUsageInputs();if(!state.loaded){qs('app').innerHTML='<div class="app"><div class="card empty">앱을 준비하는 중입니다.</div></div>';return}
 // 초기 설정 화면
-if(!state.data.meta.setupComplete){qs('app').innerHTML=setupScreenHtml()+overlaysHtml();return}
+if(!state.data.meta.setupComplete){const fa=document.activeElement,fid=fa&&fa.tagName==='INPUT'&&fa.id;let ss=null,se=null;try{ss=fa&&fa.selectionStart;se=fa&&fa.selectionEnd}catch(e){}
+qs('app').innerHTML=setupScreenHtml()+overlaysHtml();
+// 온보딩도 전면 재렌더다(beta.52) — 동네 순회 중에 가게 이름을 고치던 칸의 포커스·커서를 되돌려 준다(키보드가 닫히지 않게).
+if(fid){const el=qs(fid);if(el&&el.tagName==='INPUT'){try{el.focus();if(typeof ss==='number'){el.selectionStart=ss;el.selectionEnd=se}}catch(e){}}}
+return}
 // 잠금 화면 — 기본은 손님 화면, [사장님용 잠금 해제]를 눌렀을 때만 PIN 화면.
 //   PIN 최초 설정·변경(step 'new'/'confirm')·복구 화면에서는 손님 화면을 절대 띄우지 않는다(customerViewAllowed).
 if(state.data.meta.setupComplete&&state.pinLocked){
@@ -2442,6 +2576,7 @@ if(state.modal&&state.modal.type==='qr-scan')initQrScan();else stopQrScan();
 if(state.modal){const key=modalKey(state.modal);const opening=modalOpenKey===null;if(opening)modalReturnFocus=fa;activateModalA11y(key!==modalOpenKey);modalOpenKey=key}
 else{if(modalOpenKey!==null&&modalReturnFocus&&typeof modalReturnFocus.focus==='function'){try{modalReturnFocus.focus()}catch(e){}}modalOpenKey=null;modalReturnFocus=null;if(modalKeydownHandler){document.removeEventListener('keydown',modalKeydownHandler);modalKeydownHandler=null}}
 if(fid&&!state.modal){const el=qs(fid);if(el){el.focus();try{if(typeof ss==='number'){el.selectionStart=ss;el.selectionEnd=se}}catch(e){}}}
+if(fid&&state.modal&&state.modal.type==='store-search'&&/^store(Name|Region|Zip)$/.test(fid)){const el=qs(fid);if(el){try{el.focus();if(typeof ss==='number'){el.selectionStart=ss;el.selectionEnd=se}}catch(e){}}}
 if(fgKey&&!fid&&!state.modal){const head=[...document.querySelectorAll('.group-head')].find(h=>h.dataset.g===fgKey);if(head){try{head.focus()}catch(e){}}}}
 
 // ── 모달 접근성: role=dialog, 열릴 때 첫 포커스, 닫힐 때 원래 요소로 복귀, Tab 트랩 (스펙 §4 항목6) ──
@@ -2645,7 +2780,7 @@ state.screen='home';state.modal={type:'usage',id,smsPhone,preAmount:preAmount>0?
 // canAutoLockBase = 모달 여부만 뺀 자동 잠금 조건. 모달이 열려 있으면 90초에는 잠그지 않되(서명 중 잠김 방지)
 //   10분 무조작이면 방치로 보고 모달째 잠근다 — 사용 모달(이름·잔액 노출)을 띄운 채 자리를 비우는 경우가 실제로 있다.
 function canAutoLockBase(){return !!(state.loaded&&!state.pinLocked&&state.data.meta.setupComplete&&state.data.meta.pinHash&&!state.setupGuide&&!state.busy)}
-function canAutoLock(){return canAutoLockBase()&&!state.modal}
+function canAutoLock(){return canAutoLockBase()&&!state.modal&&!state.passDialog}
 // ── beta.23(MEDIUM-2): 유휴 만료는 "마지막 **사용자 조작** 시각"으로 판정한다 ──────────────
 // 예전 구조: armIdle이 불릴 때마다 setTimeout을 처음부터 다시 걸었다. armIdle은 render()의 꼬리에서도
 //   불린다 → **렌더가 시계를 연장했다**. 게이트를 빼먹은 미게이트 경로가 반복해서 render를 부르면
@@ -2705,7 +2840,7 @@ return}
 if(canAutoLock()){idleAt(TIMERS.autoLock,()=>{if(canAutoLock())lockToCustomer()});return}
 if(canAutoLockBase()&&state.modal){idleAt(TIMERS.modalIdleCap,()=>{if(canAutoLockBase()&&state.modal)lockToCustomer()})}}
 // PIN 화면 방치 → 손님 초기 화면으로. 잠금은 절대 풀리지 않고, 앞 손님의 흔적(인계 요청 포함)은 전부 사라진다.
-function backToCustomerIdle(){state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
+function backToCustomerIdle(){dismissPassDialog();state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
 // 조작이 있으면 시계를 다시 시작한다. 캡처 단계라 어떤 핸들러가 이벤트를 막아도 반드시 실행된다.
 ['click','input','change','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,markInput,true));
 
@@ -2762,6 +2897,7 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 'emp-phone-consent':async(el)=>{await setPhoneConsent(el.dataset.id,el.checked);render()},
 'quick-add-employee':async()=>{await quickAddEmployee()},
 'export-key':async()=>{await exportKeyBackup()},
+'pass-ok':()=>{passOk()},'pass-cancel':()=>{closePassDialog(null)},'pass-toggle':(el)=>{passToggle(el)},
 'relay-reset-server':async()=>{state.data.meta.relayServer='';await repo.apply({meta:{relayServer:''}});render();toast('기본 서버 주소로 되돌렸습니다.')},
 'relay-stop':async()=>{await relayStop()},
 'contact-save':async()=>{await relayContactSave()},
@@ -2970,11 +3106,12 @@ state.lockView='pin';state.pinContext='handoff';state.pinInput='';state.pinMsg='
 //   전부 휘발성 state만 건드린다 — repo.apply/makeTx에 닿는 줄이 단 하나도 없다.
 //   beta.22에서 cust-amt-next는 사라졌다(금액·서명이 한 화면이 되어 '다음' 단계 자체가 없다).
 //   beta.24에서 cust-compose-back이 사라지고(→ cust-back) cust-history가 들어왔다(선택적 상세 화면).
-const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit']);
+const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit','pass-ok','pass-cancel','pass-toggle']);
 async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;
 if(lockScreenActive()&&!LOCK_ALLOWED.has(el.dataset.a))return;// 잠금 게이트 — 손님 화면에서 원장 쓰기 경로는 구조적으로 도달 불가
 const fn=clickActions[el.dataset.a];if(fn)await fn(el)}
 async function onInput(e){
+if(state.passDialog&&e.target&&(e.target.id==='keyPass1'||e.target.id==='keyPass2')){if(e.type==='change')return;const d=state.passDialog;if(e.target.id==='keyPass1')d.p1=e.target.value||'';else d.p2=e.target.value||'';d.err='';paintPassHint();return}
 // 잠금 중 입력은 손님 검색창 하나만 받는다(사장님 검색 state.search와 완전히 분리된 state.custQuery).
 // 'change'는 받지 않는다 — 검색창이 화면에서 사라질 때 blur와 함께 change가 늦게 날아와
 //   innerHTML 교체 도중 render를 재진입시킨다(그 렌더가 통째로 실패한다).
@@ -2994,6 +3131,9 @@ return}
 //   재진입시킨다 → "The node to be removed is no longer a child of this node"로 그 렌더가 통째로 실패한다.
 //   (input 이벤트만으로 검색은 완전히 동작한다. change는 값이 이미 반영된 뒤에 오는 중복 신호일 뿐이다.)
 // 온보딩 직접 입력 폼: 다른 이유로 화면이 다시 그려져도(토스트 등) 적던 값이 날아가지 않게 초안으로 붙든다(재렌더는 하지 않는다).
+// 가게 찾기 입력칸(온보딩·설정 모달)도 같다(beta.52): 동네 순회 진행 표시·결과 표시가 화면을 다시 그려도 친 글자가 되돌아가지 않게.
+if(e.target.id==='setupStoreName'||e.target.id==='setupStoreRegion'||e.target.id==='setupStoreZip'){const v=e.target.value||'';if(e.target.id==='setupStoreName')state.setupStoreQ=v;else if(e.target.id==='setupStoreRegion')state.setupStoreRegion=v;else state.setupStoreZip=v;return}
+if(state.modal&&state.modal.type==='store-search'&&(e.target.id==='storeName'||e.target.id==='storeRegion'||e.target.id==='storeZip')){const v=e.target.value||'';if(e.target.id==='storeName')state.modal.q=v;else if(e.target.id==='storeRegion')state.modal.region=v;else state.modal.zip=v;return}
 if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){const k=e.target.id==='setupManualName'?'name':(e.target.id==='setupManualAddr'?'addr':'tel');state.setupManualDraft=Object.assign({name:'',addr:'',tel:''},state.setupManualDraft,{[k]:e.target.value||''});return}
 if(e.target.id==='searchInput'&&e.type!=='change'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='regionSelectSetup'||e.target.id==='regionSelectSettings'){const isSettings=e.target.id==='regionSelectSettings';state.regionSelected=e.target.value||'';state.agencySelected='';if(!state.deptCache[state.regionSelected]){setBusy('부서 목록을 불러오는 중입니다.');await ensureDeptsForRegion(state.regionSelected);clearBusy()}if(isSettings){try{await saveSelectedAgencyName()}catch(err){console.error(err)}}render();return}
 if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('공공기관명 저장 오류');return}}render()}}
@@ -3653,7 +3793,7 @@ setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!rep
 // PIN 실패 횟수·입력 지연은 meta에서 되살린다 — 새로고침·앱 재시작으로 지연을 지울 수 없어야 한다(브루트포스 차단).
 state.pinFails=num(state.data.meta.pinFails);state.pinDelayUntil=num(state.data.meta.pinDelayUntil);
 // 마지막으로 확인한 신청 배지를 되살린다(beta.46) — 오프라인 재시작에서도 배지가 사라지지 않게.
-if(state.data.meta.inboxCountCache!=null&&relayRegistered())state.inboxCount=num(state.data.meta.inboxCountCache);
+if(state.data.meta.inboxCountCache!=null&&relayRegistered())state.inboxCount=num(state.data.meta.inboxCountCache);state.inboxNotified=state.inboxCount==null?0:num(state.inboxCount);
 try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}
 // 1회성 마이그레이션(D1): 이 기능이 생기기 전에 설정을 마친 기존 사용자는 pending 플래그가 없어 등록 안내를 못 받는다.
 if(state.data.meta.setupComplete&&!relayRegistered()&&state.data.meta.storeRegisterPending===undefined){state.data.meta.storeRegisterPending=true;try{await repo.apply({meta:{storeRegisterPending:true}})}catch(e){console.error('pending migration',e)}}

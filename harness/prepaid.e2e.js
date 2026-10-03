@@ -1016,6 +1016,209 @@ async function runSecurityHardening(browser, url, cors) {
   }
 }
 
+// ── beta.52 현장 결함 수정 (독립 컨텍스트) ─────────────────────────────────────────────
+//   ① 내 열쇠 백업: 기기 기본 팝업(window.prompt) 대신 앱 안 입력창. 가입 직후 안내 화면(모달을 그리지 않는 분기)에서도
+//      뜨고, 8자 조건을 미리 보여 주며, 두 번 입력해 맞춰 보고, 거절 사유는 창 안에 남는다(3초 토스트로 사라지지 않는다).
+//      복원은 틀린 암호를 같은 창에서 다시 묻는다. 어느 단계에서도 기본 팝업은 한 번도 뜨지 않는다.
+//   ② 새 명단 알림: 주기 폴링은 없다(사용자 결정). 잠금 해제·설정 진입 때 다시 묻고, 늘었으면 알린다.
+//      손님 화면(잠금)에서는 알림을 띄우지 않고 미뤘다가 잠금을 풀 때 알린다. 같은 개수로는 다시 울리지 않는다.
+async function runBeta52(browser, url, cors) {
+  const context = await browser.newContext({
+    acceptDownloads: true, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36'
+  });
+  // 설정 진입 재확인 간격(15초)을 하니스에서만 0으로 — 앱은 localhost일 때만 이 값을 읽는다.
+  await context.addInitScript(() => { window.__inboxAttnMinMs = 0; });
+  const page = await context.newPage();
+  const dialogs = [];
+  const problems = [];
+  let inboxCount = 0;
+  const inboxCalls = [];
+  const results = [{ restaurant_id: 'rid-b52', name: 'Beta52 Shop', address: '서울특별시 광진구 아차산로 399 (구의동)', tel: '02-444-5252' }];
+  await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(results) }));
+  await context.route('**/api/registered**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
+  await context.route('**/api/inbox-count**', route => { inboxCalls.push(Date.now()); return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ count: inboxCount }) }); });
+  await context.route('**/api/register-key**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true}' }));
+  page.on('dialog', async d => { dialogs.push({ type: d.type(), message: d.message() }); await d.accept(); });
+  page.on('pageerror', err => problems.push(err.message));
+  page.on('console', msg => { if (msg.type() === 'error') problems.push(`console: ${msg.text()}`); });
+  const metaOf = async () => (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+  const hint = async () => ({ text: (await page.locator('#keyPassHint').innerText()).trim(), cls: (await page.locator('#keyPassHint').getAttribute('class')) || '' });
+  const toastText = async () => (await page.locator('.toast').count()) ? (await page.locator('.toast').innerText()) : '';
+
+  try {
+    // 가게 검색 → 등록 → PIN → 가입 직후 안내 화면(setupGuide)
+    await page.goto(url, { waitUntil: 'load' });
+    await passWelcome(page);
+    await page.locator('#setupStoreName').fill('베타52');
+    await page.locator('[data-a="setup-store-search"]').click();
+    await page.locator('[data-a="setup-store-pick"]').first().click();
+    await page.waitForSelector('[data-a="setup-next"]');
+    await page.locator('[data-a="setup-next"]').click();
+    await page.waitForSelector('#agencySelectSetup');
+    await page.locator('[data-a="agency-add-all"][data-ctx="setup"]').click();
+    await page.locator('[data-a="setup-to-contact"]').click();
+    await page.waitForSelector('#setupTermsChk');
+    await page.locator('#setupTermsChk').check();
+    await page.locator('[data-a="setup-complete"]').click();
+    await typePin(page, ['1', '2', '3', '4', '1', '2', '3', '4']);
+    await page.waitForSelector('[data-a="guide-dismiss"]');
+
+    // ── ① 가입 직후 안내 화면에서 [내 열쇠 백업하기] — 이 분기는 모달을 그리지 않는다 ──
+    await page.locator('[data-a="export-key"]').first().click();
+    await page.waitForSelector('#keyPass1', { timeout: 5000 });
+    await assert(await count(page, '.pass-back') === 1, 'the key-backup passphrase box must appear on the post-signup guide screen (a state.modal would not render there)');
+    await assert(await count(page, '[data-a="guide-dismiss"]') === 1, 'the passphrase box must sit OVER the guide screen, not replace it');
+    await assert(await page.evaluate(() => document.activeElement && document.activeElement.id) === 'keyPass1', 'the first passphrase field must take focus when the box opens');
+    await assert((await page.locator('#keyPass1').getAttribute('type')) === 'password', 'passphrase fields must be password inputs (the old window.prompt echoed the passphrase in clear text)');
+    await assert((await page.locator('.pass-modal').innerText()).includes('8자 이상'), 'the 8-character rule must be visible BEFORE the owner types (the old prompt never said it)');
+    await assert(await count(page, '#keyPass2') === 1, 'creating a key backup must ask for the passphrase twice (one typo = an unopenable backup)');
+    // 짧은 암호: 입력 중에는 회색 안내, [저장]을 누르면 창 안에 빨간 사유가 남는다(창은 닫히지 않는다)
+    await page.locator('#keyPass1').fill('1234');
+    await assert((await hint()).text.includes('지금 4자'), `typing a short passphrase must show the live length hint (got ${JSON.stringify((await hint()).text)})`);
+    await page.locator('#keyPass2').fill('1234');
+    const dlBefore = [];
+    const onDl = d => dlBefore.push(d);
+    page.on('download', onDl);
+    await page.locator('[data-a="pass-ok"]').click();
+    await page.waitForTimeout(200);
+    {
+      const h = await hint();
+      await assert(h.text.includes('너무 짧아요') && h.cls.includes('bad'), `a short passphrase must be refused INSIDE the box in red (got ${JSON.stringify(h)})`);
+    }
+    await assert(await count(page, '#keyPass1') === 1, 'refusing a short passphrase must keep the box open (the old flow silently quit)');
+    await assert(dlBefore.length === 0 && !(await metaOf()).myKeyBackedUpAt, 'a refused passphrase must not save anything');
+    // 두 칸이 다르면 거절
+    await page.locator('#keyPass1').fill('harness-key-01');
+    await page.locator('#keyPass2').fill('harness-key-02');
+    await page.locator('[data-a="pass-ok"]').click();
+    await page.waitForTimeout(150);
+    await assert((await hint()).text.includes('서로 달라요'), `mismatched passphrases must be refused inside the box (got ${JSON.stringify((await hint()).text)})`);
+    // 비동기 렌더(온라인 복귀 등)가 친 암호를 날리지 않는다
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForTimeout(250);
+    await assert((await page.locator('#keyPass1').inputValue()) === 'harness-key-01', 'an async re-render (online event) must not wipe a passphrase being typed');
+    // [입력한 암호 보기]는 값을 지운 채 다시 그리지 않는다
+    await page.locator('#keyPassShow').check();
+    await assert((await page.locator('#keyPass1').getAttribute('type')) === 'text' && (await page.locator('#keyPass1').inputValue()) === 'harness-key-01', 'show-passphrase must flip the field type and keep what was typed');
+    // 맞춘 뒤 저장 — 끝 공백(모바일 자판 자동 띄어쓰기)은 떼고 만든다
+    await page.locator('#keyPass2').fill('harness-key-01 ');
+    await assert((await hint()).text.includes('두 암호가 같아요'), 'matching passphrases must show the ready hint');
+    await page.locator('[data-a="pass-ok"]').click();
+    for (let i = 0; i < 30 && dlBefore.length < 1; i += 1) await page.waitForTimeout(100);
+    page.off('download', onDl);
+    await assert(dlBefore.length === 1, `a valid passphrase must download exactly one key backup (got ${dlBefore.length})`);
+    const keyName = dlBefore[0].suggestedFilename();
+    await assert(/^선입금대장_내열쇠백업_.*\.json$/.test(keyName), `the key backup file name must be kept (got ${JSON.stringify(keyName)})`);
+    const keyPath = await dlBefore[0].path();
+    const keyFile = JSON.parse(await fsp.readFile(keyPath, 'utf8'));
+    await assert(keyFile.type === 'prepaid-key-backup' && keyFile.pkBackup && keyFile.pubKey, 'the downloaded file must be a real key backup');
+    await assert(await count(page, '.pass-back') === 0, 'the passphrase box must close after saving');
+    await assert(typeof (await metaOf()).myKeyBackedUpAt === 'number', 'saving the key backup must stamp myKeyBackedUpAt (that is what clears the ⚠️ 아직 안 함 badge)');
+    await page.waitForTimeout(100);
+    await assert(await count(page, '[data-a="export-key"]') === 0, 'once backed up, the "지금 꼭 할 일: 내 열쇠 백업" block must leave the guide screen');
+    await page.locator('[data-a="guide-dismiss"]').click();
+
+    // ── 설정 카드에서 다시 열기 + Esc 취소(아무것도 저장하지 않는다) ──
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await openSettingsCard(page, 'enroll-auto');
+    await page.locator('[data-a="export-key"]').click();
+    await page.waitForSelector('#keyPass1');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    await assert(await count(page, '.pass-back') === 0, 'Esc must cancel the passphrase box');
+
+    // ── 복원: 바쁨 가림막에 가리지 않고, 틀린 암호는 같은 창에서 다시 묻는다 ──
+    await page.locator('#restoreFile').setInputFiles(keyPath);
+    await page.waitForSelector('#keyPass1', { timeout: 5000 });
+    await assert(await count(page, '#keyPass2') === 0, 'restoring asks for the passphrase once (no confirmation field)');
+    await assert(await count(page, '.busy') === 0, 'the passphrase box must not sit under the busy overlay while restoring');
+    await page.locator('#keyPass1').fill('wrong-pass-99');
+    await page.locator('#keyPass1').press('Enter');
+    await page.waitForFunction(() => { const h = document.getElementById('keyPassHint'); return h && /암호가 맞지 않아요/.test(h.textContent); }, null, { timeout: 15000 });
+    await assert(await count(page, '#keyPass1') === 1, 'a wrong passphrase must ask again in the same box (no need to pick the file again)');
+    // 백업은 끝 공백을 뗀 암호로 만들어졌다 → 공백 없이 입력해도 열린다
+    await page.locator('#keyPass1').fill('harness-key-01');
+    await page.locator('[data-a="pass-ok"]').click();
+    // body.textContent는 인라인 스크립트 원문(같은 문구)까지 담는다 — 화면에 보이는 글자로 판정한다.
+    await page.waitForFunction(() => /내 열쇠를 복원했습니다/.test(document.body.innerText), null, { timeout: 15000 });
+    await assert(dialogs.filter(d => d.type === 'prompt').length === 0, `no native prompt may appear anywhere in the key backup/restore flows (got ${dialogs.filter(d => d.type === 'prompt').length})`);
+
+    // ── PIN 분실 복구 화면(잠금 상태)에서도 열쇠 복원이 된다 — 입력창 버튼이 잠금 게이트를 통과해야 하는 이유 ──
+    {
+      const keyAtBefore = (await metaOf()).keyCreatedAt;
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+      await page.locator('[data-a="hand-to-customer"]').click();
+      await page.waitForSelector('.cust-screen');
+      await page.locator('[data-a="lock-to-pin"]').click();
+      await page.waitForSelector('[data-a="pin-forgot"]');
+      await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { recoveryGate: 500 }));
+      await page.locator('[data-a="pin-forgot"]').click();
+      await page.waitForTimeout(900);
+      const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('[data-a="pin-forgot-restore"]').click()]);
+      await chooser.setFiles(keyPath);
+      await page.waitForSelector('#keyPass1', { timeout: 5000 });
+      await assert(await page.evaluate(() => window.__prepaidTestHooks.lockState().locked) === true, 'the recovery-screen key restore runs while the app is still locked');
+      await page.locator('#keyPass1').fill('harness-key-01');
+      await page.locator('[data-a="pass-ok"]').click();
+      await page.waitForFunction(() => !document.getElementById('keyPass1'), null, { timeout: 15000 });
+      await page.waitForTimeout(300);
+      const keyAtAfter = (await metaOf()).keyCreatedAt;
+      await assert(typeof keyAtAfter === 'number' && keyAtAfter > (keyAtBefore || 0), `restoring the key from the PIN-recovery screen must actually import it (keyCreatedAt ${keyAtBefore} → ${keyAtAfter})`);
+      await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { recoveryGate: 60000 }));
+      await unlockPin(page);
+      await page.waitForSelector('.nav', { timeout: 8000 });
+    }
+
+    // ── ② 새 명단 알림 ──
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.waitForTimeout(300);
+    inboxCount = 2;
+    const idleFrom = inboxCalls.length;
+    await page.waitForTimeout(3000);
+    await assert(inboxCalls.length === idleFrom, `with the app left open and untouched there must be no periodic polling (got ${inboxCalls.length - idleFrom} extra calls)`);
+    // 잠금 해제 = 바로 확인 → 늘었으면 알린다
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    const beforeUnlock = inboxCalls.length;
+    await unlockPin(page);
+    await page.waitForFunction(() => /명단 신청이 2건/.test(document.body.innerText), null, { timeout: 5000 });
+    await assert(inboxCalls.length > beforeUnlock, 'unlocking must re-check the inbox count right away');
+    // 설정 진입 = 바로 확인 → 버튼이 켜진다
+    inboxCount = 3;
+    const beforeSettings = inboxCalls.length;
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    await page.waitForFunction(() => /명단 신청이 3건/.test(document.body.innerText), null, { timeout: 5000 });
+    await assert(inboxCalls.length > beforeSettings, 'entering the settings screen must re-check the inbox count right away');
+    await openSettingsCard(page, 'enroll-auto');
+    {
+      const cls = (await page.locator('[data-a="relay-inbox"]').getAttribute('class')) || '';
+      await assert(cls.includes('btn-primary') && !cls.includes('btn-idle'), `with pending requests the 온라인 자동 등록 button must light up (got class ${JSON.stringify(cls)})`);
+    }
+    // 손님 화면에서는 알림을 미루고, 잠금을 풀 때 알린다
+    inboxCount = 4;
+    await page.locator('[data-a="screen"][data-screen="home"]').click();
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));// 잠긴 동안 조회가 한 번 일어난다
+    await page.waitForTimeout(400);
+    await assert(!/명단 신청이 4건/.test(await page.locator('body').innerText()), 'the new-list notice must not appear on the customer (locked) screen');
+    await unlockPin(page);
+    await page.waitForFunction(() => /명단 신청이 4건/.test(document.body.innerText), null, { timeout: 5000 });
+    // 같은 개수로는 다시 울리지 않는다
+    await page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 });
+    await page.locator('[data-a="hand-to-customer"]').click();
+    await page.waitForSelector('.cust-screen');
+    await unlockPin(page);
+    await page.waitForTimeout(600);
+    await assert(!/명단 신청이/.test(await toastText()), 'the same pending count must not re-announce on every unlock');
+    await assert(problems.length === 0, `beta.52 flows must produce no page errors ${JSON.stringify(problems.slice(0, 3))}`);
+  } finally {
+    await page.close().catch(() => {});
+    await context.close().catch(() => {});
+  }
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -1091,6 +1294,7 @@ async function main() {
     await runDistrictHeal(browser, url, cors);
     await runWipeDeregister(browser, url, cors);
     await runSecurityHardening(browser, url, cors);
+    await runBeta52(browser, url, cors);
 
     await page.goto(url, { waitUntil: 'load' });
 
@@ -3892,7 +4096,12 @@ async function main() {
     // beta.21에서 손님 액션(요청 작성)이 더해졌다 — 전부 휘발성 state만 만지는 '요청' 경로다.
     //   beta.22에서 cust-amt-next가 빠졌다(금액·서명이 한 화면이 되어 '다음' 단계 자체가 없어졌다).
     //   이 목록이 늘어나는 것 자체가 위험 신호이므로 값을 통째로 못 박아 둔다(원장 쓰기 액션이 섞이면 즉시 실패).
-    const expectedAllowed = ['pin-key', 'pin-reset', 'pin-forgot', 'pin-forgot-cancel', 'pin-forgot-restore', 'lock-to-pin', 'pin-to-cust', 'cust-pick', 'cust-confirm', 'cust-cancel', 'cust-clear', 'cust-back', 'cust-call-owner', 'cust-request', 'cust-history', 'cust-amt-quick', 'cust-sign-clear', 'cust-sign-submit'].sort();
+    const expectedAllowed = ['pin-key', 'pin-reset', 'pin-forgot', 'pin-forgot-cancel', 'pin-forgot-restore', 'lock-to-pin', 'pin-to-cust', 'cust-pick', 'cust-confirm', 'cust-cancel', 'cust-clear', 'cust-back', 'cust-call-owner', 'cust-request', 'cust-history', 'cust-amt-quick', 'cust-sign-clear', 'cust-sign-submit',
+      // beta.52: 내 열쇠 백업 암호 입력창의 [확인]·[취소]·[암호 보기]. PIN 분실 복구 화면(잠금 상태)에서 열쇠 복원은
+      //   원래부터 되는 경로였고(pin-forgot-restore → 열쇠 파일), 예전에는 암호를 기기 기본 팝업으로 받아 게이트 밖이었다.
+      //   앱 안 입력창으로 옮기면서 이 셋이 게이트 안으로 들어왔다 — 빼면 복구 화면의 열쇠 복원이 막힌다.
+      //   셋 다 '이미 열린 입력창'이 없으면 아무 일도 하지 않고, 입력창은 허용된 경로로만 열린다(아래 8-e2 전 액션 스윕이 봉인).
+      'pass-ok', 'pass-cancel', 'pass-toggle'].sort();
     await assert(!lockAllowed.includes('cust-compose-back'), 'the removed [뒤로] action (cust-compose-back) must not linger in the lock allowlist');
     await assert(!lockAllowed.includes('cust-amt-next'), 'the removed intermediate step (cust-amt-next) must not linger in the lock allowlist');
     await assert(JSON.stringify(lockAllowed) === JSON.stringify(expectedAllowed), `the lock allowlist must stay exactly the PIN/customer actions (got ${JSON.stringify(lockAllowed)})`);
