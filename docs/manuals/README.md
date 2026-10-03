@@ -24,6 +24,6 @@
 PDF 재생성 도구: harness/export-manual-pdfs.mjs. 브라우저의 기존 작업 공간과 로컬 preview를 사용하며, 내보낸 링크는 운영용 주소로 정규화합니다. 현재 짧은 안내서 3종은 모두 Chrome 인쇄 엔진으로 생성했습니다. 기본 내보내기 대상은 3종이며, 손님용 한 장 안내문을 고쳤을 때만 도구의 roles에 guest를 추가합니다. 화면 확인 없이 발송하지 마세요.
 PDF 검증: `uv run --with pymupdf python harness/check-manual-pdfs.py`.
 
-홈페이지·docs는 아직 미배포이므로 변경사항을 공개하려면 두 배포 영역을 함께 갱신해야 합니다. 이 작업에서는 커밋·배포하지 않았습니다.
+배포 승인 후 홈페이지는 Cloudflare Pages `bapjangbu-home` main, docs는 GitHub Pages main으로 함께 공개합니다. 기존 beta.52의 앱 코드는 보존하고 사장님 상세 도움말에도 최신 가게 검색·명단 알림·열쇠 암호 안내를 병합했습니다. PDF의 beta.51 표시는 화면 예시를 촬영한 기준 버전입니다.
 
 이번 짧은 개정판은 이메일 재발송하거나 Claude에 재검토 요청하지 않았습니다. 앞서 보낸 메일은 이전 긴 안내서 버전입니다.
