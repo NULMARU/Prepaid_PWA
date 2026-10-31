@@ -437,6 +437,7 @@ function doLogout(idle){
   if(idleTimer){clearTimeout(idleTimer);idleTimer=null}
   // 화면·메모리에 남은 명단과 선택을 함께 폐기한다(다음 사람이 볼 수 없게).
   S.restaurants=[];S.rows=null;S.rawRows=null;S.csvFormat=null;S.fileErrors=[];S.fileWarnings=[];
+  S.pendingCsv=null;S.lastAppend=null;
   S.valid=false;S.mode=null;S.lastList=[];S.registered=new Set();
   S.keychecks=new Map();S.fps=new Map();S.fpErr=new Map();S.kcMsg=new Map();
   S.skipped=[];S.missingSel=[];S.skipAck=false;S.skipSig='';skipProbe.clear();probeSeq++;
@@ -1228,20 +1229,68 @@ $('csv').addEventListener('change',async e=>{
     rejectKeepingPrev(fileErrors.length?fileErrors:['파일에서 명단을 읽지 못했습니다.']);
     return;
   }
-  // 연속 업로드: 담당자가 빠뜨린 명단을 파일 하나 더 만들어 이어서 올리는 실사용 패턴을 지원한다.
-  //   [확인]=기존 명단에 추가(합치기) / [취소]=이 파일로 새로 시작(예전의 교체 동작).
-  //   합친 뒤 같은 직원이 겹치면 기존 중복 행 검사(ERR_DUP_ROW)가 표에서 그대로 잡아 준다.
+  // 연속 업로드: 이미 올린 명단이 있으면 '바꾸기/덧붙이기'를 화면 안 버튼으로 고르게 한다.
+  //   예전 window.confirm은 버튼 이름이 [확인]/[취소]로 고정이라, 잘못 올린 파일을 고치려던 담당자가
+  //   습관대로 [확인]을 눌러 틀린 행이 그대로 남고 고친 행이 덧붙는 일이 현장에서 났다(2026-10).
+  //   고르기 전에는 4단계로 넘어갈 수 없다(S.valid=false — validateAndRenderCsv).
+  const incoming={rows:rawRows,csvFormat,warnings,fileName:file.name};
+  S.lastAppend=null;
   if(hadRows){
-    const addTo=window.confirm('이미 올린 명단('+S.rawRows.length+'행)이 있습니다.\n\n[확인] 기존 명단에 이 파일('+rawRows.length+'행)을 추가합니다 — 빠뜨린 명단을 보완할 때.\n[취소] 기존 명단을 지우고 이 파일로 새로 시작합니다.');
-    if(addTo){
-      warnings.unshift('기존 명단 '+S.rawRows.length+'행에 '+rawRows.length+'행을 추가했어요. 아래 표에서 합쳐진 전체 명단을 확인해 주세요.');
-      rawRows=S.rawRows.concat(rawRows);
-      if(S.csvFormat==='pay')csvFormat='pay'; // 먼저 올린 파일에 결제구분 열이 있었다면 표에서 계속 보이게
-    }
+    S.pendingCsv=incoming;
+    validateAndRenderCsv();
+    return;
   }
-  S.rawRows=rawRows;S.csvFormat=csvFormat;S.fileErrors=[];S.fileWarnings=warnings;
-  validateAndRenderCsv();
+  applyCsv(incoming,'replace');
 });
+// 'replace'=이 파일로 바꾸기(먼저 올린 명단은 지움) / 'append'=기존 명단에 덧붙이기.
+function applyCsv(inc,how){
+  S.pendingCsv=null;S.lastAppend=null;
+  if(how==='append'&&Array.isArray(S.rawRows)&&S.rawRows.length){
+    // 덧붙인 뒤 중복이 생기면 [방금 올린 파일로 바꾸기]로 한 번에 되돌릴 수 있게 받은 파일을 기억해 둔다.
+    S.lastAppend=inc;
+    S.fileWarnings=['기존 명단 '+S.rawRows.length+'행에 "'+inc.fileName+'"의 '+inc.rows.length+'행을 덧붙였어요. 아래 표에서 합쳐진 전체 명단을 확인해 주세요.'].concat(inc.warnings);
+    S.rawRows=S.rawRows.concat(inc.rows);
+    // 먼저 올린 파일에 결제구분 열이 있었다면 표에서 계속 보이게
+    if(S.csvFormat!=='pay')S.csvFormat=inc.csvFormat;
+  }else{
+    S.rawRows=inc.rows;S.csvFormat=inc.csvFormat;S.fileWarnings=inc.warnings.slice();
+  }
+  S.fileErrors=[];
+  validateAndRenderCsv();
+}
+function clearCsv(){
+  S.rawRows=null;S.csvFormat=null;S.fileErrors=[];S.fileWarnings=[];S.pendingCsv=null;S.lastAppend=null;
+  if($('csv'))$('csv').value='';
+  validateAndRenderCsv();
+}
+// 3단계 위쪽 조작 영역: 바꾸기/덧붙이기 선택 상자, 또는 [올린 명단 비우기].
+function csvChoiceHtml(){
+  const p=S.pendingCsv;
+  if(p){
+    const prevN=(S.rawRows||[]).length;
+    return '<div class="muted-box" id="csvChoice" style="border-color:var(--warn);background:#fff4e5;font-size:14px;margin:8px 0">'+
+      '<b>이미 올린 명단('+prevN+'행)이 있어요. 방금 고른 "'+esc(p.fileName)+'"('+p.rows.length+'행)을 어떻게 할까요?</b>'+
+      '<div style="margin-top:10px"><button type="button" class="btn-primary" data-csv="replace">이 파일로 바꾸기</button>'+
+      '<div class="meta" style="margin:4px 0 10px">잘못 올린 명단을 고친 파일로 바꿀 때. 먼저 올린 '+prevN+'행은 지워집니다.</div>'+
+      '<button type="button" data-csv="append">기존 명단에 덧붙이기</button>'+
+      '<div class="meta" style="margin-top:4px">빠뜨린 직원을 더할 때. 먼저 올린 '+prevN+'행은 그대로 둡니다.</div></div>'+
+      '<div class="meta" style="margin-top:8px">둘 중 하나를 고르기 전에는 다음 단계로 넘어갈 수 없어요. 아래 표는 먼저 올린 명단입니다.</div></div>';
+  }
+  if(Array.isArray(S.rawRows)&&S.rawRows.length){
+    return '<div style="margin:8px 0"><button type="button" data-csv="clear">올린 명단 비우기</button>'+
+      '<span class="meta" style="margin-left:8px">처음부터 다시 올릴 때</span></div>';
+  }
+  return '';
+}
+function bindCsvChoice(){
+  $('csvResult').querySelectorAll('button[data-csv]').forEach(b=>b.addEventListener('click',()=>{
+    const a=b.dataset.csv;
+    if(a==='replace'&&S.pendingCsv)applyCsv(S.pendingCsv,'replace');
+    else if(a==='append'&&S.pendingCsv)applyCsv(S.pendingCsv,'append');
+    else if(a==='undo-append'&&S.lastAppend)applyCsv(S.lastAppend,'replace');
+    else if(a==='clear')clearCsv();
+  }));
+}
 // ── '이번에 보내지 않는' 음식점 안내 ────────────────────────────────────────────
 // 이름 대조는 공백만 정리하는 엄격 매칭이다(오배송 방지). 그래서 한 글자 오타가 그대로
 // '미등록'으로 둔갑해 조용히 누락될 수 있다. 편집거리 ≤2(짧은 이름은 ≤1) 또는 부분 일치로
@@ -1487,7 +1536,7 @@ function validateAndRenderCsv(){
   if(!rowErr&&S.agency&&S.restaurants.length)collisionErrors().forEach(m=>errors.push(m));
   // 보낼 수 있는 행이 하나도 없으면(전 행이 '이번에 보내지 않음') 4·5단계로 넘어갈 이유가 없다.
   const sendable=rows.filter(r=>!r.skip&&!r.err).length;
-  S.valid=!errors.length&&!rowErr&&sendable>0&&S.restaurants.length>0&&!!S.agency;
+  S.valid=!errors.length&&!rowErr&&sendable>0&&S.restaurants.length>0&&!!S.agency&&!S.pendingCsv;
   // '사유' 열: title 툴팁은 태블릿(터치)에서 뜨지 않아 왜 빨간 줄인지 알 수 없었다(A1).
   const orgCell=r=>r.org?esc(r.org):'<span class="meta">미선택</span>';
   const showPay=S.csvFormat==='pay';
@@ -1502,7 +1551,14 @@ function validateAndRenderCsv(){
     :'';
   const errHtml=errors.map(e=>'<div class="bad" style="white-space:pre-line">⛔ '+esc(e)+'</div>').join('');
   const warnHtml=(S.fileWarnings||[]).map(w=>'<div class="warn" style="white-space:pre-line">⚠️ '+esc(w)+'</div>').join('');
-  $('csvResult').innerHTML=dropBtn+errHtml+warnHtml+tbl+guidance;
+  // 덧붙였더니 같은 직원이 두 번 생겼다 = 대개 '고친 파일'을 덧붙인 경우. 그 자리에서 바로 되돌리게 한다.
+  const undoHtml=(S.lastAppend&&rows.some(r=>r.err===ERR_DUP_ROW))
+    ?'<div class="muted-box" style="border-color:var(--warn);background:#fff4e5;font-size:14px;margin:8px 0">같은 직원이 두 번 들어갔어요. 고친 파일을 올리신 거라면 아래 버튼을 누르세요.'+
+     '<div style="margin-top:8px"><button type="button" class="btn-primary" data-csv="undo-append">방금 올린 파일로 바꾸기</button></div>'+
+     '<div class="meta" style="margin-top:4px">먼저 올린 명단은 지우고 "'+esc(S.lastAppend.fileName)+'"('+S.lastAppend.rows.length+'행)만 남깁니다.</div></div>'
+    :'';
+  $('csvResult').innerHTML=csvChoiceHtml()+dropBtn+errHtml+undoHtml+warnHtml+tbl+guidance;
+  bindCsvChoice();
   const dm=$('dropMissingBtn');
   if(dm)dm.addEventListener('click',()=>{
     const drop=new Set(missingIds);
