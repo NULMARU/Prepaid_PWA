@@ -195,6 +195,7 @@ UNIQUE(restaurant_id, dedupe_key)
 - **해제 중에도 되는 것**: `/api/challenge`(소유 증명 발급)와 `/api/ledger-backup/get`(백업 되찾기). ← 이 변경의 목적 자체다.
 - **막는 것**: `/api/ledger-backup` POST → `409 {error:'deregistered'}`.
 - 같은 공개키로 `register-key` → `200 {ok:true, reactivated:true}`(인증 불요 — 같은 열쇠 = 같은 기기). 다른 공개키면 선착순 신규 등록이고 **새 열쇠로는 열 수도 없는 옛 백업·옛 연락처는 그 시점에 삭제**한다.
+- 운영자 `POST /api/admin/deregister`(관리자 화면 [휴지통으로], 2026-10)도 **같은 효과**다 — 다른 점은 이미 휴지통이면 시각을 덮어쓰지 않는 것과 `admin_action_log` 감사 행뿐(PROTOCOL §8.4).
 - cron이 `deregistered_at < now-30일`인 행의 `ledger_backup`을 **먼저** 지우고 키 행을 지운다(순서 중요 — 키 행이 먼저 사라지면 남은 백업은 아무도 되찾을 수 없는 죽은 데이터가 된다).
 
 **앱 쪽 짝**: `relayStop()`의 확인창이 `· 서버에 보관된 잠긴 장부 백업은 30일 뒤 삭제돼요(그 안에 다시 등록하면 되찾을 수 있어요).`라고 말한다.

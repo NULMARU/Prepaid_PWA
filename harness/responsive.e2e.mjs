@@ -639,6 +639,90 @@ async function runViewport(context, url, w, h) {
     check(mgr.right <= clientW + 1 && mgr.left >= -1, `${w}px 설정: 요약이 화면 밖으로 나갔다`);
     check(mgr.scroll <= mgr.client + 1, `${w}px 설정: 요약 텍스트가 잘렸다 (${mgr.scroll} > ${mgr.client})`);
   }
+  // ── beta.53: 직원 목록 관리의 직원 행은 기본 한 줄(이름·잔액·[관리 ▸]) ──
+  //   개인 손님 20명이 행마다 전화 칸·버튼 4개를 펼쳐 목록이 끝없이 길어지던 현장 보고. 한 줄 행은 화면 안에 들어오고,
+  //   잔액은 전액(금전 원장 — 축약 금지)이 보이며, 높이는 72px 이하(20명이면 폰 두어 화면), 터치 타겟은 44px 이상이어야 한다.
+  //   가장 긴 이름(LONG_NAME)·7자리 잔액(1,234,567원)이 시드에 있다 — 이름은 말줄임될 수 있지만 잔액·토글은 잘리면 안 된다.
+  const empLineMeasure = () => page.evaluate(() => [...document.querySelectorAll('.emp-line-wrap')].map(wrap => {
+    const line = wrap.querySelector('.emp-line'), bal = wrap.querySelector('.emp-line-bal'), tog = wrap.querySelector('.emp-line-tog'), rs = wrap.querySelector('[data-a="restore-emp"]');
+    const r = wrap.getBoundingClientRect(), lr = line.getBoundingClientRect(), br = bal.getBoundingClientRect(), tr = tog.getBoundingClientRect();
+    const rr = rs ? rs.getBoundingClientRect() : null;
+    const hb = wrap.querySelector('.hidden-badge'), hr = hb ? hb.getBoundingClientRect() : null;
+    return { badge: hr ? { left: hr.left, right: hr.right, width: hr.width, inLine: hr.left >= lr.left - 1 && hr.right <= br.left + 1 } : null, id: line.dataset.id, height: r.height, lineHeight: lr.height, left: r.left, right: r.right, balText: bal.innerText.trim(), balClipped: bal.scrollWidth > bal.clientWidth + 1, balRight: br.right, togRight: tr.right, togLeft: tr.left, togText: tog.innerText.trim(), restore: rr ? { right: rr.right, height: rr.height, width: rr.width } : null };
+  }));
+  for (let guard = 0; guard < 10; guard += 1) {
+    const closed = page.locator('.mgr-head', { hasText: '▶' });
+    if (!(await closed.count())) break;
+    await closed.first().click();
+    await page.waitForTimeout(80);
+  }
+  const empLines = await empLineMeasure();
+  check(empLines.length === SEED_EMPLOYEES.length, `${w}px 설정: 활성 직원마다 한 줄 행이 있어야 한다 (${empLines.length}/${SEED_EMPLOYEES.length})`);
+  check(await page.locator('.mgr-body .phone-row').count() === 0, `${w}px 설정: 펼치기 전 한 줄 행에는 전화 칸이 없어야 한다`);
+  await noHorizontalOverflow(page, '설정(직원 한 줄 행)', w);
+  empLines.forEach(l => {
+    check(l.height <= 72, `${w}px 설정: 직원 한 줄 행(${l.id})이 너무 높다 (${Math.round(l.height)}px > 72px)`);
+    check(l.lineHeight >= 44, `${w}px 설정: 직원 한 줄 행(${l.id}) 터치 타겟이 너무 작다 (${Math.round(l.lineHeight)}px)`);
+    check(l.right <= clientW + 1 && l.left >= -1, `${w}px 설정: 직원 한 줄 행(${l.id})이 화면 밖으로 나갔다`);
+    check(!l.balClipped && /^-?[\d,]+원$/.test(l.balText), `${w}px 설정: 한 줄 행 잔액이 전액 보여야 한다 (${l.id} "${l.balText}")`);
+    check(l.togRight <= l.right + 1 && l.togText === '관리 ▸', `${w}px 설정: 한 줄 행의 [관리 ▸]가 행 안에 보여야 한다 (${l.id} "${l.togText}")`);
+  });
+  // 가장 긴 이름의 직원을 펼쳐도(전화 칸·버튼 4개) 가로로 밀리지 않고, 펼친 줄도 [접기 ▾]로 바뀐다.
+  await page.locator('[data-a="toggle-emp"][data-id="r-emp-2"]').click();
+  await page.waitForTimeout(100);
+  await noHorizontalOverflow(page, '설정(직원 행 펼침)', w);
+  const openBtns = await page.evaluate(() => [...document.querySelectorAll('.emp-mgr.open .emp-detail button')].map(b => { const r = b.getBoundingClientRect(); return { a: b.dataset.a, right: r.right, left: r.left, height: r.height }; }));
+  check(openBtns.length >= 5, `${w}px 설정: 펼친 직원 행에 전화·수정·충전·조정·숨김 버튼이 있어야 한다 (${openBtns.length}개)`);
+  openBtns.forEach(b => {
+    check(b.right <= clientW + 1 && b.left >= -1, `${w}px 설정: 펼친 행의 [${b.a}] 버튼이 화면 밖이다`);
+    check(b.height >= 44, `${w}px 설정: 펼친 행의 [${b.a}] 버튼 터치 타겟이 작다 (${Math.round(b.height)}px)`);
+  });
+  check((await empLineMeasure()).find(l => l.id === 'r-emp-2').togText === '접기 ▾', `${w}px 설정: 펼친 행의 토글은 [접기 ▾]여야 한다`);
+  await page.locator('[data-a="toggle-emp"][data-id="r-emp-2"]').click();
+  await page.waitForTimeout(80);
+  // 숨김 직원 한 줄 행 — [복원]이 펼치지 않아도 한 줄 안에 보이고, 긴 이름·7자리 잔액과 함께여도 화면 안에 들어온다.
+  await page.evaluate(({ t, name }) => new Promise((resolve, reject) => {
+    const req = indexedDB.open('prepaid-ledger-db');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction(['employees', 'transactions'], 'readwrite');
+      tx.objectStore('employees').put({ id: 'r-emp-h', org: '개인', orgKind: '', dept: '', name, note: '', isDeleted: true, phone: '', phoneConsent: false, yearMonth: '', createdAt: t, updatedAt: t });
+      tx.objectStore('transactions').put({ id: 'r-tx-h', employeeId: 'r-emp-h', type: 'open', amount: 1234567, beforeBalance: 0, afterBalance: 1234567, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    };
+  }), { t: Date.now(), name: LONG_NAME + '숨김' });
+  await page.reload({ waitUntil: 'load' });
+  await unlock(page);
+  await page.locator('[data-a="screen"][data-screen="settings"]').click();
+  {
+    const head = page.locator('.fold-head[data-card="employees"]');
+    if ((await head.getAttribute('aria-expanded')) === 'false') { await head.click(); await page.waitForTimeout(100); }
+  }
+  if (!(await page.locator('[data-a="toggle-emp"][data-id="r-emp-h"]').count())) await page.locator('.mgr-head', { hasText: '숨김 직원' }).click();
+  await page.waitForTimeout(100);
+  await noHorizontalOverflow(page, '설정(숨김 직원 한 줄 행)', w);
+  {
+    const h = (await empLineMeasure()).find(l => l.id === 'r-emp-h');
+    check(Boolean(h && h.restore), `${w}px 설정: 숨김 직원 한 줄 행에 [복원]이 바로 보여야 한다`);
+    if (h && h.restore) {
+      check(h.restore.right <= clientW + 1 && h.restore.height >= 44 && h.restore.width > 40, `${w}px 설정: 숨김 직원 [복원]이 화면 안의 44px 이상 버튼이어야 한다 (${JSON.stringify(h.restore)})`);
+      check(Boolean(h.badge) && h.badge.inLine && h.badge.width > 20, `${w}px 설정: 숨김 직원 한 줄 행의 [숨김] 배지가 잘리지 않고 보여야 한다 (${JSON.stringify(h.badge)})`);
+      check(h.height <= 72 && !h.balClipped && h.togRight <= h.restore.right, `${w}px 설정: 숨김 직원 한 줄 행이 72px 안에서 잔액을 다 보여야 한다 (${Math.round(h.height)}px "${h.balText}")`);
+    }
+  }
+  // 다음 절은 이 숨김 직원이 없는 데이터를 전제로 한다 — 지우고 진행한다(다음 절이 다시 reload한다).
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const req = indexedDB.open('prepaid-ledger-db');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction(['employees', 'transactions'], 'readwrite');
+      tx.objectStore('employees').delete('r-emp-h');
+      tx.objectStore('transactions').delete('r-tx-h');
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    };
+  }));
   await page.locator('[data-a="screen"][data-screen="history"]').click();
   await page.waitForTimeout(120);
   await noHorizontalOverflow(page, '이력', w);

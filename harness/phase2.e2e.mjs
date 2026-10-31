@@ -1893,6 +1893,141 @@ async function inboxOf(store, env, restaurant_id, privateKey) {
     'cron 상한: 한 문장에 묶는 바인딩이 D1 상한 100 이내(CLEANUP_CHUNK=99 — 100으로 되돌리면 UPDATE가 101개로 터진다)');
   ok(!store._dump().blobs.some(b => String(b.summary_id).startsWith('chunk-s-')), 'cron 상한: 만료 210건의 암호문이 모두 삭제됨');
 
+  // 43) 운영자 휴지통 처리(/api/admin/registry·deregister·actions, 2026-10)
+  //     효과는 사장님 /api/deregister와 같은 30일 휴지통이고, 되돌리기·하드 삭제·키 지정 경로는 없다.
+  const ADMH = { 'X-Admin-Token': 'super-secret-admin-token' };
+  const RIDADM = 'MGT-ADMIN-1';
+  const kAdm = await mkKey();
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDADM, restaurant_name: '운영자시험식당', public_key: kAdm.spki, district: '서울특별시 성동구' });
+  ok(r.status === 200, 'admin 휴지통: 시험 가게 등록 200');
+  let tokAdm = await getAuthToken(store, env, RIDADM, kAdm.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/contact', { restaurant_id: RIDADM, auth_token: tokAdm, kakao_link: 'https://open.kakao.com/o/adminSecretLink', email: 'owner-secret@example.com' });
+  ok(r.status === 200, 'admin 휴지통: 시험 가게 연락처 등록 200');
+  tokAdm = await getAuthToken(store, env, RIDADM, kAdm.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup', { restaurant_id: RIDADM, auth_token: tokAdm, blob: 'YWRtaW4tYmFja3Vw', blob_hash: 'ha-1' });
+  ok(r.status === 200, 'admin 휴지통: 시험 가게 원장 백업 200');
+  await store.insertSubmission({
+    summary: { id: 'adm-s-1', institution: '성동구', department: '총무과', restaurant_id: RIDADM, restaurant_name: '운영자시험식당', year_month: '2026-10', total_amount: 10000, member_count: 1, agency_domain: null, batch_hash: 'h-adm-1', dedupe_key: 'sid:adm-1', status: 'PENDING', created_at: Date.now() },
+    blob: { id: 'adm-b-1', summary_id: 'adm-s-1', restaurant_id: RIDADM, ciphertext: JSON.stringify(badCipher), delivered: 0, created_at: Date.now() },
+    consent: null
+  });
+
+  // 43-a) 인증
+  r = await callH(store, env, 'GET', '/api/admin/registry', undefined, ADMH);
+  ok(r.status === 503 && (await r.json()).error === 'admin_not_configured', 'admin registry: ADMIN_TOKEN 미설정 시 503');
+  r = await callH(store, envAdmin, 'GET', '/api/admin/registry', undefined, {});
+  ok(r.status === 401, 'admin registry: 토큰 없이 401');
+  r = await callH(store, envAdmin, 'GET', '/api/admin/registry', undefined, { 'X-Admin-Token': 'wrong-token' });
+  ok(r.status === 401, 'admin registry: 오토큰 401');
+  const admDeregBody = { restaurant_id: RIDADM, confirm_id: RIDADM, reason_code: 'test' };
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', admDeregBody, {});
+  ok(r.status === 401, 'admin deregister: 토큰 없이 401');
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', admDeregBody, { 'X-Admin-Token': 'wrong-token' });
+  ok(r.status === 401, 'admin deregister: 오토큰 401');
+  ok(store._dump().keys.get(RIDADM).deregistered_at == null, 'admin deregister: 인증 실패 시 상태 불변');
+  r = await callH(store, envAdmin, 'GET', '/api/admin/actions', undefined, {});
+  ok(r.status === 401, 'admin actions: 토큰 없이 401');
+
+  // 43-b) 등록 가게 목록 — 공개 정보만
+  r = await callH(store, envAdmin, 'GET', '/api/admin/registry', undefined, ADMH);
+  const regText = await r.text();
+  const regJ = JSON.parse(regText);
+  const regRow = (regJ.restaurants || []).find(x => x.restaurant_id === RIDADM);
+  ok(r.status === 200 && !!regRow, 'admin registry: 200 + 시험 가게 포함');
+  ok(regRow && regRow.restaurant_name === '운영자시험식당' && regRow.district === '서울특별시 성동구'
+    && typeof regRow.registered_at === 'number' && regRow.deregistered_at === null && regRow.has_contact === true
+    && regRow.has_backup === true && regRow.pending === 1 && regRow.is_diag === false,
+    'admin registry: 이름·관할·등록시각·상태·연락처 유무·백업 유무·미수령 수 필드');
+  ok(regRow && Object.keys(regRow).sort().join(',') === 'deregistered_at,district,has_backup,has_contact,is_diag,pending,purge_after,registered_at,restaurant_id,restaurant_name,verified',
+    'admin registry: 행 필드는 공개 정보 화이트리스트뿐(공개키·연락처 값 없음)');
+  ok(!regText.includes('adminSecretLink') && !regText.includes('owner-secret@') && !regText.includes(kAdm.spki.slice(20, 60)) && !regText.includes('YWRtaW4tYmFja3Vw'),
+    'admin registry: 응답 어디에도 연락처 값·공개키·백업 내용이 없음');
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: '__diag_admin_1', restaurant_name: '진단', public_key: (await mkKey()).spki });
+  r = await callH(store, envAdmin, 'GET', '/api/admin/registry', undefined, ADMH);
+  const regJ2 = await r.json();
+  ok(regJ2.restaurants.some(x => x.restaurant_id === '__diag_admin_1' && x.is_diag === true), 'admin registry: 진단용(__diag_) 행도 보이되 is_diag로 표시');
+
+  // 43-c) 입력 검증
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: RIDADM, confirm_id: RIDADM + 'x', reason_code: 'test' }, ADMH);
+  ok(r.status === 400 && (await r.json()).error === 'confirm_mismatch', 'admin deregister: 확인 id 불일치 400(confirm_mismatch)');
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: RIDADM, reason_code: 'test' }, ADMH);
+  ok(r.status === 400 && (await r.json()).error === 'confirm_mismatch', 'admin deregister: 확인 id 누락 400');
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: RIDADM, confirm_id: RIDADM, reason_code: 'whatever' }, ADMH);
+  ok(r.status === 400 && (await r.json()).error === 'invalid_reason', 'admin deregister: 사유 코드 화이트리스트 밖 400(invalid_reason)');
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: RIDADM, confirm_id: RIDADM, reason_code: 'test', memo: '가'.repeat(101) }, ADMH);
+  ok(r.status === 400 && (await r.json()).error === 'invalid_memo', 'admin deregister: 메모 100자 초과 400(invalid_memo)');
+  for (const bad of ['사장님 010-1234-5678 통화', '가게 02-123-4567 확인', '연락 0212345678', 'owner@example.com 요청']) {
+    r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: RIDADM, confirm_id: RIDADM, reason_code: 'owner_request_verified', memo: bad }, ADMH);
+    ok(r.status === 400 && (await r.json()).error === 'no_personal_info', 'admin deregister: 메모의 전화번호·이메일 모양 400(no_personal_info) — "' + bad + '"');
+  }
+  ok(store._dump().keys.get(RIDADM).deregistered_at == null && store._dump().adminActions.length === 0, 'admin deregister: 검증 실패는 상태·감사 기록 모두 불변');
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: 'MGT-NOPE-404', confirm_id: 'MGT-NOPE-404', reason_code: 'test' }, ADMH);
+  ok(r.status === 404, 'admin deregister: 없는 가게 404');
+
+  // 43-d) 성공 — 사장님 해제와 같은 휴지통 효과
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: RIDADM, confirm_id: RIDADM, reason_code: 'test', memo: '7월 시험 등록 정리 (관리번호 3040000-101-2017-00034 대조)' }, ADMH);
+  const admJ = await r.json();
+  ok(r.status === 200 && admJ.ok === true && !admJ.already_deregistered && typeof admJ.deregistered_at === 'number'
+    && admJ.purge_after - admJ.deregistered_at === 30 * 24 * 60 * 60 * 1000, 'admin deregister: 200 + deregistered_at·purge_after(30일 뒤)');
+  const admRow = store._dump().keys.get(RIDADM);
+  ok(admRow.deregistered_at === admJ.deregistered_at, 'admin deregister: deregistered_at 기록');
+  ok((await call(store, env, 'GET', '/api/public-key?restaurant_id=' + RIDADM)).status === 404, 'admin deregister: 이후 public-key 404');
+  r = await call(store, env, 'GET', '/api/registered?ids=' + RIDADM);
+  ok((await r.json()).length === 0, 'admin deregister: 이후 /api/registered에서 제외');
+  r = await call(store, env, 'GET', '/api/registered-list?sido=' + encodeURIComponent('서울특별시') + '&sigungu=' + encodeURIComponent('성동구'));
+  ok(!(await r.json()).restaurants.some(x => x.restaurant_id === RIDADM), 'admin deregister: 이후 관할 목록에서 제외');
+  ok(admRow.contact_kakao && admRow.public_key === kAdm.spki && store._dump().ledgerBackups.has(RIDADM)
+    && store._dump().summaries.some(s => s.id === 'adm-s-1' && s.status === 'PENDING'),
+    'admin deregister: 행·공개키·연락처·원장 백업·미수령 신청은 지우지 않음(사장님 해제와 동일)');
+  tokAdm = await getAuthToken(store, env, RIDADM, kAdm.kp.privateKey);
+  r = await call(store, env, 'POST', '/api/ledger-backup/get', { restaurant_id: RIDADM, auth_token: tokAdm });
+  ok(r.status === 200 && (await r.json()).blob === 'YWRtaW4tYmFja3Vw', 'admin deregister: 원래 열쇠는 30일 안에 백업을 되찾을 수 있음');
+  const act = store._dump().adminActions;
+  ok(act.length === 1 && act[0].action === 'deregister' && act[0].restaurant_id === RIDADM && act[0].reason_code === 'test'
+    && typeof act[0].created_at === 'number' && typeof act[0].id === 'string'
+    && Object.keys(act[0]).sort().join(',') === 'action,created_at,id,memo,reason_code,restaurant_id',
+    'admin deregister: 감사 행 1건(id·action·restaurant_id·reason_code·memo·created_at — IP·이메일 없음)');
+
+  // 43-e) 멱등 — 이미 휴지통이면 시각을 덮어쓰지 않고 감사 행도 늘지 않는다
+  const firstAt = admRow.deregistered_at;
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: RIDADM, confirm_id: RIDADM, reason_code: 'closed' }, ADMH);
+  const admJ2 = await r.json();
+  ok(r.status === 200 && admJ2.already_deregistered === true && admJ2.deregistered_at === firstAt, 'admin deregister: 두 번째 호출은 200 already_deregistered(멱등)');
+  ok(store._dump().keys.get(RIDADM).deregistered_at === firstAt && store._dump().adminActions.length === 1, 'admin deregister: 재호출이 30일 유예를 늘리지 않고 감사 행도 추가하지 않음');
+  r = await callH(store, envAdmin, 'GET', '/api/admin/actions?limit=10', undefined, ADMH);
+  const actJ = await r.json();
+  ok(r.status === 200 && actJ.actions.length === 1 && actJ.actions[0].restaurant_id === RIDADM && actJ.actions[0].reason_code === 'test'
+    && actJ.actions[0].memo.startsWith('7월 시험'), 'admin actions: 최근 감사 기록 조회 200');
+  r = await callH(store, envAdmin, 'GET', '/api/admin/registry', undefined, ADMH);
+  const regRow2 = (await r.json()).restaurants.find(x => x.restaurant_id === RIDADM);
+  ok(regRow2 && regRow2.deregistered_at === firstAt && regRow2.purge_after === firstAt + 30 * 24 * 60 * 60 * 1000, 'admin registry: 휴지통 행은 deregistered_at·purge_after로 표시');
+
+  // 43-f) 되돌리기·하드 삭제·키 지정 경로는 없다(운영 런북 §12 "하지 말 것")
+  for (const [m, p] of [['POST', '/api/admin/reactivate'], ['POST', '/api/admin/undo'], ['POST', '/api/admin/restore'], ['POST', '/api/admin/delete'], ['POST', '/api/admin/purge'], ['POST', '/api/admin/set-key'], ['POST', '/api/admin/register-key'], ['GET', '/api/admin/deregister'], ['POST', '/api/admin/registry']]) {
+    r = await callH(store, envAdmin, m, p, m === 'POST' ? { restaurant_id: RIDADM, confirm_id: RIDADM, public_key: (await mkKey()).spki } : undefined, ADMH);
+    ok(r.status === 404, 'admin: ' + m + ' ' + p + ' 경로 없음(404)');
+  }
+  ok(store._dump().keys.get(RIDADM).deregistered_at === firstAt && store._dump().keys.get(RIDADM).public_key === kAdm.spki && store._dump().keys.has(RIDADM),
+    'admin: 어떤 관리자 호출로도 재활성·삭제·키 교체가 일어나지 않음');
+  // 재활성은 원래 열쇠를 가진 기기만(같은 공개키 register-key) — 사장님 경로는 그대로 동작
+  r = await call(store, env, 'POST', '/api/register-key', { restaurant_id: RIDADM, restaurant_name: '운영자시험식당', public_key: kAdm.spki, district: '서울특별시 성동구' });
+  ok(r.status === 200 && (await r.json()).reactivated === true, 'admin 휴지통: 원래 열쇠의 같은 키 재등록으로만 되돌아온다(reactivated:true)');
+
+  // 43-g) 레이트 리밋: IP당 시간당 10회 + 전역 24시간 20건
+  let admLimited = false;
+  for (let i = 0; i < 12; i++) {
+    const rr = await handle(new Request('http://x/api/admin/deregister', { method: 'POST', headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '203.0.113.240', ...ADMH }, body: JSON.stringify({ restaurant_id: 'MGT-NOPE-RL', confirm_id: 'MGT-NOPE-RL', reason_code: 'test' }) }), envAdmin, store);
+    if (i < 10 && rr.status !== 404) { admLimited = 'early'; break; }
+    if (i >= 10 && rr.status === 429) admLimited = true;
+  }
+  ok(admLimited === true, 'admin deregister: 같은 IP 10회 초과 시 429(rate_limited)');
+  const fakeAt = Date.now() - 60 * 1000;
+  for (let i = 0; i < 20; i++) store._dump().adminActions.push({ id: 'fake-' + i, action: 'deregister', restaurant_id: 'MGT-FAKE-' + i, reason_code: 'test', memo: null, created_at: fakeAt });
+  r = await callH(store, envAdmin, 'POST', '/api/admin/deregister', { restaurant_id: RIDADM, confirm_id: RIDADM, reason_code: 'closed' }, ADMH);
+  ok(r.status === 429 && (await r.json()).error === 'admin_daily_limit', 'admin deregister: 전역 24시간 20건 상한 초과 시 429(admin_daily_limit)');
+  ok(store._dump().keys.get(RIDADM).deregistered_at == null, 'admin deregister: 상한에 걸리면 상태 불변');
+  store._dump().adminActions.splice(0, store._dump().adminActions.length, ...store._dump().adminActions.filter(a => !String(a.id).startsWith('fake-')));
+
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

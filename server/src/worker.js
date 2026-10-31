@@ -317,6 +317,29 @@ function checkRegisteredListRateLimit(request) { return checkRateLimitWith(regis
 const ADMIN_RATE_LIMIT_MAX = 10;
 const adminRateLimitMap = new Map();
 function checkAdminRateLimit(request) { return checkRateLimitWith(adminRateLimitMap, request, ADMIN_RATE_LIMIT_MAX); }
+// 운영자 휴지통 처리(/api/admin/deregister)는 상태를 바꾸는 유일한 관리자 쓰기라 더 좁게 막는다.
+//  ① IP당 시간당 10회(per-isolate 메모리 — 베스트 에포트, §6.3과 같은 한계)
+//  ② 전역 24시간 20건: admin_action_log 행수로 센다(D1이라 isolate 분산과 무관한 '전역' 상한).
+//     ADMIN_TOKEN이 새도 등록 가게 전부를 한꺼번에 휴지통에 넣는 피해를 하루 20곳으로 묶는다.
+const ADMIN_ACTION_RATE_LIMIT_MAX = 10;
+const ADMIN_ACTION_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1시간
+const adminActionRateLimitMap = new Map();
+function checkAdminActionRateLimit(request) {
+  return checkRateLimitWith(adminActionRateLimitMap, request, ADMIN_ACTION_RATE_LIMIT_MAX, ADMIN_ACTION_RATE_LIMIT_WINDOW_MS);
+}
+const ADMIN_ACTION_DAILY_MAX = 20;
+// 휴지통 사유 코드(화이트리스트). 화면 문구는 admin.html이 갖고 서버는 코드만 저장한다.
+const ADMIN_DEREGISTER_REASONS = ['test', 'closed', 'owner_request_verified', 'squatting'];
+const ADMIN_MEMO_MAX = 100;
+// 운영자 메모에 개인정보가 섞이지 않게(불변식 3·4): 휴대전화(PHONE_RE, 피드백과 같은 규칙) +
+// 유선 번호(구분자 있는 02-123-4567 형태 / 0으로 시작하는 9~11자리 연속 숫자) + 이메일 모양.
+// 앞뒤가 숫자·하이픈이면 번호가 아니라 관리번호(예 3040000-101-2017-00034)의 일부이므로 제외한다.
+const ADMIN_MEMO_LANDLINE_RE = /(^|[^\d-])0\d{1,2}[-.)\s]\s?\d{3,4}[-.\s]\d{4}(?![\d-])/;
+const ADMIN_MEMO_DIGITRUN_RE = /(^|\D)0\d{8,10}(\D|$)/;
+const ADMIN_MEMO_EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+function memoHasPersonalInfo(m) {
+  return PHONE_RE.test(m) || ADMIN_MEMO_LANDLINE_RE.test(m) || ADMIN_MEMO_DIGITRUN_RE.test(m) || ADMIN_MEMO_EMAIL_RE.test(m);
+}
 // 피드백 수신(/api/feedback)은 스팸 방지를 위해 IP당 분당 5회로 별도 제한한다(독립 카운터).
 const FEEDBACK_RATE_LIMIT_MAX = 5;
 const feedbackRateLimitMap = new Map();
@@ -1135,6 +1158,93 @@ export async function handle(request, env, store) {
       return j(stats);
     }
 
+    // ── 운영자 등록 가게 관리(조회 + 30일 휴지통 처리) ──
+    // ⚠️ 여기에 일부러 **없는** 것(운영 런북 §12 "하지 말 것"):
+    //   · 즉시(하드) 삭제 — 휴지통은 사장님이 열쇠 백업을 찾으면 30일 안에 원장 백업을 되찾는 마지막
+    //     복구선이다. 즉시 삭제가 필요한 예외는 터미널 수작업으로만 한다(토큰 하나로 되돌릴 수 없는 일을 하지 않게).
+    //   · 되돌리기(재활성) — 재활성은 **같은 공개키를 가진 기기**가 /api/register-key로만 한다. 운영자가
+    //     켜 주면 소유 증명을 우회하는 셈이다.
+    //   · 공개키 지정·교체 — 운영자는 사장님 기기의 키를 알 방법이 없고 알아서도 안 된다.
+    //   · 무인증 경로 — 전부 ADMIN_TOKEN 필수.
+    // 그래서 ADMIN_TOKEN이 새도 공격자가 할 수 있는 최악은 "가게를 휴지통에 넣기"(하루 20곳 상한)이고,
+    // 가게를 가로채거나(키 심기) 백업을 지우는 일은 할 수 없다 — 원래 열쇠를 가진 기기는 같은 키로
+    // 다시 등록해 즉시 되살릴 수 있다.
+    if (path.startsWith('/api/admin/') && path !== '/api/admin/stats') {
+      const isRegistry = path === '/api/admin/registry' && request.method === 'GET';
+      const isActions = path === '/api/admin/actions' && request.method === 'GET';
+      const isDereg = path === '/api/admin/deregister' && request.method === 'POST';
+      if (isRegistry || isActions || isDereg) {
+        if (!env.ADMIN_TOKEN) return j({ error: 'admin_not_configured' }, 503);
+        // 토큰 추측은 stats와 같은 카운터를 공유한다(엔드포인트를 바꿔 가며 한도를 늘리지 못하게).
+        if (!checkAdminRateLimit(request)) return j({ error: 'rate_limited' }, 429);
+        if (isDereg && !checkAdminActionRateLimit(request)) return j({ error: 'rate_limited' }, 429);
+        const token = request.headers.get('X-Admin-Token') || '';
+        if (!timingSafeEqual(token, String(env.ADMIN_TOKEN))) return j({ error: 'unauthorized' }, 401);
+
+        if (isRegistry) {
+          // 공개 정보만: 연락처는 값 대신 "있음/없음"만, 공개키·백업 내용은 싣지 않는다.
+          const rows = await store.adminListRegistry(Date.now() - PENDING_TTL_MS);
+          return j({
+            restaurants: rows.map(x => ({
+              restaurant_id: x.restaurant_id,
+              restaurant_name: x.restaurant_name || '',
+              district: x.district || null,
+              registered_at: x.registered_at,
+              deregistered_at: x.deregistered_at != null ? x.deregistered_at : null,
+              purge_after: x.deregistered_at != null ? x.deregistered_at + DEREGISTER_GRACE_MS : null,
+              verified: x.verified ? 1 : 0,
+              has_contact: !!x.has_contact,
+              has_backup: !!x.has_backup,
+              pending: Number(x.pending) || 0,
+              is_diag: isDiagId(x.restaurant_id)
+            })),
+            grace_ms: DEREGISTER_GRACE_MS
+          });
+        }
+
+        if (isActions) {
+          let limit = parseInt(url.searchParams.get('limit') || '50', 10);
+          if (!Number.isFinite(limit) || limit < 1) limit = 50;
+          if (limit > 200) limit = 200;
+          return j({ actions: await store.adminListActions(limit) });
+        }
+
+        // isDereg — 효과는 사장님의 /api/deregister와 **똑같다**(deregistered_at만 기록, 행·연락처·
+        // 원장 백업·미수령 신청은 그대로). 다른 점은 ① 이미 휴지통이면 시각을 덮어쓰지 않는다(30일 유예를
+        // 운영자가 늘리지 못하게) ② 감사 기록(admin_action_log)을 같은 배치로 남긴다는 것뿐이다.
+        const b = await request.json();
+        const restaurant_id = String((b && b.restaurant_id) || '');
+        const confirm_id = String((b && b.confirm_id) || '');
+        const reason_code = String((b && b.reason_code) || '');
+        const memo = b && b.memo != null ? String(b.memo).trim() : '';
+        if (!restaurant_id) return j({ error: 'restaurant_id 필요' }, 400);
+        if (tooLong(restaurant_id, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+        if (confirm_id !== restaurant_id) return j({ error: 'confirm_mismatch' }, 400);
+        if (!ADMIN_DEREGISTER_REASONS.includes(reason_code)) return j({ error: 'invalid_reason' }, 400);
+        if (memo.length > ADMIN_MEMO_MAX) return j({ error: 'invalid_memo' }, 400);
+        if (memo && memoHasPersonalInfo(memo)) return j({ error: 'no_personal_info' }, 400);
+        const row = await store.getPublicKey(restaurant_id);
+        if (!row) return j({ error: 'not_found' }, 404);
+        if (row.deregistered_at != null) {
+          return j({ ok: true, already_deregistered: true, deregistered_at: row.deregistered_at, purge_after: row.deregistered_at + DEREGISTER_GRACE_MS });
+        }
+        const now = Date.now();
+        if (await store.adminCountActionsSince(now - 24 * 60 * 60 * 1000) >= ADMIN_ACTION_DAILY_MAX)
+          return j({ error: 'admin_daily_limit', max: ADMIN_ACTION_DAILY_MAX }, 429);
+        const changed = await store.adminDeregister({
+          restaurant_id, now,
+          log: { id: uuid(), action: 'deregister', restaurant_id, reason_code, memo: memo || null, created_at: now }
+        });
+        if (!changed) {
+          // 확인과 갱신 사이에 사장님이 먼저 해제한 경우(경합) — 이미 휴지통이므로 멱등 응답.
+          const again = await store.getPublicKey(restaurant_id);
+          if (!again) return j({ error: 'not_found' }, 404);
+          return j({ ok: true, already_deregistered: true, deregistered_at: again.deregistered_at, purge_after: again.deregistered_at + DEREGISTER_GRACE_MS });
+        }
+        return j({ ok: true, restaurant_id, deregistered_at: now, purge_after: now + DEREGISTER_GRACE_MS });
+      }
+    }
+
     // ── 피드백 수신 API ──
     // 자유 입력이므로 저장은 그대로 하되 응답·로그에 내용을 반영하지 않는다. 스팸 방지 레이트리밋.
     if (path === '/api/feedback' && request.method === 'POST') {
@@ -1417,6 +1527,38 @@ export function makeD1Store(DB) {
         feedback: (fb.results || []).map(f => ({ role: f.role, message: f.message, contact: f.contact, created_at: f.created_at }))
       };
     },
+    // ── 운영자 등록 가게 관리 ──
+    // 연락처는 값이 아니라 있음/없음(0|1)만, 원장 백업도 존재 여부만 읽는다. pending은 수신함과 같은
+    // 기준(PENDING + 72시간 이내). 등록 가게 테이블은 소규모라 상관 서브쿼리로 충분하다.
+    async adminListRegistry(pendingCutoff) {
+      const r = await DB.prepare(
+        "SELECT r.restaurant_id, r.restaurant_name, r.district, r.registered_at, r.deregistered_at, r.verified," +
+        " CASE WHEN COALESCE(r.contact_kakao,'')<>'' OR COALESCE(r.contact_email,'')<>'' THEN 1 ELSE 0 END AS has_contact," +
+        " EXISTS(SELECT 1 FROM ledger_backup b WHERE b.restaurant_id=r.restaurant_id) AS has_backup," +
+        " (SELECT COUNT(*) FROM deposit_summary s WHERE s.restaurant_id=r.restaurant_id AND s.status='PENDING' AND s.created_at > ?) AS pending" +
+        " FROM public_key_registry r ORDER BY r.registered_at DESC LIMIT 500"
+      ).bind(pendingCutoff).all();
+      return r.results || [];
+    },
+    // 휴지통 처리 + 감사 기록을 한 배치(트랜잭션)로. 갱신은 '아직 활성인 행'에만(이미 해제된 행의 시각을
+    // 덮어써 30일 유예를 늘리지 않는다), 감사 행은 그 갱신이 실제로 일어났을 때만 들어간다.
+    // 반환: 실제로 휴지통에 넣었으면 true.
+    async adminDeregister({ restaurant_id, now, log }) {
+      const res = await DB.batch([
+        DB.prepare('UPDATE public_key_registry SET deregistered_at=? WHERE restaurant_id=? AND deregistered_at IS NULL').bind(now, restaurant_id),
+        DB.prepare('INSERT INTO admin_action_log (id,action,restaurant_id,reason_code,memo,created_at) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM public_key_registry WHERE restaurant_id=? AND deregistered_at=?)')
+          .bind(log.id, log.action, log.restaurant_id, log.reason_code, log.memo, log.created_at, restaurant_id, now)
+      ]);
+      return !!(res && res[0] && res[0].meta && res[0].meta.changes > 0);
+    },
+    async adminCountActionsSince(ts) {
+      const r = await DB.prepare('SELECT COUNT(*) c FROM admin_action_log WHERE created_at > ?').bind(ts).first();
+      return (r && r.c) || 0;
+    },
+    async adminListActions(limit) {
+      const r = await DB.prepare('SELECT action, restaurant_id, reason_code, memo, created_at FROM admin_action_log ORDER BY created_at DESC LIMIT ?').bind(limit).all();
+      return (r.results || []).map(x => ({ action: x.action, restaurant_id: x.restaurant_id, reason_code: x.reason_code, memo: x.memo, created_at: x.created_at }));
+    },
     // ── TTL 정리(개인정보 최소화 목적). cron에서 호출. ──
     async cleanupTTL(now) {
       // 1) 미수령 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 파기(§6). inbox 쿼리도
@@ -1494,6 +1636,7 @@ export function makeMemoryStore() {
   // 비식별 집계 통계(하니스용 — D1과 동등 구조): 조직정보·공개ID 집합, 누적 카운터, 피드백.
   const seenInstitutions = new Set(), seenDepartments = new Set(), seenRestaurants = new Set();
   const counters = new Map(), feedbacks = [];
+  const adminActions = []; // admin_action_log와 동등(id·action·restaurant_id·reason_code·memo·created_at — IP·이메일 없음)
   // 고장 주입 스위치(하니스 전용): D1 배치가 실패했을 때 "부분 저장이 남지 않는다"를 검증하려면
   // 목에서도 같은 실패를 재현할 수 있어야 한다. insertSubmission 안에서만 본다(1회용).
   let failNextBlobInsert = false;
@@ -1506,7 +1649,7 @@ export function makeMemoryStore() {
     if (n > D1_MAX_BINDS) throw new Error('D1 바인딩 상한 초과(' + what + '): ' + n + ' > ' + D1_MAX_BINDS);
   };
   return {
-    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, agencyOtps, agencyTokens, keychecks, seenInstitutions, seenDepartments, seenRestaurants, counters, feedbacks, maxBindsSeen }),
+    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, agencyOtps, agencyTokens, keychecks, seenInstitutions, seenDepartments, seenRestaurants, counters, feedbacks, adminActions, maxBindsSeen }),
     // 하니스가 원자성(전부 성공 or 전부 미반영)을 검증하기 위한 1회용 고장 주입 스위치.
     _failNextBlobInsert(v = true) { failNextBlobInsert = !!v; },
     // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id는 handle()에서 사전 차단하므로
@@ -1697,6 +1840,32 @@ export function makeMemoryStore() {
         amount_total: counters.get('amount_total') || 0,
         feedback
       };
+    },
+    // ── 운영자 등록 가게 관리(D1과 동등) ──
+    async adminListRegistry(pendingCutoff) {
+      return [...keys.values()]
+        .slice().sort((a, b) => (b.registered_at || 0) - (a.registered_at || 0)).slice(0, 500)
+        .map(k => ({
+          restaurant_id: k.restaurant_id, restaurant_name: k.restaurant_name, district: k.district != null ? k.district : null,
+          registered_at: k.registered_at, deregistered_at: k.deregistered_at != null ? k.deregistered_at : null,
+          verified: k.verified ? 1 : 0,
+          has_contact: (k.contact_kakao || k.contact_email) ? 1 : 0,
+          has_backup: ledgerBackups.has(k.restaurant_id) ? 1 : 0,
+          pending: summaries.filter(s => s.restaurant_id === k.restaurant_id && s.status === 'PENDING' && s.created_at > pendingCutoff).length
+        }));
+    },
+    // D1 배치와 동등: 활성 행에만 시각을 적고, 실제로 바뀌었을 때만 감사 행을 남긴다.
+    async adminDeregister({ restaurant_id, now, log }) {
+      const row = keys.get(restaurant_id);
+      if (!row || row.deregistered_at != null) return false;
+      row.deregistered_at = now;
+      adminActions.push({ ...log });
+      return true;
+    },
+    async adminCountActionsSince(ts) { return adminActions.filter(a => a.created_at > ts).length; },
+    async adminListActions(limit) {
+      return adminActions.slice().sort((a, b) => b.created_at - a.created_at).slice(0, limit)
+        .map(a => ({ action: a.action, restaurant_id: a.restaurant_id, reason_code: a.reason_code, memo: a.memo, created_at: a.created_at }));
     },
     // ── TTL 정리 ──
     async cleanupTTL(now) {

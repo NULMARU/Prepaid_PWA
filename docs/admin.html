@@ -67,16 +67,55 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
 .fb-table td.role{white-space:nowrap}
 .fb-table td.role span{display:inline-block;background:var(--primary-soft);color:var(--primary-dark);
   border-radius:999px;padding:2px 10px;font-size:12px;font-weight:800}
-.fb-table td.msg{white-space:pre-wrap;word-break:break-word;min-width:180px}
+/* 로그인 안내용 .msg{display:none}이 표의 내용 칸까지 숨기던 문제 — 표 안에서는 항상 보이게 */
+.fb-table td.msg{display:table-cell;white-space:pre-wrap;word-break:break-word;min-width:180px}
 .fb-table td.contact{color:var(--muted);font-size:12.5px;word-break:break-word}
 .fb-table td.empty{color:var(--muted);font-size:13.5px;text-align:center;padding:18px}
+
+/* 등록 가게 · 휴지통 처리 */
+.sec-note{color:var(--muted);font-size:12.5px;margin:-4px 0 10px}
+.reg-table{min-width:640px}
+.reg-table td.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);word-break:break-all}
+.reg-table .name{font-weight:800}
+.reg-table .flags{font-size:11.5px;color:var(--muted);margin-top:2px}
+.badge{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:800;white-space:nowrap;margin:0 4px 2px 0}
+.badge.on{background:#e6f4ec;color:var(--ok)}
+.badge.trash{background:#fdecea;color:var(--err)}
+.badge.diag{background:var(--warn-soft);color:#7a5209}
+.reg-table td.num{text-align:right;white-space:nowrap}
+.btn-danger{background:#fff;color:var(--err);border:1.5px solid #f1c3bd;border-radius:10px;padding:7px 12px;
+  font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap}
+.btn-danger:hover{background:#fdecea}
+.btn-danger.solid{background:var(--err);color:#fff;border-color:var(--err);padding:12px 18px;font-size:15px}
+.btn-danger.solid:disabled{opacity:.45;cursor:default}
+.list-msg{font-size:13.5px;color:var(--muted);padding:14px;text-align:center}
+.list-msg.err{color:var(--err);font-weight:700}
+
+.overlay{position:fixed;inset:0;background:rgba(20,28,40,.45);display:none;align-items:flex-start;justify-content:center;
+  padding:24px 16px;overflow-y:auto;z-index:50}
+.overlay.open{display:flex}
+.dialog{background:#fff;border-radius:16px;max-width:480px;width:100%;padding:22px 20px;box-shadow:0 12px 40px rgba(0,0,0,.18)}
+.dialog h3{margin:0 0 6px;font-size:18px;color:var(--err)}
+.dialog .target{background:var(--bg-soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0 12px;font-size:14px}
+.dialog .target .id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--muted);word-break:break-all}
+.dialog .explain{font-size:13.5px;line-height:1.65;margin:0 0 12px}
+.dialog .warn{background:var(--warn-soft);border:1px solid #f0dcb8;border-radius:10px;padding:9px 12px;font-size:13px;color:#7a5209;margin:0 0 12px}
+.dialog .warn:empty{display:none}
+.dialog label{display:block;font-weight:800;font-size:13.5px;margin:12px 0 6px}
+.dialog select,.dialog input[type=text]{width:100%;font-family:inherit;font-size:16px;border:1.5px solid var(--line);
+  border-radius:10px;padding:11px 12px;background:#fff}
+.dialog select:focus,.dialog input[type=text]:focus{outline:none;border-color:var(--primary)}
+.dialog .hint{font-size:12.5px;color:var(--muted);margin-top:4px}
+.dialog .err-box{color:var(--err);font-weight:700;font-size:13.5px;margin-top:12px;min-height:1em}
+.dialog .err-box:empty{display:none}
+.dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="tag">운영자 전용</div>
   <h1>밥장부 운영자 통계</h1>
-  <p class="note">개인정보가 아닌 <b>집계 통계</b>만 표시됩니다. 명단·잔액 등 이용자 개인정보는 이 화면에서 볼 수 없습니다.</p>
+  <p class="note">개인정보가 아닌 <b>집계 통계</b>와 등록 가게의 <b>공개 정보</b>만 표시됩니다. 명단·잔액·연락처 등 이용자 개인정보는 이 화면에서 볼 수 없습니다.</p>
 
   <!-- 로그인 -->
   <div class="login" id="login">
@@ -114,6 +153,46 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
     <div class="fb-scroll"><table class="fb-table"><thead><tr>
       <th>시간</th><th>역할</th><th>내용</th>
     </tr></thead><tbody id="fbBody"></tbody></table></div>
+
+    <h2 class="sec">등록 가게 <span id="regCount" style="font-weight:600;color:var(--muted);font-size:.72em"></span></h2>
+    <p class="sec-note">테스트 등록·폐업·본인 확인된 사장님 요청·부당 선점만 휴지통으로 옮깁니다. 즉시 삭제와 되돌리기는 이 화면에 없습니다.</p>
+    <div class="fb-scroll"><table class="fb-table reg-table"><thead><tr>
+      <th>가게</th><th>관할</th><th>등록일</th><th>상태</th><th>미수령</th><th></th>
+    </tr></thead><tbody id="regBody"></tbody></table></div>
+
+    <h2 class="sec">운영자 조치 기록 <span id="actCount" style="font-weight:600;color:var(--muted);font-size:.72em"></span></h2>
+    <div class="fb-scroll"><table class="fb-table"><thead><tr>
+      <th>시간</th><th>가게 ID</th><th>사유</th><th>메모</th>
+    </tr></thead><tbody id="actBody"></tbody></table></div>
+  </div>
+</div>
+
+<!-- 휴지통 처리 창(기기 기본 팝업 대신 화면 안 창 — CLAUDE.md 설계 원칙 ②) -->
+<div class="overlay" id="trashOverlay" aria-hidden="true">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="trashTitle">
+    <h3 id="trashTitle">휴지통으로 옮기기</h3>
+    <div class="target"><div class="name" id="trashName"></div><div class="id" id="trashId"></div><div class="hint" id="trashMeta"></div></div>
+    <p class="explain">담당자 목록에서 즉시 사라지고, 30일 뒤 서버가 정리합니다. 사장님 요청이면 공개 전화번호로 본인 확인을 먼저 하세요. 되돌리기는 원래 열쇠를 가진 기기만 할 수 있습니다.</p>
+    <div class="warn" id="trashWarn"></div>
+    <label for="trashReason">사유</label>
+    <select id="trashReason">
+      <option value="">사유를 골라 주세요</option>
+      <option value="test">테스트 등록</option>
+      <option value="closed">폐업</option>
+      <option value="owner_request_verified">사장님 요청·본인 확인 완료</option>
+      <option value="squatting">부당 선점</option>
+    </select>
+    <label for="trashMemo">메모(선택, 100자 이내)</label>
+    <input type="text" id="trashMemo" maxlength="100" autocomplete="off" placeholder="예: 7월 시험 등록 정리">
+    <div class="hint" id="trashMemoHint">전화번호·이메일·이름 등 개인정보는 적지 마세요(서버가 거절합니다). <span id="trashMemoLen">0/100</span></div>
+    <label for="trashConfirm">확인을 위해 가게 ID를 그대로 입력하세요</label>
+    <input type="text" id="trashConfirm" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="hint" id="trashGate"></div>
+    <div class="err-box" id="trashErr" role="alert"></div>
+    <div class="row">
+      <button type="button" class="btn btn-ghost" id="trashCancel">취소</button>
+      <button type="button" class="btn-danger solid" id="trashSubmit" disabled>휴지통으로 옮기기</button>
+    </div>
   </div>
 </div>
 
@@ -216,6 +295,269 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
     });
   }
 
+
+  // ── 등록 가게 · 휴지통 처리 · 조치 기록 ──
+  // 서버가 준 문자열은 전부 textContent로만 넣는다(innerHTML 금지 — XSS).
+  var REASONS = {
+    test: "테스트 등록",
+    closed: "폐업",
+    owner_request_verified: "사장님 요청·본인 확인 완료",
+    squatting: "부당 선점"
+  };
+  var registryRows = [];
+
+  function el(tag, cls, text){
+    var e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(text != null) e.textContent = String(text);
+    return e;
+  }
+  function fmtDate(v){
+    if(!v) return "";
+    var d = new Date(Number(v));
+    if(isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("ko-KR");
+  }
+  function adminFetch(token, method, path, body){
+    var init = { method: method, headers: { "X-Admin-Token": token } };
+    if(body !== undefined){
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
+    return fetch(RELAY + path, init).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(data){
+        if(!res.ok){
+          var e = new Error((data && data.error) || "http");
+          e.code = res.status; e.reason = data && data.error; e.data = data; throw e;
+        }
+        return data;
+      });
+    });
+  }
+  function emptyRow(body, cols, text, isErr){
+    var tr = document.createElement("tr");
+    var td = el("td", "empty", text);
+    if(isErr) td.style.color = "var(--err)";
+    td.colSpan = cols;
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+  function listErrText(err){
+    if(err && err.code === 429) return "요청이 많아 잠시 막혔습니다. 1분쯤 뒤에 [새로고침]을 눌러 주세요.";
+    if(err && err.code === 404) return "서버가 아직 이 기능을 모릅니다(서버 배포 전). 배포 후 다시 열어 주세요.";
+    return "불러오지 못했습니다. 잠시 후 [새로고침]을 눌러 주세요.";
+  }
+
+  function renderRegistry(list){
+    registryRows = Array.isArray(list) ? list : [];
+    var body = document.getElementById("regBody");
+    body.textContent = "";
+    if(body.closest) { var sc = body.closest(".fb-scroll"); if(sc) sc.scrollLeft = 0; }
+    var active = registryRows.filter(function(x){ return x && x.deregistered_at == null; }).length;
+    setText("regCount", "(활성 " + fmtNum(active) + " · 전체 " + fmtNum(registryRows.length) + ")");
+    if(registryRows.length === 0){ emptyRow(body, 6, "등록된 가게가 없습니다"); return; }
+    registryRows.forEach(function(x, idx){
+      x = x || {};
+      var tr = document.createElement("tr");
+
+      var tdName = document.createElement("td");
+      tdName.appendChild(el("div", "name", x.restaurant_name || "(이름 없음)"));
+      var idLine = el("div", "id", x.restaurant_id);
+      idLine.style.fontFamily = "ui-monospace,SFMono-Regular,Menlo,monospace";
+      idLine.style.fontSize = "12px"; idLine.style.color = "var(--muted)"; idLine.style.wordBreak = "break-all";
+      tdName.appendChild(idLine);
+      var flags = [];
+      flags.push(x.verified ? "실존 확인" : "실존 미확인");
+      if(x.has_contact) flags.push("연락처 있음");
+      if(x.has_backup) flags.push("클라우드 백업 있음");
+      tdName.appendChild(el("div", "flags", flags.join(" · ")));
+
+      var tdDist = el("td", null, x.district || "–");
+      var tdReg = el("td", "time", fmtDate(x.registered_at));
+
+      var tdState = document.createElement("td");
+      if(x.deregistered_at != null){
+        tdState.appendChild(el("span", "badge trash", "휴지통"));
+        if(x.purge_after) tdState.appendChild(el("div", "flags", fmtDate(x.purge_after) + " 정리 예정"));
+      } else {
+        tdState.appendChild(el("span", "badge on", "활성"));
+      }
+      if(x.is_diag) tdState.appendChild(el("span", "badge diag", "진단"));
+
+      var tdPend = el("td", "num", fmtNum(x.pending) + "건");
+
+      var tdAct = document.createElement("td");
+      if(x.deregistered_at == null){
+        var b = el("button", "btn-danger", "휴지통으로");
+        b.type = "button";
+        b.setAttribute("data-idx", String(idx));
+        b.addEventListener("click", function(){ openTrash(idx); });
+        tdAct.appendChild(b);
+      }
+
+      tr.appendChild(tdName); tr.appendChild(tdDist); tr.appendChild(tdReg);
+      tr.appendChild(tdState); tr.appendChild(tdPend); tr.appendChild(tdAct);
+      body.appendChild(tr);
+    });
+  }
+
+  function renderActions(list){
+    var items = Array.isArray(list) ? list : [];
+    var body = document.getElementById("actBody");
+    body.textContent = "";
+    setText("actCount", "(" + items.length + "건)");
+    if(items.length === 0){ emptyRow(body, 4, "아직 조치 기록이 없습니다"); return; }
+    items.forEach(function(a){
+      a = a || {};
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", "time", fmtTime(a.created_at)));
+      var tdId = el("td", "contact", a.restaurant_id);
+      tdId.style.fontFamily = "ui-monospace,SFMono-Regular,Menlo,monospace";
+      tr.appendChild(tdId);
+      var tdReason = el("td", "role");
+      tdReason.appendChild(el("span", null, (a.action === "deregister" ? "휴지통 · " : "") + (REASONS[a.reason_code] || String(a.reason_code || ""))));
+      tr.appendChild(tdReason);
+      tr.appendChild(el("td", "msg", a.memo || ""));
+      body.appendChild(tr);
+    });
+  }
+
+  function loadLists(token){
+    adminFetch(token, "GET", "/api/admin/registry").then(function(d){
+      renderRegistry(d && d.restaurants);
+    }).catch(function(err){
+      if(err.code === 401) return sessionExpired();
+      var body = document.getElementById("regBody"); body.textContent = "";
+      setText("regCount", "");
+      emptyRow(body, 6, listErrText(err), true);
+    });
+    adminFetch(token, "GET", "/api/admin/actions?limit=50").then(function(d){
+      renderActions(d && d.actions);
+    }).catch(function(err){
+      if(err.code === 401) return sessionExpired();
+      var body = document.getElementById("actBody"); body.textContent = "";
+      setText("actCount", "");
+      emptyRow(body, 4, listErrText(err), true);
+    });
+  }
+
+  function sessionExpired(){
+    sessionStorage.removeItem(KEY);
+    closeTrash();
+    showLogin();
+    showMsg("세션이 만료되었습니다. 다시 로그인해 주세요.", "err");
+  }
+
+  // ── 휴지통 처리 창 ──
+  var overlay = document.getElementById("trashOverlay");
+  var reasonSel = document.getElementById("trashReason");
+  var memoInput = document.getElementById("trashMemo");
+  var confirmInput = document.getElementById("trashConfirm");
+  var submitBtn = document.getElementById("trashSubmit");
+  var trashErr = document.getElementById("trashErr");
+  var trashTarget = null;
+  var trashBusy = false;
+  // 서버와 같은 규칙(휴대전화·유선·연속 숫자·이메일 모양) — 미리 알려 주기만 하고 최종 판정은 서버가 한다.
+  var MEMO_PII = [/01[0-9]-?\d{3,4}-?\d{4}/, /(^|[^\d-])0\d{1,2}[-.)\s]\s?\d{3,4}[-.\s]\d{4}(?![\d-])/, /(^|\D)0\d{8,10}(\D|$)/, /[^\s@]+@[^\s@]+\.[^\s@]+/];
+  function memoLooksPersonal(m){ return MEMO_PII.some(function(re){ return re.test(m); }); }
+
+  function trashWarnText(){
+    var w = [];
+    if(!trashTarget) return "";
+    if(Number(trashTarget.pending) > 0) w.push("받지 않은 명단 신청이 " + fmtNum(trashTarget.pending) + "건 있습니다. 휴지통에 넣어도 신청은 남아 있다가 72시간 뒤 만료됩니다.");
+    if(trashTarget.has_backup) w.push("클라우드 원장 백업이 있습니다. 30일 안에 원래 열쇠로 다시 등록하면 그대로 되찾고, 지나면 함께 지워집니다.");
+    if(reasonSel.value === "squatting") w.push("부당 선점: 선점한 쪽이 같은 열쇠로 다시 등록하면 되살아납니다. 처리 직후 진짜 사장님이 바로 앱에서 [우리 가게 등록]을 하도록 안내하세요(다른 열쇠로 먼저 등록하면 그쪽이 주인이 됩니다).");
+    if(reasonSel.value === "owner_request_verified") w.push("가게의 공개 전화번호로 직접 걸어 본인 확인을 마쳤을 때만 고르세요.");
+    return w.join("\n");
+  }
+  function updateTrashForm(){
+    if(!trashTarget) return;
+    var memo = memoInput.value;
+    setText("trashMemoLen", memo.length + "/100");
+    var warn = document.getElementById("trashWarn");
+    warn.textContent = trashWarnText();
+    warn.style.whiteSpace = "pre-line";
+    var reasons = [];
+    if(!reasonSel.value) reasons.push("사유를 고르세요");
+    if(memo && memoLooksPersonal(memo)) reasons.push("메모에서 전화번호·이메일을 지우세요");
+    if(confirmInput.value !== trashTarget.restaurant_id) reasons.push("가게 ID를 똑같이 입력하세요");
+    setText("trashGate", reasons.length ? ("버튼이 켜지려면: " + reasons.join(" · ")) : "");
+    submitBtn.disabled = trashBusy || reasons.length > 0;
+  }
+  function openTrash(idx){
+    var x = registryRows[idx];
+    if(!x || x.deregistered_at != null) return;
+    trashTarget = x;
+    trashBusy = false;
+    setText("trashName", x.restaurant_name || "(이름 없음)");
+    setText("trashId", x.restaurant_id);
+    setText("trashMeta", (x.district || "관할 미등록") + " · 등록 " + fmtDate(x.registered_at) + (x.is_diag ? " · 진단용" : ""));
+    reasonSel.value = "";
+    memoInput.value = "";
+    confirmInput.value = "";
+    trashErr.textContent = "";
+    submitBtn.textContent = "휴지통으로 옮기기";
+    overlay.classList.add("open");
+    overlay.setAttribute("aria-hidden", "false");
+    updateTrashForm();
+    reasonSel.focus();
+  }
+  function closeTrash(){
+    if(trashBusy) return;
+    trashTarget = null;
+    overlay.classList.remove("open");
+    overlay.setAttribute("aria-hidden", "true");
+  }
+  function trashErrText(err){
+    var r = err && err.reason;
+    if(r === "confirm_mismatch") return "가게 ID가 일치하지 않습니다. 다시 확인해 주세요.";
+    if(r === "invalid_reason") return "사유를 다시 골라 주세요.";
+    if(r === "invalid_memo") return "메모는 100자 이내로 적어 주세요.";
+    if(r === "no_personal_info") return "메모에 전화번호·이메일로 보이는 내용이 있어 저장하지 않았습니다. 지우고 다시 시도해 주세요.";
+    if(r === "admin_daily_limit") return "최근 24시간 동안 휴지통 처리가 상한(20건)에 닿았습니다. 내일 다시 시도해 주세요.";
+    if(err && err.code === 429) return "요청이 많아 잠시 막혔습니다(시간당 10회). 잠시 후 다시 시도해 주세요.";
+    if(err && err.code === 404) return "이 가게가 서버에 없습니다(이미 정리됐을 수 있습니다). 창을 닫고 [새로고침]을 눌러 주세요.";
+    if(!navigator.onLine) return "인터넷 연결을 확인해 주세요.";
+    return "처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  reasonSel.addEventListener("change", updateTrashForm);
+  memoInput.addEventListener("input", updateTrashForm);
+  confirmInput.addEventListener("input", updateTrashForm);
+  document.getElementById("trashCancel").addEventListener("click", closeTrash);
+  overlay.addEventListener("click", function(e){ if(e.target === overlay) closeTrash(); });
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape" && overlay.classList.contains("open")) closeTrash();
+  });
+  submitBtn.addEventListener("click", function(){
+    var token = sessionStorage.getItem(KEY);
+    if(!token){ sessionExpired(); return; }
+    if(!trashTarget || submitBtn.disabled) return;
+    var target = trashTarget;
+    trashBusy = true;
+    trashErr.textContent = "";
+    submitBtn.textContent = "처리 중...";
+    updateTrashForm();
+    adminFetch(token, "POST", "/api/admin/deregister", {
+      restaurant_id: target.restaurant_id,
+      confirm_id: confirmInput.value,
+      reason_code: reasonSel.value,
+      memo: memoInput.value.trim()
+    }).then(function(d){
+      trashBusy = false;
+      closeTrash();
+      var name = target.restaurant_name || target.restaurant_id;
+      setText("updatedAt", (d && d.already_deregistered ? "이미 휴지통에 있던 가게입니다: " : "휴지통으로 옮겼습니다: ") + name
+        + (d && d.purge_after ? " (" + fmtDate(d.purge_after) + " 정리 예정)" : ""));
+      loadLists(token);
+    }).catch(function(err){
+      trashBusy = false;
+      submitBtn.textContent = "휴지통으로 옮기기";
+      if(err.code === 401){ sessionExpired(); return; }
+      trashErr.textContent = trashErrText(err);
+      updateTrashForm();
+    });
+  });
+
   function showDash(){
     loginEl.style.display = "none";
     dashEl.style.display = "block";
@@ -255,6 +597,7 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
       sessionStorage.setItem(KEY, token);
       showDash();
       render(data);
+      loadLists(token);
     }).catch(function(err){
       if(!fromStored) sessionStorage.removeItem(KEY);
       showLogin();
@@ -285,7 +628,7 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
   document.getElementById("refreshBtn").addEventListener("click", function(){
     var token = sessionStorage.getItem(KEY);
     if(!token){ showLogin(); return; }
-    fetchStats(token).then(render).catch(function(err){
+    fetchStats(token).then(function(data){ render(data); loadLists(token); }).catch(function(err){
       if(err.code === 401){
         sessionStorage.removeItem(KEY);
         showLogin();
@@ -299,6 +642,11 @@ h2.sec{font-size:16px;color:var(--primary-dark);margin:26px 0 10px}
   document.getElementById("logoutBtn").addEventListener("click", function(){
     sessionStorage.removeItem(KEY);
     pwInput.value = "";
+    trashBusy = false;
+    closeTrash();
+    registryRows = [];
+    document.getElementById("regBody").textContent = "";
+    document.getElementById("actBody").textContent = "";
     showLogin();
     clearMsg();
   });

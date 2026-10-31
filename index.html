@@ -294,6 +294,26 @@
 .mgr-dept{font-size:14px;flex:1}
 .mgr-count{font-size:12px;color:var(--muted);font-weight:600}
 .mgr-body{padding:0 0 4px 20px}
+/* beta.53 직원 한 줄 행 — 개인 손님 20명처럼 한 그룹이 길어도 목록이 한눈에 보이게, 기본은 이름·잔액·[관리 ▸] 한 줄.
+   한 줄 전체가 진짜 <button>이라 Enter/Space·포커스가 브라우저 기본으로 된다(role=button 위임 불필요).
+   .row는 폰(≤640px)에서 grid로 바뀌므로 한 줄 행은 별도 클래스(.emp-line)로 두어 그 규칙의 영향을 받지 않게 한다. */
+.emp-mgr{border-bottom:1px solid #eef1f4}
+.emp-mgr:last-child{border-bottom:0}
+.emp-line-wrap{display:flex;align-items:center;gap:8px}
+.emp-line{flex:1;min-width:0;display:flex;align-items:center;gap:10px;min-height:52px;padding:6px 8px;border:0;background:transparent;border-radius:8px;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.emp-line:active{background:var(--bg)}
+/* 이름 칸: width:0 — 줄바꿈 없는 이름의 min-content(전체 글자 폭)가 카드 grid 트랙까지 밀어 올려 가로 스크롤을 만들지 않게(이름은 말줄임).
+   숨김 배지는 이름 아래 줄에 둔다 — 이름 옆에 붙이면 긴 이름 + 7자리 잔액 + [복원]이 함께인 360px 폰에서 배지가 말줄임에 잘려 사라진다. */
+.emp-line-namecol{flex:1 1 0;width:0;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.emp-line-namecol .hidden-badge{margin-left:0}
+.emp-line-name{display:block;max-width:100%;font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.emp-line-bal{flex:0 0 auto;font-size:15px;font-weight:700;white-space:nowrap}
+.emp-line-bal.negative{color:var(--danger)}
+.emp-line-tog{flex:0 0 auto;display:inline-flex;align-items:center;min-height:36px;padding:0 10px;border:1.5px solid var(--line);border-radius:8px;background:#fff;font-size:13px;font-weight:700;color:var(--primary);white-space:nowrap}
+.emp-mgr.open .emp-line-tog{color:var(--muted)}
+.emp-line-wrap [data-a="restore-emp"]{flex:0 0 auto}
+.emp-detail{padding:0 0 10px 8px}
+.emp-detail .row{border-bottom:0;padding-top:0}
 /* 직원 목록 관리 카드 상단 요약(홈 하단에서 이 자리로 옮긴 "활성 직원 N명 · 잔액 합계") */
 .mgr-summary{margin-top:0;font-size:14px;padding:12px 14px;box-shadow:0 4px 12px rgba(23,69,121,.16)}
 .mgr-summary .v{font-size:19px}
@@ -546,7 +566,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.52',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.53',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -578,7 +598,7 @@ const COMMON_DEPTS=[...DEFAULT_DEPTS];
 //   custAmount = 작성 중인 금액, pendingAmount·pendingSign = 사장님께 넘긴 요청의 내용.
 //   저장소·서버·백업 어디에도 나가지 않는다(state.data 바깥이라 backupCore/repo.apply의 사정권 밖이다).
 //   "손님은 요청을 만들고, 사장님은 기록을 만든다" — 이 4개는 요청이지 기록이 아니다.
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreZip:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},expandedEmps:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreZip:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 // lastInputAt = 마지막 **사용자 조작** 시각. 유휴 만료의 유일한 기준이다(렌더는 이 값을 건드리지 못한다).
 //   init()이 첫 render를 부르기 전에 반드시 초기화돼 있어야 하므로 선언을 여기(최상단 상태 묶음)에 둔다.
 let lastInputAt=Date.now();
@@ -2681,10 +2701,15 @@ else pills.push(storeBlocked()?`<span class="pill pill-alert-soft">공공기관 
 const n=num(state.inboxCount);if(reg&&n>0)pills.push(`<button class="pill pill-alert" data-a="relay-inbox">📩 새 명단 신청 ${n}건 — ${navigator.onLine?'눌러서 확인':'인터넷 연결 후 확인'}</button>`);return pills.length?`<div class="pill-row">${pills.join('')}</div>`:''}
 function quickActionsHtml(){return `<div class="quick-actions"><button class="quick-action" data-a="quick-find-emp"><span aria-hidden="true">👤</span> 직원 찾기</button><button class="quick-action" data-a="quick-history"><span aria-hidden="true">🕐</span> 이력 보기</button></div>`}
 // 빈 화면은 "안내"로 끝내지 않고 바로 누를 수 있는 다음 행동(CTA)을 준다.
+// beta.53 — 홈 그룹이 하나뿐일 때 자동으로 펼치는 최대 인원. 작은 가게(몇 명뿐)는 지금처럼 탭 없이 바로 보이고,
+//   한 그룹에 사람이 많은 가게(예: 소속 '개인' 손님 20명)는 접힌 헤더(인원·잔액 소계)로 시작해 홈이 끝없이 길어지지 않는다.
+//   8명은 폰 한두 화면 안에 카드가 들어오는 정도다. 검색·소속 필터의 강제 펼침은 이 값과 무관하다.
+const HOME_SINGLE_GROUP_AUTO_OPEN_MAX=8;
 function homeHtml(d){const pills=statusPillsHtml();if(!d.filtered.length)return `${pills}<div class="card empty">${(state.search.trim()||state.deptFilter)?'검색 결과가 없습니다.<br><button class="btn" data-a="reset-filter" style="margin-top:12px">초기화</button>':'아직 올린 직원이 없어요.<br>공공기관에서 받거나 직접 올릴 수 있어요.<br><button class="btn-primary" data-a="guide-add-employee" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">＋ 한 명씩 올리기</button>'}</div>`;const todayUse=state.data.transactions.filter(t=>t.type==='use'&&sameDay(txDispTime(t),now())&&!d.voided.has(t.id)).reduce((s,t)=>s+num(t.amount),0);
 // 그룹 헤더는 접힘/펼침 아코디언(설정의 toggle-dept와 같은 조작감, 상태는 홈 전용 키 state.homeExpanded).
-// 자동 펼침: 그룹이 1개뿐 / 검색어·부서 필터가 켜져 있을 때(검색이 "안 되는 것처럼" 보이지 않게).
-const forceOpen=!!(state.search.trim()||state.deptFilter)||d.homeGroups.length===1;
+// 자동 펼침: 그룹이 1개뿐(단, 인원 HOME_SINGLE_GROUP_AUTO_OPEN_MAX 이하) / 검색어·부서 필터가 켜져 있을 때(검색이 "안 되는 것처럼" 보이지 않게).
+// beta.53: 그룹이 1개라도 인원이 많으면(개인 손님 20명 등) 접힌 채 시작하고 다른 그룹처럼 탭으로 펼치고 접는다(data-forced 없음).
+const forceOpen=!!(state.search.trim()||state.deptFilter)||(d.homeGroups.length===1&&num(d.homeGroups[0].count)<=HOME_SINGLE_GROUP_AUTO_OPEN_MAX);
 const groupsHtml=d.homeGroups.map(g=>{const open=forceOpen||!!state.homeExpanded[g.key];const balCls=g.totalBalance<0?'negative':g.totalBalance===0?'zero':'';
 const body=!open?'':(g.subs?g.subs.map(s=>`${s.dept?`<div class="group-sub">${esc(s.dept)}</div>`:''}${s.items.map(empCard).join('')}`).join(''):g.items.map(empCard).join(''));
 return `<div class="card group"><div class="group-head" data-a="toggle-home-group" data-g="${esc(g.key)}"${forceOpen?' data-forced="1"':''} role="button" tabindex="0" aria-expanded="${open?'true':'false'}"><div class="group-headline"><span class="group-toggle" aria-hidden="true">${open?'▼':'▶'}</span><div><div class="group-title">${esc(g.label)}</div><div class="group-meta">직원 ${g.count}명</div></div></div><div class="bal ${balCls}">${money(g.totalBalance)}</div></div>${body}</div>`}).join('');
@@ -2703,7 +2728,16 @@ function historyByEmployee(d){if(!d.historyGroups.length)return '<div class="car
 function txCard(t,d){const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const displayAmt=isAdj?money(t.amount):money(Math.abs(t.amount));const sigSrc=sigD(t.signatureData);const sig=sigSrc?`<img class="thumb" src="${esc(sigSrc)}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:'';const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">이 사용 기록 취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div class="txn-title">${esc(lbl)}</div><div class="amt ${cls}">${sign}${displayAmt}</div></div><div class="chips"><span style="font-size:14px;font-weight:600">${dtDisp(t)}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
 // 전화번호 등록/수정·삭제 + 문자 안내 동의 체크박스는 활성 직원에게만 노출(스펙 §수정3). 번호는 이 폰에만 저장되며 서버로 전송되지 않는다.
 function phoneControlsHtml(e){const has=!!e.phone;return `<div class="phone-row"><button class="small" data-a="emp-phone-edit" data-id="${esc(e.id)}">${has?'번호 수정':'번호 등록'}</button>${has?`<button class="small" data-a="emp-phone-clear" data-id="${esc(e.id)}">번호 삭제</button>`:''}<label class="phone-consent${has?'':' disabled'}"><input type="checkbox" data-a="emp-phone-consent" data-id="${esc(e.id)}"${has?'':' disabled'}${e.phoneConsent?' checked':''}> 문자 안내 동의</label></div><div class="meta" style="font-size:10px">전화번호는 이 폰에만 저장되며 서버로 전송되지 않아요.</div>`}
-function manageRow(e){return `<div class="row"><div class="left"><div class="txn-title">${esc(e.name)}${e.isDeleted?'<span class="hidden-badge">숨김</span>':''}</div><div class="meta">${esc(orgDeptLabel(e)||'부서 없음')} · 현재 잔액 ${money(e.balance)}</div>${e.note?`<div class="meta">${esc(e.note)}</div>`:''}${e.isDeleted?'':phoneControlsHtml(e)}</div><div class="right">${e.isDeleted?`<button class="small" data-a="restore-emp" data-id="${esc(e.id)}">복원</button>`:`<button class="small" data-a="edit-employee" data-id="${esc(e.id)}">수정</button><button class="small" data-a="topup" data-id="${esc(e.id)}">충전</button><button class="small" data-a="adjust" data-id="${esc(e.id)}">조정</button><button class="small" data-a="hide" data-id="${esc(e.id)}">숨김</button>`}</div></div>`}
+// beta.53 — 직원 목록 관리 행은 기본 한 줄(이름·잔액·[관리 ▸])이고, 탭한 직원만 펼쳐 기존 상세(소속·메모·전화·버튼)를 보여준다.
+//   현장 보고: 개인 손님 20명을 수동 등록하자 행마다 전화 칸·버튼 4개가 다 펼쳐져 목록이 폰 수십 화면이 됐다.
+//   펼침 상태는 state.expandedEmps(세션 한정 UI 상태 — 영속화 안 함, resetUiAfterWipe에서 비움). 상세 안의 버튼은
+//   이전과 같은 data-a·data-id를 쓰므로 조작 경로는 하나도 바뀌지 않았다. toggle-emp는 LOCK_ALLOWED 밖이라 잠금 중엔 무동작.
+//   숨김 직원의 [복원]은 한 줄 행에 그대로 둔다 — 숨김 직원에게 할 수 있는 일은 복원 하나뿐이라 펼쳐야 보이면 찾기 어렵다.
+//   그래서 숨김 직원의 상세에는 소속·잔액·메모만 있고 [복원]을 중복으로 두지 않는다.
+function manageRow(e){const open=!!state.expandedEmps[e.id];const balCls=e.balance<0?' negative':'';
+const line=`<div class="emp-line-wrap"><button type="button" class="emp-line" data-a="toggle-emp" data-id="${esc(e.id)}" aria-expanded="${open?'true':'false'}" aria-label="${esc(e.name)} ${open?'접기':'관리 펼치기'}"><span class="emp-line-namecol"><span class="emp-line-name">${esc(e.name)}</span>${e.isDeleted?'<span class="hidden-badge">숨김</span>':''}</span><span class="emp-line-bal${balCls}">${money(e.balance)}</span><span class="emp-line-tog" aria-hidden="true">${open?'접기 ▾':'관리 ▸'}</span></button>${e.isDeleted?`<button class="small" data-a="restore-emp" data-id="${esc(e.id)}">복원</button>`:''}</div>`;
+const detail=!open?'':`<div class="emp-detail"><div class="row"><div class="left"><div class="meta">${esc(orgDeptLabel(e)||'부서 없음')} · 현재 잔액 ${money(e.balance)}</div>${e.note?`<div class="meta">${esc(e.note)}</div>`:''}${e.isDeleted?'':phoneControlsHtml(e)}</div>${e.isDeleted?'':`<div class="right"><button class="small" data-a="edit-employee" data-id="${esc(e.id)}">수정</button><button class="small" data-a="topup" data-id="${esc(e.id)}">충전</button><button class="small" data-a="adjust" data-id="${esc(e.id)}">조정</button><button class="small" data-a="hide" data-id="${esc(e.id)}">숨김</button></div>`}</div></div>`;
+return `<div class="emp-mgr${open?' open':''}">${line}${detail}</div>`}
 function navHtml(){return `<div class="nav"><button class="${state.screen==='home'?'active':''}" data-a="screen" data-screen="home"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>홈</button><button class="${state.screen==='history'?'active':''}" data-a="screen" data-screen="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>이력</button><button class="${state.screen==='settings'?'active':''}" data-a="screen" data-screen="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>설정</button></div>`}
 
 // ── 모달 HTML ──
@@ -2925,6 +2959,9 @@ try{await navigator.clipboard.writeText(u);toast('네이버 지도 링크를 복
 'add-dept':async()=>{await addDept()},
 'remove-dept':async(el)=>{await removeDept(Number(el.dataset.idx))},
 'toggle-dept':(el)=>{const dept=el.dataset.dept;state.expandedDepts[dept]=!state.expandedDepts[dept];render()},
+// beta.53 직원 한 줄 행 펼침/접기 — 세션 한정 UI 상태만 바꾼다(원장·meta 무접촉). 전면 재렌더로 버튼 노드가 바뀌므로
+//   키보드로 연 사장님이 자리를 잃지 않게 같은 직원의 토글에 포커스를 되돌린다(스크롤은 움직이지 않음).
+'toggle-emp':(el)=>{const id=el.dataset.id;if(!id)return;state.expandedEmps[id]=!state.expandedEmps[id];render();const b=[...document.querySelectorAll('[data-a="toggle-emp"]')].find(x=>x.dataset.id===id);if(b){try{b.focus({preventScroll:true})}catch(_){}}},
 // 홈 그룹 아코디언 — 설정의 toggle-dept와 같은 패턴, 상태만 홈 전용(state.homeExpanded, 세션 내 유지·영속화 없음)
 // 자동 펼침(그룹 1개·검색·필터)으로 강제 펼쳐진 그룹은 탭해도 아무 상태를 기록하지 않는다(data-forced).
 //   기록하면 "지금은 접히지 않는" 탭이 몰래 상태를 뒤집어, 검색을 지운 뒤 엉뚱하게 펼쳐지거나 접혀 보인다.
@@ -3427,7 +3464,7 @@ await repo.apply({employees:emps,transactions:txs});emps.forEach(upsertEmp);txs.
 //   여기서 환영 화면을 다시 띄우면 급히 되돌리려는 사람 앞에 인사 화면이 한 장 더 서는 셈이다(온보딩 1/3로 바로 간다).
 function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[],setupComplete:false,welcomeSeen:true}}}
 async function clearAppCachesAndWorker(){if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}}
-function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.homeExpanded={};state.settingsOpen={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
+function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.expandedDepts={};state.expandedEmps={};state.homeExpanded={};state.settingsOpen={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
 // 초기화 후 온보딩/수신 상태 누수 방지(S4) — 이전 사용자의 가게 선택·검색 결과·동의·신청 건수가 남으면 안 된다.
 state.setupPickedStore=null;state.setupManualMode=false;state.setupManualDraft={name:'',addr:'',tel:''};state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreZip='';state.setupStoreResults=[];state.setupStoreRegisteredIds=[];state.setupStoreSearching=false;state.setupStoreSearched=false;state.setupStoreFilteredOut=false;state.setupStoreUsedZip=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false;state.backupReminderDismissed=false}
 async function wipeLocalData(){const empty=emptyAppData();await repo.replaceAll(empty);await clearAppCachesAndWorker();resetUiAfterWipe(empty);return empty}

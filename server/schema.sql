@@ -140,3 +140,16 @@ CREATE TABLE IF NOT EXISTS feedback (
   created_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at);
+
+-- 운영자 조치 감사 기록(2026-10). 지금은 docs/admin.html의 [휴지통으로](/api/admin/deregister)만 남는다.
+-- 저장값은 조치 종류·가게 공개ID·사유 코드·짧은 메모(≤100자, 전화번호·이메일 모양은 서버가 거절)·시각뿐이다
+-- — 운영자 IP·이메일은 남기지 않는다(불변식 3). 전역 24시간 상한(하루 20건) 판정에도 이 테이블을 센다.
+CREATE TABLE IF NOT EXISTS admin_action_log (
+  id            TEXT PRIMARY KEY,     -- uuid
+  action        TEXT NOT NULL,        -- 'deregister'
+  restaurant_id TEXT NOT NULL,        -- 음식점 공개ID(공개값)
+  reason_code   TEXT NOT NULL,        -- 'test'|'closed'|'owner_request_verified'|'squatting'
+  memo          TEXT,                 -- 선택 메모(≤100자, 개인정보 금지)
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_admin_action_created ON admin_action_log(created_at);

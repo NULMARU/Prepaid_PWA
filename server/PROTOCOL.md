@@ -124,6 +124,9 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 | `POST /api/agency/keycheck` | 헤더 `X-Agency-Token` + `{institution, department, restaurant_id, fingerprint}` | `{ok:true, fingerprint}` / 400/401/404/409 | 열쇠 지문 확인 기록(§4.8). 서버가 현재 공개키로 지문을 재계산해 **일치할 때만** 저장(upsert). 불일치 시 `409 {error:'fingerprint_mismatch', current}` |
 | `GET /api/agency/keychecks?institution=&department=` | 헤더 `X-Agency-Token` | `{keychecks:[{restaurant_id, fingerprint, checked_at}]}` / 400/401 | 그 **부서가** 확인해 둔 음식점 목록(§4.8). **토큰이 인증한 도메인의 기록만** 반환한다(기관·부서명은 자칭 값이므로 — §4.8 도메인 결속). 다른 정보(인원·금액 등)는 절대 싣지 않는다 |
 | `GET /api/admin/stats` | 헤더 `X-Admin-Token` | `{restaurants, institutions_total, …, feedback[]}` / 401/503/429 | 비식별 집계 통계(관리자 전용, §8) |
+| `GET /api/admin/registry` | 헤더 `X-Admin-Token` | `{restaurants:[{restaurant_id, restaurant_name, district, registered_at, deregistered_at, purge_after, verified, has_contact, has_backup, pending, is_diag}], grace_ms}` / 401/503/429 | 등록 가게 목록(관리자 전용, §8.4). 공개 정보만 — 연락처·백업은 **있음/없음(boolean)만**, 공개키 미포함. 휴지통·진단(`__diag_`) 행도 포함하되 표시 |
+| `POST /api/admin/deregister` | 헤더 `X-Admin-Token` + `{restaurant_id, confirm_id, reason_code, memo?}` | `{ok:true, restaurant_id, deregistered_at, purge_after}` / 이미 휴지통 `{ok:true, already_deregistered:true, deregistered_at, purge_after}` / 400/401/404/429/503 | 운영자 **30일 휴지통** 처리(§8.4). 효과는 `/api/deregister`와 동일. `confirm_id`는 `restaurant_id`와 정확히 같아야 함. 감사 기록 `admin_action_log` |
+| `GET /api/admin/actions?limit=` | 헤더 `X-Admin-Token` | `{actions:[{action, restaurant_id, reason_code, memo, created_at}]}` / 401/503/429 | 운영자 조치 기록 최신순(기본 50, 최대 200, §8.4) |
 | `POST /api/feedback` | `{role, message, contact?}` | `{ok:true}` / 400/429 | 피드백 수신(§8.3) |
 
 `POST /api/submit` 본문:
@@ -596,7 +599,9 @@ TTL cron이 삭제한다(§6.3). 이메일 해시의 pepper(HMAC)는 2026-08에 
   isolate로 라우팅될 수 있어 이 Map은 전역 카운터가 아니며 **완전한 보장이 아니다**. 운영에서는
   Cloudflare 대시보드의 Rate Limiting Rule(요청 기반, 전역 집계)을 **병행 적용**할 것을 권장한다.
   - **엔드포인트별 강화 한도(각각 독립 카운터)**: `GET /api/public-key`·`GET /api/registered-list`·
-    `POST /api/challenge` = IP당 분당 20회, `GET /api/admin/stats` = 분당 10회,
+    `POST /api/challenge` = IP당 분당 20회, `GET /api/admin/stats`·`registry`·`actions`·`POST /api/admin/deregister` =
+    **합산** 분당 10회(토큰 추측 방어 카운터 공유), `POST /api/admin/deregister`는 추가로 **시간당 10회** +
+    **전역 24시간 20건**(`admin_action_log` 행수 — D1이라 isolate와 무관, §8.4),
     `POST /api/feedback` = 분당 5회, `POST /api/agency/request-otp` = **시간당 5회**(§4.4).
   - **미소비 챌린지 상한**: `POST /api/challenge`는 발급 전에 그 `restaurant_id`의 만료된
     챌린지를 지우고, 그래도 미만료 챌린지가 **5개** 이상이면 `429 {error:'too_many_challenges'}`
@@ -707,6 +712,44 @@ CORS 헤더와는 독립이므로 **CORS 동작(화이트리스트 echo / Origin
 - 스팸 방지로 IP당 분당 5회 레이트리밋(`429`). 성공 시 `200 {ok:true}`.
 - **주의**: 자유 입력이므로 저장은 그대로 하되, 응답·서버 로그에 입력 내용을 반영하지 않는다.
 
+### 8.4 운영자 등록 가게 관리 — 조회 · 30일 휴지통 처리 (2026-10)
+
+`docs/admin.html`의 "등록 가게" 표와 [휴지통으로] 창이 쓰는 API. 인증·잠금은 §8.2와 같다
+(`X-Admin-Token`, 미설정 `503 admin_not_configured`, 불일치 `401 unauthorized`, 상수시간 비교).
+
+`GET /api/admin/registry` — `public_key_registry` 전 행(최신 등록순, 최대 500)을 **공개 정보만**으로:
+`restaurant_id`·`restaurant_name`·`district`·`registered_at`·`deregistered_at`(활성이면 `null`)·
+`purge_after`(휴지통이면 `deregistered_at+30일`)·`verified`·`has_contact`·`has_backup`(값이 아니라 boolean)·
+`pending`(수신함과 같은 기준: PENDING + 72시간 이내)·`is_diag`(`__diag_` 접두 진단 행). 공개키·연락처 값·백업 내용은 싣지 않는다.
+
+`POST /api/admin/deregister` body `{restaurant_id, confirm_id, reason_code, memo?}`:
+- `confirm_id !== restaurant_id` → `400 {error:'confirm_mismatch'}`(운영자가 ID를 직접 입력하게 하는 확인 장치).
+- `reason_code` ∈ `test`(테스트 등록)·`closed`(폐업)·`owner_request_verified`(사장님 요청·본인 확인 완료)·
+  `squatting`(부당 선점), 그 밖 `400 {error:'invalid_reason'}`.
+- `memo`(선택) 100자 초과 `400 {error:'invalid_memo'}`. 휴대전화(§8.3과 같은 패턴)·유선 번호·0으로 시작하는
+  9~11자리 연속 숫자·이메일 모양이 있으면 `400 {error:'no_personal_info'}`(불변식 3·4). 관리번호
+  (`3040000-101-2017-00034`)는 통과한다.
+- 없는 가게 `404 {error:'not_found'}`. 이미 휴지통이면 `200 {ok:true, already_deregistered:true, …}` —
+  **시각을 덮어쓰지 않는다**(30일 유예를 운영자가 늘리지 못하게) · 감사 행도 남기지 않는다.
+- **효과는 `/api/deregister`와 똑같다**: `deregistered_at=now`만 기록(`WHERE deregistered_at IS NULL`).
+  행·공개키·연락처·원장 백업·미수령 신청은 그대로이고 나머지는 §4.12가 그대로 적용된다(담당자에게 즉시
+  '없는 가게', 원래 열쇠는 30일 안에 백업 되찾기·같은 키 재등록으로 되돌리기, 30일 뒤 cron 정리).
+- 같은 배치로 `admin_action_log(id, action='deregister', restaurant_id, reason_code, memo, created_at)`를
+  남긴다(실제로 휴지통에 넣었을 때만). **운영자 IP·이메일은 남기지 않는다.**
+- 레이트리밋: §8.2 카운터(합산 분당 10회) + IP당 시간당 10회(`429 rate_limited`) + 전역 24시간 20건
+  (`429 {error:'admin_daily_limit', max:20}`).
+
+`GET /api/admin/actions?limit=50` — `admin_action_log` 최신순(1~200).
+
+**일부러 없는 것**(운영 런북 §12 "하지 말 것"): 하드 삭제, 되돌리기(재활성), 공개키 지정·교체, 무인증 경로.
+`ADMIN_TOKEN`이 새도 할 수 있는 최악은 하루 20곳을 휴지통에 넣는 것이고, 원래 열쇠를 가진 기기는 같은 키
+재등록으로 즉시 되살린다 — 가게 가로채기·백업 삭제로는 이어지지 않는다. 즉시 삭제가 꼭 필요한 예외는
+터미널 수작업으로만 한다(런북 §12).
+
+⚠️ **부당 선점의 한계**: 재활성은 "같은 공개키 = 같은 기기"로 인증 없이 되므로, 선점한 쪽이 자기 열쇠로
+다시 `register-key`하면 되살아난다. 휴지통 처리 직후 **진짜 사장님이 다른 열쇠로 먼저 등록**해야
+(선착순 인수, §4.12) 선점이 끝난다.
+
 ## 7.4 공공데이터 API 한글 조건 장애 (2026-08-08 확인, 진행 중)
 
 data.go.kr **행정안전부_식품_일반음식점 조회서비스**(`apis.data.go.kr/1741000/general_restaurants/info`)가
@@ -738,6 +781,7 @@ probe(`server/probe-emd.mjs`) 실측 결과 공공 API 응답·조건에 법정�
 
 | 버전 | 날짜 | 계약 변경 | 마이그레이션 |
 |---|---|---|---|
+| admin | 2026-10 | 운영자 등록 가게 관리: `GET /api/admin/registry`·`POST /api/admin/deregister`(30일 휴지통, 효과는 `/api/deregister`와 동일)·`GET /api/admin/actions`(§8.4). 기존 계약 무변경 | **`migrations-2026-10.sql`**(신규 파일) 문 1~2(`admin_action_log` + 인덱스) — 문 단위 `--command` |
 | beta.48 | 2026-09 | ① `/api/submit`에 **접수번호 `submission_id`**(선택) 추가 — 멱등 키가 `batch_hash`에서 `dedupe_key`로 바뀜(§4.7). ② 제출 **원자 저장**(summary+blob+consent 한 트랜잭션) + **고아 요약 복구** `repaired:true`(§4.7). ③ `blob.ciphertext` **필드 화이트리스트**(§2.1). ④ 등록 해제 = **30일 휴지통**, `deregister` 응답에 `backup_kept_until`, 같은 키 재등록 시 `reactivated:true`(§4.12). ⑤ 같은 키 재등록의 **district 변경에 소유 증명 필요**(저장값이 있고 다를 때만, §4.6). ⑥ `keychecks` 조회의 **인증 도메인 결속**(§4.8). ⑦ 직접 전달 파일·QR에 `transfer_id`(§2.2, 클라이언트 계약). ⑧ cron `CLEANUP_CHUNK` 100 → **99**(D1 바인딩 상한, §6.3) | **`migrations-2026-09.sql`**(신규 파일, append-only) 문 1~7 — 문 단위 `--command` 실행. 문 2(백필)는 문 4(UNIQUE 인덱스)보다 먼저 |
 | beta.31~35 | 2026-08 | 인증 도메인 전달(`agency_domain`, §4.11), 열쇠 지문 확인(`agency_keycheck`, §4.8), 등록 실존 대조(`verified`, §4.10), `/api/inbox` 소유 증명 필수·`batch_hash` 제거(§4.9), 이메일 해시 pepper(§4.4), `/api/restaurants?zip=`(§7.4) | `migrations-2026-08.sql` 문 1~5 |
 | beta.26~30 | 2026-07~08 | 관할 지역 `district`·`/api/registered-list` 정확 일치(§4.6), 제출 멱등 응답 `deduped`(§4.7), 기관 이메일 해시 저장(§4.4), 보존 기간·TTL cron(§6), 비식별 집계·관리자 API·피드백(§8) | `migrations-2026-07.sql` |

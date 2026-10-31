@@ -157,6 +157,17 @@ async function expandHomeGroups(page) {
   throw new Error('failed to expand every home group header');
 }
 
+// beta.53: 설정 > 직원 목록 관리의 직원 행은 기본 한 줄(이름·잔액·[관리 ▸])이다. 전화·수정·충전·조정·숨김은
+//   그 직원을 펼쳐야 DOM에 생긴다 — 기존 시나리오는 단언을 무르게 하지 않고 '펼치기' 한 단계를 더 밟는다.
+async function expandEmpRow(page, id) {
+  const tog = page.locator(`[data-a="toggle-emp"][data-id="${id}"]`);
+  await tog.waitFor({ timeout: 8000 });
+  if ((await tog.getAttribute('aria-expanded')) !== 'true') {
+    await tog.click();
+    await page.waitForSelector(`[data-a="toggle-emp"][data-id="${id}"][aria-expanded="true"]`, { timeout: 8000 });
+  }
+}
+
 // beta.27: 온보딩 1/3 앞에 환영 화면(0단계)이 한 장 붙었다. 단계 번호(1/3)는 그대로이고,
 //   [시작하기]를 한 번 누르면 다시 뜨지 않는다(meta.welcomeSeen). 설치 직후 화면을 여는 모든 흐름은
 //   이 한 장을 먼저 지나야 하므로 헬퍼로 뽑는다 — 여기서 "안 뜨는 경우"도 그대로 통과시킨다(재실행 경로).
@@ -1627,6 +1638,7 @@ async function main() {
 
     // ③ 직원 목록 관리 행에서 전화번호 등록 + 문자 안내 동의 (이 폰에만 저장)
     await page.locator(`[data-a="toggle-dept"][data-dept="Dept Q"]`).click();
+    await expandEmpRow(page, empQ.id);// beta.53: 직원 행은 한 줄로 시작 — 펼쳐야 전화 칸이 보인다
     promptAnswer = '01099998888';
     await page.locator(`[data-a="emp-phone-edit"][data-id="${empQ.id}"]`).click();
     promptAnswer = '초기화';
@@ -3249,6 +3261,7 @@ async function main() {
     await openSettingsCard(page, 'employees');
     const outboxEmpId = (await readDb(page)).employees.find(e => e.name === '아웃박스직원').id;
     await page.locator('[data-a="toggle-dept"][data-dept="강남구청 문화체육과"]').click();
+    await expandEmpRow(page, outboxEmpId);// beta.53: 직원 행은 한 줄로 시작 — 펼쳐야 [충전]이 보인다
     await page.waitForSelector(`[data-a="topup"][data-id="${outboxEmpId}"]`);
     await page.locator(`[data-a="topup"][data-id="${outboxEmpId}"]`).click();
     await page.waitForSelector('#topupAmount');
@@ -3527,8 +3540,13 @@ async function main() {
       await openSettingsCard(page, 'employees');// beta.29: 직원 목록 카드도 접힌다
       await page.waitForTimeout(200);
       for (let guard = 0; guard < 12; guard += 1) {
-        const btn = page.locator('.row', { hasText: name }).locator('[data-a="edit-employee"]');
-        if (await btn.count()) { await btn.first().click(); await page.waitForSelector('#empOrg'); return; }
+        // beta.53: 행은 한 줄(.emp-mgr)로 시작한다 — 이름이 맞는 한 줄을 펼친 뒤 [수정]을 누른다.
+        const line = page.locator('.emp-mgr', { hasText: name }).locator('[data-a="toggle-emp"]');
+        if (await line.count()) {
+          if ((await line.first().getAttribute('aria-expanded')) !== 'true') { await line.first().click(); await page.waitForTimeout(120); }
+          const btn = page.locator('.emp-mgr', { hasText: name }).locator('[data-a="edit-employee"]');
+          if (await btn.count()) { await btn.first().click(); await page.waitForSelector('#empOrg'); return; }
+        }
         const collapsed = page.locator('.mgr-head', { hasText: '▶' });
         if (!(await collapsed.count())) break;
         await collapsed.first().click();
@@ -3757,6 +3775,116 @@ async function main() {
     await page.waitForTimeout(200);
     await assert(await count(page, '.card.employee') === 0, 'clearing the search must return every group to collapsed — a ghost tap must not have recorded state');
     await assert(await count(page, '.group-head[aria-expanded="true"]') === 0, 'no group should linger expanded after the search is cleared');
+
+    // ───────────────────────────────────────────────────────────────
+    // (6-b) beta.53 현장 보고: 개인 손님 20명(소속 '개인' 한 그룹)을 수동 등록하자 설정 > 직원 목록 관리가 끝없이 길어지고,
+    //       홈도 그룹이 하나라서 20명이 늘 펼쳐진 채 접을 수조차 없었다.
+    //   ① 설정 직원 행은 기본 한 줄(이름·잔액·[관리 ▸]) — 펼친 직원만 전화·수정·충전·조정·숨김이 생긴다.
+    //   ② 홈 그룹이 하나여도 인원이 HOME_SINGLE_GROUP_AUTO_OPEN_MAX(8) 초과면 접힌 채 시작하고 탭으로 열고 닫는다.
+    // ───────────────────────────────────────────────────────────────
+    {
+      const solo20 = Array.from({ length: 20 }, (_, i) => ({ id: `p-${String(i + 1).padStart(2, '0')}`, org: '개인', orgKind: '', dept: '', name: `개인손님${String(i + 1).padStart(2, '0')}`, amount: 10000 + i * 1000 }));
+      await seedHome(solo20);
+      // ② 홈: 그룹 1개 · 20명 → 접힘, data-forced 없음, 탭 → 열림, 다시 탭 → 닫힘
+      await assert(await count(page, '.group-head') === 1, `20 개인 손님 must form exactly one home group (got ${await count(page, '.group-head')})`);
+      await assert(await count(page, '.card.employee') === 0, 'beta.53: a single home group with 20 members must start collapsed (it used to be force-opened)');
+      await assert((await page.locator('.group-head').getAttribute('aria-expanded')) === 'false', 'a collapsed single big group must report aria-expanded=false');
+      await assert((await page.locator('.group-head').getAttribute('data-forced')) === null, 'a single group with 9+ members must not be data-forced (otherwise it can never be collapsed)');
+      await assert((await page.locator('.group-head').innerText()).includes('직원 20명'), 'the collapsed header must still show the member count');
+      await page.locator('.group-head').click();
+      await page.waitForTimeout(150);
+      await assert(await count(page, '.card.employee') === 20 && (await page.locator('.group-head').getAttribute('aria-expanded')) === 'true', 'tapping the single big group must open all 20 members');
+      await page.locator('.group-head').click();
+      await page.waitForTimeout(150);
+      await assert(await count(page, '.card.employee') === 0, 'tapping it again must collapse it (a single big group is a normal toggleable group)');
+      // 검색의 강제 펼침은 그대로 — 여러 명이 걸리면 펼쳐져 있고 탭으로 접히지 않는다
+      await page.locator('#searchInput').fill('개인손님1');
+      await page.waitForTimeout(200);
+      await assert(await count(page, '.card.employee') === 10 && (await page.locator('.group-head').getAttribute('data-forced')) === '1', `a search must still force the matching group open (got ${await count(page, '.card.employee')} cards)`);
+      await page.locator('#searchInput').fill('');
+      await page.waitForTimeout(200);
+      await assert(await count(page, '.card.employee') === 0, 'clearing the search must return the big single group to collapsed');
+
+      // ① 설정: 그룹을 펼치면 20개의 한 줄 행만 — 전화 칸·버튼은 아직 없다
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'employees');
+      await page.locator('.mgr-head', { hasText: '개인' }).first().click();
+      await page.waitForTimeout(150);
+      const compact = await page.evaluate(() => ({
+        rows: document.querySelectorAll('.mgr-body .emp-mgr').length,
+        toggles: document.querySelectorAll('.mgr-body [data-a="toggle-emp"]').length,
+        phone: document.querySelectorAll('.mgr-body .phone-row').length,
+        acts: ['edit-employee', 'topup', 'adjust', 'hide'].map(a => document.querySelectorAll(`.mgr-body [data-a="${a}"]`).length),
+        first: (document.querySelector('.mgr-body .emp-mgr') || { innerText: '' }).innerText.replace(/\s+/g, ' ').trim()
+      }));
+      await assert(compact.rows === 20 && compact.toggles === 20, `the expanded 개인 group must list 20 compact rows (got ${JSON.stringify(compact)})`);
+      await assert(compact.phone === 0 && compact.acts.every(n => n === 0), `compact rows must not show phone controls or the 4 buttons until toggled (got ${JSON.stringify(compact)})`);
+      await assert(compact.first.includes('개인손님01') && compact.first.includes('10,000원') && compact.first.includes('관리'), `a compact row must read name · balance · [관리 ▸] (got "${compact.first}")`);
+      // 한 명만 펼친다 — 다른 19명은 한 줄 그대로
+      await page.locator('[data-a="toggle-emp"][data-id="p-05"]').click();
+      await page.waitForTimeout(150);
+      const one = await page.evaluate(() => ({
+        open: [...document.querySelectorAll('.emp-mgr.open [data-a="toggle-emp"]')].map(b => b.dataset.id),
+        phone: document.querySelectorAll('.mgr-body .phone-row').length,
+        topupIds: [...document.querySelectorAll('.mgr-body [data-a="topup"]')].map(b => b.dataset.id),
+        label: (document.querySelector('[data-a="toggle-emp"][data-id="p-05"]') || { innerText: '' }).innerText,
+        aria: (document.querySelector('[data-a="toggle-emp"][data-id="p-05"]') || { getAttribute: () => '' }).getAttribute('aria-expanded'),
+        detail: (document.querySelector('.emp-mgr.open .emp-detail') || { innerText: '' }).innerText
+      }));
+      await assert(one.open.join(',') === 'p-05' && one.phone === 1 && one.topupIds.join(',') === 'p-05', `toggling one row must expand only that employee (got ${JSON.stringify(one)})`);
+      await assert(one.aria === 'true' && one.label.includes('접기'), `an expanded row must say [접기 ▾] and report aria-expanded=true (got ${JSON.stringify(one)})`);
+      await assert(one.detail.includes('개인') && one.detail.includes('현재 잔액 14,000원') && one.detail.includes('번호 등록'), `the expanded detail must keep the existing 소속·잔액·전화 content (got "${one.detail.replace(/\n/g, ' ')}")`);
+      // 펼친 행 안의 버튼은 같은 data-a 그대로 동작한다 — 충전 모달
+      await page.locator('[data-a="topup"][data-id="p-05"]').click();
+      await page.waitForSelector('#topupAmount', { timeout: 5000 });
+      await page.locator('.modal-actions [data-a="close-modal"]').click();
+      await page.waitForTimeout(150);
+      await assert(await count(page, '.emp-mgr.open') === 1, 'closing the topup modal must keep the expanded row expanded');
+      // 펼침은 세션 UI 상태일 뿐 — 기기에 저장되지 않는다
+      const metaKeys = (await readDb(page)).meta.map(r => r.key);
+      await assert(!metaKeys.some(k => /expanded/i.test(k)), `row expansion must never be persisted (meta keys ${JSON.stringify(metaKeys)})`);
+      // 숨김 → 숨김 직원 그룹에서도 한 줄 행, [복원]은 펼치지 않아도 한 줄에 바로 보인다
+      promptAnswer = '개인손님20';
+      await page.locator('[data-a="toggle-emp"][data-id="p-20"]').click();
+      await page.waitForTimeout(120);
+      await page.locator('[data-a="hide"][data-id="p-20"]').click();
+      await page.waitForTimeout(250);
+      promptAnswer = '초기화';
+      await assert((await readDb(page)).employees.find(e => e.id === 'p-20').isDeleted === true, 'the [숨김] button inside an expanded row must still hide the employee');
+      await page.locator('.mgr-head', { hasText: '숨김 직원' }).click();
+      await page.waitForTimeout(150);
+      const hid = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('.emp-mgr')].find(r => r.querySelector('[data-a="toggle-emp"][data-id="p-20"]'));
+        return row ? { text: row.querySelector('.emp-line-wrap').innerText.replace(/\s+/g, ' '), restore: row.querySelectorAll('.emp-line-wrap [data-a="restore-emp"]').length, open: row.classList.contains('open') } : null;
+      });
+      // 숨김 직원도 펼침 상태(p-20을 펼쳐 둔 채 숨겼다)를 이어받을 수 있다 — 어느 쪽이든 [복원]은 한 줄 줄에 있어야 한다.
+      await assert(Boolean(hid) && hid.restore === 1 && hid.text.includes('숨김'), `a hidden employee's compact row must carry the 숨김 badge and a visible [복원] (got ${JSON.stringify(hid)})`);
+      await assert(await count(page, '[data-a="restore-emp"][data-id="p-20"]') === 1, '[복원] must not be duplicated inside the expanded detail');
+      await page.locator('[data-a="restore-emp"][data-id="p-20"]').click();
+      await page.waitForTimeout(250);
+      await assert((await readDb(page)).employees.find(e => e.id === 'p-20').isDeleted === false, '[복원] on the compact row must restore the employee');
+      // 다시 접기
+      await page.locator('[data-a="toggle-emp"][data-id="p-05"]').click();
+      await page.waitForTimeout(120);
+      await assert(await count(page, '.mgr-body [data-a="topup"][data-id="p-05"]') === 0, 'tapping [접기 ▾] must collapse the row again');
+      // 새로고침(세션 종료) 뒤에는 전부 한 줄로 돌아온다
+      await page.locator('[data-a="toggle-emp"][data-id="p-03"]').click();
+      await page.waitForTimeout(120);
+      await page.reload({ waitUntil: 'load' });
+      await unlock();
+      await page.waitForSelector('[data-a="quick-find-emp"]');
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'employees');
+      if (!(await count(page, '.mgr-body'))) await page.locator('.mgr-head', { hasText: '개인' }).first().click();
+      await page.waitForTimeout(150);
+      await assert(await count(page, '.emp-mgr.open') === 0, 'row expansion is session-only — a reload must bring every row back to one line');
+
+      // 홈: 8명이면 예전처럼 자동 펼침(data-forced), 9명이면 접힘
+      await seedHome(solo20.slice(0, 8));
+      await assert(await count(page, '.card.employee') === 8 && (await page.locator('.group-head').getAttribute('data-forced')) === '1', `a single group of 8 must still auto-open (got ${await count(page, '.card.employee')} cards)`);
+      await seedHome(solo20.slice(0, 9));
+      await assert(await count(page, '.card.employee') === 0 && (await page.locator('.group-head').getAttribute('data-forced')) === null, 'a single group of 9 must start collapsed and be toggleable');
+    }
 
     // ───────────────────────────────────────────────────────────────
     // (7) 검색·차감 1단계(beta.17): 초성 검색 · 공백 무시 · 최근 사용 순 · 확대 카드 · 사용 모달 빠른 금액 · 저장 후 검색어 초기화
@@ -4105,6 +4233,8 @@ async function main() {
     await assert(!lockAllowed.includes('cust-compose-back'), 'the removed [뒤로] action (cust-compose-back) must not linger in the lock allowlist');
     await assert(!lockAllowed.includes('cust-amt-next'), 'the removed intermediate step (cust-amt-next) must not linger in the lock allowlist');
     await assert(JSON.stringify(lockAllowed) === JSON.stringify(expectedAllowed), `the lock allowlist must stay exactly the PIN/customer actions (got ${JSON.stringify(lockAllowed)})`);
+    // beta.53: 직원 한 줄 행 펼침(toggle-emp)은 설정 화면 조작이다 — 존재하되 잠금 허용 목록 밖이어야 한다(아래 스윕이 무동작을 확인).
+    await assert((await page.evaluate(() => window.__prepaidTestHooks.clickActionKeys())).includes('toggle-emp') && !lockAllowed.includes('toggle-emp'), 'beta.53 toggle-emp must exist and stay outside the lock allowlist');
     const gateBefore = await readDb(page);
     const swept = await page.evaluate(() => {
       const allowed = new Set(window.__prepaidTestHooks.lockAllowed());
