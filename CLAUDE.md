@@ -116,6 +116,11 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 
 - **홈페이지·사용 안내서 개정**: 짧은 메인 + 별도 도움말, 밥그릇 브랜드, 실제 화면 예시(가상 데이터). 역할별 PDF는 사장님 3쪽·담당자 2쪽·직원 2쪽, 손님용 A4 1쪽. 상세 설명은 `docs/manual-*-reference.html`로 분리. 사용자 커밋·배포 승인에 따라 홈페이지는 `bapjangbu-home` main, docs는 GitHub Pages main 대상. 기존 beta.52 코드를 그대로 보존하며 서버·DB는 배포하지 않습니다. 결과·검증 기록: `docs/homepage-renewal-report-2026-10.md`.
 
+- **담당자 웹 엑셀 양식(2026-10-31, 담당자 웹만)**: CSV 양식이 엑셀에서 A열 한 칸에 붙어 열린다는 현장 보고 → 양식을 외부 라이브러리 없는
+  `.xlsx`(store zip, inlineStr)로 내려주고 업로드도 `.xlsx` 직접 읽기(`DecompressionStream('deflate-raw')`, sharedStrings·윗주 rPh 제외).
+  2단계에서 고른 음식점×3줄에 음식점명·소속기관·부서명 미리 채움, 직원명·금액·입금자명·결제구분이 모두 빈 줄은 건너뛰고 개수 안내.
+  양식 제목 `소속`→`소속기관`(업로드는 `HEADER_ALIAS`로 `소속`으로 정규화 — 헤더 완전 일치 계약 유지). 하니스 `harness/agency-xlsx.e2e.mjs`(18),
+  openpyxl 왕복 확인. Numbers/엑셀 실물 확인은 못 함(자동화 권한 없음).
 - **담당자 웹 CSV 바꾸기/덧붙이기(2026-10-31, 담당자 웹만)**: 현장 보고 — 고친 CSV를 다시 올리며 `window.confirm`의 [확인]을 눌러
   틀린 행+고친 행이 섞임(중복 경고). 기본 팝업은 버튼 이름을 못 바꾸므로 화면 안 선택 상자(`S.pendingCsv`, 고르기 전 `S.valid=false`)로
   교체 — [이 파일로 바꾸기](진한 버튼·기본) / [기존 명단에 덧붙이기], 덧붙임 후 ERR_DUP_ROW면 [방금 올린 파일로 바꾸기](`S.lastAppend`),

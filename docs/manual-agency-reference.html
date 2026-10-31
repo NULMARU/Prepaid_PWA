@@ -160,13 +160,13 @@ footer{color:var(--muted);font-size:12.5px;margin-top:36px;text-align:center}
 </ul>
 
 <h2 id="step3"><span class="num">5</span>3단계 명단 만들기</h2>
-<div class="step"><div class="step-num">1</div><div class="step-body"><b>반드시</b> <span class="btn-secondary">CSV 양식 다운로드</span>를 눌러 양식 파일을 내려받아 <b>그 파일에</b> 작성합니다. 양식 안의 <code>예시)</code> 행은 지우고 실제 명단을 적습니다.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">엑셀에서 다음 항목(순서 고정)을 작성합니다: <code>음식점명, 소속, 부서명, 직원명, 선금금액, 입금자명, 결제구분</code><br><b>필수 입력항목은 음식점명·소속·부서명·직원명·선금금액</b>이며, 입금자명·결제구분은 선택 항목입니다.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body"><span class="btn-secondary">엑셀 양식 다운로드</span>를 눌러 엑셀 파일(.xlsx)을 내려받아 <b>그 파일에</b> 작성합니다. 2단계에서 고른 <b>음식점마다 3줄씩</b> 음식점명·소속기관·부서명이 미리 들어 있으니 <b>직원명과 선금금액</b>만 채우면 됩니다. 직원이 더 많으면 줄을 복사해 늘리고, 쓰지 않은 줄은 그대로 두셔도 됩니다(올릴 때 건너뜁니다). 엑셀이 없으면 바로 아래 <b>CSV 양식</b> 링크로 같은 내용을 CSV로 받을 수 있습니다.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">엑셀에서 다음 항목(순서 고정)을 작성합니다: <code>음식점명, 소속기관, 부서명, 직원명, 선금금액, 입금자명, 결제구분</code><br><b>필수 입력항목은 음식점명·소속기관·부서명·직원명·선금금액</b>이며, 입금자명·결제구분은 선택 항목입니다.</div></div>
 <table>
 <thead><tr><th>항목</th><th>필수</th><th>설명</th></tr></thead>
 <tbody>
 <tr><td><code>음식점명</code></td><td>필수</td><td>2단계에서 선택한 음식점 이름과 <b>글자까지 똑같이</b> 적으십시오(한 글자만 달라도 다른 가게로 봅니다).</td></tr>
-<tr><td><code>소속</code></td><td>필수</td><td>공공기관명·회사명을 적으십시오. 비워 두면 2단계에서 고른 소속 기관이 자동으로 들어갑니다(기존 파일도 그대로 인식).</td></tr>
+<tr><td><code>소속기관</code></td><td>필수</td><td>공공기관명·회사명을 적으십시오(부서가 아니라 <b>기관 이름</b>, 예: <code>광진구청</code>). 비워 두면 2단계에서 고른 소속 기관이 자동으로 들어갑니다(기존 파일도 그대로 인식).</td></tr>
 <tr><td><code>부서명</code></td><td>필수</td><td>팀 단위로 나눠 보낼 때는 팀까지 적으십시오(예: <code>홍보과 1팀</code>).</td></tr>
 <tr><td><code>직원명</code></td><td>필수</td><td>—</td></tr>
 <tr><td><code>선금금액</code></td><td>필수</td><td>숫자만(예: <code>9000</code> 또는 <code>9,000</code>).</td></tr>
@@ -176,13 +176,13 @@ footer{color:var(--muted);font-size:12.5px;margin-top:36px;text-align:center}
 </table>
 <div class="tip">💳 <b>입금자명은 더 이상 필수가 아닙니다.</b> 카드결제에는 입금자명이라는 개념 자체가 없기 때문입니다. 비워 두어도 명단은 정상적으로 전송됩니다.</div>
 <div class="step"><div class="step-num">3</div><div class="step-body"><b>소속을 나눠 적어야 할 때</b>: 산하기관·공단·협력업체 등 <b>소속이 여러 곳</b>인 직원을 한 파일에 담을 때만 <code>소속</code> 칸을 채우십시오. 소속·부서 조합별로 명단이 나뉘어 각각 전달되고, 음식점 장부에도 소속별로 구분되어 등록됩니다.</div></div>
-<div class="step"><div class="step-num">4</div><div class="step-body">엑셀에서 그냥 'CSV로 저장'해도 됩니다 — 형식은 자동으로 인식됩니다.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">엑셀에서 <b>그대로 저장</b>(.xlsx)해 올리면 됩니다. 'CSV로 저장'한 파일도 그대로 인식됩니다. 예전 엑셀 형식(.xls)이나 한셀 파일은 [다른 이름으로 저장] → <b>Excel 통합 문서(.xlsx)</b>로 저장해 올려 주십시오.</div></div>
 <div class="step"><div class="step-num">5</div><div class="step-body">작성한 파일을 업로드합니다.</div></div>
 <p>문제가 있으면 표 아래에 원인과 해결 방법이 표시됩니다.</p>
 <div class="tip">📄 <b>음식점이 여러 곳이어도 파일은 하나면 됩니다</b> — 첫 칸(음식점명)으로 가게별로 알아서 나뉩니다. 가게마다 파일을 따로 만들 필요가 없습니다. 이미 명단을 올린 뒤 파일을 하나 더 고르면 화면에 버튼 두 개가 나옵니다 — <b>잘못 올린 명단을 고친 파일로 바꿀 때는 [이 파일로 바꾸기]</b>(먼저 올린 명단은 지워짐), <b>빠뜨린 직원을 더할 때는 [기존 명단에 덧붙이기]</b>. 덧붙였는데 같은 직원이 두 번 들어가면 [방금 올린 파일로 바꾸기]로 바로 되돌릴 수 있고, [올린 명단 비우기]로 처음부터 다시 올릴 수도 있습니다.</div>
 <div class="tip">예전 양식도 <b>그대로 올릴 수 있습니다</b> — 이미 쓰시던 파일을 고칠 필요가 없습니다. 다음 네 가지 첫 줄을 모두 인식합니다.
 <ul>
-<li><code>음식점명, 소속, 부서명, 직원명, 선금금액, 입금자명, 결제구분</code> (현재 권장)</li>
+<li><code>음식점명, 소속기관, 부서명, 직원명, 선금금액, 입금자명, 결제구분</code> (현재 권장 — <code>소속기관</code> 자리에 <code>소속</code>이라고 적힌 예전 파일도 같습니다)</li>
 <li><code>음식점명, 소속, 부서명, 직원명, 선금금액, 입금자명</code></li>
 <li><code>음식점명, 부서명, 직원명, 선금금액, 입금자명</code> (이 경우 소속은 2단계에서 고른 기관)</li>
 <li><code>음식점명, 기관명, 부서명, 직원명, 선금금액, 입금자명</code> (더 예전 양식)</li>

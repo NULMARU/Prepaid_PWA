@@ -181,11 +181,12 @@ tr.sub td{background:#eef2f7;font-weight:700}
 <div id="view-3" class="wizard-view hide">
 <div class="card hide" id="csvCard">
 <h2>3단계 · 명단 만들기</h2>
-<div class="step-help"><b>반드시 아래 [CSV 양식 다운로드]로 받은 양식 파일에 작성해 주세요.</b><br>양식 안의 '예시)' 행은 지우고 실제 명단을 적으면 됩니다.</div>
-<div class="meta">필수 입력항목은 <b>음식점명, 소속, 부서명, 직원명, 선금금액</b>입니다.</div>
-<button id="csvTemplateBtn" type="button" class="btn-primary" style="margin-top:8px">CSV 양식 다운로드</button>
-<label for="csv" class="sr-only">CSV 파일 선택</label>
-<input type="file" id="csv" accept=".csv" style="padding-top:8px">
+<div class="step-help"><b>아래 [엑셀 양식 다운로드]로 받은 파일에 작성해 주세요.</b><br>2단계에서 고른 음식점과 소속기관·부서명이 미리 들어 있어요 — <b>직원명과 선금금액</b>만 채우면 됩니다. 줄이 모자라면 복사해 늘리고, 남은 빈 줄은 그대로 두셔도 돼요. 엑셀에서 그대로 저장해 올리면 됩니다.</div>
+<div class="meta">필수 입력항목은 <b>음식점명, 소속기관, 부서명, 직원명, 선금금액</b>입니다.</div>
+<button id="csvTemplateBtn" type="button" class="btn-primary" style="margin-top:8px">엑셀 양식 다운로드</button>
+<div class="meta" style="margin-top:4px">엑셀이 없으면 <a href="#" id="csvTemplateCsvLink">CSV 양식</a>으로 받으세요.</div>
+<label for="csv" class="sr-only">명단 파일(엑셀·CSV) 선택</label>
+<input type="file" id="csv" accept=".xlsx,.csv" style="padding-top:8px">
 <div id="csvResult"></div>
 </div>
 
@@ -1087,22 +1088,139 @@ const PAY_COLS=['음식점명','소속','부서명','직원명','선금금액','
 const ORG_COLS=['음식점명','소속','부서명','직원명','선금금액','입금자명'];
 const COLS=['음식점명','부서명','직원명','선금금액','입금자명'];
 const OLD_COLS=['음식점명','기관명','부서명','직원명','선금금액','입금자명'];
-$('csvTemplateBtn').addEventListener('click',()=>{
-  // 양식 파일은 권장(7열) 양식으로 내려준다. 예시는 실제 기입 모습이 한눈에 보이게 채우되,
-  // 선택 항목인 '결제구분'은 비워 둔다(카드/계좌이체/제로페이 중 실제 결제 방식을 적는 칸).
-  // 예시가 음식점 1곳 1행뿐이면 "가게마다 파일을 따로 만든다"로 오해한다(실사용 보고) —
-  // 음식점 2곳·3행을 담아 '여러 가게 = 한 파일'이 양식 자체에서 드러나게 한다.
-  // CSV는 서식(이탤릭 등)이 불가능하므로 각 예시 행 첫 칸에 '예시)'를 붙여 예시임을 밝힌다(사용자 지시).
-  const examples=[
-    ['예시)광진맛집','광진구청','홍보과','홍길동','27000','김서무',''],
-    ['예시)광진맛집','광진구청','홍보과','김철수','27000','김서무',''],
-    ['예시)동네국밥','광진구청','재무과','이영희','36000','재무과','']
-  ];
-  const csv=PAY_COLS.join(',')+'\r\n'+examples.map(r=>r.join(',')).join('\r\n')+'\r\n';
-  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+// '소속'만 보고 "소속 부서"로 읽는 일이 있어(현장 질문 2026-10), 양식 제목은 '소속기관'으로 내준다.
+//   업로드 쪽은 '소속기관'·'소속기관명'을 '소속'으로 읽어 들인다 — 예전 첫 줄('소속')도 그대로 인식된다.
+const TEMPLATE_COLS=['음식점명','소속기관','부서명','직원명','선금금액','입금자명','결제구분'];
+const HEADER_ALIAS={'소속기관':'소속','소속기관명':'소속'};
+// 양식에 미리 채울 줄: 2단계에서 고른 음식점마다 3줄(음식점명·소속기관·부서명). 직원명·금액은 비워 둔다.
+//   음식점명은 고른 가게 이름 그대로라 "글자까지 똑같이"를 담당자가 맞출 필요가 없다.
+//   직원명·금액 등을 채우지 않고 남긴 줄은 업로드 때 건너뛴다(isUnfilledRow).
+const TEMPLATE_ROWS_PER_STORE=3;
+function templateRows(){
+  const org=S.agency?S.agency.name:'';
+  const rows=[];
+  S.restaurants.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ko')).forEach(r=>{
+    for(let i=0;i<TEMPLATE_ROWS_PER_STORE;i++)rows.push([r.name||'',org,S.dept||'','','','','']);
+  });
+  return rows;
+}
+function downloadBlob(blob,name){
   const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download='선입금대장_CSV양식.csv';document.body.appendChild(a);a.click();a.remove();
+  const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+// ── 엑셀(.xlsx) 쓰기·읽기 — 외부 라이브러리 없이 ──
+// CSV 양식은 엑셀 설정(목록 구분 기호)·프로그램에 따라 모든 칸이 A열 한 칸에 붙어 열리는 일이 있다(현장 보고 2026-10).
+// .xlsx는 어느 프로그램에서나 칸이 나뉘어 열리고, 담당자가 'CSV로 저장'하는 단계도 필요 없다.
+const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(u){let c=0xFFFFFFFF;for(let i=0;i<u.length;i++)c=CRC_TABLE[(c^u[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+function zipStore(files){ // files: [{name, data:Uint8Array}] → 압축 없는(store) zip
+  const enc=new TextEncoder(),parts=[],central=[];let off=0;
+  files.forEach(f=>{
+    const nm=enc.encode(f.name),d=f.data,crc=crc32(d);
+    const h=new DataView(new ArrayBuffer(30));
+    h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,0,true);
+    h.setUint32(14,crc,true);h.setUint32(18,d.length,true);h.setUint32(22,d.length,true);h.setUint16(26,nm.length,true);
+    parts.push(new Uint8Array(h.buffer),nm,d);
+    const c=new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);
+    c.setUint32(16,crc,true);c.setUint32(20,d.length,true);c.setUint32(24,d.length,true);c.setUint16(28,nm.length,true);c.setUint32(42,off,true);
+    central.push(new Uint8Array(c.buffer),nm);
+    off+=30+nm.length+d.length;
+  });
+  const cdSize=central.reduce((n,x)=>n+x.length,0);
+  const e=new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cdSize,true);e.setUint32(16,off,true);
+  return new Blob(parts.concat(central,[new Uint8Array(e.buffer)]),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function xmlEsc(v){return String(v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'')}
+function colLetter(i){let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s}
+function buildXlsx(header,rows){
+  const enc=new TextEncoder();
+  // 모든 칸을 글자(inlineStr)로 쓴다 — 금액 칸도 빈 칸이므로 숫자 형식이 필요 없다(입력하면 엑셀이 숫자로 저장).
+  const cell=(v,ci,ri,st)=>'<c r="'+colLetter(ci)+ri+'" t="inlineStr"'+(st?' s="'+st+'"':'')+'><is><t xml:space="preserve">'+xmlEsc(v)+'</t></is></c>';
+  const rowXml=(arr,ri,st)=>'<row r="'+ri+'">'+arr.map((v,ci)=>v===''&&!st?'':cell(v,ci,ri,st)).join('')+'</row>';
+  const widths=[18,14,14,10,10,12,10];
+  const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+
+    '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'+
+    '<cols>'+widths.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols>'+
+    '<sheetData>'+rowXml(header,1,1)+rows.map((r,i)=>rowXml(r,i+2,0)).join('')+'</sheetData></worksheet>';
+  const files=[
+    ['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ['_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ['xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="명단" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+    ['xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+    ['xl/styles.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFEFEF"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'],
+    ['xl/worksheets/sheet1.xml',sheet]
+  ];
+  return zipStore(files.map(([name,x])=>({name,data:enc.encode(x)})));
+}
+// 첫 번째 시트를 [[칸,…],…]로 읽는다. 빈 줄은 빈 배열로 남겨 줄 번호(엑셀 행 번호)를 맞춘다.
+async function readXlsxTable(buf){
+  const u=new Uint8Array(buf),dv=new DataView(buf);
+  let eocd=-1;for(let i=u.length-22;i>=Math.max(0,u.length-65557);i--){if(dv.getUint32(i,true)===0x06054b50){eocd=i;break}}
+  if(eocd<0)throw new Error('엑셀 파일 구조를 읽지 못했어요');
+  const n=dv.getUint16(eocd+10,true);let p=dv.getUint32(eocd+16,true);const ents={};const dec=new TextDecoder();
+  for(let k=0;k<n;k++){
+    if(dv.getUint32(p,true)!==0x02014b50)break;
+    const method=dv.getUint16(p+10,true),csize=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),el=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+    ents[dec.decode(u.subarray(p+46,p+46+nl))]={method,csize,lo};p+=46+nl+el+cl;
+  }
+  const get=async name=>{
+    const e=ents[name];if(!e)return null;
+    const start=e.lo+30+dv.getUint16(e.lo+26,true)+dv.getUint16(e.lo+28,true);
+    const raw=u.subarray(start,start+e.csize);
+    if(e.method===0)return dec.decode(raw);
+    if(e.method!==8)throw new Error('지원하지 않는 압축 방식이에요');
+    if(typeof DecompressionStream==='undefined')throw new Error('이 브라우저는 엑셀 파일을 열 수 없어요 — 엑셀에서 CSV로 저장해 올리거나 브라우저를 최신으로 바꿔 주세요');
+    const out=await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+    return dec.decode(out);
+  };
+  const parse=x=>new DOMParser().parseFromString(x,'application/xml');
+  const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  // 첫 시트 경로: workbook.xml의 첫 <sheet> → rels의 Target
+  let sheetPath='xl/worksheets/sheet1.xml';
+  const wb=await get('xl/workbook.xml'),rels=await get('xl/_rels/workbook.xml.rels');
+  if(wb&&rels){
+    const sh=parse(wb).getElementsByTagNameNS(NS,'sheet')[0];
+    const rid=sh&&(sh.getAttribute('r:id')||sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id'));
+    const rel=[...parse(rels).getElementsByTagName('Relationship')].find(r=>r.getAttribute('Id')===rid);
+    if(rel){const t=rel.getAttribute('Target');sheetPath=t.startsWith('/')?t.slice(1):'xl/'+t.replace(/^\.\//,'')}
+  }
+  const texts=el=>[...el.getElementsByTagNameNS(NS,'t')].filter(t=>!t.closest||!t.closest('rPh')).map(t=>t.textContent).join('');
+  const ssx=await get('xl/sharedStrings.xml');
+  const shared=ssx?[...parse(ssx).getElementsByTagNameNS(NS,'si')].map(texts):[];
+  const sx=await get(sheetPath);if(!sx)throw new Error('엑셀 파일에서 시트를 찾지 못했어요');
+  const doc=parse(sx);if(doc.getElementsByTagName('parsererror').length)throw new Error('엑셀 시트를 읽지 못했어요');
+  const table=[];
+  [...doc.getElementsByTagNameNS(NS,'row')].forEach((row,ri)=>{
+    const rn=parseInt(row.getAttribute('r'),10)||(ri+1);const arr=[];
+    [...row.getElementsByTagNameNS(NS,'c')].forEach((c,ci)=>{
+      const ref=c.getAttribute('r')||'';const m=/^([A-Z]+)/.exec(ref);
+      let col=ci;if(m){col=0;for(const ch of m[1])col=col*26+(ch.charCodeAt(0)-64);col-=1}
+      const t=c.getAttribute('t');const v=c.getElementsByTagNameNS(NS,'v')[0];
+      let val='';
+      if(t==='s')val=v?(shared[parseInt(v.textContent,10)]||''):'';
+      else if(t==='inlineStr'){const is=c.getElementsByTagNameNS(NS,'is')[0];val=is?texts(is):''}
+      else val=v?v.textContent:'';
+      arr[col]=String(val).trim();
+    });
+    for(let i=0;i<arr.length;i++)if(arr[i]==null)arr[i]='';
+    table[rn-1]=arr;
+  });
+  for(let i=0;i<table.length;i++)if(!table[i])table[i]=[];
+  return table;
+}
+$('csvTemplateBtn').addEventListener('click',()=>{
+  downloadBlob(buildXlsx(TEMPLATE_COLS,templateRows()),'선입금대장_명단양식.xlsx');
+});
+$('csvTemplateCsvLink').addEventListener('click',e=>{
+  e.preventDefault();
+  // 엑셀이 없거나 CSV가 꼭 필요할 때만. 같은 줄을 미리 채운다(UTF-8 BOM — 엑셀 한글 깨짐 방지).
+  const q=v=>/[",\r\n]/.test(v)?'"'+String(v).replace(/"/g,'""')+'"':v;
+  const csv=[TEMPLATE_COLS].concat(templateRows()).map(r=>r.map(q).join(',')).join('\r\n')+'\r\n';
+  downloadBlob(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}),'선입금대장_명단양식.csv');
 });
 function parseLine(line,delim){delim=delim||',';const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===delim&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
 function parseWon(v){const s=String(v==null?'':v).replace(/,/g,'').replace(/원/g,'').replace(/\s/g,'').trim();if(!s)return NaN;const n=Number(s);return Number.isInteger(n)?n:NaN}
@@ -1171,37 +1289,52 @@ $('csv').addEventListener('change',async e=>{
     validateAndRenderCsv();
   };
   const buf=await file.arrayBuffer();
-  let decoded;
-  try{decoded=decodeCsvBuffer(buf)}catch(err){rejectKeepingPrev(['인코딩 인식 실패: '+err.message]);return}
-  const text=decoded.text;
-  const lines=text.split(/\r?\n/).filter(l=>l.trim());
   const fileErrors=[],warnings=[];
-  if(decoded.encoding==='euc-kr')warnings.push('EUC-KR(공공기관 엑셀 기본 저장 형식)로 인식해 자동 변환했습니다.');
-  const firstLine=lines[0]||'';
-  const delim=(!firstLine.includes(',')&&firstLine.includes('\t'))?'\t':',';
-  const header=parseLine(firstLine,delim).map(h=>h.replace(/\s/g,''));
+  // table: [[칸,…],…] — CSV든 엑셀(.xlsx)이든 같은 모양으로 만든 뒤 아래 검사는 한 길로 간다.
+  //   lineNos[i]는 화면에 보여 줄 줄 번호(엑셀이면 실제 행 번호).
+  let table,lineNos;
+  const u8=new Uint8Array(buf);
+  const isZip=u8.length>=4&&u8[0]===0x50&&u8[1]===0x4B&&u8[2]===0x03&&u8[3]===0x04;
+  const isOle=u8.length>=4&&u8[0]===0xD0&&u8[1]===0xCF&&u8[2]===0x11&&u8[3]===0xE0;
+  if(isOle){rejectKeepingPrev(['예전 엑셀 형식(.xls)이나 한셀 파일은 바로 읽을 수 없어요. 엑셀에서 [다른 이름으로 저장] → "Excel 통합 문서(.xlsx)"로 저장해 다시 골라 주세요.']);return}
+  if(isZip){
+    let t;
+    try{t=await readXlsxTable(buf)}catch(err){rejectKeepingPrev(['엑셀 파일을 읽지 못했어요: '+err.message]);return}
+    table=[];lineNos=[];
+    t.forEach((r,i)=>{if(r.some(x=>x)){table.push(r);lineNos.push(i+1)}});
+  }else{
+    let decoded;
+    try{decoded=decodeCsvBuffer(buf)}catch(err){rejectKeepingPrev(['인코딩 인식 실패: '+err.message]);return}
+    const lines=decoded.text.split(/\r?\n/).filter(l=>l.trim());
+    if(decoded.encoding==='euc-kr')warnings.push('EUC-KR(공공기관 엑셀 기본 저장 형식)로 인식해 자동 변환했습니다.');
+    const fl=lines[0]||'';
+    const delim=(!fl.includes(',')&&fl.includes('\t'))?'\t':',';
+    table=lines.map(l=>parseLine(l,delim));lineNos=lines.map((_,i)=>i+1);
+  }
+  const firstLine=(table[0]||[]).join(',');
+  const header=(table[0]||[]).map(h=>String(h).replace(/\s/g,'')).map(h=>HEADER_ALIAS[h]||h);
   let rawRows=null,csvFormat=null;
   const joinedHeader=header.join(',');
   const isPay=PAY_COLS.join(',')===joinedHeader;
   const isOrg=ORG_COLS.join(',')===joinedHeader;
   const isNew=COLS.join(',')===joinedHeader;
   const isOld=OLD_COLS.join(',')===joinedHeader;
-  if(!lines.length){
+  if(!table.length){
     fileErrors.push('파일 내용이 비어 있습니다.');
   }else if(!isPay&&!isOrg&&!isNew&&!isOld){
     // 무엇이 다른지 스스로 비교할 수 있도록 '실제 들어온 첫 줄'을 함께 보여 준다(A3).
-    fileErrors.push('첫 줄(항목명)이 CSV 양식과 다릅니다.\n· 기대한 첫 줄: '+PAY_COLS.join(',')+
+    fileErrors.push('첫 줄(항목명)이 양식과 다릅니다.\n· 기대한 첫 줄: '+TEMPLATE_COLS.join(',')+
       '\n· 결제구분 열 없는 첫 줄도 그대로 쓸 수 있어요: '+ORG_COLS.join(',')+
       '\n· 소속 열 없는 예전 첫 줄도 그대로 쓸 수 있어요: '+COLS.join(',')+
       '\n· 실제 파일의 첫 줄: '+(firstLine.trim()?firstLine.trim():'(빈 줄)')+
-      '\n위 [CSV 양식 다운로드]로 받은 파일의 첫 줄을 그대로 쓰시면 됩니다.');
+      '\n위 [엑셀 양식 다운로드]로 받은 파일의 첫 줄을 그대로 쓰시면 됩니다.');
   }else{
     csvFormat=isPay?'pay':(isOrg?'org':(isOld?'old':'new'));
     if(isOld)warnings.push('예전 양식(기관명 열 포함)으로 인식했습니다. 기관명은 2단계에서 고른 소속 기관을 기준으로 확인합니다.');
     rawRows=[];
-    const oddPay=new Set();
-    for(let i=1;i<lines.length;i++){
-      const f=parseLine(lines[i],delim);if(f.every(x=>!x))continue;
+    const oddPay=new Set();let unfilled=0;
+    for(let i=1;i<table.length;i++){
+      const f=table[i];if(f.every(x=>!x))continue;
       // 결제 양식: 음식점명,소속,부서명,직원명,선금금액,입금자명,결제구분
       // 소속 양식: 음식점명,소속,부서명,직원명,선금금액,입금자명
       // 구 양식  : 음식점명,기관명,부서명,직원명,선금금액,입금자명
@@ -1211,6 +1344,9 @@ $('csv').addEventListener('change',async e=>{
         :isOld
           ?{rest:f[0]||'',org:'',inst:f[1]||'',dept:f[2]||'',name:f[3]||'',amount:f[4],payer:f[5]||'',payMethod:''}
           :{rest:f[0]||'',org:'',inst:'',dept:f[1]||'',name:f[2]||'',amount:f[3],payer:f[4]||'',payMethod:''};
+      // 양식에 미리 채워 둔 줄(음식점명·소속기관·부서명만 있고 직원명·금액·입금자명·결제구분이 빈 줄)은
+      //   담당자가 쓰지 않은 줄이다 — 오류로 막지 않고 건너뛰되, 몇 줄인지는 안내한다(조용히 삼키지 않음).
+      if(!o.name&&!String(o.amount==null?'':o.amount).trim()&&!o.payer&&!o.payMethod){unfilled++;continue}
       const amt=parseWon(o.amount);
       let structErr='';
       // '소속'·'입금자명'·'결제구분'은 빈 칸이어도 오류가 아니다(선택 항목).
@@ -1220,8 +1356,9 @@ $('csv').addEventListener('change',async e=>{
       else if(!(amt>0))structErr=ERR_AMOUNT;
       if(o.payMethod&&PAY_METHODS.indexOf(o.payMethod)<0)oddPay.add(o.payMethod);
       // 중복 행 검사는 소속이 자동 채워진 뒤라야 정확하므로 validateAndRenderCsv로 옮겼다.
-      rawRows.push({...o,amount:amt,line:i+1,structErr});
+      rawRows.push({...o,amount:amt,line:lineNos[i],structErr});
     }
+    if(unfilled)warnings.push('직원명·금액을 적지 않은 줄 '+unfilled+'개는 건너뛰었어요(양식에 미리 채워 둔 빈 줄).');
     if(oddPay.size)warnings.push('결제구분 값 '+[...oddPay].map(v=>'"'+v+'"').join(', ')+'은(는) 표준 값이 아니에요 — 카드·계좌이체·제로페이 중 하나로 적어 주세요(비워 두셔도 됩니다). 적으신 값은 그대로 음식점에 전달됩니다.');
     if(!rawRows.length)fileErrors.push('데이터 행이 없습니다. 헤더 아래에 최소 1행을 입력하세요.');
   }
