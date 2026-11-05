@@ -48,7 +48,7 @@ ok(/\[Content_Types\]\.xml/.test(listing)&&/xl\/worksheets\/sheet1\.xml/.test(li
 execFileSync('unzip',['-tq',xf]); // CRC 오류면 예외
 const sx=execFileSync('unzip',['-p',xf,'xl/worksheets/sheet1.xml']).toString();
 const cells=[...sx.matchAll(/<row r="(\d+)">(.*?)<\/row>/g)].map(m=>[...m[2].matchAll(/<t xml:space="preserve">(.*?)<\/t>/g)].map(x=>x[1]));
-ok(cells[0].join()==='음식점명,소속기관,부서명,직원명,선금금액,입금자명,결제구분','1 첫 줄 '+cells[0]);
+ok(cells[0].join()==='음식점명,소속기관,부서명,직원명,급량개수,선금금액,입금자명,결제구분','1 첫 줄 '+cells[0]);
 ok(cells.length===7&&cells.slice(1,4).every(r=>r.join()===R2+',광진구청,위생과')&&cells.slice(4).every(r=>r.join()===R1+',광진구청,위생과'),'1 미리 채운 줄 '+JSON.stringify(cells));
 ok(/state="frozen"/.test(sx),'1 첫 줄 고정');
 const up=async(name,buf,mime)=>{await p.setInputFiles('#csv',{name,mimeType:mime||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:buf});await p.waitForTimeout(300)};
@@ -57,7 +57,7 @@ const st=()=>p.evaluate(()=>{const S=window.__S;return{rows:(S.rawRows||[]).map(
 // 2 받은 양식을 그대로 올리면(아무것도 안 적음) 빈 줄만 → '데이터 행이 없습니다', 오류 없이 처리
 await up('t.xlsx',fs.readFileSync(xf));let s=await st();
 ok(s.rows.length===0&&/데이터 행이 없습니다/.test(s.err),'2 빈 양식 업로드 '+JSON.stringify(s));
-// 3 엑셀이 저장한 모양의 파일: deflate·sharedStrings(서식 조각+윗주)·숫자 금액·빈 줄 끼움·미리 채운 줄 남김
+// 3 (예전 7열 첫 줄 — 급량개수 없음도 그대로) 엑셀이 저장한 모양의 파일: deflate·sharedStrings(서식 조각+윗주)·숫자 금액·빈 줄 끼움·미리 채운 줄 남김
 const filled=excelLike([['음식점명','소속기관','부서명','직원명','선금금액','입금자명','결제구분'],
   [R2,'광진구청','위생과','김진표',72000,'배유정','카드'],
   null,
@@ -75,8 +75,8 @@ await p.click('#csvResult button[data-csv="clear"]');
 const cf=path.join(tmp,'t.csv');await dl.saveAs(cf);const cb=fs.readFileSync(cf);
 ok(cb[0]===0xEF&&cb[1]===0xBB&&cb[2]===0xBF,'4 CSV BOM');
 const ct=cb.toString('utf8').slice(1).split('\r\n');
-ok(ct[0]==='음식점명,소속기관,부서명,직원명,선금금액,입금자명,결제구분'&&ct[1]===R2+',광진구청,위생과,,,,'&&ct.length===8,'4 CSV 내용 '+JSON.stringify(ct));
-ct[1]=R2+',광진구청,위생과,김진표,10000,,';
+ok(ct[0]==='음식점명,소속기관,부서명,직원명,급량개수,선금금액,입금자명,결제구분'&&ct[1]===R2+',광진구청,위생과,,,,,'&&ct.length===8,'4 CSV 내용 '+JSON.stringify(ct));
+ct[1]=R2+',광진구청,위생과,김진표,,10000,,';
 await up('t.csv',Buffer.from('﻿'+ct.join('\r\n')),'text/csv');s=await st();
 ok(s.rows.length===1&&s.valid&&/5개/.test(s.warn),'4 CSV 적어 올리기 '+JSON.stringify(s));
 // 5 예전 엑셀(.xls)·한셀 같은 OLE 파일 → 저장 방법 안내, 기존 명단 유지

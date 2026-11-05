@@ -7,7 +7,7 @@
 | guest-name.webp | 음식점 앱 이름·소속 확인 | 다른 사람을 고르지 않도록 안내 |
 | guest-amount.webp | 음식점 앱 금액·서명 작성 | 잔액과 사용 금액, 서명·사장님 확인 구분 |
 | owner-settings.webp | 음식점 앱 설정 중 명단 등록 | 자동 등록과 수동 등록의 위치 |
-| agency-template.webp | 담당자 웹 명단 만들기 | 양식 다운로드·파일 선택 |
+| agency-template.webp | 담당자 웹 명단 만들기(2026-11 재촬영: 1식 단가 칸) | 양식 다운로드·파일 선택 |
 | agency-confirm.webp | 담당자 웹 가게별 합계 확인 | 전송 전 금액 대조 |
 
 `harness/homepage-preview.mjs`의 `/demo.html`(기본 금액·서명), `?screen=search`(가상 이름 1명 검색 후 확인), `?screen=settings`와 `/agency-demo.html`에서 촬영했습니다. 이 경로는 로컬 확인용이며 운영 앱 기능이 아닙니다.
