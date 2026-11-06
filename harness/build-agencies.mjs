@@ -183,6 +183,21 @@ for (const f of rows) {
 }
 const dedup = (arr) => { const s = new Set(), out = []; for (const x of arr) if (!s.has(x)) { s.add(x); out.push(x); } return out; };
 
+// ── 보건소 분리 규칙(2026-11-07, 현장 사고 후 확정) ───────────────────────────────
+// 보건소는 구청·시청·군청의 직속기관이지만 명단을 보내는 서무 입장에서는 **별도 기관**이다. 양쪽(사장님 앱의 부서 목록 고르기,
+//   담당자 웹의 기관 고르기)이 같은 목록을 쓰므로, 목록에 보건소가 없으면 사장님은 '광진구청+보건의료과', 서무는 '광진구보건소'로
+//   갈라져 같은 사람이 두 부서에 생긴다. 규칙:
+//   ① 광역청을 뺀 모든 기초자치단체(제주 행정시 포함) 바로 뒤에 '{시군구}보건소'(id `${id}-health`, district=시군구명)를 둔다.
+//      시 하나에 보건소가 여럿인 경우(일반구)도 항목은 하나다 — 우리 목록 안에서 양쪽이 같은 이름을 고르는 것이 목적이다.
+//   ② 서울 큐레이션은 구청 과 목록에서 HEALTH_TOKENS가 든 과를 보건소로 옮긴다(서울시청은 본청 시민건강국이라 제외).
+//   ③ 자동 추출 지역의 보건소 과 목록은 **비워 둔다**(원자료의 보건소 과(중05 하위)는 이 스크립트가 추출하지 않는다 — 비어 있으면
+//      앱은 "직접 추가" 안내를 띄우고, 담당자 웹의 부서는 자유 입력이라 영향이 없다).
+//   ④ 세종은 광역만 있어 보건소를 등재하지 않는다(세종특별자치시청 + 부서명으로 쓴다).
+const HEALTH_TOKENS = ['보건', '건강', '의약', '감염', '진료'];
+const isHealthDept = (d) => HEALTH_TOKENS.some(t => d.includes(t));
+const healthOf = (id, name) => { const short = name.endsWith('청') ? name.slice(0, -1) : name; return { id: `${id}-health`, name: `${short}보건소`, district: short }; };
+function splitHealth(g) { const h = healthOf(g.id, g.name); return { ...h, keep: g.departments.filter(d => !isHealthDept(d)), departments: g.departments.filter(isHealthDept) }; }
+
 // ── 서울 큐레이션 로드 ──
 const curationPath = path.join(OUT, 'agency-departments.json');
 const curation = JSON.parse(fs.readFileSync(curationPath, 'utf8'));
@@ -204,11 +219,18 @@ for (const R of REGIONS) {
     agencies.push({ id: city.id, name: R.gwang });
     depts[city.id] = city.departments.slice();
     if (depts[city.id].length) filled++;
-    const gu = seoulIds.slice(1).slice().sort((a, b) => kcol.compare(a.name, b.name));
+    // 2026-11 보건소 분리: 큐레이션 파일이 이미 '{구}보건소'(id -health) 항목을 들고 있으면 그대로 싣고(구청 바로 뒤),
+    //   아직 없으면 구청 과 목록에서 HEALTH_TOKENS가 든 과를 떼어 보건소 항목을 만든다(동일 규칙 — 아래 splitHealth).
+    const gu = seoulIds.filter(a => a.id !== city.id && !a.id.endsWith('-health')).slice().sort((a, b) => kcol.compare(a.name, b.name));
+    const curatedHealth = new Map(seoulIds.filter(a => a.id.endsWith('-health')).map(a => [a.id, a]));
     for (const g of gu) {
+      const h = curatedHealth.get(g.id + '-health') || splitHealth(g);
       agencies.push({ id: g.id, name: g.name });
-      depts[g.id] = g.departments.slice();
+      depts[g.id] = h.keep.slice();
       if (depts[g.id].length) filled++;
+      agencies.push({ id: h.id, name: h.name, district: h.district });
+      depts[h.id] = h.departments.slice();
+      if (depts[h.id].length) filled++;
     }
     deptFiles[R.code] = { updatedAt: '2026-06-16', source: '큐레이션(2026-06-16)', depts };
     report.regionBasicCount[R.code] = gu.length;
@@ -242,7 +264,7 @@ for (const R of REGIONS) {
       if (d.length) filled++;
     }
     adm.sort((a, b) => kcol.compare(a.name, b.name));
-    for (const a of adm) agencies.push(a);
+    for (const a of adm) { agencies.push(a); const h = healthOf(a.id, a.name); agencies.push(h); depts[h.id] = []; }
     report.regionBasicCount[R.code] = adm.length;
   }
 
@@ -264,6 +286,7 @@ for (const R of REGIONS) {
       const d = dedup(deptByRep.get(b.rep) || []);
       depts[b.id] = d;
       if (d.length) filled++;
+      const h = healthOf(b.id, b.name); agencies.push(h); depts[h.id] = []; // 규칙 ①·③
     }
     report.regionBasicCount[R.code] = (report.regionBasicCount[R.code] || 0) + list.length;
   }

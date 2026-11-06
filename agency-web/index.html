@@ -603,7 +603,8 @@ function selectAgency(sido,aid){
   const idx=rg.agencies.findIndex(a=>String(a.id)===String(aid));
   if(idx<0){S.agency=null;$('jurisBox').classList.add('hide');return;}
   const a=rg.agencies[idx];
-  S.agency={sido,id:a.id,name:a.name,isRegional:idx===0};
+  // district(선택): 보건소처럼 "OO구청" 꼴이 아닌 기관은 관할 시군구를 자료가 직접 준다(2026-11 보건소 분리).
+  S.agency={sido,id:a.id,name:a.name,isRegional:idx===0,district:String(a.district||'')};
   saveAgencySelection();
   $('agencyMsg').innerHTML='<span class="good">소속 기관: '+esc(a.name)+'</span>';
   loadKeychecks(); // 기관이 바뀌면 확인 기록 범위(기관+부서)도 바뀐다
@@ -660,7 +661,7 @@ function jurisQuery(){
   const p=new URLSearchParams();
   p.set('sido',S.agency.sido);
   if(!S.agency.isRegional){
-    p.set('sigungu',S.agency.name.replace(/청$/,''));
+    p.set('sigungu',S.agency.district||S.agency.name.replace(/청$/,''));
   }
   return p.toString();
 }

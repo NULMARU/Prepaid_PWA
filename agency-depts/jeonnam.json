@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "jeonnam-city": [],
     "jeonnam-gangjin": [
@@ -529,6 +529,28 @@
       "산림과",
       "환경과",
       "도시과"
-    ]
+    ],
+    "jeonnam-gangjin-health": [],
+    "jeonnam-goheung-health": [],
+    "jeonnam-gokseong-health": [],
+    "jeonnam-gwangyang-health": [],
+    "jeonnam-gurye-health": [],
+    "jeonnam-naju-health": [],
+    "jeonnam-damyang-health": [],
+    "jeonnam-mokpo-health": [],
+    "jeonnam-muan-health": [],
+    "jeonnam-boseong-health": [],
+    "jeonnam-suncheon-health": [],
+    "jeonnam-sinan-health": [],
+    "jeonnam-yeosu-health": [],
+    "jeonnam-yeonggwang-health": [],
+    "jeonnam-yeongam-health": [],
+    "jeonnam-wando-health": [],
+    "jeonnam-jangseong-health": [],
+    "jeonnam-jangheung-health": [],
+    "jeonnam-jindo-health": [],
+    "jeonnam-hampyeong-health": [],
+    "jeonnam-haenam-health": [],
+    "jeonnam-hwasun-health": []
   }
 }

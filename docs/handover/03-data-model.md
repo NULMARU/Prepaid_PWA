@@ -25,7 +25,7 @@ const APP='선입금대장', APP_VERSION='1.0.0-beta.NN', DB='prepaid-ledger-db'
 - 여는 함수: `openDb()`. 래퍼 `makeRepo()` → 실패 시 `makeLocalRepo()`(localStorage 호환 모드)로 폴백.
 - **인덱스가 하나도 없다**(`createIndex` 미사용). 모든 조회는 `getAll()` 후 메모리 필터. 수천 명 규모까지는 문제없지만 설계 사실로 인지할 것.
 - ⚠️ `onupgradeneeded`는 **없는 스토어를 만들기만** 한다. 필드 마이그레이션 로직이 없으므로 `VER`을 4로 올려도 기존 설치본에서는 아무 일도 일어나지 않는다. 스키마 변경이 필요하면 마이그레이션 코드를 먼저 넣어야 한다.
-- Repo API: `loadAll()`, `apply(patch)`(upsert), `replaceAll(data)`(clear+put, 복원 경로).
+- Repo API: `loadAll()`, `apply(patch)`(upsert — beta.54부터 `patch.deleteEmployees:[id…]`로 **거래가 없는 직원**의 물리 삭제도 받는다), `replaceAll(data)`(clear+put, 복원 경로).
 
 ### 1.1 직원(`employees`) 레코드
 
@@ -39,7 +39,7 @@ const APP='선입금대장', APP_VERSION='1.0.0-beta.NN', DB='prepaid-ledger-db'
 | `dept` | string | 부서 | 위와 동일 3경로 |
 | `name` | string | 이름 | 위와 동일 |
 | `note` | string | 메모 | 수동 등록만 |
-| `isDeleted` | boolean | **소프트 삭제(숨김)** — 물리 삭제는 없다 | `hide`/`restore-emp` 액션 |
+| `isDeleted` | boolean | **소프트 삭제**(화면에서는 "삭제"·"삭제됨") — 거래가 달린 직원은 물리 삭제하지 않는다(beta.54: 잔액이 남았으면 0원 정리 `adjust`를 함께 남김). 거래 0건 직원만 `deleteEmployees`로 물리 삭제 | `delete-emp-soft`/`delete-emp-hard`/`restore-emp` 액션 |
 | `phone` | string | **AES-GCM 암호문 번들 JSON** 또는 `''` | 수동 입력만, `setPhone()` 경유 |
 | `phoneConsent` | boolean | 문자 안내 동의 | `setPhone()`/`setPhoneConsent()` |
 | `yearMonth` | `'YYYY-MM'` | 배치 귀속 연월 | 자동 등록(`summary.year_month`), CSV(현재 월). 수동은 `''` |

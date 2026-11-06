@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "gangwon-city": [
       "예산과",
@@ -494,6 +494,24 @@
       "재난안전과",
       "환경과",
       "토지재산과"
-    ]
+    ],
+    "gangwon-gangneung-health": [],
+    "gangwon-goseong-health": [],
+    "gangwon-donghae-health": [],
+    "gangwon-samcheok-health": [],
+    "gangwon-sokcho-health": [],
+    "gangwon-yanggu-health": [],
+    "gangwon-yangyang-health": [],
+    "gangwon-yeongwol-health": [],
+    "gangwon-wonju-health": [],
+    "gangwon-inje-health": [],
+    "gangwon-jeongseon-health": [],
+    "gangwon-cheorwon-health": [],
+    "gangwon-chuncheon-health": [],
+    "gangwon-taebaek-health": [],
+    "gangwon-pyeongchang-health": [],
+    "gangwon-hongcheon-health": [],
+    "gangwon-hwacheon-health": [],
+    "gangwon-hoengseong-health": []
   }
 }

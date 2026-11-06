@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "daejeon-city": [
       "관리과",
@@ -210,6 +210,11 @@
       "기후환경과",
       "위생과",
       "토지정보과"
-    ]
+    ],
+    "daejeon-daedeok-health": [],
+    "daejeon-dong-health": [],
+    "daejeon-seo-health": [],
+    "daejeon-yuseong-health": [],
+    "daejeon-jung-health": []
   }
 }

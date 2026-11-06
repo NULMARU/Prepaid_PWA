@@ -329,6 +329,12 @@ async function drawSignature(page) {
       await collapsed.first().click();
       await page.waitForTimeout(120);
     }
+    // beta.53+: 직원 행은 한 줄로 접혀 있다 — [관리 ▸]를 눌러 펼쳐야 전화·충전·조정 버튼이 생긴다(토글이 없는 구버전은 그대로 지나간다).
+    const expandRow = async (id) => {
+      const t = page.locator(`[data-a="toggle-emp"][data-id="${id}"]`);
+      if (await t.count() && (await t.getAttribute('aria-expanded')) !== 'true') { await t.click(); await page.waitForTimeout(150); }
+    };
+    await expandRow(e1.id);
     await page.locator(`[data-a="emp-phone-edit"][data-id="${e1.id}"]`).waitFor({ timeout: 10000 });
     promptAnswer = '01012345678';
     await page.locator(`[data-a="emp-phone-edit"][data-id="${e1.id}"]`).click();
@@ -356,6 +362,7 @@ async function drawSignature(page) {
     };
     // ── 충전 (직원 ①) — 설정 > 직원 목록 관리의 [충전] ──────────────────────────
     await expandMgr();
+    await expandRow(e1.id);
     await page.locator(`[data-a="topup"][data-id="${e1.id}"]`).click();
     await page.waitForSelector('#topupAmount', { timeout: 8000 });
     await page.locator('#topupAmount').fill('12000');
@@ -365,6 +372,7 @@ async function drawSignature(page) {
 
     // ── 잔액 조정 (직원 ③) — 같은 카드의 [조정] ─────────────────────────────────
     await expandMgr();
+    await expandRow(e3.id);
     await page.locator(`[data-a="adjust"][data-id="${e3.id}"]`).click();
     await page.waitForSelector('#adjustBalance', { timeout: 8000 });
     await page.locator('#adjustBalance').fill('18500');

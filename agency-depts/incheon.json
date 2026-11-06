@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "incheon-city": [
       "여성정책과",
@@ -410,6 +410,17 @@
       "도시정비과",
       "건설과",
       "건축과"
-    ]
+    ],
+    "incheon-ganghwa-health": [],
+    "incheon-geomdan-health": [],
+    "incheon-gyeyang-health": [],
+    "incheon-namdong-health": [],
+    "incheon-michuhol-health": [],
+    "incheon-bupyeong-health": [],
+    "incheon-seohae-health": [],
+    "incheon-yeonsu-health": [],
+    "incheon-yeongjong-health": [],
+    "incheon-ongjin-health": [],
+    "incheon-jemulpo-health": []
   }
 }

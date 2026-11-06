@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "gyeongnam-city": [
       "농업정책과",
@@ -550,6 +550,24 @@
       "도시개발허가과",
       "환경위생과",
       "상하수도과"
-    ]
+    ],
+    "gyeongnam-geoje-health": [],
+    "gyeongnam-geochang-health": [],
+    "gyeongnam-goseong-health": [],
+    "gyeongnam-gimhae-health": [],
+    "gyeongnam-namhae-health": [],
+    "gyeongnam-miryang-health": [],
+    "gyeongnam-sacheon-health": [],
+    "gyeongnam-sancheong-health": [],
+    "gyeongnam-yangsan-health": [],
+    "gyeongnam-uiryeong-health": [],
+    "gyeongnam-jinju-health": [],
+    "gyeongnam-changnyeong-health": [],
+    "gyeongnam-changwon-health": [],
+    "gyeongnam-tongyeong-health": [],
+    "gyeongnam-hadong-health": [],
+    "gyeongnam-haman-health": [],
+    "gyeongnam-hamyang-health": [],
+    "gyeongnam-hapcheon-health": []
   }
 }

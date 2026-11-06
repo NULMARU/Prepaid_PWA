@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "daegu-city": [
       "체육진흥과",
@@ -304,6 +304,15 @@
       "건축주택과",
       "건설과",
       "교통과"
-    ]
+    ],
+    "daegu-gunwi-health": [],
+    "daegu-nam-health": [],
+    "daegu-dalseo-health": [],
+    "daegu-dalseong-health": [],
+    "daegu-dong-health": [],
+    "daegu-buk-health": [],
+    "daegu-seo-health": [],
+    "daegu-suseong-health": [],
+    "daegu-jung-health": []
   }
 }

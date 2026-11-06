@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "jeonbuk-city": [
       "일자리민생경제과",
@@ -430,6 +430,20 @@
       "산림과",
       "농축산유통과",
       "농촌활력과"
-    ]
+    ],
+    "jeonbuk-gochang-health": [],
+    "jeonbuk-gunsan-health": [],
+    "jeonbuk-gimje-health": [],
+    "jeonbuk-namwon-health": [],
+    "jeonbuk-muju-health": [],
+    "jeonbuk-buan-health": [],
+    "jeonbuk-sunchang-health": [],
+    "jeonbuk-wanju-health": [],
+    "jeonbuk-iksan-health": [],
+    "jeonbuk-imsil-health": [],
+    "jeonbuk-jangsu-health": [],
+    "jeonbuk-jeonju-health": [],
+    "jeonbuk-jeongeup-health": [],
+    "jeonbuk-jinan-health": []
   }
 }

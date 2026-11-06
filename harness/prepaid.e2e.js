@@ -891,6 +891,7 @@ async function runSecurityHardening(browser, url, cors) {
         return { alg: 'RSA-OAEP-2048+AES-256-GCM', encKey: u2b(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw)), iv: u2b(iv), ct: u2b(ct) };
       };
       const items = [{ name: '보안가', dept: '총무과', amount: 10000 }, { name: '보안나', dept: '총무과', amount: 20000 }];
+      window.__sealBlob = sealBlob; // beta.54 블록이 같은 가게 열쇠로 두 번째 명단을 봉한다
       window.__inboxHeaders = [];
       window.__approveBodies = [];
       // 요약은 서버가 보여 주는 값이다 — 일부러 실제 명단과 어긋나게 만든다(총액 30,000 → 99,000).
@@ -946,6 +947,66 @@ async function runSecurityHardening(browser, url, cors) {
     await assert((await page.evaluate(() => window.__approveBodies)).length === 1, 'a successful import must report APPROVED exactly once');
     if (await count(page, '.modal-back')) await page.locator('.modal-actions [data-a="close-modal"]').first().click().catch(() => {});
     await page.waitForTimeout(150);
+
+    // ── beta.54: 비슷한 부서 갈림길 · 최근 등록 경고 · 명단 되돌리기 (현장 사고 2026-11-05 재현) ──
+    //   ① '보안기관 총무과'(보안가·보안나)가 있는데 '보안기관보건소 총무과' 명단이 오면 승인 전에 앱 안 선택창이 뜬다(기본 confirm은 그 뒤).
+    //   ② [기존 부서 이름을 고치고 받기] → 두 사람은 새 카드가 아니라 충전, 확인창에 "(M/D 등록)"과 "최근 14일" 경고가 실린다.
+    //   ③ 설정의 [최근 받은 명단]에서 [이 명단 되돌리기] → adjust(targetTransactionId) 기록 + 잔액 원복. 앞선 명단은 뒤 기록 때문에 되돌릴 수 없다.
+    const confirmsBefore = dialogs.filter(d => d.type === 'confirm').length;
+    await page.evaluate(async () => {
+      window.__inboxItems = [{ summary_id: 'sid-health', summary: { institution: '보안기관보건소', department: '총무과', restaurant_id: 'rid-sec-1', restaurant_name: '보안식당', year_month: '2026-09', total_amount: 30000, member_count: 2 },
+        ciphertext: await window.__sealBlob([{ name: '보안가', dept: '총무과', amount: 10000 }, { name: '보안나', dept: '총무과', amount: 20000 }]), status: 'PENDING' }];
+    });
+    await page.locator('[data-a="relay-inbox"]').click();
+    await page.waitForSelector('[data-a="relay-approve"]', { timeout: 10000 });
+    await page.locator('[data-a="relay-approve"]').click();
+    await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="rename"]', { timeout: 10000 });
+    const choiceText = await page.locator('.choice-modal').innerText();
+    await assert(choiceText.includes('비슷한 부서') && choiceText.includes('보안기관 총무과') && choiceText.includes('이름 2명 겹침'),
+      `the near-duplicate dialog must name the existing group and the overlap (got "${choiceText.replace(/\n/g, ' ').slice(0, 200)}")`);
+    await assert(dialogs.filter(d => d.type === 'confirm').length === confirmsBefore, 'the money confirm must not appear before the owner answers the near-duplicate question');
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="cancel"]').click();
+    await page.waitForTimeout(300);
+    await assert(await count(page, '.choice-modal') === 0 && dialogs.filter(d => d.type === 'confirm').length === confirmsBefore, 'cancelling the near-duplicate dialog must skip the money confirm');
+    await assert((await readDb(page)).employees.every(e => e.org !== '보안기관보건소'), 'cancel must not rename anything');
+    await page.locator('[data-a="relay-approve"]').click();
+    await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="rename"]', { timeout: 10000 });
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="rename"]').click();
+    for (let i = 0; i < 60 && (await readDb(page)).transactions.filter(t => t.type === 'topup').length < 2; i += 1) await page.waitForTimeout(200);
+    const reviewMsg = dialogs.filter(d => d.type === 'confirm').slice(confirmsBefore).map(d => d.message).find(m => m.includes('받으실 금액')) || '';
+    await assert(reviewMsg.includes("기존 부서 '보안기관 총무과'의 이름을 '보안기관보건소 총무과'로 고쳐서 받아요"), `the review confirm must say the existing group is being renamed (got "${reviewMsg.slice(0, 200)}")`);
+    await assert(/이미 있는 직원 충전 2명/.test(reviewMsg) && /\(\d+\/\d+ 등록\)/.test(reviewMsg), `renamed members must match as top-ups with their last deposit date (got "${reviewMsg.slice(0, 300)}")`);
+    await assert(reviewMsg.includes('최근 14일 안에 선금이 등록됐어요') && reviewMsg.includes('승인하지 마세요'), 'a top-up onto a member whose last deposit is recent must carry the double-entry warning');
+    {
+      const db = await readDb(page);
+      const ga = db.employees.find(e => e.name === '보안가'), gn = db.employees.find(e => e.name === '보안나');
+      await assert(ga && gn && ga.org === '보안기관보건소' && gn.org === '보안기관보건소' && ga.orgKind === 'public', `rename-and-receive must relabel the existing members (got ${JSON.stringify([ga && ga.org, gn && gn.org])})`);
+      await assert(db.employees.filter(e => /^보안(가|나)$/.test(e.name)).length === 2, 'rename-and-receive must not create duplicate cards');
+      const tops = db.transactions.filter(t => t.type === 'topup' && t.reason === '공공기관 신청 승인 추가 충전');
+      await assert(tops.length === 2 && tops.every(t => t.note.startsWith('보안기관보건소 총무과')), `the batch must land as two top-ups under the new label (got ${JSON.stringify(tops.map(t => t.note))})`);
+    }
+    if (await count(page, '.modal-back')) await page.locator('.modal-actions [data-a="close-modal"]').first().click().catch(() => {});
+    await page.waitForTimeout(150);
+    await openSettingsCard(page, 'enroll-auto');
+    const batchList = await page.locator('.batch-list').innerText();
+    await assert(batchList.includes('보안기관보건소 총무과') && batchList.includes('2명') && batchList.includes('30,000원'), `the enrol card must list the received batch (got "${batchList.replace(/\n/g, ' ').slice(0, 200)}")`);
+    await assert(await count(page, '[data-a="undo-batch"]') === 1, 'only the latest batch (no later records) may be undone — the earlier open batch is blocked by the top-ups that followed');
+    await page.locator('[data-a="undo-batch"]').click();
+    await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="ok"]', { timeout: 5000 });
+    await assert((await page.locator('.choice-modal').innerText()).includes('충전된 직원 2명은 그 금액만큼 빼요'), 'the undo dialog must say what will happen to the members');
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
+    for (let i = 0; i < 60 && (await readDb(page)).transactions.filter(t => t.reason === '명단 등록 되돌리기').length < 2; i += 1) await page.waitForTimeout(200);
+    {
+      const db = await readDb(page);
+      const undo = db.transactions.filter(t => t.reason === '명단 등록 되돌리기');
+      const tops = db.transactions.filter(t => t.type === 'topup');
+      await assert(undo.length === 2 && undo.every(t => t.type === 'adjust' && tops.some(x => x.id === t.targetTransactionId)), `undo must append one adjust per batch record pointing at the original (got ${JSON.stringify(undo.map(t => [t.type, t.amount, t.targetTransactionId]))})`);
+      const bal = id => db.transactions.filter(t => t.employeeId === id).reduce((s, t) => s + (t.type === 'use' ? -Number(t.amount) : Number(t.amount)), 0);
+      const ga = db.employees.find(e => e.name === '보안가'), gn = db.employees.find(e => e.name === '보안나');
+      await assert(bal(ga.id) === 10000 && bal(gn.id) === 20000 && !ga.isDeleted && !gn.isDeleted, 'undoing a top-up batch must restore the previous balances and keep the members active');
+    }
+    const afterUndo = await page.locator('.batch-list').innerText();
+    await assert(afterUndo.includes('되돌림') && await count(page, '[data-a="undo-batch"]') === 0, 'an undone batch must be marked and must not offer undo again');
 
     // ── ⑯ 해시체인 v2: 예전에 못 잡던 변조들 ─────────────────────────────────
     const chainRep = () => page.evaluate(async () => {
@@ -1382,7 +1443,10 @@ async function main() {
     await assert(await page.locator('.dept-tag').count() === 0, 'a fresh install should start with zero default departments');
     await assert((await page.locator('#agencySelectSetup').inputValue()) === 'gwangjin', 'region address "광진구 구의동" should auto-select 광진구청 agency');
     await page.locator('[data-a="agency-add-all"][data-ctx="setup"]').click();
-    await assert(await page.locator('.dept-tag', { hasText: '보건의료과' }).count() > 0, 'agency departments should be added during setup');
+    await assert(await page.locator('.dept-tag', { hasText: '재무과' }).count() > 0, 'agency departments should be added during setup');
+    // 2026-11 보건소 분리: 보건의료과는 더 이상 광진구청 밑에 없고 '광진구보건소'(별도 기관)에 있다 — 양쪽(앱·담당자 웹)이 같은 이름을 고르게 하는 규칙.
+    await assert(await page.locator('.dept-tag', { hasText: '보건의료과' }).count() === 0, 'health-centre departments must not be listed under the district office any more');
+    await assert(await page.locator('#agencySelectSetup option', { hasText: '광진구보건소' }).count() === 1, 'the agency list must offer the health centre as its own agency');
     await page.locator('[data-a="setup-to-contact"]').click();
     await page.waitForSelector('#setupContactKakao');
     await assert((await page.locator('.setup-step').innerText()).includes('3 / 3'), 'contact + terms should be the last (3rd) onboarding step');
@@ -3814,7 +3878,7 @@ async function main() {
         rows: document.querySelectorAll('.mgr-body .emp-mgr').length,
         toggles: document.querySelectorAll('.mgr-body [data-a="toggle-emp"]').length,
         phone: document.querySelectorAll('.mgr-body .phone-row').length,
-        acts: ['edit-employee', 'topup', 'adjust', 'hide'].map(a => document.querySelectorAll(`.mgr-body [data-a="${a}"]`).length),
+        acts: ['edit-employee', 'topup', 'adjust', 'delete-emp'].map(a => document.querySelectorAll(`.mgr-body [data-a="${a}"]`).length),
         first: (document.querySelector('.mgr-body .emp-mgr') || { innerText: '' }).innerText.replace(/\s+/g, ' ').trim()
       }));
       await assert(compact.rows === 20 && compact.toggles === 20, `the expanded 개인 group must list 20 compact rows (got ${JSON.stringify(compact)})`);
@@ -3843,26 +3907,40 @@ async function main() {
       // 펼침은 세션 UI 상태일 뿐 — 기기에 저장되지 않는다
       const metaKeys = (await readDb(page)).meta.map(r => r.key);
       await assert(!metaKeys.some(k => /expanded/i.test(k)), `row expansion must never be persisted (meta keys ${JSON.stringify(metaKeys)})`);
-      // 숨김 → 숨김 직원 그룹에서도 한 줄 행, [복원]은 펼치지 않아도 한 줄에 바로 보인다
-      promptAnswer = '개인손님20';
+      // beta.54(현장 요청 "삭제 버튼이 없다"): [숨김](이름 입력 기본 팝업) → [삭제](앱 안 확인창). 잔액이 남은 직원은 0원 정리 조정이
+      //   함께 남고(무결성 합계와 화면 합계가 어긋나지 않게), 돈 기록이 있으면 [기록까지 완전 삭제]는 보이지 않는다. "삭제한 직원" 그룹에서 [복원]된다.
       await page.locator('[data-a="toggle-emp"][data-id="p-20"]').click();
       await page.waitForTimeout(120);
-      await page.locator('[data-a="hide"][data-id="p-20"]').click();
-      await page.waitForTimeout(250);
-      promptAnswer = '초기화';
-      await assert((await readDb(page)).employees.find(e => e.id === 'p-20').isDeleted === true, 'the [숨김] button inside an expanded row must still hide the employee');
-      await page.locator('.mgr-head', { hasText: '숨김 직원' }).click();
+      const promptsBefore = dialogs.filter(d => d.type === 'prompt').length;
+      await page.locator('[data-a="delete-emp"][data-id="p-20"]').click();
+      await page.waitForSelector('[data-a="delete-emp-soft"][data-id="p-20"]', { timeout: 5000 });
+      const delModal = (await page.locator('.modal').innerText()).replace(/\s+/g, ' ');
+      await assert(delModal.includes('개인손님20') && delModal.includes('29,000원') && delModal.includes('잔액 0원으로 정리하고 삭제'), `the delete dialog must show name, balance and the soft-delete button (got "${delModal.slice(0, 200)}")`);
+      await assert(await count(page, '[data-a="delete-emp-hard"]') === 0 && delModal.includes('기록까지 지울 수는 없어요'), 'an employee with money records must not be offered a hard delete, and the dialog must say why');
+      await page.locator('[data-a="delete-emp-soft"][data-id="p-20"]').click();
+      await page.waitForTimeout(350);
+      await assert(dialogs.filter(d => d.type === 'prompt').length === promptsBefore, 'deleting must not use the old name-typing prompt');
+      {
+        const db = await readDb(page);
+        const p20 = db.employees.find(e => e.id === 'p-20');
+        const adj = db.transactions.filter(t => t.employeeId === 'p-20' && t.type === 'adjust');
+        await assert(p20.isDeleted === true, 'the [삭제] confirm must soft-delete the employee');
+        await assert(adj.length === 1 && Number(adj[0].amount) === -29000 && Number(adj[0].afterBalance) === 0 && adj[0].reason === '삭제 시 잔액 정리', `soft delete must zero the balance with one adjust record (got ${JSON.stringify(adj.map(t => [t.amount, t.afterBalance, t.reason]))})`);
+      }
+      await assert(await count(page, '.mgr-head:has-text("삭제한 직원")') === 1, 'a deleted employee must move to the "삭제한 직원" group');
+      await page.locator('.mgr-head', { hasText: '삭제한 직원' }).click();
       await page.waitForTimeout(150);
       const hid = await page.evaluate(() => {
         const row = [...document.querySelectorAll('.emp-mgr')].find(r => r.querySelector('[data-a="toggle-emp"][data-id="p-20"]'));
         return row ? { text: row.querySelector('.emp-line-wrap').innerText.replace(/\s+/g, ' '), restore: row.querySelectorAll('.emp-line-wrap [data-a="restore-emp"]').length, open: row.classList.contains('open') } : null;
       });
       // 숨김 직원도 펼침 상태(p-20을 펼쳐 둔 채 숨겼다)를 이어받을 수 있다 — 어느 쪽이든 [복원]은 한 줄 줄에 있어야 한다.
-      await assert(Boolean(hid) && hid.restore === 1 && hid.text.includes('숨김'), `a hidden employee's compact row must carry the 숨김 badge and a visible [복원] (got ${JSON.stringify(hid)})`);
+      await assert(Boolean(hid) && hid.restore === 1 && hid.text.includes('삭제됨'), `a deleted employee's compact row must carry the 삭제됨 badge and a visible [복원] (got ${JSON.stringify(hid)})`);
       await assert(await count(page, '[data-a="restore-emp"][data-id="p-20"]') === 1, '[복원] must not be duplicated inside the expanded detail');
       await page.locator('[data-a="restore-emp"][data-id="p-20"]').click();
       await page.waitForTimeout(250);
       await assert((await readDb(page)).employees.find(e => e.id === 'p-20').isDeleted === false, '[복원] on the compact row must restore the employee');
+      await assert(balanceOfId(await readDb(page), 'p-20') === 0, 'restoring keeps the zeroed balance — the owner tops up again if money is really there (the adjust record is the audit trail)');
       // 다시 접기
       await page.locator('[data-a="toggle-emp"][data-id="p-05"]').click();
       await page.waitForTimeout(120);
@@ -3878,6 +3956,71 @@ async function main() {
       if (!(await count(page, '.mgr-body'))) await page.locator('.mgr-head', { hasText: '개인' }).first().click();
       await page.waitForTimeout(150);
       await assert(await count(page, '.emp-mgr.open') === 0, 'row expansion is session-only — a reload must bring every row back to one line');
+
+      // ── beta.54: 거래 기록이 없는 직원만 [기록까지 완전 삭제]가 보이고, 누르면 레코드 자체가 사라진다 ──
+      const putEmp = (e) => page.evaluate((e) => new Promise((res, rej) => {
+        const r = indexedDB.open('prepaid-ledger-db');
+        r.onerror = () => rej(r.error);
+        r.onsuccess = () => { const tx = r.result.transaction('employees', 'readwrite'); tx.objectStore('employees').put(Object.assign({ note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: Date.now(), updatedAt: Date.now(), orgKind: '' }, e)); tx.oncomplete = () => res(true); tx.onerror = () => rej(tx.error); };
+      }), e);
+      const reopenEmployees = async () => {
+        await page.reload({ waitUntil: 'load' });
+        await unlock();
+        await page.waitForSelector('[data-a="quick-find-emp"]');
+        await page.locator('[data-a="screen"][data-screen="settings"]').click();
+        await openSettingsCard(page, 'employees');
+        await page.waitForTimeout(150);
+      };
+      await putEmp({ id: 'p-zero', org: '개인', dept: '', name: '빈카드' });
+      await reopenEmployees();
+      await page.locator('.mgr-head', { hasText: '개인' }).first().click();
+      await page.waitForTimeout(150);
+      await page.locator('[data-a="toggle-emp"][data-id="p-zero"]').click();
+      await page.waitForTimeout(120);
+      await page.locator('[data-a="delete-emp"][data-id="p-zero"]').click();
+      await page.waitForSelector('[data-a="delete-emp-hard"][data-id="p-zero"]', { timeout: 5000 });
+      await assert(await count(page, '[data-a="delete-emp-soft"][data-id="p-zero"]') === 1, 'a record-less employee must be offered both the restorable delete and the hard delete');
+      await page.locator('[data-a="delete-emp-hard"][data-id="p-zero"]').click();
+      await page.waitForTimeout(350);
+      await assert(!(await readDb(page)).employees.some(e => e.id === 'p-zero'), 'hard delete must remove a record-less employee from the database');
+      await assert(await count(page, '[data-a="toggle-emp"][data-id="p-zero"]') === 0, 'a hard-deleted employee must vanish from the list without a reload');
+
+      // ── beta.54: 부서 머리글의 [이름 고치기] — 그 그룹 직원 전체의 소속·부서 글자만 바뀐다(잔액·거래 불변). 삭제한 직원은 건드리지 않는다. ──
+      await page.locator('[data-a="toggle-emp"][data-id="p-19"]').click(); // 삭제될 p-19: 잔액 28,000 → 정리 삭제
+      await page.waitForTimeout(120);
+      await page.locator('[data-a="delete-emp"][data-id="p-19"]').click();
+      await page.waitForSelector('[data-a="delete-emp-soft"][data-id="p-19"]', { timeout: 5000 });
+      await page.locator('[data-a="delete-emp-soft"][data-id="p-19"]').click();
+      await page.waitForTimeout(350);
+      const txBeforeRename = (await readDb(page)).transactions.length;
+      await page.locator('[data-a="rename-group"][data-dept="개인"]').click();
+      await page.waitForSelector('#renameOrg', { timeout: 5000 });
+      await page.locator('#renameOrg').fill('개인손님');
+      await page.locator('#renameDept').fill('단골');
+      await page.locator('[data-a="save-rename-group"]').click();
+      await page.waitForTimeout(400);
+      {
+        const db = await readDb(page);
+        const active = db.employees.filter(e => !e.isDeleted);
+        await assert(active.length === 19 && active.every(e => e.org === '개인손님' && e.dept === '단골'), `renaming a group must relabel every active member (got ${JSON.stringify(active.slice(0, 2).map(e => [e.org, e.dept]))})`);
+        await assert(db.employees.find(e => e.id === 'p-19').org === '개인', 'renaming must not touch deleted employees');
+        await assert(db.transactions.length === txBeforeRename, 'renaming must not add or change any transaction');
+      }
+      await assert(await count(page, '.mgr-head:has-text("개인손님 단골")') === 1 && await count(page, '[data-a="rename-group"][data-dept="개인"]') === 0, 'the renamed group must appear under its new label');
+      // 고친 이름의 부서에 같은 이름이 있으면 멈춘다 — 어느 쪽이 충전되는지 알 수 없어지기 때문(먼저 한쪽을 삭제).
+      await putEmp({ id: 'c-1', org: '개인손님', dept: 'VIP', name: '개인손님01' });
+      await reopenEmployees();
+      await page.locator('[data-a="rename-group"][data-dept="개인손님 VIP"]').click();
+      await page.waitForSelector('#renameOrg', { timeout: 5000 });
+      await page.locator('#renameDept').fill('단골');
+      const alertsBeforeClash = dialogs.filter(d => d.type === 'alert').length;
+      await page.locator('[data-a="save-rename-group"]').click();
+      await page.waitForTimeout(300);
+      const clashAlert = dialogs.filter(d => d.type === 'alert').slice(alertsBeforeClash);
+      await assert(clashAlert.length === 1 && clashAlert[0].message.includes('같은 이름이 이미 있어요') && clashAlert[0].message.includes('개인손님01'), `renaming into a group that already has the same name must stop and say who clashes (got ${JSON.stringify(clashAlert)})`);
+      await assert((await readDb(page)).employees.find(e => e.id === 'c-1').dept === 'VIP', 'a clashing rename must change nothing');
+      await page.locator('.modal-actions [data-a="close-modal"]').click();
+      await page.waitForTimeout(150);
 
       // 홈: 8명이면 예전처럼 자동 펼침(data-forced), 9명이면 접힘
       await seedHome(solo20.slice(0, 8));
@@ -4742,6 +4885,8 @@ async function main() {
     await assert(keptAlive.hasCanvas && keptAlive.sameNode && !keptAlive.empty,
       'drawing (a real user input) must keep extending the idle clock — the screen must not jump while the customer is still signing');
     // (4) 가드가 걸린 상태에서도 **잠금 전환**은 반드시 일어난다(가드는 "같은 화면에 머무는 렌더"만 강등한다).
+    // (beta.54: handToOwner도 전환 직전에 금액 칸 초점을 거두지만, 헤드리스 크로미움은 노드 제거 때도 blur를 내므로 여기서는
+    //   구분이 안 된다 — 하니스는 서명 시작 blur(위)만 계약으로 고정한다. 실제 태블릿의 키보드는 그 시점에 이미 내려가 있다.)
     await page.evaluate(() => { window.__spamRender = setInterval(() => window.__prepaidTestHooks.forceRender(), 100); });
     await page.locator('[data-a="cust-sign-submit"]').click();
     await page.waitForSelector('.pin-screen [data-a="pin-key"]', { timeout: 5000 });
@@ -4766,8 +4911,14 @@ async function main() {
     await page.waitForSelector('.cust-sig #signCanvas');
     await page.locator('#custAmountInput').fill('7000');
     await page.waitForTimeout(80);
+    // beta.54(현장): 금액을 친 뒤 서명판을 터치하면 금액 칸의 초점이 거둬져야 한다(preventDefault 때문에 브라우저가 스스로 blur하지 않는다).
+    //   초점이 남으면 태블릿 설치 앱의 숫자 키보드가 서명판과, 이어지는 "사장님 확인" 화면의 비밀번호 판을 가린다.
+    await page.evaluate(() => { window.__amtBlur = 0; const i = document.getElementById('custAmountInput'); i.focus(); i.addEventListener('blur', () => { window.__amtBlur += 1; }); });
     await drawOn('.cust-sig #signCanvas');
     await markCanvas();
+    await assert((await page.evaluate(() => ({ blur: window.__amtBlur, active: document.activeElement && document.activeElement.id }))).blur >= 1,
+      'starting a signature must blur the amount input (otherwise the tablet keyboard stays up over the signature pad)');
+    await assert((await page.evaluate(() => document.activeElement && document.activeElement.id)) !== 'custAmountInput', 'the amount input must not keep focus while the customer signs');
     // ⑥ 제출 검증 — 서명은 있으나 금액이 없으면 넘어가지 않는다(그리고 서명은 그대로 남는다).
     await page.locator('#custAmountInput').fill('');
     await page.waitForTimeout(100);

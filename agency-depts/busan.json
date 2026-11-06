@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "busan-city": [
       "여성가족과",
@@ -491,6 +491,22 @@
       "일자리정책과",
       "경제진흥과",
       "공동주택과"
-    ]
+    ],
+    "busan-gangseo-health": [],
+    "busan-geumjeong-health": [],
+    "busan-gijang-health": [],
+    "busan-nam-health": [],
+    "busan-dong-health": [],
+    "busan-dongnae-health": [],
+    "busan-busanjin-health": [],
+    "busan-buk-health": [],
+    "busan-sasang-health": [],
+    "busan-saha-health": [],
+    "busan-seo-health": [],
+    "busan-suyeong-health": [],
+    "busan-yeonje-health": [],
+    "busan-yeongdo-health": [],
+    "busan-jung-health": [],
+    "busan-haeundae-health": []
   }
 }

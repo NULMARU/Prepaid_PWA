@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "gwangju-city": [],
     "gwangju-gwangsan": [
@@ -175,6 +175,11 @@
       "세무2과",
       "회계정보과",
       "토지정보과"
-    ]
+    ],
+    "gwangju-gwangsan-health": [],
+    "gwangju-nam-health": [],
+    "gwangju-dong-health": [],
+    "gwangju-buk-health": [],
+    "gwangju-seo-health": []
   }
 }

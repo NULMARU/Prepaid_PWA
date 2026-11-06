@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "chungnam-city": [
       "체육진흥과",
@@ -485,6 +485,21 @@
       "건축허가과",
       "도시과",
       "교통과"
-    ]
+    ],
+    "chungnam-gyeryong-health": [],
+    "chungnam-gongju-health": [],
+    "chungnam-geumsan-health": [],
+    "chungnam-nonsan-health": [],
+    "chungnam-dangjin-health": [],
+    "chungnam-boryeong-health": [],
+    "chungnam-buyeo-health": [],
+    "chungnam-seosan-health": [],
+    "chungnam-seocheon-health": [],
+    "chungnam-asan-health": [],
+    "chungnam-yesan-health": [],
+    "chungnam-cheonan-health": [],
+    "chungnam-cheongyang-health": [],
+    "chungnam-taean-health": [],
+    "chungnam-hongseong-health": []
   }
 }

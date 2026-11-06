@@ -672,7 +672,7 @@ async function runViewport(context, url, w, h) {
   await page.waitForTimeout(100);
   await noHorizontalOverflow(page, '설정(직원 행 펼침)', w);
   const openBtns = await page.evaluate(() => [...document.querySelectorAll('.emp-mgr.open .emp-detail button')].map(b => { const r = b.getBoundingClientRect(); return { a: b.dataset.a, right: r.right, left: r.left, height: r.height }; }));
-  check(openBtns.length >= 5, `${w}px 설정: 펼친 직원 행에 전화·수정·충전·조정·숨김 버튼이 있어야 한다 (${openBtns.length}개)`);
+  check(openBtns.length >= 5, `${w}px 설정: 펼친 직원 행에 전화·수정·충전·조정·삭제 버튼이 있어야 한다 (${openBtns.length}개)`);
   openBtns.forEach(b => {
     check(b.right <= clientW + 1 && b.left >= -1, `${w}px 설정: 펼친 행의 [${b.a}] 버튼이 화면 밖이다`);
     check(b.height >= 44, `${w}px 설정: 펼친 행의 [${b.a}] 버튼 터치 타겟이 작다 (${Math.round(b.height)}px)`);
@@ -699,7 +699,7 @@ async function runViewport(context, url, w, h) {
     const head = page.locator('.fold-head[data-card="employees"]');
     if ((await head.getAttribute('aria-expanded')) === 'false') { await head.click(); await page.waitForTimeout(100); }
   }
-  if (!(await page.locator('[data-a="toggle-emp"][data-id="r-emp-h"]').count())) await page.locator('.mgr-head', { hasText: '숨김 직원' }).click();
+  if (!(await page.locator('[data-a="toggle-emp"][data-id="r-emp-h"]').count())) await page.locator('.mgr-head', { hasText: '삭제한 직원' }).click();
   await page.waitForTimeout(100);
   await noHorizontalOverflow(page, '설정(숨김 직원 한 줄 행)', w);
   {

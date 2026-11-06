@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "gyeongbuk-city": [
       "문화예술과",
@@ -618,6 +618,28 @@
       "관광산업과",
       "마이스산업과",
       "컨벤션건립과"
-    ]
+    ],
+    "gyeongbuk-gyeongsan-health": [],
+    "gyeongbuk-gyeongju-health": [],
+    "gyeongbuk-goryeong-health": [],
+    "gyeongbuk-gumi-health": [],
+    "gyeongbuk-gimcheon-health": [],
+    "gyeongbuk-mungyeong-health": [],
+    "gyeongbuk-bonghwa-health": [],
+    "gyeongbuk-sangju-health": [],
+    "gyeongbuk-seongju-health": [],
+    "gyeongbuk-andong-health": [],
+    "gyeongbuk-yeongdeok-health": [],
+    "gyeongbuk-yeongyang-health": [],
+    "gyeongbuk-yeongju-health": [],
+    "gyeongbuk-yeongcheon-health": [],
+    "gyeongbuk-yecheon-health": [],
+    "gyeongbuk-ulleung-health": [],
+    "gyeongbuk-uljin-health": [],
+    "gyeongbuk-uiseong-health": [],
+    "gyeongbuk-cheongdo-health": [],
+    "gyeongbuk-cheongsong-health": [],
+    "gyeongbuk-chilgok-health": [],
+    "gyeongbuk-pohang-health": []
   }
 }

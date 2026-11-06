@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-14",
-  "source": "행정표준코드 기관코드(2026-07)",
+  "updatedAt": "2026-11-07",
+  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
   "depts": {
     "gyeonggi-city": [
       "총무과",
@@ -1370,6 +1370,37 @@
       "도시정책과",
       "공동주택과",
       "건축과"
-    ]
+    ],
+    "gyeonggi-gapyeong-health": [],
+    "gyeonggi-goyang-health": [],
+    "gyeonggi-gwacheon-health": [],
+    "gyeonggi-gwangmyeong-health": [],
+    "gyeonggi-gwangju-health": [],
+    "gyeonggi-guri-health": [],
+    "gyeonggi-gunpo-health": [],
+    "gyeonggi-gimpo-health": [],
+    "gyeonggi-namyangju-health": [],
+    "gyeonggi-dongducheon-health": [],
+    "gyeonggi-bucheon-health": [],
+    "gyeonggi-seongnam-health": [],
+    "gyeonggi-suwon-health": [],
+    "gyeonggi-siheung-health": [],
+    "gyeonggi-ansan-health": [],
+    "gyeonggi-anseong-health": [],
+    "gyeonggi-anyang-health": [],
+    "gyeonggi-yangju-health": [],
+    "gyeonggi-yangpyeong-health": [],
+    "gyeonggi-yeoju-health": [],
+    "gyeonggi-yeoncheon-health": [],
+    "gyeonggi-osan-health": [],
+    "gyeonggi-yongin-health": [],
+    "gyeonggi-uiwang-health": [],
+    "gyeonggi-uijeongbu-health": [],
+    "gyeonggi-icheon-health": [],
+    "gyeonggi-paju-health": [],
+    "gyeonggi-pyeongtaek-health": [],
+    "gyeonggi-pocheon-health": [],
+    "gyeonggi-hanam-health": [],
+    "gyeonggi-hwaseong-health": []
   }
 }
