@@ -21,6 +21,11 @@ node harness/responsive.e2e.mjs >/tmp/v4.log 2>&1; test $? -eq 0; ok $? "폰 반
 node harness/dongsearch.e2e.mjs >/tmp/v5.log 2>&1; test $? -eq 0; ok $? "동 이름 검색 e2e ($(grep -oE '[0-9]+ 통과' /tmp/v5.log | tail -1)) — zipmap 전 구역 완주·그만/계속 찾기·비추측 원칙·429 재시도·검색 중 입력 보존"
 { node harness/agency-xlsx.e2e.mjs && node harness/agency-csvchoice.e2e.mjs && node harness/agency-sent.e2e.mjs; } >/tmp/v6.log 2>&1; test $? -eq 0; ok $? "담당자 웹 e2e ($(grep -oE '[0-9]+ pass' /tmp/v6.log | paste -sd+ - | sed 's/ pass//g' | bc) 통과) — 엑셀 양식·바꾸기/덧붙이기·급량개수×단가·보내기 완료 잠금"
 
+node harness/check-static.mjs >/tmp/v7.log 2>&1; test $? -eq 0; ok $? "정적 계약 검사 — meta 키⊂META_KEYS·APP_VERSION=CACHE_NAME·NUL 바이트 없음·기관 수($(grep -oE '[0-9]+개 기관' /tmp/v7.log | head -1))"
+node harness/check-links.mjs >/tmp/v8.log 2>&1; test $? -eq 0; ok $? "문서·홈페이지 링크 ($(grep -oE '링크 [0-9]+개' /tmp/v8.log | head -1), 깨짐 0 · 경고 $(grep -oE '경고 [0-9]+건' /tmp/v8.log | grep -oE '[0-9]+'))"
+# 갱신 데이터 보존: 최신 live-beta* 태그(없으면 origin/main)의 앱으로 장부를 만들고 작업 트리 앱에서 필드 단위 비교(일반·서비스워커 2모드).
+bash harness/upgrade-check.sh >/tmp/v9.log 2>&1; test $? -eq 0; ok $? "갱신 보존 ($(grep -m1 '^기준: ' /tmp/v9.log | sed -E 's/^기준: ([^ ]+) ([^ ]+).*/\2, 구버전=\1/'), $(grep -oE '결과: [0-9]+/[0-9]+' /tmp/v9.log | sed 's/결과: //' | paste -sd',' -)) — 구버전 앱으로 만든 장부를 작업 트리 앱이 그대로 여는지(일반·서비스워커 배포 경로)"
+
 echo; echo "[2] 라이브 서버 (배포된 실제 시스템 + D1)"
 node harness/phase2.live.mjs "$RELAY" >/tmp/v3.log 2>&1; test $? -eq 0; ok $? "phase2 라이브 6단계 ($(grep -oE '[0-9]+ 통과' /tmp/v3.log | head -1)) — 등록→조회→암호화 + 인증강제(무토큰/무효토큰 제출 401)→등록해제"
 # 공공 API는 2026-08-08부터 **조건값에 한글이 들어가면 0건**을 돌려주는 회귀 상태다(상대 서비스 문제).
@@ -49,5 +54,5 @@ test "$RC" = "200"; ok $? "중계 서버 (200)"
 echo; echo "=================================================="
 echo " 결과: $pass 통과 / $fail 실패"
 echo "=================================================="
-if [ "$fail" = "0" ]; then echo "🎉 전부 통과 — 시스템 정상"; else echo "⚠️ 실패 항목 로그: /tmp/v1.log /tmp/v2.log /tmp/v3.log /tmp/v4.log"; fi
+if [ "$fail" = "0" ]; then echo "🎉 전부 통과 — 시스템 정상"; else echo "⚠️ 실패 항목 로그: /tmp/v1.log ~ /tmp/v9.log (v7 정적 · v8 링크 · v9 갱신 보존)"; fi
 exit $fail

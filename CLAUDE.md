@@ -39,13 +39,19 @@
 ## 검증·개발 명령
 
 ```bash
-bash harness/verify-all.sh          # 원터치 전체 검증(로컬 + 라이브 + 3앱 접속) — 13/13 기대(담당자 웹 e2e 3종 포함)
+bash harness/verify-all.sh          # 원터치 전체 검증(로컬 8 + 라이브 5 + 3앱 접속) — 16/16 기대(담당자 웹 e2e 3종·정적·링크·갱신 보존 포함)
 node harness/prepaid.e2e.js         # 음식점 앱 Playwright e2e (전 기능 시나리오)
-node harness/phase2.e2e.mjs         # 서버 인메모리 목 하니스(427 검증)
-node harness/responsive.e2e.mjs     # 폰 반응형 기하 검증(360/390/412/768 — 2,625 검증)
+node harness/phase2.e2e.mjs         # 서버 인메모리 목 하니스(478 검증, beta.53)
+node harness/responsive.e2e.mjs     # 폰 반응형 기하 검증(360/390/412/768 — 2,781 검증, beta.53)
 node harness/dongsearch.e2e.mjs     # 동 이름 검색(zipmap 순회·429 재시도·입력 보존) 46 검증
+node harness/check-static.mjs       # 정적 계약: meta 키⊂META_KEYS·APP_VERSION=CACHE_NAME·NUL 바이트·기관 수(CI 게이트)
+node harness/check-links.mjs        # homepage·docs 상대 링크·앵커(네트워크 없음, CI 게이트)
+node harness/app-smoke.mjs          # 앱 기동 스모크 — 첫 화면·콘솔 오류 0(CI 게이트)
+bash harness/upgrade-check.sh       # 갱신 보존: 최신 live-beta* 태그 앱으로 만든 장부를 작업 트리 앱이 여는지(2모드)
 node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검증 포함)
 ```
+
+- **배포가 끝나면 `git tag live-betaNN <배포 커밋>`을 남길 것**(음식점 앱이 바뀐 배포) — 갱신 보존 게이트가 그 태그를 "지금 라이브"로 쓴다. 없으면 origin/main으로 폴백한다(`docs/handover/06-testing.md` §2.2).
 
 - **리눅스(클라우드 세션)에서 하니스를 돌릴 때**: ① `LANG=C.UTF-8 LC_ALL=C.UTF-8`을 줄 것 — 로케일이 없으면 크로미움이 한글 다운로드
   파일명을 전부 `download`로 바꿔 [장부 안전 저장] 검사가 실패한다. ② Playwright 버전이 설치된 브라우저 빌드와 맞아야 한다(빌드 1194 =
@@ -56,7 +62,7 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 
 - **D1 마이그레이션**: `wrangler d1 execute --remote --file`은 OAuth 토큰과 import API 비호환(오류 2036) → **`--command`로 문 단위 실행**할 것. 마이그레이션 파일은 월별 append-only(`server/migrations-2026-07.sql`·`-08.sql`·`-09.sql`) — 새 릴리스는 새 파일을 만든다.
 - **GitHub Pages 배포 실패 시**: 실패한 런을 rerun하면 중복 아티팩트 오류 → **rerun 금지, `gh workflow run pages.yml --ref main`으로 새 런**. 배포 성공 판정은 상태가 아니라 **라이브 콘텐츠 문자열**로 확인(verify-all의 앱 체크는 버전 문자열만 봐서 구버전에서도 통과함).
-- **secret 등록**: `npx wrangler secret put <이름>` 실행 후 **프롬프트에** 값 입력(명령줄에 값 쓰면 이름으로 등록+노출됨). 현재 secrets: `PUBLIC_API_KEY`, `RESEND_API_KEY`, `ADMIN_TOKEN`.
+- **secret 등록**: `npx wrangler secret put <이름>` 실행 후 **프롬프트에** 값 입력(명령줄에 값 쓰면 이름으로 등록+노출됨). 현재 secrets: `PUBLIC_API_KEY`, `RESEND_API_KEY`, `ADMIN_TOKEN`. 선택: `EMAIL_PEPPER`(기관 이메일 해시 HMAC 키 — 미등록이면 예전 해시 방식으로 동작하며, 라이브 등록 여부는 확인 필요).
 - **CORS**: `server/wrangler.toml`의 `ALLOW_ORIGIN` 콤마 목록. 새 프론트 도메인 추가 시 여기 먼저 넣고 deploy.
 - **공공데이터 API가 한글 조건을 못 받는다(2026-08-08~, 상대 서비스 회귀)** — data.go.kr 일반음식점 API는 `cond[…]` 값에 **한글이 들어가면 무조건 0건**(resultCode 정상 + totalCount 0)을 준다. ASCII 값이면 정상이므로 우리 인코딩·키·쿼터 문제가 아니다. 그래서 **상호 검색은 서버가 ASCII 키(우편번호 `zip`·지역코드 `region`)로 후보를 받아 우리 코드에서 걸러 낸다**(`/api/restaurants?zip=05021&q=도쿄`). 가게 실존 대조도 이름 검색이 아니라 **관리번호 `cond[MNG_NO::EQ]`**(ASCII)로 한다. 상세·재확인 절차는 `server/PROTOCOL.md §7.4`. 상대가 고치면 `?q=김밥`이 다시 0건이 아니게 되고, 코드 변경 없이 예전 경로가 살아난다.
 - **`server/src/worker.js`에 실제 NUL 문자를 넣지 말 것** — 메모리 store의 키 구분자를 리터럴 NUL로 쓰면 grep이 파일을 바이너리로 보고 아무 것도 못 찾는다(진단이 크게 느려짐). `'\u0000'` 이스케이프로 쓸 것.
@@ -112,9 +118,10 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
   화면에 보이는 글자(`innerText`)나 해당 영역(`.setup` 등)으로 판정할 것(beta.52에서 새 단언 2건이 이 함정에 빠졌다가 잡힘).
 - 새 단언은 **수정 전 코드에서 실패하는지** 한 번 돌려 본다 — 통과만 확인하면 버그를 못 잡는 단언이 섞인다(beta.52).
 
-## 현재 상태 (2026-10-03)
+## 현재 상태 (2026-11-13)
 
-- **홈페이지·사용 안내서 개정**: 짧은 메인 + 별도 도움말, 밥그릇 브랜드, 실제 화면 예시(가상 데이터). 역할별 PDF는 사장님 3쪽·담당자 2쪽·직원 2쪽, 손님용 A4 1쪽. 상세 설명은 `docs/manual-*-reference.html`로 분리. 사용자 커밋·배포 승인에 따라 홈페이지는 `bapjangbu-home` main, docs는 GitHub Pages main 대상. 기존 beta.52 코드를 그대로 보존하며 서버·DB는 배포하지 않습니다. 결과·검증 기록: `docs/homepage-renewal-report-2026-10.md`.
+- **라이브 = beta.54(2026-11-07)**. 2026-11-13 전수 검토(읽기 전용) 후 beta.55 작업 중 — 보고서·묶음은 리포 밖 `.claude/reviews/`.
+- **홈페이지·사용 안내서 개정(2026-10-03)**: 짧은 메인 + 별도 도움말, 밥그릇 브랜드, 실제 화면 예시(가상 데이터). 역할별 PDF는 사장님 3쪽·담당자 3쪽·직원 2쪽, 손님용 A4 1쪽(`check-manual-pdfs.py`로 확인). 상세 설명은 `docs/manual-*-reference.html`로 분리. 결과·검증 기록: `docs/homepage-renewal-report-2026-10.md`.
 
 - **beta.54 — 명단 중복 방어·삭제·이름 고치기·되돌리기 + 보건소 분리(2026-11-07, 앱·기관 자료·담당자 웹 한 줄·안내서)**:
   현장 사고(2026-11-05) — 사장님이 '광진구청 보건의료과'로 수십 명을 수동 등록한 뒤 서무 명단이 '광진구보건소 보건의료과'로 와서
@@ -169,8 +176,8 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - **beta.48 전 서피스 라이브 배포 완료(2026-09-13)**: D1 마이그레이션 7문(`server/migrations-2026-09.sql`) → `wrangler deploy` → 담당자 웹 `pages deploy --branch=main` 순서로 사용자가 배포했고, 라이브 스모크 11/11·verify-all 12/12·콘텐츠 문자열(앱 `beta.48`, 담당자 웹 `submission_id`, 서버 ciphertext 화이트리스트 400)로 확인했다. 라이브 D1에는 `dedupe_key`·`deregistered_at`·`agency_domain` 컬럼이 존재한다(재실행 시 ALTER는 duplicate column 오류 — 정상).
 - **필드테스트 진행 중**(2026-08~, 음식점 2개소 실사용 — 육회바른연어 구의역점·만계옥닭갈비). 현장 보고를 받아 수정·재배포하는 주기를 반복하고 있다. 전 기능 라이브: 이메일 OTP 인증 필수, 2모드 전달, 직원별 문자 동의·sms 자동 오픈, 약관·개인정보 동의 게이트(일회성), 클라우드 원장 백업(암호화·삭제 가능), 운영자 통계·의견, 도메인 통일(bapjangbu.com/app./agency. + noreply@/contact@). **운영 확인 필요**: 필드테스트 가게의 9월 명단이 구 dedupe(같은 내용 30일 차단)에 걸려 접수되지 않았을 가능성 — 담당자에게 확인하고, 그랬다면 서버 배포 후 재전송을 안내할 것.
 - **개인정보처리방침·이용약관: 확정본 적용 완료**(`docs/privacy.html`·`docs/terms.html`, 시행 2026-07-06). 검토가 끝났으므로 문서·안내서에서 **'초안'·'법률 검토 후 확정' 표현은 쓰지 않는다**. 모든 서피스(음식점 앱·담당자 웹·홈페이지·안내서 3종)가 확정본 HTML을 링크한다 — `docs/PRIVACY_POLICY.md`·`docs/TERMS.md`(같은 내용의 md 미러)는 어디서도 링크하지 않는다.
-- 남은 출시 게이트: 없음. 미결 항목은 `docs/handover/09-open-items.md`가 진실의 원본(현재 브랜드명 통일 1건).
-- **verify-all 12/12**(2026-09-13 beta.48 배포 후, 목 427 + 반응형 2,589 → beta.49에서 2,625 + 동 검색 25 + 음식점 e2e ok + 라이브 11). 이 환경에서 Playwright는 정상 기동한다(09-01의 mach port 차단은 재현되지 않음). HEAD b60add2의 e2e는 라벨 없는 `console.error` 1건으로 실패 상태였고 beta.48에서 해소. 알려진 경미 이슈 1건: 홈 검색 입력 중 간헐 `NotFoundError`(blur 핸들러 중 innerHTML 교체 — 해당 렌더만 버려지고 다음 입력에 복구, beta.13 이전부터 존재, 사용자 체감 없음) — 추후 렌더 스케줄링 개선 후보.
+- 남은 출시 게이트: 없음. 미결 항목은 `docs/handover/09-open-items.md`가 진실의 원본(🔴 착수 권고: A1 약관·방침 수동 등록·register-key 반영, B1 브랜드명 통일, C2 72시간 만료 통지 — 그 밖에 A4 방침 보완(테스트 종료 후)·C10 같은 열쇠 재활성·C11 쿼터 fail-open 등 조건부 항목).
+- **verify-all 16/16 기대**(2026-11-13 정적 검사·링크 검사·갱신 보존 3항목 추가 — 로컬 8 + 라이브 5 + 접속 3). 이전 기록: **12/12**(2026-09-13 beta.48 배포 후, 목 427 + 반응형 2,589 → beta.49에서 2,625 + 동 검색 25 + 음식점 e2e ok + 라이브 11). 이 환경에서 Playwright는 정상 기동한다(09-01의 mach port 차단은 재현되지 않음). HEAD b60add2의 e2e는 라벨 없는 `console.error` 1건으로 실패 상태였고 beta.48에서 해소. 알려진 경미 이슈 1건: 홈 검색 입력 중 간헐 `NotFoundError`(blur 핸들러 중 innerHTML 교체 — 해당 렌더만 버려지고 다음 입력에 복구, beta.13 이전부터 존재, 사용자 체감 없음) — 추후 렌더 스케줄링 개선 후보.
 
 ## 완료 기록 (최신순)
 
@@ -752,7 +759,7 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 
 ## 기관·부서 데이터 (전국)
 
-- `agency-index.json`(시도→기관 2단, schemaVersion 2, 17개 시도·246 기관) + `agency-depts/{region}.json`(시도별 과 목록, lazy 로드). 서울은 큐레이션, 나머지는 행정표준코드 기관코드에서 자동 추출(빈 기관은 앱이 공통 템플릿 폴백).
+- `agency-index.json`(시도→기관 2단, schemaVersion 2, 17개 시도·475 기관 — 2026-11-07 시군구 보건소 229곳 별도 등재) + `agency-depts/{region}.json`(시도별 과 목록, lazy 로드). 서울은 큐레이션, 나머지는 행정표준코드 기관코드에서 자동 추출(빈 기관은 앱이 공통 템플릿 폴백).
 - 재생성: `node harness/build-agencies.mjs <기관코드 전체자료.txt>` — 원자료는 code.go.kr 기관코드 조회자료 다운로드. 연 1회(조직개편 후 2~3월) 갱신. 상세: `docs/agency-data-pipeline.md`.
 - 주소→기관 자동 매칭은 시도 우선 2단계 — 동명 구(중구 등)는 시도 없이 매칭하지 않는다(오매칭 방지). 수정 시 6개 광역시 "중구" 케이스 필수 테스트.
 

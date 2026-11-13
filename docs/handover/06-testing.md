@@ -1,13 +1,14 @@
 # 06 — 테스트 체계
 
-한 줄 요약: **`bash harness/verify-all.sh` → 12/12가 정상.** 실패 로그는 `/tmp/v1.log`~`/tmp/v5.log`.
+한 줄 요약: **`bash harness/verify-all.sh` → 16/16이 정상**(로컬 8 + 라이브 5 + 접속 3, 2026-11-13 기준). 실패 로그는 `/tmp/v1.log`~`/tmp/v9.log`.
 
-> 아래 단언 개수는 **beta.48(2026-09-12) 실행 기준**이며 릴리스마다 늘어난다. 개수 자체가 아니라 **책임 분담과 공백**을 보라.
-> `git push` 시에는 GitHub Actions가 서버 계약 하니스를 **배포 게이트**로 먼저 돌린다(§2.1).
+> 아래 단언 개수는 **표에 적은 릴리스의 실행 기준**이며 릴리스마다 늘어난다. 개수 자체가 아니라 **책임 분담과 공백**을 보라.
+> `git push` 시에는 GitHub Actions가 서버 계약 하니스·정적 검사·링크 검사·앱 기동 스모크를 **배포 게이트**로 먼저 돌린다(§2.1).
+> **배포할 때마다 `git tag live-betaNN <배포 커밋>`을 남길 것** — 갱신 보존 게이트가 그 태그를 "지금 라이브인 앱"으로 쓴다(§2.2).
 
 ---
 
-## 1. 하니스 5종 책임 분담표
+## 1. 하니스 책임 분담표 (브라우저·서버 하니스 + 정적 검사)
 
 | 하니스 | 대상 | 브라우저 | 서버 | 검증 규모 | 실패 방식 |
 |---|---|---|---|---|---|
@@ -15,9 +16,19 @@
 | `phase2.e2e.mjs` | **실제 worker 코드** — `import { handle, makeMemoryStore } from '../server/src/worker.js'` | ❌ | ✅ 로직은 진짜, 저장소만 메모리 | 42개 섹션 · 최근 실행 **427 통과** | 누적 카운트, `결과: N 통과, M 실패` |
 | `phase2.live.mjs` | **배포된 라이브 서버 + 실제 D1** | ❌ | ✅ 진짜(프로덕션 D1을 실제로 쓴다) | 6단계 | 누적 카운트 |
 | `responsive.e2e.mjs` | **실제 `index.html`** 의 기하(레이아웃) | ✅ | ❌ `/api/**` 전부 `200 []` 스텁 | `check()` 318곳 × 4뷰포트(+디바이스 프로파일) · 최근 실행 **2,625 검사**(beta.49) | 누적, 실패 목록 출력 |
-| `dongsearch.e2e.mjs` | **실제 `index.html`** 의 동 이름 검색(zipmap 순회 보조 경로) | ✅ | ❌ 공공 API 한글 장애를 목으로 재현 | **25 검사** | 누적 카운트 |
+| `dongsearch.e2e.mjs` | **실제 `index.html`** 의 동 이름 검색(zipmap 순회 보조 경로) | ✅ | ❌ 공공 API 한글 장애를 목으로 재현 | **46 검사**(beta.52) | 누적 카운트 |
+| `agency-xlsx.e2e.mjs` | **실제 `agency-web/index.html`** — 엑셀(.xlsx) 양식 다운로드·업로드 | ✅ | ❌ 외부 요청 전부 404 | **18 검사**(2026-10-31) | 누적, `N pass` |
+| `agency-csvchoice.e2e.mjs` | 담당자 웹 3단계 — 명단 파일 바꾸기/덧붙이기·되돌리기·비우기 | ✅ | ❌ 외부 요청 전부 404 | **19 검사**(2026-10-31) | 누적, `N pass` |
+| `agency-sent.e2e.mjs` | 담당자 웹 — 급량개수×1식 단가, 보내기 완료 잠금·다시 보내기 | ✅ | ❌ `/api/submit`만 목 | **21 검사**(2026-11-06) | 누적, `N pass` |
+| `experimental/upgrade.e2e.js` (+ 래퍼 `upgrade-check.sh`) | **구버전 앱의 실제 UI로 만든 장부**를 신버전 앱이 그대로 여는지(IndexedDB 필드 단위 비교) | ✅ | ❌ 전부 목 | 일반 24 · 서비스워커 경로 27(beta.54) | 누적, 실패 시 보고서 JSON |
+| `app-smoke.mjs` | 빈 브라우저로 `index.html?e2e=1` 기동 — 첫 화면·[시작하기]·콘솔 오류 0·외부 요청 0 | ✅ | ❌ 외부 요청 전부 차단 | 5 검사 | `exit 1` (CI 게이트용) |
+| `check-static.mjs` | 파일만 읽음 — meta 키⊂`META_KEYS`(+`META_DEVICE_KEYS`·`backupCore` 제외 키), `APP_VERSION`=`CACHE_NAME`, `server/src` NUL 바이트, 기관 수 vs 문서 표기 | ❌ | ❌ | 7 검사 | `exit 1` |
+| `check-links.mjs` | 파일만 읽음 — `homepage/*.html`·`docs/*.html`의 상대 링크·파일·앵커, 우리 도메인 절대 주소(로컬 파일로 대응), 오래된 "beta.NN 기준" 표기 경고 | ❌ | ❌ | 링크 217개(2026-11-13) | `exit 1`(경고는 실패 아님) |
+
+phase2 목 **478 통과**·반응형 **2,781 검사**는 beta.53(2026-11-01) 실행 기준이다(표의 427·2,625는 그 이전 기록).
 
 보조: `harness/build-agencies.mjs`·`harness/build-zipmap.mjs`는 **테스트가 아니라 데이터 생성기**(기관 목록·우편번호 매핑 재생성). `verify-all.sh`가 돌리지 않는다.
+`harness/check-manual-pdfs.py`는 안내서 PDF(`docs/manuals/*.pdf`) 검사기다(파일 0개·빈 쪽·쪽 밖 글 상자 = 실패, 쪽수 출력). pymupdf가 필요해 verify-all에는 넣지 않았다 — PDF를 다시 만들 때 `uv run --with pymupdf python harness/check-manual-pdfs.py`.
 
 ### 무엇을 검증하는가 / 무엇을 검증하지 않는가
 
@@ -48,7 +59,7 @@
 
 ---
 
-## 2. `verify-all.sh` 12항목
+## 2. `verify-all.sh` 16항목
 
 | # | 그룹 | 라벨 | 판정 |
 |---|---|---|---|
@@ -56,34 +67,54 @@
 | 2 | | phase2 목 하니스 — 등록→암호화→복호화→batch_hash→변조탐지→해제 | exit code |
 | 3 | | 폰 반응형 e2e — 360/390/412/768px | exit code |
 | 4 | | 동 이름 검색 e2e — zipmap 전 구역 완주·비추측 원칙 | exit code |
-| 5 | [2] 라이브 | phase2 라이브 6단계 — 인증강제 포함 | exit code |
-| 6 | | 공공API 실검색(**우편번호** — ASCII) | 결과 건수 > 0 |
-| 7 | | 공공API 상호 필터(우편번호 + 상호) | 결과 건수 > 0 |
-| 8 | | 폐업 자동 제외 | 응답에 `폐업` 없음 |
-| 9 | | **평문 개인정보 제출 거부(불변식)** | 응답에 `형식 오류` 포함 |
-| 10 | [3] 접속 | 음식점 앱 | 라이브 `APP_VERSION` == 로컬 `APP_VERSION` |
-| 11 | | 담당자 웹 | HTTP 200 |
-| 12 | | 중계 서버 | HTTP 200 (레이트리밋 대비 1회 재시도) |
+| 5 | | 담당자 웹 e2e 3종(xlsx·csvchoice·sent) | 셋 다 exit 0 |
+| 6 | | **정적 계약 검사** (`check-static.mjs`) | exit code |
+| 7 | | **문서·홈페이지 링크** (`check-links.mjs`) | exit code(경고는 개수만 표시) |
+| 8 | | **갱신 보존** (`upgrade-check.sh` — 최신 `live-beta*` 태그 → 작업 트리, 일반·서비스워커 2모드) | exit code |
+| 9 | [2] 라이브 | phase2 라이브 6단계 — 인증강제 포함 | exit code |
+| 10 | | 공공API 실검색(**우편번호** — ASCII) | 결과 건수 > 0 |
+| 11 | | 공공API 상호 필터(우편번호 + 상호) | 결과 건수 > 0 |
+| 12 | | 폐업 자동 제외 | 응답에 `폐업` 없음 |
+| 13 | | **평문 개인정보 제출 거부(불변식)** | 응답에 `형식 오류` 포함 |
+| 14 | [3] 접속 | 음식점 앱 | 라이브 `APP_VERSION` == 로컬 `APP_VERSION` |
+| 15 | | 담당자 웹 | HTTP 200 |
+| 16 | | 중계 서버 | HTTP 200 (레이트리밋 대비 1회 재시도) |
 
-**⚠️ 10~12는 생존 확인일 뿐 배포 확인이 아니다.** 10은 라이브와 로컬의 `APP_VERSION`을 대조하므로 **앱은** 구버전 서빙을 잡아내지만, 담당자 웹·홈페이지·서버는 200만 본다. 그쪽 배포 성공은 반드시 [07-deploy-runbook.md](07-deploy-runbook.md)의 "라이브 콘텐츠 문자열" 방식으로 확인할 것.
+**⚠️ 14~16은 생존 확인일 뿐 배포 확인이 아니다.** 14는 라이브와 로컬의 `APP_VERSION`을 대조하므로 **앱은** 구버전 서빙을 잡아내지만, 담당자 웹·홈페이지·서버는 200만 본다. 그쪽 배포 성공은 반드시 [07-deploy-runbook.md](07-deploy-runbook.md)의 "라이브 콘텐츠 문자열" 방식으로 확인할 것.
 
 **부수 주의**
-- 체크 6~8은 `python3`가 없으면 조용히 실패로 떨어진다.
-- 체크 6·7이 **우편번호(ASCII)** 기준인 것은 공공데이터 API가 2026-08-08부터 한글 조건값에 0건을 주는 회귀 상태이기 때문이다. 한글로 확인하면 **API가 살아 있어도 죽은 것으로 오판**한다.
-- 체크 9는 worker.js의 한국어 오류 문구 `형식 오류`에 의존한다 — 문구를 바꾸면 **진짜 통과가 거짓 실패**가 된다([04](04-contracts.md) C7).
+- 체크 10~12는 `python3`가 없으면 조용히 실패로 떨어진다.
+- 체크 10·11이 **우편번호(ASCII)** 기준인 것은 공공데이터 API가 2026-08-08부터 한글 조건값에 0건을 주는 회귀 상태이기 때문이다. 한글로 확인하면 **API가 살아 있어도 죽은 것으로 오판**한다.
+- 체크 13은 worker.js의 한국어 오류 문구 `형식 오류`에 의존한다 — 문구를 바꾸면 **진짜 통과가 거짓 실패**가 된다([04](04-contracts.md) C7).
+- 체크 6의 "기관 수"는 `agency-index.json`을 세어(2026-11-13: 17개 시도·475 기관, 보건소 229) `CLAUDE.md`·`docs/agency-data-pipeline.md`·`docs/handover/0*.md`의 "N개 시도·M 기관" 표기와 대조한다. 10~12번 문서는 날짜가 박힌 검토 기록이라 대조하지 않는다.
+- 체크 8은 같은 origin에서 구버전→신버전을 차례로 연다. 일반 모드는 `/sw.js`를 404로 막아 순수 데이터 보존을, `--sw 1` 모드는 실제 태블릿처럼 서비스워커 배포를 흉내 낸다. 산출물은 `$TMPDIR/bapjangbu-upgrade/gate-*-report.json`.
 
-### 2.1 CI 배포 게이트 (`.github/workflows/pages.yml`, beta.48)
+### 2.1 CI 배포 게이트 (`.github/workflows/pages.yml`, beta.48 → 2026-11-13 확장)
 
-`main`에 push하면 **`test` job이 먼저** 돌고, `deploy` job이 `needs: test`로 그것을 기다린다.
+`main`에 push하면 **`test`·`smoke` job이 먼저** 돌고, `deploy` job이 `needs: [test, smoke]`로 둘 다 기다린다.
 
 ```yaml
-test:   node harness/phase2.e2e.mjs      # ubuntu-latest, setup-node@v4 (node 20)
-deploy: needs: test                       # 실패하면 GitHub Pages 배포 자체가 일어나지 않는다
+test:   node harness/phase2.e2e.mjs      # ubuntu-latest, setup-node@v4 (node 20), 의존성 없음
+        node harness/check-static.mjs    # META_KEYS·APP_VERSION=CACHE_NAME·NUL·기관 수
+        node harness/check-links.mjs     # 문서·홈페이지 상대 링크·앵커
+smoke:  npm install && npx playwright install --with-deps chromium   # LANG=C.UTF-8
+        node harness/app-smoke.mjs       # 빈 브라우저 기동 → 첫 화면·[시작하기]·콘솔 오류 0
+deploy: needs: [test, smoke]             # 하나라도 실패하면 GitHub Pages 배포 자체가 일어나지 않는다
 ```
 
-- 넣은 것은 **`phase2.e2e.mjs` 하나뿐**이다 — `server/src/worker.js`를 직접 `import`하는 순수 Node 하니스라 설치할 의존성이 없다.
-- Playwright 계열(prepaid e2e·responsive·dongsearch)은 **브라우저 다운로드가 필요해 넣지 않았다.** 그쪽은 여전히 로컬 `bash harness/verify-all.sh`의 몫이다 — 즉 **CI는 서버 계약만 지킨다.**
+- `smoke`는 Playwright를 `package.json` 버전으로 깔고 **브라우저도 그 Playwright의 install 명령으로** 받는다 — 미리 깔린 브라우저와 빌드 번호가 어긋날 일이 없다(CLAUDE.md 리눅스 주의 ②). 앱 기동만 보므로 글꼴 차이(주의 ③)에 걸리지 않는다.
+- 전체 시나리오(prepaid e2e·responsive·dongsearch·담당자 웹 3종·갱신 보존)는 **글꼴·로케일·실행 시간 때문에 CI에 넣지 않았다.** 그쪽은 여전히 로컬 `bash harness/verify-all.sh`의 몫이다.
+- `check-static.mjs`의 기관 수 대조는 문서 표기에도 걸린다 — `agency-index.json`을 다시 만들면 CLAUDE.md 등의 "N개 시도·M 기관"도 같이 고쳐야 배포가 나간다.
 - ⚠️ 이 게이트가 막는 것은 **음식점 앱·docs의 GitHub Pages 배포**뿐이다. 담당자 웹·홈페이지·중계 서버는 `wrangler`로 따로 나가므로 **게이트를 거치지 않는다**([07](07-deploy-runbook.md) §1).
+
+### 2.2 배포 태그와 갱신 보존 게이트 (2026-11-13)
+
+필드테스트 태블릿의 장부는 앱을 갱신해도 그대로 열려야 한다(CLAUDE.md "장부 보존"). 그래서 **"지금 라이브인 앱"으로 만든 장부를 "이번에 배포할 앱"이 여는지**를 배포 전에 본다.
+
+- **배포가 끝나면 반드시 태그를 남긴다**: `git tag live-beta55 <배포한 커밋>` (그리고 `git push origin live-beta55`). 음식점 앱(`index.html`·`sw.js`)이 바뀐 배포에만 필요하다.
+- `bash harness/upgrade-check.sh`가 구버전을 고르는 순서: `--old-ref`/`UPGRADE_OLD_REF` → **버전 순으로 가장 최신 `live-beta*` 태그** → `origin/main` → `main`. 태그가 없으면 폴백했다고 화면에 적는다(origin/main이 라이브와 다를 수 있다 — 배포 전 커밋이 push만 된 경우).
+- 신버전: 기본은 작업 트리. `--new-ref HEAD`처럼 커밋을 줄 수도 있다(작업 중인 파일이 반쯤 고쳐져 있을 때 래퍼 자체를 확인하는 용도).
+- 실행 시간 약 1분(2모드 합계). 외부 요청 없음(중계 서버 전부 목).
 
 ---
 
@@ -91,13 +122,13 @@ deploy: needs: test                       # 실패하면 GitHub Pages 배포 자
 
 | # | 공백 | 근거·이력 | 위험도 |
 |---|---|---|---|
-| G1 | **`agency-web/index.html`을 브라우저로 구동하는 테스트가 없다** | 담당자 웹의 CSV 파싱, `org` 열 처리, `canonOf()`/`batchHash()`, `jurisQuery()`, OTP UI, 복수 전송·재시도, 그리고 **beta.48의 `submission_id` 발급 규칙**([04](04-contracts.md) C9 — "재시도는 같은 sid, 새 [보내기]는 새 sid")가 **전부 미검증**. 하니스들은 각자 `batch_hash`를 **독립 재구현**해서 쓴다(3벌). agency-web의 canonical이 어긋나도 12/12가 나온다 | **높음** |
+| G1 | **(일부 메움)** `agency-web/index.html`을 브라우저로 구동하는 하니스는 3종(xlsx·csvchoice·sent, 2026-10-31~11-06)이 생겼다 — 엑셀 양식·업로드, 파일 바꾸기/덧붙이기, 급량개수×단가, 보내기 완료 잠금 | 아직 미검증: `canonOf()`/`batchHash()`가 앱·서버와 같은 값을 내는지, `jurisQuery()`, OTP UI, 열쇠 지문 확인 게이트, 복수 전송·429 페이싱, **`submission_id` 발급 규칙**([04](04-contracts.md) C9 — "재시도는 같은 sid, 새 [보내기]는 새 sid"). 하니스들은 각자 `batch_hash`를 **독립 재구현**해서 쓴다(3벌) | 중 |
 | G2 | **실제 클라이언트 ↔ 실제 worker를 잇는 테스트가 없다** | `prepaid.e2e.js`는 API 전부 목, `phase2.e2e.mjs`는 브라우저 없음. 필드명 불일치는 "독립적으로 쓰인 두 기대값이 우연히 일치"할 때만 잡힌다 — **`district` 장애가 정확히 이 계열**이었다 | **높음** |
 | G3 | **`makeD1Store`(실제 SQL)를 실행하는 테스트가 없다** | `phase2.e2e.mjs`는 `makeMemoryStore()`(같은 파일 안의 두 번째 구현)를 쓴다. §20-h(부분문자열 충돌·LIKE 이스케이프), §23(JOIN 시맨틱), §24(100개 청크)처럼 **SQL 성격의 단언이 전부 JS 메모리 구현에 대해서만 증명**돼 있다. 등가성은 주석으로만 주장된다 | **높음** |
 | G4 | 라이브 제출 happy-path 미검증(OTP 수신 불가) + 라이브 `district`/`registered-list` 미검증 | `phase2.live.mjs` 스스로 선언. 라이브 관할 목록이 비어 있어도 하니스는 모른다 | 중 |
-| G5 | `sw.js` 미검증 | 캐시 버전·`skipWaiting`·오프라인·구버전 고착 전부 무단언. `APP_VERSION`↔`CACHE_NAME` 일치도 코드가 대조하지 않는다 | 중 |
+| G5 | **(일부 메움)** `sw.js` | `APP_VERSION`↔`CACHE_NAME` 일치는 `check-static.mjs`가, 구→신 서비스워커 배포 경로(새 버전 로드·구 캐시 정리)는 갱신 보존 게이트 `--sw 1` 모드가 본다. 오프라인 동작·교차 출처 캐시 차단은 여전히 무단언 | 낮음 |
 | G6 | `docs/admin.html` 미검증 | 엔드포인트(`/api/admin/stats`)만 §19에서 검증 | 낮음 |
-| G7 | `homepage/index.html`, `docs/manual-*.html`, `privacy/terms.html` 미검증 | 링크 깨짐·주소 변경이 자동 검출되지 않는다 | 낮음 |
+| G7 | **(일부 메움)** 홈페이지·안내서·방침 | 상대 링크·앵커·우리 도메인 절대 주소는 `check-links.mjs`가 본다(2026-11-13). 문구가 앱 동작과 맞는지는 여전히 사람 확인 | 낮음 |
 | G8 | 체크인된 `agency-index.json`이 `build-agencies.mjs` 산출물과 일치하는지 미검증 | 원자료 TSV가 리포에 없다 | 낮음 |
 | G9 | 데스크톱·태블릿(>768px), iOS 실엔진, 접근성, TWA 래퍼 미검증 | chromium 단일 | 낮음 |
 | G10 | **동시성·중단 경계가 "헤드리스 한 틱" 기준으로만 증명돼 있다** | beta.48이 `withTxLock`을 `page.evaluate`의 `Promise.all` 두 호출로 단언한다. 실제 폰의 **더블탭**(수십 ms 간격 · 두 번의 실제 터치 이벤트)과, 운영 D1에서의 `DB.batch` 타이밍·부분 실패는 여전히 재현되지 않는다. 승인 아웃박스의 재시작 시나리오도 **같은 프로세스 안의 재로드**다 | 중 |
@@ -148,15 +179,21 @@ deploy: needs: test                       # 실패하면 GitHub Pages 배포 자
 ## 5. 실행 방법
 
 ```bash
-bash harness/verify-all.sh                      # 전체 12/12 (약 2~4분)
+bash harness/verify-all.sh                      # 전체 16/16 (약 4~6분, [2]·[3]은 라이브에 접속한다)
 node harness/prepaid.e2e.js                     # 음식점 앱 e2e
 node harness/phase2.e2e.mjs                     # 서버 목 하니스 (CI 게이트와 같은 명령)
 node harness/responsive.e2e.mjs                 # 폰 반응형
 node harness/dongsearch.e2e.mjs                 # 동 이름 검색
+node harness/agency-xlsx.e2e.mjs                # 담당자 웹 엑셀 양식 (csvchoice·sent도 같은 방식)
+node harness/check-static.mjs                   # 정적 계약 (CI 게이트)
+node harness/check-links.mjs                    # 문서·홈페이지 링크 (CI 게이트)
+node harness/app-smoke.mjs                      # 앱 기동 스모크 (CI 게이트)
+bash harness/upgrade-check.sh                   # 갱신 보존 — 최신 live-beta* 태그 → 작업 트리
+uv run --with pymupdf python harness/check-manual-pdfs.py   # 안내서 PDF
 node harness/phase2.live.mjs <서버URL>           # 라이브 스모크 (프로덕션 D1을 건드린다)
 ```
 
-- 의존성: `npm i`로 `playwright`(devDependency). 브라우저는 Playwright chromium, 없으면 `CHROME_PATH`로 시스템 Chrome/Edge 지정 가능. **`phase2.e2e.mjs`만 의존성 없이 돈다**(그래서 CI 게이트가 그것이다).
+- 의존성: `npm i`로 `playwright`(devDependency). 브라우저는 Playwright chromium, 없으면 `CHROME_PATH`로 시스템 Chrome/Edge 지정 가능. **`phase2.e2e.mjs`·`check-static.mjs`·`check-links.mjs`는 의존성 없이 돈다.**
 - 스크린샷은 `harness/screenshots/`에 쌓인다(gitignore).
 - 다른 배포를 가리키려면 `RELAY= PAGES= APP= bash harness/verify-all.sh`.
-- ⚠️ 샌드박스 환경에서는 Playwright 실행이 막힐 수 있다(mach port 권한). 그럴 때 목·순수함수로 대체했다면 **로컬에서 12/12를 한 번 확인**하고 넘어갈 것 — 실제로 그렇게 미뤘던 적이 있다.
+- ⚠️ 샌드박스 환경에서는 Playwright 실행이 막힐 수 있다(mach port 권한). 그럴 때 목·순수함수로 대체했다면 **로컬에서 16/16을 한 번 확인**하고 넘어갈 것 — 실제로 그렇게 미뤘던 적이 있다.

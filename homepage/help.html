@@ -9,8 +9,8 @@
 <link rel="apple-touch-icon" href="img/bapjangbu-mascot.png">
 <title>밥장부 도움말 — 시작 순서·자주 묻는 질문·문의</title>
 <!-- Open Graph -->
-<meta property="og:title" content="밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로">
-<meta property="og:description" content="단체 손님·직원 식대를 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다.">
+<meta property="og:title" content="밥장부 도움말 — 시작 순서·자주 묻는 질문·의견 보내기">
+<meta property="og:description" content="밥장부를 처음 쓰는 순서, 자주 묻는 질문, 의견·문의 남기는 곳을 모았어요. 결제앱이 아닙니다.">
 <meta property="og:image" content="https://bapjangbu.com/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -19,8 +19,8 @@
 <meta property="og:type" content="website">
 <!-- Twitter -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="밥장부 — 단체·직원 식대 장부, 수첩 대신 폰으로">
-<meta name="twitter:description" content="단체 손님·직원 식대를 종이 장부 없이 폰으로 기록하는 무료 도구. 결제앱이 아닙니다.">
+<meta name="twitter:title" content="밥장부 도움말 — 시작 순서·자주 묻는 질문·의견 보내기">
+<meta name="twitter:description" content="밥장부를 처음 쓰는 순서, 자주 묻는 질문, 의견·문의 남기는 곳을 모았어요. 결제앱이 아닙니다.">
 <meta name="twitter:image" content="https://bapjangbu.com/og-image.png">
 <style>
 :root{
@@ -420,7 +420,7 @@ footer.site a{display:inline-block;min-height:44px;padding-block:6px}
     <div class="cols">
       <div>
         <h4>운영</h4>
-        <p>운영자: 개인 개발자가 만든 <b>비영리·무료 파일럿 서비스</b>예요.</p>
+        <p>운영자: <b>개인이 운영하는 무료 파일럿</b>이에요.</p>
         <p>문의: <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a></p>
         <p>
           <a href="https://app.bapjangbu.com/" target="_blank" rel="noopener">음식점 앱</a> ·
@@ -519,14 +519,27 @@ footer.site a{display:inline-block;min-height:44px;padding-block:6px}
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }).then(function(res){
-      if(!res.ok) throw new Error("status " + res.status);
-      return res;
+      if(res.ok) return res;
+      // 서버가 거절한 이유를 사장님 말로 돌려준다 — 400(no_personal_info)에 "잠시 후 다시"라고 하면
+      // 같은 글을 계속 다시 보내게 된다. 보내는 내용(payload)은 그대로다.
+      return res.json().catch(function(){ return {}; }).then(function(body){
+        var err = new Error("status " + res.status);
+        err.status = res.status; err.code = body && body.error;
+        throw err;
+      });
     }).then(function(){
       showResult("의견 감사합니다. 소중히 참고하겠습니다.", true);
       form.reset();
       updateCount();
-    }).catch(function(){
-      showResult("전송에 실패했습니다. 잠시 후 다시 시도해 주세요.", false);
+    }).catch(function(err){
+      if(err && err.status === 400 && err.code === "no_personal_info"){
+        showResult("전화번호·이메일 같은 개인정보는 지우고 다시 보내 주세요.", false);
+        msg.focus();
+      } else if(err && err.status === 429){
+        showResult("잠깐 사이에 많이 보내졌어요. 잠시 후 다시 보내 주세요.", false);
+      } else {
+        showResult("전송에 실패했습니다. 잠시 후 다시 시도해 주세요.", false);
+      }
     }).finally(function(){
       submitBtn.disabled = false;
       submitBtn.textContent = "보내기";

@@ -93,7 +93,7 @@
 | 동일인 판정 키 | `empMatchKey(e)` = `orgDeptLabel(e) + '|' + name` | **"화면에서 같아 보이는 직원 = 같은 직원"** |
 | 동명이인 마커 | `assignDuplicateSuffix()` → `·2`, `·3` | |
 | 그룹 정렬 | `groupSortTuple()` | 공공기관 → 회사 → 개인 → 무소속 |
-| 숨김 | `employee.isDeleted` | 소프트 삭제(물리 삭제 없음) |
+| 삭제(숨김) | `employee.isDeleted` | 거래가 있는 직원은 **소프트 삭제**(기록 보존, 남은 잔액은 0원 정리 `adjust`). **거래가 0건인 직원만** [완전 삭제]로 물리 삭제(`repo.apply({deleteEmployees})`, beta.54) |
 
 ### 4.4 거래·잔액
 
