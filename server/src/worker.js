@@ -53,6 +53,40 @@ const MAX_SEG_NO = 999;            // seg_no 범위 0..999
 const MAX_SEGMENTS_PER_STORE = 1000; // 가게당 조각 행 상한(모든 gen 합계)
 const MAX_SEG_GET = 5;             // /api/ledger-backup/seg/get 한 번에 받을 수 있는 조각 수
 const SEG_GEN_RE = /^[A-Za-z0-9_-]{8,40}$/; // 백업 세대(gen) 식별자 형식
+// ── 고아 조각 정리(beta.55 후속, PROTOCOL §4.13 "고아 조각") ──
+// 머리가 끝내 오지 않은 세대(끊긴 업로드·기기 교체 등)의 조각은 아무 머리도 가리키지 않는 '고아'다. 그대로 두면
+// 가게당 1,000행 상한을 채워 그 가게의 업로드가 영영 막힐 수 있다(운영자 손이 필요해지는 경로).
+//  - cron ⑦: 14일 넘게 손대지 않은 고아 세대를 지운다(세대 단위 — 그 세대의 가장 최근 행이 14일보다 오래돼야 한다).
+//  - 업로드 중 상한에 닿으면: 24시간 넘게 손대지 않은 고아 세대를 그 자리에서 비우고 계속한다.
+// 지키는 세대(어느 쪽도 지우지 않음): ① 머리의 세대 = `ledger_backup.gen`(머리 업로드에 실려 온 gen을 그대로 저장 —
+//   추정하지 않는다. 시각으로 추정하면 머리 세대의 조각이 다시 올라가 시작 시각이 바뀐 경우 진짜 머리 세대를 지울 수 있다).
+//   머리가 없거나 gen이 NULL(v1 머리)이면 '머리의 세대'는 없다. ② cron: 가장 최근에 쓰인 세대(진행 중인 업로드)
+//   ③ 업로드 경로: 지금 올리고 있는 세대. 머리(ledger_backup)는 어느 쪽도 지우지 않는다.
+const ORPHAN_SEG_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const SEG_EVICT_AGE_MS = 24 * 60 * 60 * 1000;
+const ORPHAN_GEN_LIMIT = 200; // cron 한 번에 지우는 고아 세대 수 상한(남은 것은 다음 날)
+// stats: 한 가게의 [{gen, mn, mx}] (세대별 최소·최대 updated_at). 지워도 되는 세대 이름 목록을 돌려준다.
+// cron(D1)은 같은 규칙을 SQL 한 문장으로 실행한다 — 하니스가 메모리·D1 양쪽에서 결과가 같은지 확인한다.
+// D1 cron ⑦ — pickOrphanGens(stats, {headGen, keepTop:true, cutoff})와 같은 규칙. 바인딩: cutoff, cutoff, limit.
+//   g = 가게·세대별 최대(mx) 시각, t = 가게별 가장 최근 쓰기(top_mx).
+//   지우는 세대: mx < cutoff(세대 전체가 14일 넘게 조용) AND mx < top_mx(가장 최근 세대 아님)
+//               AND 그 가게 머리의 gen이 아님(h.gen = g.gen인 머리 행이 없음 — gen이 NULL이면 일치하지 않는다).
+//   바깥 updated_at < ? 는 행 단위 이중 안전장치.
+const ORPHAN_SEG_SQL =
+  'DELETE FROM ledger_backup_seg WHERE updated_at < ? AND (restaurant_id, gen) IN (' +
+  'WITH g AS (SELECT restaurant_id, gen, MAX(updated_at) AS mx FROM ledger_backup_seg GROUP BY restaurant_id, gen), ' +
+  't AS (SELECT restaurant_id, MAX(mx) AS top_mx FROM g GROUP BY restaurant_id) ' +
+  'SELECT g.restaurant_id, g.gen FROM g JOIN t ON t.restaurant_id = g.restaurant_id ' +
+  'WHERE g.mx < ? AND g.mx < t.top_mx ' +
+  'AND NOT EXISTS (SELECT 1 FROM ledger_backup h WHERE h.restaurant_id = g.restaurant_id AND h.gen = g.gen) ' +
+  'ORDER BY g.mx LIMIT ?)';
+// headGen: 머리 행의 gen(없거나 NULL이면 null — 지킬 머리 세대 없음).
+function pickOrphanGens(stats, { headGen = null, keepGen = '', keepTop, cutoff }) {
+  if (!stats.length) return [];
+  const top = Math.max(...stats.map(s => s.mx));
+  return stats.filter(s => s.mx < cutoff && (!keepTop || s.mx < top) && s.gen !== keepGen && !(headGen != null && s.gen === headGen))
+    .map(s => s.gen);
+}
 // ── 명단 신청 상한(beta.55, E-5) ──
 // 가게 하나에 쌓일 수 있는 미수령(PENDING·72시간 이내) 신청 수 상한. 정상 운용은 한 달에 부서 수만큼
 // (수 건~십수 건)이라 30이면 넉넉하고, 이를 넘는 것은 오작동·남용이다(사장님 수신함이 묻힌다).
@@ -1104,9 +1138,31 @@ export async function handle(request, env, store) {
       const regRow = await store.getPublicKey(restaurant_id);
       if (regRow && regRow.deregistered_at != null) return j({ error: 'deregistered' }, 409);
       // 가게당 조각 행 상한(모든 세대 합계). 이미 있는 (gen,seg_no)를 다시 올리는 것은 행이 늘지 않으므로 허용.
-      const cnt = await store.countLedgerSegs(restaurant_id, gen, seg_no);
-      if (!cnt.exists && cnt.total >= MAX_SEGMENTS_PER_STORE)
-        return j({ error: 'too_many_segments', max: MAX_SEGMENTS_PER_STORE }, 400);
+      let cnt = await store.countLedgerSegs(restaurant_id, gen, seg_no);
+      if (!cnt.exists && cnt.total >= MAX_SEGMENTS_PER_STORE) {
+        // 상한에 닿았다: 24시간 넘게 손대지 않은 고아 세대(지금 올리는 세대·머리의 세대 제외)를 비우고 다시 센다.
+        const nowCap = Date.now(), evictCutoff = nowCap - SEG_EVICT_AGE_MS;
+        const headRow = await store.getLedgerBackup(restaurant_id);
+        const headGen = headRow && headRow.gen != null ? String(headRow.gen) : null;
+        const stats = await store.segGenStats(restaurant_id);
+        const evict = pickOrphanGens(stats, { headGen, keepGen: gen, keepTop: false, cutoff: evictCutoff });
+        if (evict.length) {
+          await store.deleteSegGens(restaurant_id, evict, evictCutoff);
+          cnt = await store.countLedgerSegs(restaurant_id, gen, seg_no);
+        }
+        if (cnt.total >= MAX_SEGMENTS_PER_STORE) {
+          // 여전히 가득 — 기다리면 풀리는지(reason:'recent_orphans' + retry_after_s) 아니면 지킬 세대만으로 찼는지
+          // (reason:'full', 기다려도 안 풀림)를 구분해 준다. error·max는 예전 그대로(추가 필드만).
+          const left = stats.filter(s => !evict.includes(s.gen));
+          const waitGens = pickOrphanGens(left, { headGen, keepGen: gen, keepTop: false, cutoff: Infinity });
+          if (waitGens.length) {
+            const soonest = Math.min(...left.filter(s => waitGens.includes(s.gen)).map(s => s.mx));
+            const retry_after_s = Math.max(1, Math.ceil((soonest + SEG_EVICT_AGE_MS - nowCap) / 1000));
+            return j({ error: 'too_many_segments', max: MAX_SEGMENTS_PER_STORE, reason: 'recent_orphans', retry_after_s }, 400);
+          }
+          return j({ error: 'too_many_segments', max: MAX_SEGMENTS_PER_STORE, reason: 'full' }, 400);
+        }
+      }
       const updated_at = Date.now();
       await store.upsertLedgerSeg({ restaurant_id, gen, seg_no, blob, blob_hash: blob_hash || null, updated_at });
       return j({ ok: true, updated_at });
@@ -1643,14 +1699,18 @@ export function makeD1Store(DB) {
     },
     // ── 암호화 원장 백업 ──
     // b.gen이 있으면(조각 백업의 머리, §4.13) 머리 저장과 같은 배치로 다른 세대 조각을 지운다.
+    // 머리 행의 gen 컬럼에는 이번 업로드의 gen을 그대로 적는다 — gen 없는 v1 업로드는 NULL로 되돌린다
+    // (그 머리는 조각을 가리키지 않는다). 고아 조각 정리가 이 값으로 '머리의 세대'를 정확히 지킨다.
     async upsertLedgerBackup(b) {
-      const head = DB.prepare('INSERT INTO ledger_backup (restaurant_id,blob,blob_hash,updated_at) VALUES (?,?,?,?) ON CONFLICT(restaurant_id) DO UPDATE SET blob=excluded.blob, blob_hash=excluded.blob_hash, updated_at=excluded.updated_at')
-        .bind(b.restaurant_id, b.blob, b.blob_hash, b.updated_at);
-      if (!b.gen) { await head.run(); return; }
-      await DB.batch([head, DB.prepare('DELETE FROM ledger_backup_seg WHERE restaurant_id=? AND gen<>?').bind(b.restaurant_id, b.gen)]);
+      const g = b.gen ? String(b.gen) : null;
+      const head = DB.prepare('INSERT INTO ledger_backup (restaurant_id,blob,blob_hash,updated_at,gen) VALUES (?,?,?,?,?) ON CONFLICT(restaurant_id) DO UPDATE SET blob=excluded.blob, blob_hash=excluded.blob_hash, updated_at=excluded.updated_at, gen=excluded.gen')
+        .bind(b.restaurant_id, b.blob, b.blob_hash, b.updated_at, g);
+      if (!g) { await head.run(); return; }
+      await DB.batch([head, DB.prepare('DELETE FROM ledger_backup_seg WHERE restaurant_id=? AND gen<>?').bind(b.restaurant_id, g)]);
     },
+    // gen은 서버 안에서만 쓴다(/api/ledger-backup/get 응답은 blob·blob_hash·updated_at 그대로).
     async getLedgerBackup(restaurant_id) {
-      return await DB.prepare('SELECT blob, blob_hash, updated_at FROM ledger_backup WHERE restaurant_id=?').bind(restaurant_id).first();
+      return await DB.prepare('SELECT blob, blob_hash, updated_at, gen FROM ledger_backup WHERE restaurant_id=?').bind(restaurant_id).first();
     },
     // 머리와 조각을 한 배치로 지운다. since(인수 시각)가 있으면 그 뒤에 쓰인 것만 — 인수 전 옛 백업은
     // 새 주인이 지울 수 있는 '자기 것'이 아니다(cron 몫). 반환: 하나라도 지웠으면 true.
@@ -1682,6 +1742,20 @@ export function makeD1Store(DB) {
       const r = await DB.prepare('SELECT gen, seg_no, blob_hash, updated_at, length(blob) AS size FROM ledger_backup_seg WHERE restaurant_id=? ORDER BY gen, seg_no')
         .bind(restaurant_id).all();
       return r.results || [];
+    },
+    // 한 가게의 세대별 최근 updated_at(고아 판정용 — 본문 없음).
+    async segGenStats(restaurant_id) {
+      const r = await DB.prepare('SELECT gen, MAX(updated_at) AS mx FROM ledger_backup_seg WHERE restaurant_id=? GROUP BY gen')
+        .bind(restaurant_id).all();
+      return (r.results || []).map(x => ({ gen: x.gen, mx: Number(x.mx) }));
+    },
+    // 고른 세대의 조각 중 cutoff보다 오래된 행만 지운다(바인딩: restaurant_id·cutoff 2개 + gen 최대 97개 = 99).
+    async deleteSegGens(restaurant_id, gens, cutoff) {
+      for (const part of chunkIds(gens, CLEANUP_CHUNK - 2)) {
+        const ph = part.map(() => '?').join(',');
+        await DB.prepare('DELETE FROM ledger_backup_seg WHERE restaurant_id=? AND updated_at<? AND gen IN (' + ph + ')')
+          .bind(restaurant_id, cutoff, ...part).run();
+      }
     },
     // ── 기관 OTP ──
     // agency_otp.email / agency_token.email 컬럼에는 **이메일의 SHA-256 해시**만 넣는다(평문 미저장,
@@ -1812,7 +1886,7 @@ export function makeD1Store(DB) {
     async cleanupTTL(now) {
       const errors = [];
       const step = async (name, fn) => { try { await fn(); } catch (e) { errors.push(name + ': ' + ((e && e.message) || 'error')); } };
-      let expiredIds = [], ids = [], deregIds = [];
+      let expiredIds = [], ids = [], deregIds = [], orphanSegments = 0;
       // 1) 미수령 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 파기(§6). inbox 쿼리도
       // 별도로 created_at 조건을 걸어 이중 방어하므로, 이 단계는 cron 주기(1일) 동안의
       // 저장 최소화를 담당한다.
@@ -1875,7 +1949,15 @@ export function makeD1Store(DB) {
         await DB.prepare('DELETE FROM ledger_backup WHERE EXISTS (SELECT 1 FROM public_key_registry r WHERE r.restaurant_id=ledger_backup.restaurant_id AND r.taken_over_at IS NOT NULL AND r.taken_over_at < ? AND ledger_backup.updated_at < r.taken_over_at)').bind(tkCutoff).run();
         await DB.prepare('DELETE FROM ledger_backup_seg WHERE EXISTS (SELECT 1 FROM public_key_registry r WHERE r.restaurant_id=ledger_backup_seg.restaurant_id AND r.taken_over_at IS NOT NULL AND r.taken_over_at < ? AND ledger_backup_seg.updated_at < r.taken_over_at)').bind(tkCutoff).run();
       });
-      return { deletedSummaries: ids.length, expiredSummaries: expiredIds.length, purgedDeregistered: deregIds.length, errors };
+      // 7) 고아 조각(머리가 끝내 오지 않은 세대) 정리 — 규칙은 pickOrphanGens(keepTop) 주석. 14일 넘게 손대지 않은
+      //    세대만, 한 번에 ORPHAN_GEN_LIMIT 세대까지. 문장 하나(바인딩 3개)라 바인딩 상한과 무관하고, 세대 고르기·삭제가
+      //    한 문장 안에서 일어나 그 사이에 올라온 조각을 지우는 일이 없다. 머리(ledger_backup)는 읽기만 한다.
+      await step('purge_orphan_segments', async () => {
+        const cutoff = now - ORPHAN_SEG_AGE_MS;
+        const res = await DB.prepare(ORPHAN_SEG_SQL).bind(cutoff, cutoff, ORPHAN_GEN_LIMIT).run();
+        orphanSegments = Number(res && res.meta && res.meta.changes) || 0;
+      });
+      return { deletedSummaries: ids.length, expiredSummaries: expiredIds.length, purgedDeregistered: deregIds.length, orphanSegments, errors };
     }
   };
 }
@@ -1888,7 +1970,8 @@ export default {
   // 개인정보 최소화 목적 TTL cron: ① 미수령(PENDING) 72시간 경과 항목을 EXPIRED로 전이하고
   // 암호 blob을 즉시 파기, ② 처리 완료(APPROVED/REJECTED/EXPIRED) 후 30일 지난 비식별 집계와
   // 만료된 인증 챌린지/기관 OTP/기관 토큰, ③ 180일 지난 consent_log·feedback,
-  // ④ 등록 해제 후 30일 지난 휴지통(공개키 행 + 암호화 원장 백업, §4.12)을 정리한다(암호 blob은
+  // ④ 등록 해제 후 30일 지난 휴지통(공개키 행 + 암호화 원장 백업, §4.12), ⑤ 인수 30일 뒤 옛 백업,
+  // ⑥ 14일 넘게 방치된 고아 조각(머리가 오지 않은 세대, §4.13)을 정리한다(암호 blob은
   // 승인/거절 시 이미 즉시 삭제되므로 ①은 대개 no-op). 서버는 zero-knowledge이므로 원장 진실은 항상
   // 음식점 기기에 있다 — 이 정리는 서버 보관 데이터를 최소화할 뿐 데이터 손실이 아니다.
   async scheduled(event, env, ctx) {
@@ -1923,6 +2006,17 @@ export function makeMemoryStore() {
   const noteBinds = (n, what) => {
     if (n > maxBindsSeen) maxBindsSeen = n;
     if (n > D1_MAX_BINDS) throw new Error('D1 바인딩 상한 초과(' + what + '): ' + n + ' > ' + D1_MAX_BINDS);
+  };
+  // 한 가게의 세대별 최근 updated_at(D1 segGenStats와 동등).
+  const segStatsOf = (restaurant_id) => {
+    const m = new Map();
+    for (const x of ledgerSegs.values()) {
+      if (x.restaurant_id !== restaurant_id) continue;
+      const s = m.get(x.gen);
+      if (!s) m.set(x.gen, { gen: x.gen, mx: x.updated_at });
+      else if (x.updated_at > s.mx) s.mx = x.updated_at;
+    }
+    return [...m.values()];
   };
   return {
     _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, ledgerSegs, agencyOtps, agencyTokens, keychecks, seenInstitutions, seenDepartments, seenRestaurants, counters, feedbacks, adminActions, maxBindsSeen }),
@@ -2088,7 +2182,7 @@ export function makeMemoryStore() {
     // ── 암호화 원장 백업 ──
     // D1 배치와 동등: gen이 있으면 머리 저장과 함께 다른 세대 조각 삭제(§4.13).
     async upsertLedgerBackup(b) {
-      ledgerBackups.set(b.restaurant_id, { restaurant_id: b.restaurant_id, blob: b.blob, blob_hash: b.blob_hash, updated_at: b.updated_at });
+      ledgerBackups.set(b.restaurant_id, { restaurant_id: b.restaurant_id, blob: b.blob, blob_hash: b.blob_hash, updated_at: b.updated_at, gen: b.gen ? String(b.gen) : null });
       if (b.gen) for (const [k, x] of ledgerSegs) if (x.restaurant_id === b.restaurant_id && x.gen !== b.gen) ledgerSegs.delete(k);
     },
     async getLedgerBackup(restaurant_id) { return ledgerBackups.get(restaurant_id) || null; },
@@ -2114,6 +2208,13 @@ export function makeMemoryStore() {
       return [...ledgerSegs.values()].filter(x => x.restaurant_id === restaurant_id)
         .sort((a, b) => (a.gen < b.gen ? -1 : a.gen > b.gen ? 1 : a.seg_no - b.seg_no))
         .map(x => ({ gen: x.gen, seg_no: x.seg_no, blob_hash: x.blob_hash, updated_at: x.updated_at, size: x.blob.length }));
+    },
+    async segGenStats(restaurant_id) { return segStatsOf(restaurant_id); },
+    async deleteSegGens(restaurant_id, gens, cutoff) {
+      for (const part of chunkIds(gens, CLEANUP_CHUNK - 2)) {
+        noteBinds(part.length + 2, 'DELETE ledger_backup_seg gen IN');
+        for (const [k, x] of ledgerSegs) if (x.restaurant_id === restaurant_id && x.updated_at < cutoff && part.includes(x.gen)) ledgerSegs.delete(k);
+      }
     },
     // ── 기관 OTP ── (키·저장값 모두 이메일의 SHA-256 해시 — D1과 동일하게 평문 미저장)
     async getAgencyOtp(emailHash) { return agencyOtps.get(emailHash) || null; },
@@ -2211,7 +2312,7 @@ export function makeMemoryStore() {
           await fn();
         } catch (e) { errors.push(name + ': ' + ((e && e.message) || 'error')); }
       };
-      let toExpire = [], toDelete = [], deregIds = [];
+      let toExpire = [], toDelete = [], deregIds = [], orphanSegments = 0;
       // 1) 미수령 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 파기(§6).
       // D1과 동일하게 CLEANUP_CHUNK 단위로 묶어 처리하고, 문장당 바인딩 수(상한 100)를 재현 검사한다
       // — UPDATE는 processed_at 1개 + id N개를 함께 바인딩하므로 N=100이면 D1에서 터진다.
@@ -2281,7 +2382,24 @@ export function makeMemoryStore() {
           for (const [key, x] of ledgerSegs) if (x.restaurant_id === k.restaurant_id && x.updated_at < k.taken_over_at) ledgerSegs.delete(key);
         }
       });
-      return { deletedSummaries: toDelete.length, expiredSummaries: toExpire.length, purgedDeregistered: deregIds.length, errors };
+      // 7) 고아 조각 정리 — D1의 ORPHAN_SEG_SQL과 같은 규칙(pickOrphanGens, keepTop)·같은 상한(ORPHAN_GEN_LIMIT, 오래된 세대부터).
+      await step('purge_orphan_segments', async () => {
+        const cutoff = now - ORPHAN_SEG_AGE_MS;
+        noteBinds(3, 'DELETE ledger_backup_seg orphan');
+        const rids = new Set([...ledgerSegs.values()].map(x => x.restaurant_id));
+        const picked = [];
+        for (const rid of rids) {
+          const stats = segStatsOf(rid);
+          const h = ledgerBackups.get(rid);
+          for (const g of pickOrphanGens(stats, { headGen: h && h.gen != null ? h.gen : null, keepTop: true, cutoff }))
+            picked.push({ rid, gen: g, mx: stats.find(s => s.gen === g).mx });
+        }
+        picked.sort((a, b) => a.mx - b.mx);
+        const chosen = new Set(picked.slice(0, ORPHAN_GEN_LIMIT).map(p => p.rid + '\u0000' + p.gen));
+        for (const [k, x] of ledgerSegs)
+          if (x.updated_at < cutoff && chosen.has(x.restaurant_id + '\u0000' + x.gen)) { ledgerSegs.delete(k); orphanSegments++; }
+      });
+      return { deletedSummaries: toDelete.length, expiredSummaries: toExpire.length, purgedDeregistered: deregIds.length, orphanSegments, errors };
     }
   };
 }

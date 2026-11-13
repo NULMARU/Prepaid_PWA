@@ -81,7 +81,7 @@ bash harness/verify-all.sh    # 12/12 기대
   | `server/migrations-2026-08.sql` | 문 1~5 — `verified`, `agency_domain`(deposit_summary), `agency_keycheck` 등 |
   | `server/migrations-2026-09.sql` | 문 1~7 — beta.48(아래) |
   | `server/migrations-2026-10.sql` | 문 1~2 — `admin_action_log`(운영자 휴지통 처리) |
-  | `server/migrations-2026-11.sql` | 문 1~2 — beta.55 `ledger_backup_seg`(조각 백업) + `public_key_registry.taken_over_at`(인수 시각). 문 2는 ALTER라 재실행하면 duplicate column — 이미 적용된 것 |
+  | `server/migrations-2026-11.sql` | 문 1~3 — beta.55 `ledger_backup_seg`(조각 백업) + `public_key_registry.taken_over_at`(인수 시각) + `ledger_backup.gen`(머리의 세대 — 고아 조각 정리가 씀). **세 문 모두 `wrangler deploy` 전에** 적용. 문 2·3은 ALTER라 재실행하면 duplicate column — 이미 적용된 것 |
 
   신규 설치는 `server/schema.sql` 하나로 끝난다(마이그레이션 결과가 이미 반영돼 있다).
 - 🔴 **`wrangler d1 execute --remote --file`을 쓰지 말 것.** OAuth 토큰과 import API가 비호환이라 **오류 2036**이 난다.
@@ -179,7 +179,7 @@ npx wrangler secret put RESEND_API_KEY
 | `AUTH_MODE` | `prod` | `dev`=응답에 평문 OTP 포함(**운영 금지**) / `pilot`=발송 안 함 / `prod`=Resend 실발송 |
 | `REQUIRE_AGENCY_AUTH` | `1` | `/api/submit`에 `X-Agency-Token` 필수(없으면 `401 agency_auth_required`) |
 | `PUBLIC_API_BASE` / `*_REGION_PARAM` / `*_NAME_PARAM` | data.go.kr | 검색 프록시 파라미터 |
-| `crons` | `17 18 * * *` | TTL 정리(UTC 18:17 = KST 03:17) |
+| `crons` | `17 18 * * *` | TTL 정리(UTC 18:17 = KST 03:17) — 단계 ①~⑦(⑦ 고아 조각 정리, PROTOCOL §6.3) |
 
 `ALLOW_ORIGIN`에는 `staff.bapjangbu.com`이 **선등재**돼 있다.
 
@@ -219,6 +219,7 @@ npx wrangler secret put RESEND_API_KEY
 | "등록 해제했는데 백업을 되찾고 싶다" | 해제 후 **30일 안**이면 같은 열쇠로 재등록하면 된다(`reactivated:true`). 30일이 지났으면 cron이 이미 지웠다 — 복구 불가. 그 사이 **다른 열쇠가 인수**했어도 인수 후 30일까지는 옛 백업 행이 남아 있다(beta.55, 새 주인에게만 숨김) — §12 "인수 뒤 옛 백업" |
 | 사장님이 "가게 등록이 `takeover_locked`로 막힌다" | 운영자가 [휴지통으로] 처리한 지 7일이 안 된 가게를 **다른 열쇠**로 등록하려는 것(beta.55). 원래 기기는 같은 열쇠로 바로 되살릴 수 있다. 부당 선점 정리 직후라면 7일 뒤에 진짜 사장님이 등록하거나, 본인 확인 후 아래 §12 터미널 절차로 잠금 없이 처리 |
 | 담당자가 "`too_many_pending`으로 안 보내진다" | 그 가게 수신함에 미수령 신청이 30건 쌓였다(beta.55). 사장님이 받기·거절을 하면 풀린다(72시간 지나면 자동 만료) |
+| 사장님 앱이 "서버 백업 자리가 가득 찼어요"(`too_many_segments`) | 운영자가 할 일은 대개 없다(beta.55) — 서버가 스스로 고아 조각(머리가 오지 않은 세대)을 치운다: 업로드 때 24시간 지난 고아 세대를 바로 비우고, cron ⑦이 14일 지난 것을 지운다. 응답의 `reason`이 `recent_orphans`면 `retry_after_s` 뒤 다시 하면 풀리고, `full`이면 머리의 세대만으로 1,000행이 찬 것(장부가 비정상적으로 크다 — 앱의 조각 크기·압축을 볼 것). cron 로그의 `orphanSegments`·`errors`(`purge_orphan_segments`)로 정리 여부 확인. **머리(`ledger_backup`)는 지우지 말 것** |
 | 배포했는데 안 바뀐다 | Pages `--branch=main` 누락(§5) / GitHub Pages 런 실패(§6) / 커스텀 도메인 반영 지연 |
 | 새 프론트에서 CORS 오류 | `ALLOW_ORIGIN`에 추가 후 `wrangler deploy`(§8) |
 | 관리자 통계가 503 | `ADMIN_TOKEN` 미등록(§7) |

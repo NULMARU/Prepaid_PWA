@@ -238,7 +238,7 @@ UNIQUE(restaurant_id, dedupe_key)
 
 ## C15. 조각 백업 `ledger_backup_seg` — 머리가 세대를 바꾼다 (beta.55)
 
-**계약(서버, PROTOCOL §4.13)**: `POST /api/ledger-backup/seg`(upsert)·`/seg/get`(≤5개)·`/seg/list`, 전부 소유 증명. `gen`=`/^[A-Za-z0-9_-]{8,40}$/`, `seg_no` 정수 0..999, `blob` ≤ 400,000자, 가게당 1,000행. 기존 `POST /api/ledger-backup`에 선택 필드 `gen`이 오면 **머리 저장과 같은 배치로 다른 세대 조각을 지운다**. `gen` 없는 머리(v1 앱)는 조각을 건드리지 않는다. 머리를 지우는 모든 곳(`/delete`·휴지통 cron·인수 30일 cron)이 조각도 지운다.
+**계약(서버, PROTOCOL §4.13)**: `POST /api/ledger-backup/seg`(upsert)·`/seg/get`(≤5개)·`/seg/list`, 전부 소유 증명. `gen`=`/^[A-Za-z0-9_-]{8,40}$/`, `seg_no` 정수 0..999, `blob` ≤ 400,000자, 가게당 1,000행. 기존 `POST /api/ledger-backup`에 선택 필드 `gen`이 오면 **머리 저장과 같은 배치로 다른 세대 조각을 지운다**. `gen` 없는 머리(v1 앱)는 조각을 건드리지 않는다. 머리를 지우는 모든 곳(`/delete`·휴지통 cron·인수 30일 cron)이 조각도 지운다. **고아 조각**(머리가 오지 않은 세대)은 서버가 스스로 치운다 — cron ⑦이 14일, 업로드가 1,000행 상한에 걸리면 24시간 넘게 조용한 고아 세대를 지운다. 이때 **머리의 세대(`ledger_backup.gen` — 머리 업로드의 gen을 그대로 저장, v1 머리는 NULL)·가장 최근 세대(cron)·지금 올리는 세대(업로드)는 절대 지우지 않고**, 머리 행은 건드리지 않는다. 머리의 세대를 시각으로 추정하지 말 것(조각이 다시 올라가면 틀린다). 상한 오류는 `too_many_segments`에 `reason`(`recent_orphans`+`retry_after_s` / `full`)이 붙는다.
 
 **계약(앱)**: 조각을 **전부** 올린 뒤 **마지막에** 그 세대의 머리를 올린다. 머리가 이전 세대를 가리키는 동안에는 이전 세대 조각이 지워지지 않으므로, 중간에 끊겨도 마지막으로 성공한 백업으로 복원할 수 있다.
 

@@ -79,11 +79,14 @@ CREATE INDEX IF NOT EXISTS idx_challenge_lookup ON auth_challenge(restaurant_id,
 
 -- 암호화 원장 클라우드 백업 (zero-knowledge). blob은 클라이언트 자체 공개키로 암호화되어
 -- 서버는 복호화할 수 없다. restaurant_id당 최신본 1행.
+-- gen(2026-11, beta.55): 조각 백업 머리의 세대 식별자(머리 업로드에 실려 온 값 그대로, v1 머리는 NULL).
+--   고아 조각 정리가 '머리의 세대'를 정확히 지키는 데 쓴다(§4.13). 기존 DB는 migrations-2026-11.sql 문 3.
 CREATE TABLE IF NOT EXISTS ledger_backup (
   restaurant_id TEXT PRIMARY KEY,
   blob          TEXT NOT NULL,
   blob_hash     TEXT,
-  updated_at    INTEGER NOT NULL
+  updated_at    INTEGER NOT NULL,
+  gen           TEXT
 );
 
 -- 조각 백업(2026-11, beta.55, PROTOCOL §4.13). 장부가 1MB 단일 blob에 들어가지 않는 가게를 위해 클라이언트가

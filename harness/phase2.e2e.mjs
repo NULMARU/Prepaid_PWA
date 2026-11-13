@@ -109,7 +109,14 @@ function memoryTweak(store) {
     setDeregAt(rid, ts) { d().keys.get(rid).deregistered_at = ts; },
     setAdminActionAt(rid, from, to) { d().adminActions.forEach(a => { if (a.restaurant_id === rid && a.created_at === from) a.created_at = to; }); },
     hasHead(rid) { return d().ledgerBackups.has(rid); },
+    headGen(rid) { const h = d().ledgerBackups.get(rid); return h && h.gen != null ? h.gen : null; },
     segCount(rid) { return d().ledgerSegs ? [...d().ledgerSegs.values()].filter(x => x.restaurant_id === rid).length : 0; },
+    // 세대별 행 수를 "gen:개수,…"(gen 이름순) 문자열로 — 어느 세대가 남았는지 한 번에 비교한다.
+    segGens(rid) {
+      const m = new Map();
+      for (const x of (d().ledgerSegs || new Map()).values()) if (x.restaurant_id === rid) m.set(x.gen, (m.get(x.gen) || 0) + 1);
+      return [...m].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([g, c]) => g + ':' + c).join(',');
+    },
     openChallenges(rid) { return d().challenges.filter(c => c.restaurant_id === rid && c.expires_at > Date.now()).length; },
     otpAttempts(emailHash) { const o = d().agencyOtps.get(emailHash); return o ? o.attempts : null; },
     pendingCount(rid) { return d().summaries.filter(s => s.restaurant_id === rid && s.status === 'PENDING').length; },
@@ -122,15 +129,23 @@ function d1Tweak(db) {
     setDeregAt(rid, ts) { db.prepare('UPDATE public_key_registry SET deregistered_at=? WHERE restaurant_id=?').run(ts, rid); },
     setAdminActionAt(rid, from, to) { db.prepare('UPDATE admin_action_log SET created_at=? WHERE restaurant_id=? AND created_at=?').run(to, rid, from); },
     hasHead(rid) { return !!one('SELECT 1 c FROM ledger_backup WHERE restaurant_id=?', rid); },
+    // 컬럼이 없는(마이그레이션 전) 스키마면 undefined — 단언이 실패하도록 그대로 둔다.
+    headGen(rid) { try { const r = one('SELECT gen FROM ledger_backup WHERE restaurant_id=?', rid); return r ? r.gen : null; } catch (_) { return undefined; } },
     segCount(rid) { return one('SELECT COUNT(*) c FROM ledger_backup_seg WHERE restaurant_id=?', rid).c; },
+    segGens(rid) {
+      return db.prepare('SELECT gen, COUNT(*) c FROM ledger_backup_seg WHERE restaurant_id=? GROUP BY gen ORDER BY gen').all(rid)
+        .map(x => x.gen + ':' + x.c).join(',');
+    },
     openChallenges(rid) { return one('SELECT COUNT(*) c FROM auth_challenge WHERE restaurant_id=? AND expires_at>?', rid, Date.now()).c; },
     otpAttempts(emailHash) { const r = one('SELECT attempts FROM agency_otp WHERE email=?', emailHash); return r ? r.attempts : null; },
     pendingCount(rid) { return one("SELECT COUNT(*) c FROM deposit_summary WHERE restaurant_id=? AND status='PENDING'", rid).c; },
     // 실제 D1 경로의 단계 실패: feedback 테이블을 잠시 다른 이름으로 치워 그 단계만 던지게 한다.
+    // 고아 조각 단계는 조각 테이블을 치워 실패시킨다(같은 테이블을 쓰는 ⑤⑥도 그 실행에서는 함께 실패한다).
     failCleanupStep(name) {
-      if (name !== 'feedback') return false;
-      db.exec('ALTER TABLE feedback RENAME TO feedback_hidden');
-      return () => db.exec('ALTER TABLE feedback_hidden RENAME TO feedback');
+      const tbl = name === 'feedback' ? 'feedback' : name === 'purge_orphan_segments' ? 'ledger_backup_seg' : null;
+      if (!tbl) return false;
+      db.exec('ALTER TABLE ' + tbl + ' RENAME TO ' + tbl + '_hidden');
+      return () => db.exec('ALTER TABLE ' + tbl + '_hidden RENAME TO ' + tbl);
     }
   };
 }
@@ -538,6 +553,135 @@ async function beta55Suite(label, store, tw) {
   tw.setDeregAt(RS, Date.now() - (30 * 24 * 60 * 60 * 1000 + 60 * 1000));
   cr = await store.cleanupTTL(Date.now());
   ok(tw.segCount(RS) === 0 && noErr(cr), T('cron: 30일 휴지통 비우기가 조각도 삭제'));
+
+  // ── 12) 고아 조각(머리가 오지 않은 세대) 정리 — cron ⑦(14일) + 업로드 중 상한(24시간 지난 고아 비우기) ──
+  // 시각을 직접 정해 store 메서드로 행을 깐다(메모리·D1 같은 메서드). 머리는 gen을 실어 올려 실제 흐름처럼
+  // "머리 시각에 살아 있던 세대 = 머리의 세대"가 되게 한 뒤, 그 뒤에 생긴 세대를 얹는다.
+  const DAY = 24 * 60 * 60 * 1000;
+  const N0 = Date.now();
+  const putSegs = async (rid, gen, from, to, ts) => { for (let n = from; n < to; n++) await store.upsertLedgerSeg({ restaurant_id: rid, gen, seg_no: n, blob: 'QQ==', blob_hash: null, updated_at: ts }); };
+  const putHead = async (rid, gen, ts) => store.upsertLedgerBackup({ restaurant_id: rid, blob: 'aGVhZA==', blob_hash: 'h', updated_at: ts, gen });
+  // O1: 머리 세대(40일) + 오래된 고아(20일) + 최근 고아(3일) + 나이가 섞인 고아(20일·2일) + 진행 중 세대(1일)
+  const O1 = P + 'ORPH1';
+  await putSegs(O1, 'headgen-0001', 0, 2, N0 - 40 * DAY); await putHead(O1, 'headgen-0001', N0 - 40 * DAY + 1);
+  await putSegs(O1, 'orphan-old-01', 0, 3, N0 - 20 * DAY);
+  await putSegs(O1, 'orphan-new-01', 0, 1, N0 - 3 * DAY);
+  await putSegs(O1, 'mixedage-001', 0, 1, N0 - 20 * DAY); await putSegs(O1, 'mixedage-001', 1, 2, N0 - 2 * DAY);
+  await putSegs(O1, 'current-0001', 0, 1, N0 - 1 * DAY);
+  // O2: 모두 조용한 가게 — 머리 세대 60일, 고아 50일, 가장 최근 세대 30일(14일보다 오래돼도 '진행 중'으로 지킨다)
+  const O2 = P + 'ORPH2';
+  await putSegs(O2, 'headgen-0002', 0, 2, N0 - 60 * DAY); await putHead(O2, 'headgen-0002', N0 - 60 * DAY + 1);
+  await putSegs(O2, 'orphan-0002', 0, 1, N0 - 50 * DAY);
+  await putSegs(O2, 'latest-0002', 0, 2, N0 - 30 * DAY);
+  // O3: 머리가 한 번도 오지 않은 가게 — 가장 최근 세대만 남긴다
+  const O3 = P + 'ORPH3';
+  await putSegs(O3, 'nohead-A-03', 0, 2, N0 - 30 * DAY);
+  await putSegs(O3, 'nohead-B-03', 0, 1, N0 - 20 * DAY);
+  // O4: 조각 1개짜리 가게 — 머리 세대의 유일한 조각이 머리 뒤에 다시 올라갔다(시각이 머리보다 늦다). 그 뒤 새 세대가 끊김.
+  //     '머리 시각 이전 행이 있는 세대'로 판정하면 머리 세대를 잃는다 — '가장 먼저 시작된 세대'로 지켜야 한다.
+  const O4 = P + 'ORPH4';
+  await putSegs(O4, 'single-0004', 0, 1, N0 - 40 * DAY); await putHead(O4, 'single-0004', N0 - 40 * DAY + 1);
+  await putSegs(O4, 'single-0004', 0, 1, N0 - 30 * DAY);
+  await putSegs(O4, 'newgen-0004', 0, 1, N0 - 20 * DAY);
+  // O5: 오래된 머리 세대 하나뿐 — 손대지 않는다
+  const O5 = P + 'ORPH5';
+  await putSegs(O5, 'only-00005', 0, 3, N0 - 100 * DAY); await putHead(O5, 'only-00005', N0 - 100 * DAY + 1);
+  // O7(반례 — 오케스트레이터 검토): 머리 세대 G1(조각 1개) 뒤에 고아 G2가 생기고(같은 열쇠의 두 번째 기기 등),
+  //     그 뒤 G1의 유일한 조각이 다시 올라가 G1의 시작 시각이 G2보다 늦어졌다. 진행 중 세대 G3도 있다.
+  //     '가장 먼저 시작된 세대' 추정이면 G2를 지키고 진짜 머리 세대 G1을 지운다 → 머리에 저장된 gen으로 정확히 지켜야 한다.
+  const O7 = P + 'ORPH7';
+  await putSegs(O7, 'g1-head-0007', 0, 1, N0 - 40 * DAY); await putHead(O7, 'g1-head-0007', N0 - 40 * DAY + 1);
+  await putSegs(O7, 'g2-orph-0007', 0, 1, N0 - 35 * DAY);
+  await putSegs(O7, 'g1-head-0007', 0, 1, N0 - 30 * DAY);
+  await putSegs(O7, 'g3-curr-0007', 0, 1, N0 - 1 * DAY);
+  // O8: 머리가 v1(gen 없음)으로 다시 올라오면 머리의 세대는 없다 — 예전 gen 머리의 세대도 고아로 본다(가장 최근 세대만 지킴).
+  const O8 = P + 'ORPH8';
+  await putSegs(O8, 'oldhead-0008', 0, 2, N0 - 40 * DAY); await putHead(O8, 'oldhead-0008', N0 - 40 * DAY + 1);
+  await putHead(O8, null, N0 - 39 * DAY);
+  await putSegs(O8, 'latest-0008', 0, 1, N0 - 1 * DAY);
+  ok(tw.headGen(O1) === 'headgen-0001' && tw.headGen(O8) === null, T('머리 gen: gen 머리는 gen을 저장, v1 머리(gen 없음)는 NULL로 되돌림'));
+  cr = await store.cleanupTTL(N0);
+  ok(noErr(cr) && cr.orphanSegments === 9, T('고아 cron: 단계 오류 0, 지운 행 수 9(O1 3 + O2 1 + O3 2 + O7 1 + O8 2)'));
+  ok(tw.segGens(O7) === 'g1-head-0007:1,g3-curr-0007:1', T('고아 cron(반례): 조각이 다시 올라가 시작 시각이 늦어진 머리 세대도 머리의 gen으로 정확히 지키고, 고아 G2를 지움'));
+  ok(tw.segGens(O8) === 'latest-0008:1' && tw.hasHead(O8), T('고아 cron: v1 머리로 바뀐 가게의 옛 gen 세대는 고아로 정리(머리는 그대로)'));
+  ok(tw.segGens(O1) === 'current-0001:1,headgen-0001:2,mixedage-001:2,orphan-new-01:1', T('고아 cron: 14일 넘은 고아 세대만 삭제(머리 세대·최근 고아·진행 중 세대 유지)'));
+  ok(tw.segGens(O1).includes('mixedage-001:2'), T('고아 cron: 세대 안에 최근 행이 있으면 오래된 행도 지우지 않음(세대 단위)'));
+  ok(tw.hasHead(O1) && tw.hasHead(O2), T('고아 cron: 머리는 건드리지 않음'));
+  ok(tw.segGens(O2) === 'headgen-0002:2,latest-0002:2', T('고아 cron: 가장 최근 세대와 머리 세대는 오래돼도 유지, 고아만 삭제'));
+  ok(tw.segGens(O3) === 'nohead-B-03:1', T('고아 cron: 머리 없는 가게는 가장 최근 세대만 남김'));
+  ok(tw.segGens(O4) === 'newgen-0004:1,single-0004:1', T('고아 cron: 유일한 조각이 다시 올라간 머리 세대도 지킴(가장 먼저 시작된 세대)'));
+  ok(tw.segGens(O5) === 'only-00005:3', T('고아 cron: 지울 것이 없는 가게는 그대로'));
+  cr = await store.cleanupTTL(N0);
+  ok(noErr(cr) && cr.orphanSegments === 0 && tw.segGens(O1) === 'current-0001:1,headgen-0001:2,mixedage-001:2,orphan-new-01:1',
+    T('고아 cron: 다시 돌려도 더 지우지 않음(0행)'));
+
+  // 단계 격리: 고아 단계가 실패해도 cron은 던지지 않고 errors에 남는다 / 앞 단계가 실패해도 고아 단계는 돈다.
+  const O6 = P + 'ORPH6';
+  await putSegs(O6, 'headgen-0006', 0, 1, N0 - 40 * DAY); await putHead(O6, 'headgen-0006', N0 - 40 * DAY + 1);
+  await putSegs(O6, 'orphan-0006', 0, 2, N0 - 20 * DAY);
+  await putSegs(O6, 'latest-0006', 0, 1, N0 - 1 * DAY);
+  let restoreO = tw.failCleanupStep('purge_orphan_segments');
+  crThrew = false; crStep = null;
+  try { crStep = await store.cleanupTTL(N0); } catch (_) { crThrew = true; }
+  if (typeof restoreO === 'function') restoreO();
+  ok(!!restoreO && !crThrew && crStep && (crStep.errors || []).some(e => e.startsWith('purge_orphan_segments')) && tw.segGens(O6).includes('orphan-0006:2'),
+    T('고아 cron: 이 단계가 실패하면 errors에 이름이 남고 cron은 던지지 않음(행은 그대로)'));
+  restoreO = tw.failCleanupStep('feedback');
+  crThrew = false; crStep = null;
+  try { crStep = await store.cleanupTTL(N0); } catch (_) { crThrew = true; }
+  if (typeof restoreO === 'function') restoreO();
+  ok(!!restoreO && !crThrew && crStep && (crStep.errors || []).some(e => e.startsWith('feedback')) && tw.segGens(O6) === 'headgen-0006:1,latest-0006:1',
+    T('고아 cron: 앞 단계(feedback)가 실패해도 고아 정리는 실행됨'));
+
+  // 업로드 중 상한: 24시간 넘은 고아 세대를 그 자리에서 비우고 새 세대 업로드를 받는다.
+  const capStore = async (sfx) => { const rid = P + 'CAP' + sfx, k = await mk(); await reg(rid, k); return { rid, k }; };
+  const segUp = async (c, gen, seg_no) => call(store, env, 'POST', '/api/ledger-backup/seg', { restaurant_id: c.rid, auth_token: await tok(c.rid, c.k), gen, seg_no, blob: 'bmV3', blob_hash: 'n' });
+  const CA = await capStore('A');
+  await putSegs(CA.rid, 'capheadgen01', 0, 2, N0 - 40 * DAY); await putHead(CA.rid, 'capheadgen01', N0 - 40 * DAY + 1);
+  await putSegs(CA.rid, 'caporphan001', 0, 998, N0 - 2 * DAY);
+  r = await segUp(CA, 'capnewgen001', 0);
+  ok(r.status === 200 && tw.segGens(CA.rid) === 'capheadgen01:2,capnewgen001:1' && tw.hasHead(CA.rid),
+    T('상한: 1,000행이어도 24시간 넘은 고아 세대를 비우고 새 세대 조각 200(머리·머리 세대 유지)'));
+  const CB = await capStore('B');
+  await putSegs(CB.rid, 'capheadgen02', 0, 2, N0 - 40 * DAY); await putHead(CB.rid, 'capheadgen02', N0 - 40 * DAY + 1);
+  await putSegs(CB.rid, 'caporphan002', 0, 998, N0 - 60 * 60 * 1000);
+  r = await segUp(CB, 'capnewgen002', 0);
+  jb = await jsonOf(r);
+  ok(r.status === 400 && jb.error === 'too_many_segments' && jb.max === 1000 && jb.reason === 'recent_orphans'
+    && jb.retry_after_s > 22 * 3600 && jb.retry_after_s <= 23 * 3600 + 5,
+    T('상한: 고아가 24시간 안 됐으면 400 too_many_segments + reason:"recent_orphans" + retry_after_s(≈23시간)'));
+  ok(tw.segGens(CB.rid) === 'capheadgen02:2,caporphan002:998', T('상한: 24시간 안 된 고아는 지우지 않음'));
+  const CC = await capStore('C');
+  await putSegs(CC.rid, 'capheadgen03', 0, 1000, N0 - 40 * DAY); await putHead(CC.rid, 'capheadgen03', N0 - 40 * DAY + 1);
+  r = await segUp(CC, 'capnewgen003', 0);
+  jb = await jsonOf(r);
+  ok(r.status === 400 && jb.error === 'too_many_segments' && jb.reason === 'full' && jb.retry_after_s === undefined && tw.segCount(CC.rid) === 1000,
+    T('상한: 머리 세대만으로 찼으면 reason:"full"(기다려도 안 풀림), 아무것도 지우지 않음'));
+  const CE = await capStore('E');
+  await putSegs(CE.rid, 'capheadgen05', 0, 2, N0 - 40 * DAY); await putHead(CE.rid, 'capheadgen05', N0 - 40 * DAY + 1);
+  await putSegs(CE.rid, 'cappending05', 0, 998, N0 - 3 * DAY);
+  r = await segUp(CE, 'cappending05', 998);
+  jb = await jsonOf(r);
+  ok(r.status === 400 && jb.reason === 'full' && tw.segGens(CE.rid) === 'capheadgen05:2,cappending05:998',
+    T('상한: 지금 올리는 세대는 오래됐어도 비우지 않음(이어 올리기 보호)'));
+  // 상한 반례: 머리 세대 G1(조각 1개)이 고아 G2보다 늦게 다시 올라간 상태에서 새 세대 G3가 상한에 걸린다.
+  //   추정 규칙이면 G1(머리의 세대)을 비우고 G2를 남긴다 → 머리의 gen으로 G1을 지키고 G2를 비워야 한다.
+  const CF = await capStore('F');
+  await putSegs(CF.rid, 'capg1head006', 0, 1, N0 - 40 * DAY); await putHead(CF.rid, 'capg1head006', N0 - 40 * DAY + 1);
+  await putSegs(CF.rid, 'capg2orph006', 0, 999, N0 - 35 * DAY);
+  await putSegs(CF.rid, 'capg1head006', 0, 1, N0 - 30 * DAY);
+  r = await segUp(CF, 'capg3new0006', 0);
+  ok(r.status === 200 && tw.segGens(CF.rid) === 'capg1head006:1,capg3new0006:1',
+    T('상한(반례): 다시 올라간 머리 세대는 머리의 gen으로 지키고 고아만 비운 뒤 200'));
+  // cron이 고아를 치운 뒤에는 새 세대 업로드가 그대로 된다(진행 중으로 보이는 가장 최근 고아는 cron이 남긴다).
+  const CD = await capStore('D');
+  await putSegs(CD.rid, 'capheadgen04', 0, 2, N0 - 40 * DAY); await putHead(CD.rid, 'capheadgen04', N0 - 40 * DAY + 1);
+  await putSegs(CD.rid, 'caporphan04a', 0, 500, N0 - 20 * DAY);
+  await putSegs(CD.rid, 'caporphan04b', 0, 498, N0 - 16 * DAY);
+  cr = await store.cleanupTTL(N0);
+  ok(noErr(cr) && tw.segGens(CD.rid) === 'capheadgen04:2,caporphan04b:498', T('상한: cron이 1,000행 중 고아 500행을 정리(가장 최근 세대는 남김)'));
+  r = await segUp(CD, 'capnewgen004', 0);
+  ok(r.status === 200 && tw.segGens(CD.rid) === 'capheadgen04:2,capnewgen004:1,caporphan04b:498', T('상한: cron 정리 뒤 새 세대 조각 업로드 200(상한 아래라 더 지우지 않음)'));
 }
 
 (async () => {

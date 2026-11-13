@@ -119,7 +119,7 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 | `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash, gen?}` | `{ok:true}` / 400/401/409 | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요. **beta.55** 선택 필드 `gen`(조각 백업의 머리, §4.13): 오면 형식 검사(틀리면 `400 {error:'invalid_gen'}`) 후 머리 저장과 **같은 배치로** 다른 세대 조각을 지운다. 없으면 조각을 건드리지 않는다(v1 앱 그대로). **해제(휴지통) 상태에서는 `409 {error:'deregistered'}`** — 30일 뒤 지워질 자리에 새 백업을 받아 "백업해 뒀다"는 잘못된 안심을 주지 않는다(되찾기는 그대로 가능) |
 | `POST /api/ledger-backup/get` | `{restaurant_id, auth_token}` | `{blob, blob_hash, updated_at}` / 404 | 백업 조회. 인증 필요. 다른 열쇠 인수 **전**에 쓰인 백업은 404(§4.12, beta.55) |
 | `POST /api/ledger-backup/delete` | `{restaurant_id, auth_token}` | `{ok:true}` / 401/404 | 백업 삭제(예: 기기를 되찾아 클라우드 백업이 더 이상 필요 없을 때). 인증 필요. **beta.55**: 머리와 함께 조각(§4.13)도 지운다. 지울 것이 하나도 없으면 404 |
-| `POST /api/ledger-backup/seg` | `{restaurant_id, auth_token, gen, seg_no, blob, blob_hash?}` | `{ok:true, updated_at}` / 400/401/409 | **beta.55** 조각 1개 upsert(§4.13). 휴지통이면 `409 deregistered`, 가게당 1,000행 초과면 `400 too_many_segments` |
+| `POST /api/ledger-backup/seg` | `{restaurant_id, auth_token, gen, seg_no, blob, blob_hash?}` | `{ok:true, updated_at}` / 400/401/409 | **beta.55** 조각 1개 upsert(§4.13). 휴지통이면 `409 deregistered`, 가게당 1,000행 초과면 `400 too_many_segments`(24시간 지난 고아 세대는 먼저 비움, `reason` 동봉) |
 | `POST /api/ledger-backup/seg/get` | `{restaurant_id, auth_token, gen, seg_nos:[…≤5]}` | `{segments:[{seg_no, blob, blob_hash, updated_at}]}` / 400/401 | **beta.55** 조각 받기(없는 번호는 빠짐). 휴지통 상태에서도 된다 |
 | `POST /api/ledger-backup/seg/list` | `{restaurant_id, auth_token}` | `{segments:[{gen, seg_no, blob_hash, updated_at, size}]}` / 401 | **beta.55** 조각 목록(본문 없음, `size`=blob 글자 수) |
 | `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?, sent?}` / 400/429/500 | 기관 이메일 OTP 발급(§4.4). **beta.55**: OTP 전용 한도에 걸린 `429 {error:'rate_limited'}`에 `scope`(`'ip'`=IP당 시간당 5회, `'email'`=같은 이메일 60초)와 `retry_after_s`(다시 될 때까지 남은 초)가 함께 실린다 |
@@ -600,7 +600,7 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 
 | 엔드포인트 | 요청 | 응답 |
 |---|---|---|
-| `POST /api/ledger-backup/seg` | `{restaurant_id, auth_token, gen, seg_no, blob, blob_hash?}` | `{ok:true, updated_at}`. upsert(같은 `(gen,seg_no)`는 덮어쓰기). 휴지통 상태면 `409 {error:'deregistered'}`(v1과 같다). 가게당 행이 이미 **1,000개**(모든 세대 합계)이고 새 행이면 `400 {error:'too_many_segments', max:1000}` — 이미 있는 행의 덮어쓰기는 허용 |
+| `POST /api/ledger-backup/seg` | `{restaurant_id, auth_token, gen, seg_no, blob, blob_hash?}` | `{ok:true, updated_at}`. upsert(같은 `(gen,seg_no)`는 덮어쓰기). 휴지통 상태면 `409 {error:'deregistered'}`(v1과 같다). 가게당 행이 이미 **1,000개**(모든 세대 합계)이고 새 행이면 먼저 **24시간 넘게 손대지 않은 고아 세대**(아래 "고아 조각")를 그 자리에서 비우고 다시 센다. 그래도 차 있으면 `400 {error:'too_many_segments', max:1000, reason}` — `reason:'recent_orphans'`(24시간이 안 된 고아가 자리를 차지 — `retry_after_s` 뒤 다시 하면 풀린다) / `reason:'full'`(머리의 세대와 지금 올리는 세대만으로 찼다 — 기다려도 안 풀림). 이미 있는 행의 덮어쓰기는 허용 |
 | `POST /api/ledger-backup/seg/get` | `{restaurant_id, auth_token, gen, seg_nos:[정수 1~5개]}` | `{segments:[{seg_no, blob, blob_hash, updated_at}]}` — `seg_no` 오름차순, **없는 번호는 빠진다**(오류 아님). `seg_nos`가 배열이 아니거나 0개·6개 이상이면 `400 {error:'invalid_seg_nos', max:5}`. 휴지통 상태에서도 된다(v1 get과 같이 30일 되찾기 경로) |
 | `POST /api/ledger-backup/seg/list` | `{restaurant_id, auth_token}` | `{segments:[{gen, seg_no, blob_hash, updated_at, size}]}` — 본문 없음, `size`=blob 글자 수, `gen`·`seg_no` 순. 휴지통 상태에서도 된다 |
 
@@ -608,15 +608,27 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 `DELETE FROM ledger_backup_seg WHERE restaurant_id=? AND gen<>?`를 **같은 배치(트랜잭션)**로 실행한다 —
 새 세대 머리가 저장되는 순간 이전 세대 조각이 사라지고, 둘 중 하나만 반영되는 상태는 없다. 그래서 클라이언트는
 **조각을 전부 올린 뒤 마지막에 머리를 올린다**(중간에 끊기면 이전 세대 머리·조각이 그대로 남아 복원 가능).
-`gen`이 없는 머리(v1 앱)는 조각을 건드리지 않는다. 머리의 내용(어느 세대·몇 조각인지)은 암호문 안에 있으므로
-서버는 `gen`을 머리 행에 따로 저장하지 않는다(응답 계약 무변경).
+`gen`이 없는 머리(v1 앱)는 조각을 건드리지 않는다. 서버는 머리 행의 `ledger_backup.gen` 컬럼에 **이번 업로드의 `gen`을
+그대로** 적는다(gen 없는 v1 업로드는 **NULL로 되돌린다** — 그 머리는 조각을 가리키지 않는다). 이 값은 서버 안에서만
+쓰이고(고아 조각 정리), `/api/ledger-backup/get` 응답은 예전 그대로 `{blob, blob_hash, updated_at}`다(응답 계약 무변경).
 
 **삭제되는 곳(머리와 항상 함께)**: `POST /api/ledger-backup/delete`(머리·조각 모두, 지울 것이 없으면 404),
 30일 휴지통 cron ⑤, 인수 후 30일 cron ⑥(인수 전 옛 조각, §4.12). 인수 시점에는 지우지 않고 새 주인에게서
 숨긴다(`updated_at < taken_over_at`인 조각은 `get`·`list`에서 빠진다).
 
-**알아 둘 것**: 끝까지 올리지 못한 세대(머리 없음)의 조각은 다음 성공한 머리 업로드가 지울 때까지 남는다
-(행 상한 1,000에 함께 센다). 가게당 최대 1,000 × 400,000자 ≈ 400MB까지 이론상 가능하므로 D1 무료 용량(5GB)을
+**고아 조각(머리가 끝내 오지 않은 세대)**: 끊긴 업로드·기기 교체로 생긴다. 다음 성공한 머리 업로드가 지우지만,
+그 전까지 행 상한 1,000에 함께 세므로 서버가 스스로 치운다(운영자 손이 필요 없게).
+- **지키는 세대**(어느 경로도 지우지 않음): ① **머리의 세대 = `ledger_backup.gen`**(정확한 값 — 시각으로 추정하지 않는다.
+  시각 추정은 머리 세대의 조각이 다시 올라가 시작 시각이 바뀌면 진짜 머리 세대를 지울 수 있다). 머리가 없거나 `gen`이
+  NULL(v1 머리)이면 '머리의 세대'는 없다. ② cron: **가장 최근에 쓰인 세대**
+  (진행 중인 업로드 — 앱은 끊긴 새 세대를 같은 gen으로 이어 올린다) ③ 업로드 경로: **지금 올리고 있는 세대**.
+  머리(`ledger_backup`)는 읽기만 한다.
+- **cron ⑦**(§6.3): 세대 전체가 **14일** 넘게 조용한(세대의 최대 `updated_at` < now−14일) 고아 세대를 지운다 —
+  세대 안에 14일 안 된 행이 하나라도 있으면 그 세대는 통째로 남긴다. 한 번에 200세대까지(오래된 것부터), 남은 것은 다음 날.
+- **업로드 중 상한**: 새 행이 1,000행 상한에 걸리면 **24시간** 넘게 조용한 고아 세대(①③ 제외)를 그 자리에서 지우고 다시 센다.
+  지워진 고아 세대를 나중에 같은 gen으로 이어 올리는 앱은 `seg/list`를 보고 빠진 조각을 다시 올린다(머리는 마지막).
+
+**알아 둘 것**: 가게당 최대 1,000 × 400,000자 ≈ 400MB까지 이론상 가능하므로 D1 무료 용량(5GB)을
 생각해 클라이언트는 압축·서명 그림 제외로 조각 수를 작게 유지한다(계약서 §1-3). 관리자 목록의 `has_backup`은
 머리 존재 여부 그대로다.
 
@@ -681,7 +693,10 @@ TTL cron이 삭제한다(§6.3). 이메일 해시의 pepper(HMAC)는 2026-08에 
   `encrypted_blob`)를 삭제, ③ 만료된 `auth_challenge`/`agency_otp`/`agency_token`을 삭제,
   ④ 180일 지난 `consent_log`와 `feedback`을 삭제(§6.0), ⑤ 등록 해제 후 30일 지난 휴지통
   (`ledger_backup`·`ledger_backup_seg` → `public_key_registry` 순서, §4.12)을 비운다, ⑥ 다른 열쇠 인수 후 30일 지난
-  가게의 '인수 전 옛 백업'(`updated_at < taken_over_at`인 머리·조각)을 지운다(beta.55).
+  가게의 '인수 전 옛 백업'(`updated_at < taken_over_at`인 머리·조각)을 지운다(beta.55), ⑦ 14일 넘게 조용한
+  **고아 조각 세대**(머리가 오지 않은 세대 — 머리의 세대·가장 최근 세대는 제외, §4.13)를 지운다(beta.55). ⑦은 세대 고르기와
+  삭제를 **한 문장**(`DELETE … WHERE updated_at < ? AND (restaurant_id, gen) IN (WITH … LIMIT 200)`, 바인딩 3개)으로 실행하고
+  결과의 `orphanSegments`(지운 행 수)로 남는다.
   - **단계별 격리(beta.55, E-10)**: 각 단계는 따로 try/catch로 감싸진다. 한 단계가 실패해도 다음 단계는
     그대로 돌고, 실패한 단계 이름·메시지만 결과의 `errors` 배열에 담겨 `console.error`로 남는다(개인정보 없음).
     예전에는 한 단계가 던지면 그 뒤 단계(휴지통 비우기 등)가 그날 통째로 건너뛰어졌다. 서버는 zero-knowledge이며 원장 진실은
@@ -884,7 +899,7 @@ probe(`server/probe-emd.mjs`) 실측 결과 공공 API 응답·조건에 법정�
 
 | 버전 | 날짜 | 계약 변경 | 마이그레이션 |
 |---|---|---|---|
-| beta.55 | 2026-11 | ① **조각 백업**: `POST /api/ledger-backup/seg`·`/seg/get`·`/seg/list` 신설, `/api/ledger-backup`에 선택 필드 `gen`(머리 저장과 같은 배치로 다른 세대 조각 삭제), `/delete`·휴지통 cron이 조각도 삭제(§4.13). ② 인수 때 옛 백업을 **지우지 않음**(`taken_over_at`으로 숨김, 30일 뒤 cron ⑥) + 운영자 휴지통 가게 **7일 인수 잠금** `409 takeover_locked` + `400 invalid_public_key`(§4.12). ③ 챌린지 상한에서 429 대신 가장 오래된 것 교체(§4.1). ④ OTP 시도 원자 증가(§4.4). ⑤ `/api/submit` 활성 가게 확인 `404 not_registered`·미수령 상한 `429 too_many_pending`, `/api/inbox` 최대 50건(§4.7·§4.9). ⑥ OTP `rate_limited`에 `scope`·`retry_after_s` 추가(기존 필드 유지, §4.4). ⑦ keycheck 지문 변경 시 `confirm_change` 필요 `409 fingerprint_changed`(§4.8). ⑧ cron 단계별 격리 `errors`(§6.3), 진단 id 제외를 `substr`로(LIKE 와일드카드 수정) | **`migrations-2026-11.sql`**(신규 파일) 문 1(`ledger_backup_seg`)·문 2(`ALTER … ADD COLUMN taken_over_at`) — 문 단위 `--command`, **서버 배포 전에** |
+| beta.55 | 2026-11 | ① **조각 백업**: `POST /api/ledger-backup/seg`·`/seg/get`·`/seg/list` 신설, `/api/ledger-backup`에 선택 필드 `gen`(머리 저장과 같은 배치로 다른 세대 조각 삭제), `/delete`·휴지통 cron이 조각도 삭제(§4.13). ② 인수 때 옛 백업을 **지우지 않음**(`taken_over_at`으로 숨김, 30일 뒤 cron ⑥) + 운영자 휴지통 가게 **7일 인수 잠금** `409 takeover_locked` + `400 invalid_public_key`(§4.12). ③ 챌린지 상한에서 429 대신 가장 오래된 것 교체(§4.1). ④ OTP 시도 원자 증가(§4.4). ⑤ `/api/submit` 활성 가게 확인 `404 not_registered`·미수령 상한 `429 too_many_pending`, `/api/inbox` 최대 50건(§4.7·§4.9). ⑥ OTP `rate_limited`에 `scope`·`retry_after_s` 추가(기존 필드 유지, §4.4). ⑦ keycheck 지문 변경 시 `confirm_change` 필요 `409 fingerprint_changed`(§4.8). ⑧ cron 단계별 격리 `errors`(§6.3), 진단 id 제외를 `substr`로(LIKE 와일드카드 수정). ⑨ **고아 조각 정리**: cron ⑦(14일) + 업로드 중 상한에서 24시간 지난 고아 세대 비우기, `too_many_segments`에 `reason`(`recent_orphans`+`retry_after_s` / `full`) 추가(기존 필드 유지, §4.13), 머리의 세대를 지키려고 `ledger_backup.gen` 저장(서버 내부용 — 응답 무변경) | **`migrations-2026-11.sql`**(신규 파일) 문 1(`ledger_backup_seg`)·문 2(`ALTER … public_key_registry ADD COLUMN taken_over_at`)·문 3(`ALTER … ledger_backup ADD COLUMN gen`) — 문 단위 `--command`, **세 문 모두 서버 배포 전에** |
 | admin | 2026-10 | 운영자 등록 가게 관리: `GET /api/admin/registry`·`POST /api/admin/deregister`(30일 휴지통, 효과는 `/api/deregister`와 동일)·`GET /api/admin/actions`(§8.4). 기존 계약 무변경 | **`migrations-2026-10.sql`**(신규 파일) 문 1~2(`admin_action_log` + 인덱스) — 문 단위 `--command` |
 | beta.48 | 2026-09 | ① `/api/submit`에 **접수번호 `submission_id`**(선택) 추가 — 멱등 키가 `batch_hash`에서 `dedupe_key`로 바뀜(§4.7). ② 제출 **원자 저장**(summary+blob+consent 한 트랜잭션) + **고아 요약 복구** `repaired:true`(§4.7). ③ `blob.ciphertext` **필드 화이트리스트**(§2.1). ④ 등록 해제 = **30일 휴지통**, `deregister` 응답에 `backup_kept_until`, 같은 키 재등록 시 `reactivated:true`(§4.12). ⑤ 같은 키 재등록의 **district 변경에 소유 증명 필요**(저장값이 있고 다를 때만, §4.6). ⑥ `keychecks` 조회의 **인증 도메인 결속**(§4.8). ⑦ 직접 전달 파일·QR에 `transfer_id`(§2.2, 클라이언트 계약). ⑧ cron `CLEANUP_CHUNK` 100 → **99**(D1 바인딩 상한, §6.3) | **`migrations-2026-09.sql`**(신규 파일, append-only) 문 1~7 — 문 단위 `--command` 실행. 문 2(백필)는 문 4(UNIQUE 인덱스)보다 먼저 |
 | beta.31~35 | 2026-08 | 인증 도메인 전달(`agency_domain`, §4.11), 열쇠 지문 확인(`agency_keycheck`, §4.8), 등록 실존 대조(`verified`, §4.10), `/api/inbox` 소유 증명 필수·`batch_hash` 제거(§4.9), 이메일 해시 pepper(§4.4), `/api/restaurants?zip=`(§7.4) | `migrations-2026-08.sql` 문 1~5 |
