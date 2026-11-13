@@ -1777,6 +1777,91 @@ async function runTabletProfile(browser, url, w, h) {
   }
 }
 
+// ── beta.55(A2): 장부 지키기 카드·선택창·백업 암호 창·되찾기 확인창 — 폰 세로 예산과 태블릿 가로 ─────────────────
+//   계약: ① 카드 안 가로 넘침 0, 진한 버튼 하나(≥48px), 작은 버튼 셋은 한 줄·각 ≥44px·글자 안 잘림, 글씨 링크 ≥40px
+//         ② [지금 백업하기] 선택창·백업 암호 창·되찾기 확인창은 **스크롤 없이** 진한 버튼까지 화면 안(창 안 스크롤 없음)
+//   중계 서버는 전부 500(서버 백업 실패 경로 = 상태 상자가 가장 긴 경고 문구일 때를 잰다).
+const GUARD_PROFILES = [{ w: 360, h: 640 }, { w: 390, h: 844 }, { w: 768, h: 1024 }, { w: 1024, h: 768 }];
+async function runGuardProfile(browser, url, w, h) {
+  const tag = `장부 지키기 ${w}×${h}`;
+  const context = await browser.newContext({ viewport: { width: w, height: h }, isMobile: w <= 640, hasTouch: true, deviceScaleFactor: 2 });
+  await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"error":"internal"}' }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('dialog', d => { errors.push('native dialog: ' + d.type()); d.dismiss().catch(() => {}); });
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await seed(page);
+    await page.evaluate(() => new Promise((res, rej) => { const r = indexedDB.open('prepaid-ledger-db'); r.onsuccess = () => { const t = r.result.transaction('meta', 'readwrite'); const m = t.objectStore('meta'); const now = Date.now();
+      m.put({ key: 'restaurantId', value: 'rid-guard' }); m.put({ key: 'relayStoreName', value: '반응형 테스트 식당' }); m.put({ key: 'relayRegisteredAt', value: now }); m.put({ key: 'districtSyncedAt', value: now }); m.put({ key: 'myKeyBackedUpAt', value: now });
+      t.oncomplete = () => res(true); t.onerror = () => rej(t.error); }; r.onerror = () => rej(r.error); }));
+    await page.reload({ waitUntil: 'load' });
+    await unlock(page);
+    await page.waitForFunction(() => { const H = window.__prepaidTestHooks; return H && H.cloudState && H.cloudState().failSince > 0; }, null, { timeout: 15000 }).catch(() => {});
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    const head = page.locator('.fold-head[data-card="ledger"]');
+    await head.click();
+    await page.waitForSelector('#guardState');
+    await head.scrollIntoViewIfNeeded();
+    await noHorizontalOverflow(page, `${tag} 카드`, w);
+    const m = await page.evaluate(() => {
+      const card = document.querySelector('.card.settings-card:has(.fold-head[data-card="ledger"])');
+      const r = el => { const b = el.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, height: b.height, sw: el.scrollWidth, cw: el.clientWidth, text: el.innerText.trim() }; };
+      return { vw: document.documentElement.clientWidth, card: r(card), primary: [...card.querySelectorAll('.btn-primary')].map(r), three: [...card.querySelectorAll('.guard-three button')].map(r), links: [...card.querySelectorAll('.guard-links .link-btn')].map(r), warn: !!card.querySelector('#guardState.warn') };
+    });
+    check(m.card.right <= m.vw + 1 && m.card.left >= -1, `${tag}: 카드가 화면 밖으로 나갔다`);
+    check(m.warn, `${tag}: 서버 실패 경고 상태(가장 긴 상자)에서 재야 한다`);
+    check(m.primary.length === 1 && m.primary[0].height >= 48 && m.primary[0].text === '지금 백업하기', `${tag}: 진한 버튼은 [지금 백업하기] 하나(≥48px)여야 한다 (${JSON.stringify(m.primary.map(b => [b.text, Math.round(b.height)]))})`);
+    check(m.three.length === 3 && new Set(m.three.map(b => Math.round(b.top))).size === 1, `${tag}: [되찾기][백업 암호][장부 검사]는 한 줄이어야 한다`);
+    m.three.forEach(b => {
+      check(b.height >= 44, `${tag}: 작은 버튼 "${b.text}" 터치 타겟이 44px 미만 (${Math.round(b.height)}px)`);
+      check(b.sw <= b.cw + 1, `${tag}: 작은 버튼 "${b.text}" 글자가 잘렸다`);
+      check(b.right <= m.vw + 1, `${tag}: 작은 버튼 "${b.text}"이(가) 화면 밖`);
+    });
+    check(m.links.length === 2 && m.links.every(l => l.height >= 40 && l.right <= m.vw + 1), `${tag}: 글씨 링크 2개(≥40px, 화면 안)`);
+    // 창 하나를 잰다: 창이 화면 안에 있고, 창 안 스크롤 없이 진한 버튼까지 보인다.
+    const dialogFits = async (sel, label) => {
+      const d = await page.evaluate(sel => {
+        const modal = document.querySelector(sel);
+        if (!modal) return null;
+        const b = modal.getBoundingClientRect();
+        const prim = modal.querySelector('.btn-primary');
+        const p = prim ? prim.getBoundingClientRect() : null;
+        return { vh: innerHeight, vw: document.documentElement.clientWidth, top: b.top, bottom: b.bottom, left: b.left, right: b.right, sh: modal.scrollHeight, ch: modal.clientHeight, prim: p && { top: p.top, bottom: p.bottom, height: p.height } };
+      }, sel);
+      check(Boolean(d), `${tag} ${label}: 창이 떠야 한다`);
+      if (!d) return;
+      check(d.top >= -1 && d.bottom <= d.vh + 1 && d.left >= -1 && d.right <= d.vw + 1, `${tag} ${label}: 창이 화면 밖으로 나갔다 (${Math.round(d.top)}~${Math.round(d.bottom)} / vh ${d.vh})`);
+      check(d.sh <= d.ch + 1, `${tag} ${label}: 창 안을 스크롤해야 다 보인다 (scrollHeight ${d.sh} > ${d.ch})`);
+      check(Boolean(d.prim) && d.prim.bottom <= d.vh + 1 && d.prim.height >= 44, `${tag} ${label}: 진한 버튼이 스크롤 없이 보이고 ≥44px여야 한다`);
+    };
+    await page.locator('.settings-card [data-a="backup-now"]').click();
+    await page.waitForSelector('#choiceTitle', { timeout: 20000 });
+    await dialogFits('.choice-modal', '선택창(서버 실패 + 내 보관 3갈래)');
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `guard-choice-${w}x${h}.png`) }).catch(() => {});
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="save"]').click();
+    await page.waitForSelector('#keyPass2', { timeout: 8000 });
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await dialogFits('.pass-modal', '백업 암호 정하기 창');
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `guard-pass-${w}x${h}.png`) }).catch(() => {});
+    await page.locator('[data-a="pass-cancel"]').click();
+    await page.waitForTimeout(200);
+    // 되찾기 확인창(백업이 지금보다 적다 → 진한 버튼이 [취소])
+    const fewer = JSON.stringify({ schemaVersion: 3, appName: '선입금대장', appVersion: 'x', exportedAt: Date.now() - 86400000 * 3, payload: { employees: [{ id: 'r-emp-1', org: '', orgKind: '', dept: '총무부', name: '김민수', note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: Date.now(), updatedAt: Date.now() }], transactions: [], meta: { setupComplete: true, shopName: '반응형 테스트 식당', departments: [] } } });
+    await page.locator('#restoreFile').setInputFiles({ name: 'fewer.json', mimeType: 'application/json', buffer: Buffer.from(fewer, 'utf8') });
+    await page.waitForSelector('.choice-modal [data-val="cancel"].btn-primary', { timeout: 15000 });
+    await dialogFits('.choice-modal', '되찾기 확인창(거래가 적은 백업)');
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `guard-restore-${w}x${h}.png`) }).catch(() => {});
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="cancel"]').click();
+    check(errors.length === 0, `${tag}: 페이지 오류·기본 팝업이 없어야 한다 (${JSON.stringify(errors.slice(0, 3))})`);
+  } finally {
+    await page.close().catch(() => {});
+    await context.close().catch(() => {});
+  }
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -1802,6 +1887,10 @@ async function main() {
     for (const { w, h } of TABLET_PROFILES) {
       try { await runTabletProfile(browser, url, w, h); } catch (err) { check(false, `태블릿 ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
     }
+    // beta.55(A2): 장부 지키기 카드·창 4종 기하
+    for (const { w, h } of GUARD_PROFILES) {
+      try { await runGuardProfile(browser, url, w, h); } catch (err) { check(false, `장부 지키기 ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0]})`); }
+    }
     // 손님 검색 타이핑 회귀(beta.20) — 실제 디바이스 프로파일(터치·모바일 UA)과 데스크톱을 함께 돌린다.
     for (const [label, opts] of [
       ['Pixel 7', devices['Pixel 7']],
@@ -1820,7 +1909,7 @@ async function main() {
     failures.forEach(f => console.error('  · ' + f));
     process.exit(1);
   }
-  console.log(`✅ 반응형 검증 ${checks} 통과 (${VIEWPORTS.map(v => `${v.w}×${v.h}`).join(' / ')} + 태블릿 ${TABLET_PROFILES.map(v => `${v.w}×${v.h}`).join(' / ')})`);
+  console.log(`✅ 반응형 검증 ${checks} 통과 (${VIEWPORTS.map(v => `${v.w}×${v.h}`).join(' / ')} + 태블릿 ${TABLET_PROFILES.map(v => `${v.w}×${v.h}`).join(' / ')} + 장부 지키기 ${GUARD_PROFILES.map(v => `${v.w}×${v.h}`).join(' / ')})`);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });

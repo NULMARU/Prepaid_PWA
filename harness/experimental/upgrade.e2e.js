@@ -179,7 +179,24 @@ async function drawSignature(page) {
     const ct = crypto.publicEncrypt({ key, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' }, Buffer.from(lastNonce, 'utf8'));
     return r.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ challenge_ct: ct.toString('base64') }) });
   });
-  await context.route('**/api/ledger-backup**', r => r.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true,"updated_at":"2026-09-01T00:00:00Z"}' }));
+  // 서버 백업 목 — v1(머리 한 덩어리)과 beta.55 조각 API(seg·seg/list·seg/get)를 모두 받아 기록한다(어느 단계가 무엇을 올렸는지 본다).
+  const cloudLog = [];
+  const cloudSegs = new Map();
+  let cloudHead = null;
+  await context.route('**/api/ledger-backup**', r => {
+    const p = new URL(r.request().url()).pathname; let b = {};
+    try { b = JSON.parse(r.request().postData() || '{}'); } catch (e) { b = {}; }
+    const ok = o => r.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(o) });
+    if (p.endsWith('/seg/list')) { cloudLog.push({ phase, t: 'list' }); return ok({ segments: [...cloudSegs.values()].map(x => ({ gen: x.gen, seg_no: x.seg_no, blob_hash: x.blob_hash, updated_at: x.at, size: x.blob.length })) }); }
+    if (p.endsWith('/seg/get')) { const out = (b.seg_nos || []).map(n => cloudSegs.get(b.gen + '/' + n)).filter(Boolean).map(x => ({ seg_no: x.seg_no, blob: x.blob, blob_hash: x.blob_hash, updated_at: x.at })); return ok({ segments: out }); }
+    if (p.endsWith('/seg')) { cloudSegs.set(b.gen + '/' + b.seg_no, { gen: b.gen, seg_no: b.seg_no, blob: b.blob, blob_hash: b.blob_hash, at: Date.now() }); cloudLog.push({ phase, t: 'seg', gen: b.gen, n: b.seg_no }); return ok({ ok: true, updated_at: Date.now() }); }
+    if (p.endsWith('/get')) { return cloudHead ? ok({ blob: cloudHead.blob, blob_hash: cloudHead.blob_hash, updated_at: cloudHead.at }) : r.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }); }
+    if (p.endsWith('/delete')) { cloudHead = null; cloudSegs.clear(); return ok({ ok: true }); }
+    cloudHead = { blob: b.blob, blob_hash: b.blob_hash, gen: b.gen || null, at: Date.now() };
+    if (b.gen) [...cloudSegs.keys()].filter(k => !k.startsWith(b.gen + '/')).forEach(k => cloudSegs.delete(k));
+    cloudLog.push({ phase, t: 'head', gen: b.gen || null });
+    return ok({ ok: true, updated_at: '2026-09-01T00:00:00Z' });
+  });
   await context.route('**/api/contact**', r => {
     contactBodies.push(JSON.parse(r.request().postData() || '{}'));
     return r.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true}' });
@@ -543,6 +560,32 @@ async function drawSignature(page) {
       (metaDiff.length ? `\n        전체 값 변화: ${metaDiff.join(' ; ')}` : '\n        전체 값 변화: 없음'));
 
     // ══════════════════════════════════════════════════════════════════════════
+    // (v) 갱신 뒤 첫 서버 백업(beta.55 v2 조각) — 장부를 바꾸지 않는다
+    //   잠금 해제 때 주 1회 자동 백업이 돌았으면 그것을, 안 돌았으면(7일 안 됨) 조용한 백업을 한 번 직접 부른다.
+    //   기대: 조각(seg) → 머리(head, gen 포함) 순서로 올라가고, 직원·거래는 A와 필드 단위로 같으며, meta는 기기 전용 백업 상태만 바뀐다.
+    // ══════════════════════════════════════════════════════════════════════════
+    {
+      const hasV2 = await page.evaluate(() => { const H = window.__prepaidTestHooks; return !!(H && typeof H.guardStatus === 'function'); });
+      if (hasV2) {
+        for (let i = 0; i < 30 && !cloudLog.some(e => e.phase === 'after' && e.t === 'head'); i += 1) await page.waitForTimeout(300);
+        let how = '잠금 해제 때 자동';
+        if (!cloudLog.some(e => e.phase === 'after' && e.t === 'head')) { how = '직접 호출'; await page.evaluate(() => window.__prepaidTestHooks.relayBackupSilent()); }
+        const snapC = await readDb(page);
+        const after = cloudLog.filter(e => e.phase === 'after');
+        const head = after.filter(e => e.t === 'head').pop();
+        const segsUp = after.filter(e => e.t === 'seg');
+        check('v1', '갱신 뒤 첫 서버 백업이 v2(조각 → 머리, gen 포함)로 올라감', !!head && !!head.gen && segsUp.length >= 1 && after.indexOf(head) > after.indexOf(segsUp[segsUp.length - 1]),
+          `${how}: ${after.map(e => e.t + (e.n != null ? e.n : '')).join(' → ')} (gen ${head && head.gen})`);
+        const sameRows = (A, C) => j(byId(A)) === j(byId(C));
+        const mBb = metaMap(snapB.meta), mC = metaMap(snapC.meta);
+        const changed = [...new Set([...Object.keys(mBb), ...Object.keys(mC)])].filter(k => j(mBb[k]) !== j(mC[k]));
+        check('v2', '첫 서버 백업은 장부를 바꾸지 않음(직원·거래 A와 동일, meta는 기기 전용 백업 상태만)', sameRows(snapA.employees, snapC.employees) && sameRows(snapA.transactions, snapC.transactions) && changed.every(k => ['cloudBackupState', 'lastCloudBackupAt'].includes(k)),
+          `직원 ${snapC.employees.length}·거래 ${snapC.transactions.length} 동일=${sameRows(snapA.transactions, snapC.transactions)}, 바뀐 meta=${changed.join(',') || '없음'}`);
+        await fsp.writeFile(path.join(OUT, `${SLUG}-snapshot-C.json`), JSON.stringify(snapC, null, 2));
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // (b) 홈 화면 — 직원 3명 · 잔액 · 동명이인 마커
     // ══════════════════════════════════════════════════════════════════════════
     await page.locator('[data-a="screen"][data-screen="home"]').click();
@@ -586,7 +629,9 @@ async function drawSignature(page) {
     check('d0', '설정 > 앱 정보에 새 버전 번호가 표시(사장님이 갱신 여부를 눈으로 확인 가능)',
       infoSummary.includes('v' + newVer), `앱 정보 요약: ${j(infoSummary).slice(0, 160)}`);
     const enrollSummary = await page.locator('.fold-head[data-card="enroll-auto"]').innerText().catch(() => '');
-    const cloudHead = await page.locator('.fold-head[data-card="cloud"]').innerText().catch(() => '');
+    const cloudHeadTxt = await page.locator('.fold-head[data-card="cloud"]').innerText().catch(() => '');
+    // beta.55부터는 [폰 분실 대비] 카드가 [장부 지키기](data-card="ledger") 하나로 합쳐졌다 — 새 버전이면 그 카드의 상태를 본다.
+    const guardNow = await page.evaluate(() => { const H = window.__prepaidTestHooks; return H && typeof H.guardStatus === 'function' ? H.guardStatus() : null; }).catch(() => null);
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.waitForTimeout(350);
     const chipText = await page.locator('.pill, .chip, .status-chip').allInnerTexts().catch(() => []);
@@ -595,8 +640,10 @@ async function drawSignature(page) {
       `칩 목록: ${j(chipText).slice(0, 300)}`);
     check('d2', '설정 자동 등록 카드 = 등록 상태(가게명 + 명단 받는 중)', enrollSummary.includes('업그레이드식당') && enrollSummary.includes('명단 받는 중'),
       `요약: ${j(enrollSummary).slice(0, 200)}`);
-    check('d3', '클라우드 카드 잠금 아님', cloudHead.includes('📱') && !cloudHead.includes('🔒') && !cloudHead.includes('가게 등록 후 사용 가능'),
-      `요약: ${j(cloudHead).slice(0, 200)}`);
+    if (guardNow) check('d3', '장부 지키기 = 등록된 가게(서버 줄 있음, 등록 안내 없음)', guardNow.reg === true && !String(guardNow.summary).includes('가게를 등록하면'),
+      `요약: ${j(guardNow.summary).slice(0, 200)}`);
+    else check('d3', '클라우드 카드 잠금 아님', cloudHeadTxt.includes('📱') && !cloudHeadTxt.includes('🔒') && !cloudHeadTxt.includes('가게 등록 후 사용 가능'),
+      `요약: ${j(cloudHeadTxt).slice(0, 200)}`);
 
     // ══════════════════════════════════════════════════════════════════════════
     // (e) 직원별 증표 — "잔액 표시 불가" 경고 없음

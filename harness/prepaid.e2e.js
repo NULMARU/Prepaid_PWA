@@ -145,6 +145,27 @@ async function resealChain(page) {
   });
 }
 
+// beta.55(A2): 이력 화면 [백업]·[지금 백업하기]는 선택창 → [이 기기에 저장] → 암호 창이다. 이 헬퍼는 '암호 없이'(평문 schemaVersion 3)를 고른다.
+//   (서버 단계가 있으면 그 결과와 상관없이 같은 선택창이 뜬다.) 다운로드 뒤의 "파일이 저장됐나요?"는 호출부가 답한다.
+async function ownPlainBackupFromDialog(page) {
+  await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="save"]', { timeout: 20000 });
+  await page.locator('.choice-modal [data-a="choice-pick"][data-val="save"]').click();
+  await page.waitForSelector('#keyPassPlain', { timeout: 8000 });
+  await page.locator('#keyPassPlain').check();
+  await page.locator('[data-a="pass-ok"]').click();
+  await page.waitForSelector('#choiceTitle', { timeout: 20000 });
+}
+
+// beta.55(A2): 되찾기(복원)의 덮어쓰기 확인과 결과 안내는 앱 안 선택창이다(window.confirm·alert 아님).
+//   확인창에서 [되돌리기](data-val=go)를 누르고, 결과 창의 [확인](ok)을 누른다. 백업이 지금보다 적으면 진한 버튼이 [취소]지만 go 값은 같다.
+async function confirmInAppRestore(page, timeout = 20000) {
+  await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="go"]', { timeout });
+  await page.locator('.choice-modal [data-a="choice-pick"][data-val="go"]').click();
+  await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="ok"]', { timeout });
+  await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
+  await page.waitForTimeout(150);
+}
+
 async function unlockPin(page) {
   await page.waitForSelector('.cust-screen, [data-a="pin-key"]', { timeout: 8000 });
   if (await page.locator('[data-a="lock-to-pin"]').count()) {
@@ -783,6 +804,7 @@ async function runSecurityHardening(browser, url, cors) {
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await page.waitForSelector('#restoreFile', { state: 'attached' });
     await page.locator('#restoreFile').setInputFiles({ name: 'tampered.json', mimeType: 'application/json', buffer: Buffer.from(tamperedBackup, 'utf8') });
+    await confirmInAppRestore(page);
     for (let i = 0; i < 60; i += 1) {
       const db = await readDb(page);
       if (db.employees.some(e => e.id === 'sec-e1')) break;
@@ -861,25 +883,21 @@ async function runSecurityHardening(browser, url, cors) {
     await assert(fpText === fpExpected, `the fingerprint must be SHA-256(SPKI) hex[0..8] (expected ${fpExpected}, got ${fpText})`);
     await assert((await page.locator('.settings-card', { hasText: '우리 가게 열쇠 지문' }).innerText()).includes('전화로'),
       'the fingerprint block must explain the phone-confirmation procedure in plain language');
-    // beta.45(현장 지시): [복사]는 없앴고, 그 자리에 [내 열쇠 백업]이 있다 — '열쇠'라는 말이 붙은 것을
-    //   한 자리에 모은 것이다. 지문은 전화로 읽어 주는 값이라 복사할 곳이 없었다.
+    // beta.45: [복사]는 없앴다. beta.55(A2): 그 자리의 [내 열쇠 백업]도 없앴다 — 열쇠는 [장부 지키기]의 암호 건 백업 파일에
+    //   장부와 함께 들어간다. 지문 옆에는 그 사실 한 줄 + [장부 지키기로 가기]만 남는다(메뉴 중복 금지).
     await assert(await count(page, '[data-a="copy-key-fp"]') === 0, 'the fingerprint copy button must be gone (beta.45)');
     await assert(await page.evaluate(() => {
       const card = [...document.querySelectorAll('.settings-card')].find(c => c.innerText.includes('우리 가게 열쇠 지문'));
-      return !!(card && card.querySelector('[data-a="export-key"]'));
-    }), 'the key-backup button must now live next to the fingerprint');
-    await assert(await page.evaluate(() => {
-      const card = [...document.querySelectorAll('.settings-card')].find(c => c.innerText.includes('장부 안전 저장'));
-      return !!card && !card.querySelector('[data-a="export-key"]');
-    }), 'the key-backup button must no longer be duplicated inside 장부 지키기');
-    // 접힌 채로도 "아직 백업 안 함"이 읽혀야 한다 — 버튼의 ⚠️ 배지와 카드 요약은 **같은 사실**을 말한다.
-    //   (둘이 어긋나면 접어 둔 사장님은 위험 상태를 영영 못 본다.)
+      return !!(card && !card.querySelector('[data-a="export-key"]') && card.querySelector('[data-a="go-guard"]') && card.querySelector('.key-guard-line'));
+    }), 'next to the fingerprint there must be a one-line pointer to 장부 지키기 (no separate key-backup button any more)');
+    await assert(await count(page, '[data-a="export-key"]') === 0, 'no separate [내 열쇠 백업] button may remain anywhere (beta.55)');
+    // 접힌 채로도 "아직 안 함"이 읽혀야 한다 — 안내 줄의 ⚠️ 배지와 카드 요약은 **같은 사실**(암호 건 내 보관 백업을 한 적 없음)을 말한다.
     const keyWarnSync = await page.evaluate(() => {
-      const btn = document.querySelector('[data-a="export-key"]');
+      const line = document.querySelector('.key-guard-line');
       const head = document.querySelector('.fold-head[data-card="enroll-auto"] .section-kicker');
-      return { badge: !!(btn && btn.querySelector('.badge-count')), kicker: (head ? head.innerText : '').includes('열쇠 백업') };
+      return { badge: !!(line && line.querySelector('.badge-count')), kicker: (head ? head.innerText : '').includes('내 보관 백업') };
     });
-    await assert(keyWarnSync.badge === keyWarnSync.kicker, `the ⚠️ badge on [내 열쇠 백업] and the collapsed 자동 등록 summary must agree (${JSON.stringify(keyWarnSync)})`);
+    await assert(keyWarnSync.badge === keyWarnSync.kicker, `the ⚠️ badge on the key pointer and the collapsed 자동 등록 summary must agree (${JSON.stringify(keyWarnSync)})`);
     // ── beta.45(현장 지시 7 — "간단명료"): 카드는 위에서부터 **오늘 할 일 → 참고 → 위험** 순이다 ──
     //   예전에는 열쇠 지문(참고 정보)이 맨 위였고, 매일 누르는 [온라인 자동 등록]이 그 아래였다.
     //   앱이 익숙하지 않은 사장님은 화면 맨 위를 "지금 해야 하는 일"로 읽는다.
@@ -1160,6 +1178,8 @@ async function runBeta52(browser, url, cors) {
   let inboxCount = 0;
   const inboxCalls = [];
   const results = [{ restaurant_id: 'rid-b52', name: 'Beta52 Shop', address: '서울특별시 광진구 아차산로 399 (구의동)', tel: '02-444-5252' }];
+  // beta.55(A2): 안전망 — 목이 없는 중계 호출(서버 백업 등)은 라이브로 나가지 않고 500으로 끊는다(나중에 건 라우트가 이긴다).
+  await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
   await context.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(results) }));
   await context.route('**/api/registered**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
   await context.route('**/api/inbox-count**', route => { inboxCalls.push(Date.now()); return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ count: inboxCount }) }); });
@@ -1189,15 +1209,22 @@ async function runBeta52(browser, url, cors) {
     await typePin(page, ['1', '2', '3', '4', '1', '2', '3', '4']);
     await page.waitForSelector('[data-a="guide-dismiss"]');
 
-    // ── ① 가입 직후 안내 화면에서 [내 열쇠 백업하기] — 이 분기는 모달을 그리지 않는다 ──
-    await page.locator('[data-a="export-key"]').first().click();
+    // ── ① 가입 직후 안내 화면에서 [지금 백업하기] — 이 분기는 모달을 그리지 않는다 ──
+    //   beta.55(A2): 열쇠를 따로 백업하는 버튼은 없다. 가게 열쇠는 '백업 암호'로 잠근 내 보관 파일에 장부와 함께 들어간다.
+    //   beta.52의 암호 창 계약(오버레이·8자 사전 표시·두 번 입력·창 안 사유·비동기 렌더에도 값 유지·보기 토글·끝 공백)은 그대로 이 창이 진다.
+    const dlgFrom = dialogs.length;
+    await page.locator('[data-a="backup-now"]').first().click();
+    await page.waitForSelector('#choiceTitle', { timeout: 8000 });
+    await assert((await page.locator('#choiceTitle').innerText()).includes('가게 열쇠'), `with an empty ledger the backup dialog must explain it keeps the shop key (got ${JSON.stringify(await page.locator('#choiceTitle').innerText())})`);
+    await assert(await count(page, '[data-a="guide-dismiss"]') === 1, 'the choice box must sit OVER the guide screen, not replace it');
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="save"]').click();
     await page.waitForSelector('#keyPass1', { timeout: 5000 });
-    await assert(await count(page, '.pass-back') === 1, 'the key-backup passphrase box must appear on the post-signup guide screen (a state.modal would not render there)');
+    await assert(await count(page, '.pass-back') === 1, 'the backup-password box must appear on the post-signup guide screen (a state.modal would not render there)');
     await assert(await count(page, '[data-a="guide-dismiss"]') === 1, 'the passphrase box must sit OVER the guide screen, not replace it');
     await assert(await page.evaluate(() => document.activeElement && document.activeElement.id) === 'keyPass1', 'the first passphrase field must take focus when the box opens');
     await assert((await page.locator('#keyPass1').getAttribute('type')) === 'password', 'passphrase fields must be password inputs (the old window.prompt echoed the passphrase in clear text)');
     await assert((await page.locator('.pass-modal').innerText()).includes('8자 이상'), 'the 8-character rule must be visible BEFORE the owner types (the old prompt never said it)');
-    await assert(await count(page, '#keyPass2') === 1, 'creating a key backup must ask for the passphrase twice (one typo = an unopenable backup)');
+    await assert(await count(page, '#keyPass2') === 1, 'setting the backup password must ask for it twice (one typo = an unopenable backup)');
     // 짧은 암호: 입력 중에는 회색 안내, [저장]을 누르면 창 안에 빨간 사유가 남는다(창은 닫히지 않는다)
     await page.locator('#keyPass1').fill('1234');
     await assert((await hint()).text.includes('지금 4자'), `typing a short passphrase must show the live length hint (got ${JSON.stringify((await hint()).text)})`);
@@ -1212,7 +1239,7 @@ async function runBeta52(browser, url, cors) {
       await assert(h.text.includes('너무 짧아요') && h.cls.includes('bad'), `a short passphrase must be refused INSIDE the box in red (got ${JSON.stringify(h)})`);
     }
     await assert(await count(page, '#keyPass1') === 1, 'refusing a short passphrase must keep the box open (the old flow silently quit)');
-    await assert(dlBefore.length === 0 && !(await metaOf()).myKeyBackedUpAt, 'a refused passphrase must not save anything');
+    await assert(dlBefore.length === 0 && !(await metaOf()).myKeyBackedUpAt && !(await metaOf()).backupPassCheck, 'a refused passphrase must not save anything');
     // 두 칸이 다르면 거절
     await page.locator('#keyPass1').fill('harness-key-01');
     await page.locator('#keyPass2').fill('harness-key-02');
@@ -1230,28 +1257,34 @@ async function runBeta52(browser, url, cors) {
     await page.locator('#keyPass2').fill('harness-key-01 ');
     await assert((await hint()).text.includes('두 암호가 같아요'), 'matching passphrases must show the ready hint');
     await page.locator('[data-a="pass-ok"]').click();
-    for (let i = 0; i < 30 && dlBefore.length < 1; i += 1) await page.waitForTimeout(100);
+    for (let i = 0; i < 80 && dlBefore.length < 1; i += 1) await page.waitForTimeout(100);
     page.off('download', onDl);
-    await assert(dlBefore.length === 1, `a valid passphrase must download exactly one key backup (got ${dlBefore.length})`);
+    await assert(dlBefore.length === 1, `a valid passphrase must download exactly one backup file (got ${dlBefore.length})`);
     const keyName = dlBefore[0].suggestedFilename();
-    await assert(/^선입금대장_내열쇠백업_.*\.json$/.test(keyName), `the key backup file name must be kept (got ${JSON.stringify(keyName)})`);
+    await assert(/^밥장부백업_\d{4}-\d{2}-\d{2}\.json$/.test(keyName), `the own backup file name (got ${JSON.stringify(keyName)})`);
     const keyPath = await dlBefore[0].path();
     const keyFile = JSON.parse(await fsp.readFile(keyPath, 'utf8'));
-    await assert(keyFile.type === 'prepaid-key-backup' && keyFile.pkBackup && keyFile.pubKey, 'the downloaded file must be a real key backup');
+    await assert(keyFile.type === 'prepaid-pass-backup' && keyFile.kdf && keyFile.kdf.it === 600000, 'the downloaded file must be a password-locked backup (PBKDF2 600k)');
+    await page.waitForSelector('#choiceTitle', { timeout: 8000 });
+    await assert((await page.locator('#choiceTitle').innerText()).trim() === '파일이 저장됐나요?', 'the app must ask whether the file is visible instead of claiming it was saved');
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="yes"]').click();
+    await page.waitForTimeout(200);
     await assert(await count(page, '.pass-back') === 0, 'the passphrase box must close after saving');
-    await assert(typeof (await metaOf()).myKeyBackedUpAt === 'number', 'saving the key backup must stamp myKeyBackedUpAt (that is what clears the ⚠️ 아직 안 함 badge)');
+    await assert(typeof (await metaOf()).myKeyBackedUpAt === 'number', 'saving a locked backup (it carries the shop key) must stamp myKeyBackedUpAt (that is what clears the ⚠️ 아직 안 함 badge)');
     await page.waitForTimeout(100);
-    await assert(await count(page, '[data-a="export-key"]') === 0, 'once backed up, the "지금 꼭 할 일: 내 열쇠 백업" block must leave the guide screen');
+    await assert(await count(page, '.setup [data-a="backup-now"]') === 0, 'once backed up, the "지금 꼭 할 일: 장부 백업" block must leave the guide screen');
     await page.locator('[data-a="guide-dismiss"]').click();
 
-    // ── 설정 카드에서 다시 열기 + Esc 취소(아무것도 저장하지 않는다) ──
+    // ── 설정 카드에서 [백업 암호] 다시 열기 + Esc 취소(아무것도 저장하지 않는다) ──
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
-    await openSettingsCard(page, 'enroll-auto');
-    await page.locator('[data-a="export-key"]').click();
+    await openSettingsCard(page, 'ledger');
+    const check0 = (await metaOf()).backupPassCheck;
+    await page.locator('[data-a="backup-pass"]').click();
     await page.waitForSelector('#keyPass1');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
     await assert(await count(page, '.pass-back') === 0, 'Esc must cancel the passphrase box');
+    await assert(JSON.stringify((await metaOf()).backupPassCheck) === JSON.stringify(check0), 'cancelling must not change the backup password');
 
     // ── 복원: 바쁨 가림막에 가리지 않고, 틀린 암호는 같은 창에서 다시 묻는다 ──
     await page.locator('#restoreFile').setInputFiles(keyPath);
@@ -1260,18 +1293,22 @@ async function runBeta52(browser, url, cors) {
     await assert(await count(page, '.busy') === 0, 'the passphrase box must not sit under the busy overlay while restoring');
     await page.locator('#keyPass1').fill('wrong-pass-99');
     await page.locator('#keyPass1').press('Enter');
-    await page.waitForFunction(() => { const h = document.getElementById('keyPassHint'); return h && /암호가 맞지 않아요/.test(h.textContent); }, null, { timeout: 15000 });
+    await page.waitForFunction(() => { const h = document.getElementById('keyPassHint'); return h && /암호가 맞지 않아요/.test(h.textContent); }, null, { timeout: 20000 });
     await assert(await count(page, '#keyPass1') === 1, 'a wrong passphrase must ask again in the same box (no need to pick the file again)');
     // 백업은 끝 공백을 뗀 암호로 만들어졌다 → 공백 없이 입력해도 열린다
     await page.locator('#keyPass1').fill('harness-key-01');
     await page.locator('[data-a="pass-ok"]').click();
-    // body.textContent는 인라인 스크립트 원문(같은 문구)까지 담는다 — 화면에 보이는 글자로 판정한다.
-    await page.waitForFunction(() => /내 열쇠를 복원했습니다/.test(document.body.innerText), null, { timeout: 15000 });
-    await assert(dialogs.filter(d => d.type === 'prompt').length === 0, `no native prompt may appear anywhere in the key backup/restore flows (got ${dialogs.filter(d => d.type === 'prompt').length})`);
+    await page.waitForSelector('#choiceTitle', { timeout: 20000 });
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="go"]').click();
+    await page.waitForFunction(() => { const t = document.getElementById('choiceTitle'); return t && /되찾기를 마쳤어요/.test(t.textContent); }, null, { timeout: 20000 });
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
+    await assert(dialogs.slice(dlgFrom).filter(d => d.type === 'prompt' || d.type === 'confirm').length === 0 && dialogs.filter(d => d.type === 'prompt').length === 0, `no native prompt/confirm may appear anywhere in the backup/restore flows (got ${JSON.stringify(dialogs.slice(dlgFrom).map(d => d.type + ':' + d.message.slice(0, 40)))})`);
 
-    // ── PIN 분실 복구 화면(잠금 상태)에서도 열쇠 복원이 된다 — 입력창 버튼이 잠금 게이트를 통과해야 하는 이유 ──
+    // ── PIN 분실 복구 화면(잠금 상태)에서도 예전 '내 열쇠 백업' 파일(beta.54 형식)이 열린다 — 암호 창·선택창 버튼이 잠금 게이트를 통과해야 하는 이유 ──
     {
       const keyAtBefore = (await metaOf()).keyCreatedAt;
+      const fxKey = path.join(__dirname, 'fixtures', 'beta54-key.json');
+      const fxPass = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'beta54-fixtures.meta.json'), 'utf8')).pass;
       await page.locator('[data-a="screen"][data-screen="home"]').click();
       await page.locator('[data-a="hand-to-customer"]').click();
       await page.waitForSelector('.cust-screen');
@@ -1281,12 +1318,15 @@ async function runBeta52(browser, url, cors) {
       await page.locator('[data-a="pin-forgot"]').click();
       await page.waitForTimeout(900);
       const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('[data-a="pin-forgot-restore"]').click()]);
-      await chooser.setFiles(keyPath);
+      await chooser.setFiles(fxKey);
       await page.waitForSelector('#keyPass1', { timeout: 5000 });
       await assert(await page.evaluate(() => window.__prepaidTestHooks.lockState().locked) === true, 'the recovery-screen key restore runs while the app is still locked');
-      await page.locator('#keyPass1').fill('harness-key-01');
+      await page.locator('#keyPass1').fill(fxPass);
       await page.locator('[data-a="pass-ok"]').click();
-      await page.waitForFunction(() => !document.getElementById('keyPass1'), null, { timeout: 15000 });
+      // 이 기기에는 다른 열쇠가 있다 → 바꿀지 묻는다(B-05). 선택창도 잠금 중에 눌려야 한다.
+      await page.waitForSelector('.choice-modal [data-val="replace"]', { timeout: 20000 });
+      await page.locator('.choice-modal [data-a="choice-pick"][data-val="replace"]').click();
+      await page.waitForFunction(() => !document.getElementById('keyPass1') && !document.getElementById('choiceTitle'), null, { timeout: 15000 });
       await page.waitForTimeout(300);
       const keyAtAfter = (await metaOf()).keyCreatedAt;
       await assert(typeof keyAtAfter === 'number' && keyAtAfter > (keyAtBefore || 0), `restoring the key from the PIN-recovery screen must actually import it (keyCreatedAt ${keyAtBefore} → ${keyAtAfter})`);
@@ -1594,8 +1634,9 @@ async function runBeta55(browser, url, cors) {
     await guard('B-10 pass', async () => {
       await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { modalIdleCap: 2500 }));
       await page.locator('[data-a="screen"][data-screen="settings"]').click();
-      await openSettingsCard(page, 'enroll-auto');
-      await page.locator('[data-a="export-key"]').first().click();
+      // beta.55(A2): 열쇠 백업 버튼은 없어졌다 — 같은 암호 창(passDialog)을 [장부 지키기 > 백업 암호]로 연다.
+      await openSettingsCard(page, 'ledger');
+      await page.locator('[data-a="backup-pass"]').first().click();
       await page.waitForSelector('#keyPass1', { timeout: 5000 });
       await page.evaluate(() => document.activeElement && document.activeElement.blur());
       await page.waitForTimeout(3600);
@@ -1674,14 +1715,15 @@ async function runBeta55(browser, url, cors) {
 
     // A-10e: CSV 내보내기 수식 주입 방지
     await guard('A-10e', async () => {
-      await page.locator('[data-a="screen"][data-screen="settings"]').click();
-      await openSettingsCard(page, 'ledger');
+      // beta.55(A2): 엑셀(CSV)은 이력 화면의 [엑셀로 내보내기]로 옮겼다(설정의 [장부 안전 저장]은 [장부 지키기]로 합쳐짐).
+      await page.locator('[data-a="screen"][data-screen="history"]').click();
       const downloads = [];
       const onDl = d => downloads.push(d);
       page.on('download', onDl);
-      await page.locator('[data-a="export-safe"]').first().click();
-      for (let i = 0; i < 40 && downloads.length < 2; i += 1) await page.waitForTimeout(100);
+      await page.locator('.top [data-a="export-csv"]').first().click();
+      for (let i = 0; i < 40 && downloads.length < 1; i += 1) await page.waitForTimeout(100);
       page.off('download', onDl);
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
       const csvDl = downloads.find(d => /\.csv$/i.test(d.suggestedFilename()));
       const csv = csvDl ? await fsp.readFile(await csvDl.path(), 'utf8') : '';
       await check(csv.includes("'=1+2") && !/(^|,)=1\+2/m.test(csv), `A-10e: a text cell starting with "=" must be exported as '=… (got ${JSON.stringify((csv.match(/.{0,20}=1\+2.{0,5}/) || [''])[0])})`);
@@ -2381,6 +2423,676 @@ async function runBeta55b(browser, url, cors) {
   return { passed, fails };
 }
 
+// ── beta.55 A2: 장부 지키기 — 서버 백업 v2(조각)·내 보관 백업(암호 건 파일)·되찾기 ───────────────────────────────
+//   목 중계 서버는 계약(PROTOCOL §4.13)을 **강제**한다: 소유 증명 토큰 1회용(재사용 → 401·집계), gen 형식, seg_no 정수 0..999,
+//   조각 blob ≤ 400,000자, 머리 blob ≤ 1,000,000자, 머리(gen 포함)가 오면 다른 gen 조각을 같은 자리에서 지움, 구서버 모드(조각 API 404).
+//   예전 형식 파일은 수정 전 앱(beta.54 + A1a·A1b)의 실제 UI로 만든 harness/fixtures/beta54-*.json을 쓴다.
+//   E2E_ONLY=beta55c 로 이 블록만, E2E_SOFT=1 로 단언별 실패 목록을 본다. B55_SHOTS_DIR=<폴더> 면 화면 캡처를 남긴다.
+function makeBackupRelay(cors) {
+  const st = { reg: new Map(), tokens: new Set(), head: new Map(), segs: new Map(), log: [], mode: 'v2', fail: '', challenges: 0, reused: 0, violations: [], rate429: 0 };
+  const GEN_RE = /^[A-Za-z0-9_-]{8,40}$/;
+  const segsOf = rid => { if (!st.segs.has(rid)) st.segs.set(rid, new Map()); return st.segs.get(rid); };
+  async function handle(route) {
+    const req = route.request(); const p = new URL(req.url()).pathname; let b = {};
+    try { b = JSON.parse(req.postData() || '{}'); } catch (e) { b = {}; }
+    const reply = (status, obj) => route.fulfill({ status, contentType: 'application/json', headers: cors, body: JSON.stringify(obj) });
+    if (p === '/api/challenge') {
+      if (st.rate429 > 0) { st.rate429 -= 1; return reply(429, { error: 'rate_limited' }); }
+      const pub = st.reg.get(String(b.restaurant_id || ''));
+      if (!pub) return reply(404, { error: '등록된 공개키 없음' });
+      const tok = 'tok-' + crypto.randomBytes(8).toString('hex'); st.tokens.add(tok); st.challenges += 1;
+      const key = crypto.createPublicKey({ key: Buffer.from(pub, 'base64'), format: 'der', type: 'spki' });
+      const ct = crypto.publicEncrypt({ key, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' }, Buffer.from(tok, 'utf8'));
+      return reply(200, { challenge_ct: ct.toString('base64') });
+    }
+    if (!p.startsWith('/api/ledger-backup')) return reply(500, { error: 'harness: no mock' });
+    if (p.startsWith('/api/ledger-backup/seg') && st.mode === 'old') return reply(404, { error: 'not found' });
+    if (st.fail === '500') return reply(500, { error: 'internal' });
+    const rid = String(b.restaurant_id || '');
+    const auth = () => { if (!st.tokens.has(b.auth_token)) { st.reused += 1; return false; } st.tokens.delete(b.auth_token); return true; };
+    if (p === '/api/ledger-backup/seg/list') {
+      if (!auth()) return reply(401, { error: 'auth_required' });
+      st.log.push({ t: 'list' });
+      const out = []; segsOf(rid).forEach((m, gen) => m.forEach((v, n) => out.push({ gen, seg_no: n, blob_hash: v.blob_hash, updated_at: v.updated_at, size: v.blob.length })));
+      return reply(200, { segments: out });
+    }
+    if (p === '/api/ledger-backup/seg') {
+      if (!GEN_RE.test(String(b.gen || ''))) { st.violations.push('gen ' + b.gen); return reply(400, { error: 'invalid_gen' }); }
+      if (!Number.isInteger(b.seg_no) || b.seg_no < 0 || b.seg_no > 999) { st.violations.push('seg_no ' + b.seg_no); return reply(400, { error: 'invalid_seg_no' }); }
+      if (typeof b.blob !== 'string' || !b.blob || b.blob.length > 400000) { st.violations.push('seg blob size'); return reply(400, { error: 'blob 크기 초과' }); }
+      if (!auth()) return reply(401, { error: 'auth_required' });
+      const m = segsOf(rid); if (!m.has(b.gen)) m.set(b.gen, new Map());
+      const at = Date.now(); m.get(b.gen).set(b.seg_no, { blob: b.blob, blob_hash: b.blob_hash || null, updated_at: at });
+      st.log.push({ t: 'seg', gen: b.gen, n: b.seg_no, size: b.blob.length });
+      return reply(200, { ok: true, updated_at: at });
+    }
+    if (p === '/api/ledger-backup/seg/get') {
+      if (!Array.isArray(b.seg_nos) || b.seg_nos.length < 1 || b.seg_nos.length > 5 || !b.seg_nos.every(n => Number.isInteger(n))) { st.violations.push('seg_nos ' + JSON.stringify(b.seg_nos)); return reply(400, { error: 'invalid_seg_nos' }); }
+      if (!auth()) return reply(401, { error: 'auth_required' });
+      st.log.push({ t: 'get', gen: b.gen, nos: b.seg_nos });
+      const m = segsOf(rid).get(String(b.gen)) || new Map();
+      return reply(200, { segments: b.seg_nos.filter(n => m.has(n)).map(n => ({ seg_no: n, blob: m.get(n).blob, blob_hash: m.get(n).blob_hash, updated_at: m.get(n).updated_at })) });
+    }
+    if (p === '/api/ledger-backup') {
+      if (typeof b.blob !== 'string' || !b.blob || b.blob.length > 1000000) { st.violations.push('head blob size'); return reply(400, { error: 'blob 크기 초과(1MB)' }); }
+      if (b.gen != null && !GEN_RE.test(String(b.gen))) { st.violations.push('head gen'); return reply(400, { error: 'invalid_gen' }); }
+      if (!auth()) return reply(401, { error: 'auth_required' });
+      const at = Date.now();
+      st.head.set(rid, { blob: b.blob, blob_hash: b.blob_hash || '', updated_at: at, gen: b.gen || null });
+      if (b.gen) { const m = segsOf(rid); [...m.keys()].filter(g => g !== b.gen).forEach(g => m.delete(g)); }
+      st.log.push({ t: 'head', gen: b.gen || null, size: b.blob.length });
+      return reply(200, { ok: true });
+    }
+    if (p === '/api/ledger-backup/get') {
+      if (!auth()) return reply(401, { error: 'auth_required' });
+      st.log.push({ t: 'headget' });
+      const h = st.head.get(rid); if (!h) return reply(404, { error: 'not_found' });
+      return reply(200, { blob: h.blob, blob_hash: h.blob_hash, updated_at: h.updated_at });
+    }
+    if (p === '/api/ledger-backup/delete') {
+      if (!auth()) return reply(401, { error: 'auth_required' });
+      const had = st.head.delete(rid); st.segs.delete(rid); st.log.push({ t: 'delete' });
+      return had ? reply(200, { ok: true }) : reply(404, { error: 'not_found' });
+    }
+    return reply(404, { error: 'not found' });
+  }
+  return { st, handle };
+}
+
+async function runBeta55c(browser, url, cors) {
+  const os = require('os');
+  const soft = !!process.env.E2E_SOFT;
+  const fails = [];
+  let passed = 0;
+  const check = async (cond, msg) => {
+    if (cond) { passed += 1; return true; }
+    if (soft) { fails.push(msg); console.log('  ✗ ' + msg); return false; }
+    throw new Error('[beta.55c] ' + msg);
+  };
+  const guard = async (label, fn) => {
+    if (process.env.E2E_VERBOSE) console.log('  · ' + label);
+    try { await fn(); } catch (err) { if (!soft) throw err; fails.push(`${label}: ${String(err && err.message || err).slice(0, 300)}`); console.log(`  ✗ ${label}: ${String(err && err.message || err).slice(0, 300)}`); }
+  };
+  const SHOTS = process.env.B55_SHOTS_DIR || '';
+  if (SHOTS) await fsp.mkdir(SHOTS, { recursive: true }).catch(() => {});
+  const shot = async (page, name) => {
+    if (!SHOTS) return;
+    if (/^card-/.test(name)) await page.evaluate(() => { const el = document.querySelector('.fold-head[data-card="ledger"]'); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -120); } }).catch(() => {});
+    await page.waitForTimeout(120);
+    await page.screenshot({ path: path.join(SHOTS, name + '.png') }).catch(() => {});
+  };
+  const legacyPin = crypto.createHash('sha256').update('1234').digest('hex');
+  const DAY = 86400000, T0 = Date.now() - 20 * DAY;
+  const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==';
+  const RID = 'rid-b55c';
+  const FIX = path.join(__dirname, 'fixtures');
+  const relay = makeBackupRelay(cors);
+  const emp = (id, name, dept, o) => Object.assign({ id, org: '광진구청', orgKind: 'public', dept, name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: T0, updatedAt: T0 }, o || {});
+  const tx = (id, e, type, amount, k, extra) => Object.assign({ id, employeeId: e, type, amount, beforeBalance: 0, afterBalance: 0, reason: type === 'use' ? '서명 확인' : '', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', hv: 2, txHash: '', prevHash: '', createdAt: T0 + k * 60000, occurredAt: 0 }, extra || {});
+  const putAll = (page, o) => page.evaluate(o2 => new Promise((resolve, reject) => {
+    const req = indexedDB.open('prepaid-ledger-db');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result; const t = db.transaction(['meta', 'employees', 'transactions'], 'readwrite');
+      Object.entries(o2.meta || {}).forEach(([k, v]) => t.objectStore('meta').put({ key: k, value: v }));
+      (o2.employees || []).forEach(e => t.objectStore('employees').put(e));
+      (o2.transactions || []).forEach(x => t.objectStore('transactions').put(x));
+      t.oncomplete = () => resolve(true); t.onerror = () => reject(t.error);
+    };
+  }), o);
+  const metaOf = async page => (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+  const awaitUnlocked = page => page.waitForFunction(() => { const H = window.__prepaidTestHooks; return !!H && H.lockState && H.lockState().locked === false; }, null, { timeout: 20000 });
+  const reloadUnlock = async page => { await page.reload({ waitUntil: 'load' }); await unlockPin(page); await awaitUnlocked(page); };
+  const choiceTitle = async page => { await page.waitForSelector('#choiceTitle', { timeout: 20000 }); return (await page.locator('#choiceTitle').innerText()).trim(); };
+  const choiceText = async page => (await page.locator('.choice-modal').innerText());
+  const pick = async (page, val) => { await page.locator(`.choice-modal [data-a="choice-pick"][data-val="${val}"]`).click(); await page.waitForTimeout(150); };
+  const goGuard = async page => { await page.locator('[data-a="screen"][data-screen="settings"]').click(); await openSettingsCard(page, 'ledger'); };
+  const passHint = async page => (await page.locator('#keyPassHint').innerText().catch(() => ''));
+  const waitDl = async (list, n, ms = 20000) => { const t0 = Date.now(); while (list.length < n && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return list[n - 1]; };
+  const dlJson = async d => JSON.parse(await fsp.readFile(await d.path(), 'utf8'));
+  const sortById = a => [...a].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  // 필드 단위 비교(skip 필드 제외). 차이 목록을 돌려준다.
+  const diffRecs = (A, B, skip) => {
+    const out = []; const a = sortById(A), b = sortById(B);
+    if (a.length !== b.length) out.push(`count ${a.length} → ${b.length}`);
+    for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+      const keys = [...new Set([...Object.keys(a[i]), ...Object.keys(b[i])])].filter(k => !(skip || []).includes(k));
+      for (const k of keys) if (JSON.stringify(a[i][k]) !== JSON.stringify(b[i][k])) out.push(`${a[i].id}.${k}: ${JSON.stringify(a[i][k]).slice(0, 60)} → ${JSON.stringify(b[i][k]).slice(0, 60)}`);
+    }
+    return out;
+  };
+  const hookChain = page => page.evaluate(async () => { const H = window.__prepaidTestHooks; const v = await H.verifyChain(); const r = H.reconcileLedger ? H.reconcileLedger() : null; return { ok: v.ok, tamperOk: v.tamperOk, broken: v.broken.length, legacy: v.legacy, reconcile: !!(r && r.ok) }; });
+  const newCtx = async (vp) => {
+    const ctx = await browser.newContext({ acceptDownloads: true, viewport: vp || { width: 390, height: 844 }, isMobile: !vp || vp.width < 700, hasTouch: true });
+    await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
+    await ctx.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }));
+    await ctx.route('**/api/challenge**', relay.handle);
+    await ctx.route('**/api/ledger-backup**', relay.handle);
+    const page = await ctx.newPage();
+    const dialogs = []; const downloads = [];
+    page.on('dialog', async d => { dialogs.push({ type: d.type(), message: d.message() }); await d.dismiss().catch(() => {}); });
+    page.on('download', d => downloads.push(d));
+    return { ctx, page, dialogs, downloads };
+  };
+  // 전화번호는 앱과 같은 방식(deviceSecret로 PBKDF2 12만 회 + AES-GCM)으로 봉해 둔다 — 복원 뒤 '같은 기기 전화 유지'를 보려고.
+  const sealPhone = (page, phone) => page.evaluate(async phone => {
+    const m = await new Promise(res => { const r = indexedDB.open('prepaid-ledger-db'); r.onsuccess = () => { const q = r.result.transaction('meta').objectStore('meta').get('deviceSecret'); q.onsuccess = () => res(q.result && q.result.value); }; });
+    const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+    const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(m)), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(phone));
+    return JSON.stringify({ v: 1, salt: u2b(salt), iv: u2b(iv), ct: u2b(ct) });
+  }, phone);
+
+  // ═════════════════════ 기기 A: 등록된 가게 ═════════════════════
+  const A = await newCtx();
+  const page = A.page;
+  let passFile1 = null; let passFileName1 = ''; let ledgerAtPass1 = null; let pubA = '';
+  try {
+    const vlog = m => { if (process.env.E2E_VERBOSE) console.log('    ' + m); };
+    await page.goto(url, { waitUntil: 'load' });
+    // 앱이 저장소(버전 3)를 먼저 열 때까지 기다린다 — 하니스가 먼저 열면 스토어 없는 빈 DB를 만들어 시드가 멈춘다.
+    await page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await page.waitForTimeout(200);
+    vlog('loaded');
+    const phoneEnc = await sealPhone(page, '01012345678');
+    vlog('phone sealed');
+    const emps = [emp('c-e1', '김지킴', '세무과', { phone: phoneEnc, phoneConsent: true }), emp('c-e2', '이보관', '세무과'), emp('c-e3', '박되찾', '총무과')];
+    const base7 = [tx('c-t1', 'c-e1', 'open', 50000, 1), tx('c-t2', 'c-e2', 'open', 50000, 2), tx('c-t3', 'c-e3', 'open', 30000, 3),
+      tx('c-t4', 'c-e1', 'use', 9000, 4, { signatureData: SIG, note: '점심' }), tx('c-t5', 'c-e2', 'use', 8000, 5, { signatureData: SIG }),
+      tx('c-t6', 'c-e1', 'use', 9000, 6, { signatureData: SIG }), tx('c-t7', 'c-e3', 'topup', 10000, 7, { note: '추가 입금' })];
+    const now = Date.now();
+    await putAll(page, { meta: { setupComplete: true, welcomeSeen: true, termsAgreedAt: now, pinHash: legacyPin, shopName: '지킴식당', departments: ['세무과', '총무과'], orgName: '광진구청',
+      storeRegisterPending: false, restaurantId: RID, relayStoreName: '지킴식당', relayRegisteredAt: now, districtSyncedAt: now, myKeyBackedUpAt: now }, employees: emps, transactions: base7 });
+    await resealChain(page);
+    pubA = (await metaOf(page)).pubKey;
+    await check(!!pubA, 'setup: the device must have generated its shop key on first load');
+
+    // ── ① 실패는 조용히 넘어가지 않는다: 자동 백업(잠금 해제 때) 실패 → 기록 + 상태 상자 + 홈 배너 ──
+    await guard('fail-surfaced', async () => {
+      await reloadUnlock(page);
+      await page.waitForFunction(() => { const s = window.__prepaidTestHooks.cloudState(); return s && s.failSince > 0; }, null, { timeout: 20000 });
+      const st = await page.evaluate(() => window.__prepaidTestHooks.cloudState());
+      await check(st.failSince > 0 && st.lastError === 'store_not_registered', `a failed automatic server backup must be recorded with its reason (got ${JSON.stringify({ failSince: st.failSince, lastError: st.lastError })})`);
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+      await page.waitForSelector('.guard-banner', { timeout: 8000 });
+      const bt = await page.locator('.guard-banner').innerText();
+      await check(/서버 백업/.test(bt), `the home banner must say the server backup failed (got ${JSON.stringify(bt)})`);
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      const kicker = (await page.locator('.fold-head[data-card="ledger"] .section-kicker').innerText()).trim();
+      const gs = await page.evaluate(() => window.__prepaidTestHooks.guardStatus());
+      await check(kicker === gs.head && /서버 백업/.test(kicker), `the folded 장부 지키기 summary must be the same sentence as the status box (kicker ${JSON.stringify(kicker)} vs head ${JSON.stringify(gs.head)})`);
+      await openSettingsCard(page, 'ledger');
+      const box = await page.locator('#guardState').innerText();
+      await check((await page.locator('#guardState.warn').count()) === 1 && box.includes('서버 백업이 안 됐어요') && box.includes('등록'), `the status box must turn into a warning that names the reason (got ${JSON.stringify(box)})`);
+      await shot(page, 'card-warning-390');
+    });
+
+    // ── ② v2 업로드: 300건 대신 3건씩(하니스 훅) → 조각 3개 + 머리 1개, 머리는 마지막, 토큰은 요청마다 새로 ──
+    let gen1 = '';
+    await guard('v2-upload', async () => {
+      relay.st.reg.set(RID, pubA);
+      await page.evaluate(() => { window.__cloudSegSize = 3; });
+      relay.st.log.length = 0; const ch0 = relay.st.challenges;
+      await page.locator('[data-a="backup-now"]').first().click();
+      const title = await choiceTitle(page);
+      await check(title === '백업했어요. 내 보관용도 남길까요?', `after a successful server backup the dialog must ask about an own copy (got ${JSON.stringify(title)})`);
+      const opts = await page.$$eval('.choice-modal [data-a="choice-pick"]', bs => bs.map(b => ({ v: b.dataset.val, t: b.innerText.replace(/\s+/g, ' ').trim(), primary: b.classList.contains('btn-primary') })));
+      await check(opts.length === 3 && opts[0].v === 'share' && opts[0].primary && opts[1].v === 'save' && opts[2].v === 'none' && opts[2].t.includes('서버 백업만 할게요') && opts.filter(o => o.primary).length === 1,
+        `the dialog must offer ① 카톡·메일로 보내기(primary) ② 이 기기에 저장 ③ 서버 백업만 할게요 (got ${JSON.stringify(opts)})`);
+      await shot(page, 'choice-3-390');
+      await pick(page, 'none');
+      const log = relay.st.log.map(e => e.t + (e.n != null ? e.n : ''));
+      await check(JSON.stringify(log) === JSON.stringify(['list', 'seg0', 'seg1', 'seg2', 'head']), `7 transactions in segments of 3 must upload list → seg0 → seg1 → seg2 → head (head LAST) (got ${JSON.stringify(log)})`);
+      const head = relay.st.log.find(e => e.t === 'head'); gen1 = head && head.gen;
+      await check(!!gen1 && relay.st.log.filter(e => e.t === 'seg').every(e => e.gen === gen1), `the head must carry the same gen as its segments (got ${JSON.stringify(relay.st.log)})`);
+      await check(relay.st.challenges - ch0 === 5 && relay.st.reused === 0, `every authenticated request must use its own one-time token (challenges ${relay.st.challenges - ch0}, reused ${relay.st.reused})`);
+      const m = await metaOf(page);
+      await check(m.cloudBackupState && m.cloudBackupState.gen === gen1 && Object.keys(m.cloudBackupState.segs).length === 3 && !m.cloudBackupState.failSince && m.cloudBackupState.lastOkAt > 0 && m.lastCloudBackupAt > 0,
+        `a successful backup must record gen, segment hashes and clear the failure (got ${JSON.stringify(m.cloudBackupState && { gen: m.cloudBackupState.gen, segs: m.cloudBackupState.segs, failSince: m.cloudBackupState.failSince })})`);
+      const segSizes = relay.st.log.filter(e => e.t === 'seg').map(e => e.size);
+      await check(segSizes.every(s => s < 5000), `segments must be compressed and carry no signature images (sizes ${JSON.stringify(segSizes)})`);
+      const box = await page.locator('#guardState').innerText();
+      await check(box.includes('장부가 안전하게 보관돼 있어요') && box.includes('서버 자동 백업 (매주)') && box.includes('오늘'), `after success the status box must be calm and say 오늘 (got ${JSON.stringify(box)})`);
+      await shot(page, 'card-normal-390');
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+      await check((await page.locator('.guard-banner').count()) === 0, 'the home banner must go away after a successful backup');
+    });
+
+    // ── ③ 닫힌 조각은 다시 올리지 않는다 ──
+    await guard('v2-incremental', async () => {
+      await putAll(page, { transactions: [tx('c-t8', 'c-e2', 'use', 5000, 8, { signatureData: SIG }), tx('c-t9', 'c-e3', 'use', 7000, 9)] });
+      await resealChain(page);
+      await reloadUnlock(page);
+      await page.evaluate(() => { window.__cloudSegSize = 3; });
+      await page.waitForTimeout(400);
+      relay.st.log.length = 0;
+      await goGuard(page);
+      await page.locator('[data-a="backup-now"]').click();
+      await choiceTitle(page); await pick(page, 'none');
+      const log = relay.st.log.map(e => e.t + (e.n != null ? e.n : ''));
+      await check(JSON.stringify(log) === JSON.stringify(['list', 'seg2', 'head']), `with 9 transactions only the changed segment (2) may be uploaded again (got ${JSON.stringify(log)})`);
+      await check(relay.st.log.every(e => e.gen == null || e.gen === gen1), 'an incremental backup must keep the same gen');
+    });
+
+    // ── ④ 서버에서 되찾기: 백업(9건)이 지금(10건)보다 적으면 진한 버튼이 [취소] → 안전 사본 → 필드 단위 동일(서명 그림만 없음) ──
+    await guard('cloud-restore', async () => {
+      const ledgerA = await readDb(page);
+      await putAll(page, { transactions: [tx('c-t10', 'c-e1', 'topup', 1000, 10)] });
+      await resealChain(page);
+      await reloadUnlock(page);
+      await goGuard(page);
+      await page.locator('[data-a="guard-restore"]').click();
+      await choiceTitle(page);
+      await check((await page.locator('.choice-modal [data-val="cloud"]').count()) === 1 && (await page.locator('.choice-modal [data-val="file"]').count()) === 1, 'a registered shop must be offered 서버에서 / 파일에서 되찾기');
+      await pick(page, 'cloud');
+      let t = await choiceTitle(page); let txt = await choiceText(page);
+      const prim = await page.$$eval('.choice-modal [data-a="choice-pick"].btn-primary', bs => bs.map(b => b.dataset.val));
+      await check(t.includes('거래가 적은 백업') && txt.includes('지금 10건') && txt.includes('백업 9건') && txt.includes('지금 3명') && txt.includes('백업 3명') && txt.includes('백업 시각') && JSON.stringify(prim) === '["cancel"]',
+        `restoring fewer transactions must say 지금 10건 → 백업 9건 · 직원 수 · 백업 시각 and make [취소] the primary button (title ${JSON.stringify(t)}, primary ${JSON.stringify(prim)}, text ${JSON.stringify(txt.slice(0, 300))})`);
+      await shot(page, 'restore-fewer-390');
+      await pick(page, 'cancel');
+      await check((await readDb(page)).transactions.length === 10, 'cancelling the restore must leave the ledger untouched');
+      const dl0 = A.downloads.length;
+      await page.locator('[data-a="guard-restore"]').click(); await choiceTitle(page); await pick(page, 'cloud');
+      t = await choiceTitle(page); await pick(page, 'go');
+      t = await choiceTitle(page);
+      txt = await choiceText(page);
+      await check(t === '되찾기를 마쳤어요' && txt.includes('서명 그림은 이 백업에 없어요') && txt.includes('잠긴 안전 사본') && txt.includes('전화번호 1건'), `the result must say what happened (snapshot, no signature images, phone kept) (got ${JSON.stringify(txt.slice(0, 400))})`);
+      await pick(page, 'ok');
+      const snapDl = A.downloads[dl0];
+      await check(!!snapDl && /^밥장부_되돌리기전_잠긴사본_\d{4}-\d{2}-\d{2}\.json$/.test(snapDl.suggestedFilename()), `a locked safety snapshot must be downloaded before overwriting (got ${snapDl && snapDl.suggestedFilename()})`);
+      const snap = await dlJson(snapDl);
+      const snapCore = await page.evaluate(b => window.__prepaidTestHooks.decryptBlob(b), snap.blob);
+      await check(snap.type === 'prepaid-locked-backup' && snapCore.payload.transactions.length === 10, `the safety snapshot must hold the ledger as it was BEFORE the restore (10 transactions, got ${snapCore && snapCore.payload.transactions.length})`);
+      const B = await readDb(page);
+      const txDiff = diffRecs(ledgerA.transactions, B.transactions, ['signatureData']);
+      await check(txDiff.length === 0, `restored transactions must equal the backed-up ledger field by field except signatureData (${txDiff.slice(0, 5).join(' | ')})`);
+      await check(B.transactions.filter(x => x.type === 'use' && x.signatureHash).every(x => x.signatureData === ''), 'server backups carry no signature images (signatureHash only)');
+      const empDiff = diffRecs(ledgerA.employees, B.employees, []);
+      await check(empDiff.length === 0, `restored employees must equal the original, including the phone kept from this device (${empDiff.slice(0, 5).join(' | ')})`);
+      const ch = await hookChain(page);
+      await check(ch.tamperOk && ch.broken === 0 && ch.reconcile, `the hash chain and balances must still verify after a restore without signature images (got ${JSON.stringify(ch)})`);
+      const m = await metaOf(page);
+      await check(m.cloudBackupState == null && m.restaurantId === RID && m.pubKey === pubA, 'after a restore the cloud state is reset while the device registration and key stay');
+      await page.locator('[data-a="screen"][data-screen="history"]').click();
+      await page.waitForTimeout(200);
+      await check((await page.locator('.sig-missing').count()) >= 3 && (await page.locator('.app').innerText()).includes('서명 기록은 확인됨'), 'history must say the signature image is not in this backup (signature record confirmed)');
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+    });
+
+    // ── ⑤ 주 1회: 7일이 안 됐으면 올리지 않고, 7일이 지났고 바뀐 것이 있으면 잠금 해제 때 조용히 올린다(새 gen → 다른 gen 조각 정리) ──
+    await guard('weekly', async () => {
+      const set = async (ageDays, fpSame) => {
+        const cur = await metaOf(page); const fp = fpSame ? await page.evaluate(() => window.__prepaidTestHooks.ledgerFp()) : 'stale';
+        const at = Date.now() - ageDays * DAY;
+        await putAll(page, { meta: { cloudBackupState: Object.assign({}, cur.cloudBackupState || {}, { lastOkAt: at, fp, failSince: 0, lastTryAt: 0 }), lastCloudBackupAt: at } });
+      };
+      await set(2, false); relay.st.log.length = 0;
+      await reloadUnlock(page); await page.waitForTimeout(1500);
+      await check(relay.st.log.length === 0, `a backup younger than 7 days must not be redone on unlock (got ${JSON.stringify(relay.st.log)})`);
+      await set(8, true); relay.st.log.length = 0;
+      await reloadUnlock(page); await page.waitForTimeout(1500);
+      await check(relay.st.log.length === 0, `nothing changed since the last backup → no upload even after 7 days (got ${JSON.stringify(relay.st.log)})`);
+      await set(8, false); relay.st.log.length = 0;
+      await reloadUnlock(page);
+      await page.waitForFunction(() => { const s = window.__prepaidTestHooks.cloudState(); return s && s.lastOkAt > Date.now() - 60000; }, null, { timeout: 20000 });
+      const heads = relay.st.log.filter(e => e.t === 'head');
+      await check(heads.length === 1 && relay.st.log[relay.st.log.length - 1].t === 'head', `a week-old backup with changes must upload once on unlock, head last (got ${JSON.stringify(relay.st.log.map(e => e.t))})`);
+      const gens = [...(relay.st.segs.get(RID) || new Map()).keys()];
+      await check(gens.length === 1 && gens[0] === heads[0].gen && gens[0] !== gen1, `a new gen (the ledger was replaced by the restore) must clean up the other gens' segments (gens ${JSON.stringify(gens)})`);
+      await check((await page.locator('.choice-back').count()) === 0 && A.dialogs.length === 0, 'the weekly backup must run silently (no dialog)');
+    });
+
+    // ── ⑤-2 요청이 몰리면(429 rate_limited) 기다렸다 이어서 올린다 — 실패로 끝내지 않는다 ──
+    await guard('rate-limited', async () => {
+      await page.evaluate(() => { window.__cloudRetryWaitMs = 50; });
+      relay.st.rate429 = 2; relay.st.log.length = 0;
+      await goGuard(page);
+      await page.locator('[data-a="backup-now"]').click();
+      const t = await choiceTitle(page);
+      await check(t === '백업했어요. 내 보관용도 남길까요?' && relay.st.rate429 === 0 && relay.st.log.some(e => e.t === 'head'), `two 429 rate_limited answers must be waited out and the backup must still finish (title ${JSON.stringify(t)}, left ${relay.st.rate429})`);
+      await pick(page, 'none');
+    });
+
+    // ── ⑥ 서버가 실패하면 제목이 정직하다 + 상자에 남는다 + 오래되면 홈 배너 ──
+    await guard('fail-dialog', async () => {
+      relay.st.fail = '500';
+      await goGuard(page);
+      await page.locator('[data-a="backup-now"]').click();
+      const t = await choiceTitle(page);
+      await check(t.includes('서버에는 올리지 못했어요'), `a failed server backup must be said honestly in the dialog title (got ${JSON.stringify(t)})`);
+      await check((await page.locator('.choice-modal [data-val="none"]').innerText()).trim() === '취소', 'when the server failed, the third choice is 취소 (not "서버 백업만")');
+      await pick(page, 'none');
+      const st = await page.evaluate(() => window.__prepaidTestHooks.cloudState());
+      await check(st.failSince > 0 && st.lastError === 'internal', `the failure must be recorded (got ${JSON.stringify(st)})`);
+      await check((await page.locator('#guardState.warn').count()) === 1, 'the status box must show the failure');
+      const cur = await metaOf(page); const old = Date.now() - 10 * DAY;
+      await putAll(page, { meta: { cloudBackupState: Object.assign({}, cur.cloudBackupState, { lastOkAt: old, failSince: old, lastTryAt: Date.now() }), lastCloudBackupAt: old } });
+      await reloadUnlock(page);
+      await page.waitForSelector('.guard-banner', { timeout: 8000 });
+      const bt = await page.locator('.guard-banner').innerText();
+      await check(/서버 백업이 10일째 안 되고 있어요/.test(bt), `after 10 days without a successful server backup the home banner must say so (got ${JSON.stringify(bt)})`);
+      await shot(page, 'home-banner-390');
+      relay.st.fail = '';
+    });
+
+    // ── ⑦ 구서버(조각 API 404) → v1 한 덩어리(서명 제외·압축)로 폴백, 그 v1에서 되찾기도 된다 ──
+    await guard('old-server', async () => {
+      relay.st.mode = 'old'; relay.st.log.length = 0;
+      await goGuard(page);
+      const before = await readDb(page);
+      await page.locator('[data-a="backup-now"]').click();
+      const t = await choiceTitle(page);
+      await check(t === '백업했어요. 내 보관용도 남길까요?', `an old server must still get a backup (got ${JSON.stringify(t)})`);
+      await pick(page, 'none');
+      const head = relay.st.log.find(e => e.t === 'head');
+      await check(!!head && head.gen === null && !relay.st.log.some(e => e.t === 'seg'), `on an old server the app must fall back to one v1 blob without gen (got ${JSON.stringify(relay.st.log)})`);
+      const m = await metaOf(page);
+      await check(m.cloudBackupState && m.cloudBackupState.mode === 'v1' && !m.cloudBackupState.failSince, 'the v1 fallback must be recorded as a success');
+      await page.locator('[data-a="guard-restore"]').click(); await choiceTitle(page); await pick(page, 'cloud');
+      const t2 = await choiceTitle(page);
+      await check(t2 === '이 백업으로 되돌릴까요?', `restoring the same-size v1 backup asks normally (got ${JSON.stringify(t2)})`);
+      await pick(page, 'go'); await choiceTitle(page); await pick(page, 'ok');
+      const after = await readDb(page);
+      const d = diffRecs(before.transactions, after.transactions, ['signatureData']);
+      await check(d.length === 0, `a v1-fallback round trip must keep every transaction field except signature images (${d.slice(0, 4).join(' | ')})`);
+      relay.st.mode = 'v2';
+    });
+
+    // ── ⑧ 내 보관 백업 — 처음엔 백업 암호를 두 번 정한다(8자·불일치는 창 안에서 거절) → 암호 건 파일(600k·gzip·열쇠 포함) ──
+    await guard('own-save-first', async () => {
+      await goGuard(page);
+      await page.locator('[data-a="backup-now"]').click();
+      await choiceTitle(page); await pick(page, 'save');
+      await page.waitForSelector('#keyPass1', { timeout: 8000 });
+      const title = (await page.locator('#keyPassTitle').innerText()).trim();
+      await check(title.includes('백업 암호 정하기') && (await page.locator('#keyPass2').count()) === 1 && (await page.locator('#keyPassPlain').count()) === 1 && (await page.locator('#keyPassOk').innerText()).includes('잠가서 저장하기'),
+        `the first own backup must ask to SET the backup password twice with a "암호 없이" option (title ${JSON.stringify(title)})`);
+      await shot(page, 'pass-dialog-390');
+      await page.locator('#keyPass1').fill('short'); await page.locator('#keyPass2').fill('short');
+      await page.locator('[data-a="pass-ok"]').click(); await page.waitForTimeout(150);
+      await check((await passHint(page)).includes('너무 짧아요') && (await page.locator('#keyPass1').count()) === 1, 'a short backup password must be refused inside the dialog');
+      await page.locator('#keyPass1').fill('harness-pass-01'); await page.locator('#keyPass2').fill('harness-pass-02');
+      await page.locator('[data-a="pass-ok"]').click(); await page.waitForTimeout(150);
+      await check((await passHint(page)).includes('서로 달라요'), 'mismatched backup passwords must be refused inside the dialog');
+      const dl0 = A.downloads.length;
+      await page.locator('#keyPass2').fill('harness-pass-01');
+      await page.locator('[data-a="pass-ok"]').click();
+      const t = await choiceTitle(page);
+      await check(t === '파일이 저장됐나요?', `after downloading, the app must ask whether the file is visible instead of claiming it was saved (got ${JSON.stringify(t)})`);
+      const d = A.downloads[dl0];
+      passFileName1 = d && d.suggestedFilename();
+      await check(/^밥장부백업_\d{4}-\d{2}-\d{2}\.json$/.test(passFileName1 || ''), `the own backup file name (got ${passFileName1})`);
+      const raw = await fsp.readFile(await d.path(), 'utf8'); passFile1 = JSON.parse(raw);
+      await check(passFile1.type === 'prepaid-pass-backup' && passFile1.kdf && passFile1.kdf.it === 600000 && passFile1.kdf.name === 'PBKDF2' && passFile1.z === 1 && !raw.includes('김지킴') && !raw.includes('pkcs8'),
+        `the file must be a password-locked backup (PBKDF2 600k, gzip) with no plaintext names or key (got ${JSON.stringify({ type: passFile1.type, kdf: passFile1.kdf, z: passFile1.z })})`);
+      ledgerAtPass1 = await readDb(page);
+      const m0 = await metaOf(page);
+      await pick(page, 'yes');
+      const m = await metaOf(page);
+      await check(m.lastBackupAt > m0.lastBackupAt - 1 && m.lastBackupAt > Date.now() - 60000 && m.myKeyBackedUpAt > Date.now() - 60000 && m.backupPassCheck && m.backupPassCheck.it === 600000 && !('pass' in m.backupPassCheck),
+        'confirming the file must stamp lastBackupAt and myKeyBackedUpAt; only a verifier (no password) is kept on the device');
+      const bk = await page.locator('#guardState').innerText();
+      await check(bk.includes('내 보관 백업') && bk.includes('오늘'), `the status box must show 내 보관 백업 오늘 (got ${JSON.stringify(bk)})`);
+    });
+
+    // ── ⑨ 두 번째부터는 한 번만 — 틀리면 창 안에서 다시 ──
+    await guard('own-save-enter', async () => {
+      await page.locator('[data-a="backup-now"]').click();
+      await choiceTitle(page); await pick(page, 'save');
+      await page.waitForSelector('#keyPass1');
+      await check((await page.locator('#keyPass2').count()) === 0 && (await page.locator('#keyPassTitle').innerText()).includes('백업 암호를 넣어 주세요'), 'once set, the backup password is asked only once');
+      await page.locator('#keyPass1').fill('wrong-pass-99');
+      await page.locator('[data-a="pass-ok"]').click();
+      await page.waitForFunction(() => { const h = document.getElementById('keyPassHint'); return h && /암호가 맞지 않아요/.test(h.textContent); }, null, { timeout: 20000 });
+      await check((await page.locator('#keyPass1').count()) === 1, 'a wrong backup password must keep the dialog open with the reason');
+      const dl0 = A.downloads.length;
+      await page.locator('#keyPass1').fill('harness-pass-01 ');
+      await page.locator('[data-a="pass-ok"]').click();
+      await choiceTitle(page);
+      await check(A.downloads.length === dl0 + 1, 'the right password (with a stray trailing space) must produce one file');
+      await pick(page, 'yes');
+    });
+
+    // ── ⑩ 암호 없이 — 예전 평문 백업(schemaVersion 3), 열쇠 없음 ──
+    await guard('own-plain', async () => {
+      const k0 = (await metaOf(page)).myKeyBackedUpAt;
+      await page.locator('[data-a="backup-now"]').click();
+      await choiceTitle(page); await pick(page, 'save');
+      await page.waitForSelector('#keyPassPlain');
+      await page.locator('#keyPassPlain').check();
+      await check((await page.locator('#keyPassOk').innerText()).trim() === '암호 없이 저장하기' && !(await page.locator('#keyPass1').isVisible()), 'choosing "암호 없이" must hide the password fields and relabel the button');
+      const dl0 = A.downloads.length;
+      await page.locator('[data-a="pass-ok"]').click();
+      await choiceTitle(page);
+      const d = A.downloads[dl0]; const f = await dlJson(d);
+      await check(/^밥장부백업_암호없음_/.test(d.suggestedFilename()) && f.schemaVersion === 3 && Array.isArray(f.payload.transactions) && !JSON.stringify(f).includes('pkcs8') && !('privKeyWrapped' in f.payload.meta) && !('backupPassCheck' in f.payload.meta) && !('cloudBackupState' in f.payload.meta),
+        'an unpassworded backup must be today\'s plain schemaVersion 3 file without the key or device-only meta');
+      await pick(page, 'yes');
+      await check((await metaOf(page)).myKeyBackedUpAt === k0, 'a plain backup must not count as a key backup');
+    });
+
+    // ── ⑪ 카톡·메일로 보내기: navigator.share(files) — 바로 / 활성 만료 시 [보내기] 한 번 더 / 공유 불가 시 내려받기로 바꾸고 그렇게 말한다 ──
+    await guard('own-share', async () => {
+      await page.evaluate(() => {
+        window.__shared = []; window.__shareMode = 'ok';
+        navigator.canShare = d => window.__shareMode !== 'nofiles' && !!(d && d.files && d.files.length);
+        navigator.share = async d => { if (window.__shareMode === 'notallowed') { window.__shareMode = 'ok'; const e = new Error('activation'); e.name = 'NotAllowedError'; throw e; } const f = d.files[0]; window.__shared.push({ name: f.name, type: f.type, text: await f.text() }); };
+      });
+      const run = async () => { await page.locator('[data-a="backup-now"]').click(); await choiceTitle(page); await pick(page, 'share'); await page.waitForSelector('#keyPass1'); await page.locator('#keyPass1').fill('harness-pass-01'); await page.locator('[data-a="pass-ok"]').click(); return choiceTitle(page); };
+      let t = await run();
+      let sh = await page.evaluate(() => window.__shared);
+      await check(t === '카톡·메일로 잘 보냈나요?' && sh.length === 1 && /^밥장부백업_\d{4}-\d{2}-\d{2}\.txt$/.test(sh[0].name) && sh[0].type === 'text/plain' && JSON.parse(sh[0].text).type === 'prepaid-pass-backup',
+        `sharing must hand a .txt text/plain locked file to navigator.share and then ask once whether it was sent (title ${JSON.stringify(t)}, shared ${JSON.stringify(sh.map(s => ({ name: s.name, type: s.type })))})`);
+      const b0 = (await metaOf(page)).lastBackupAt;
+      await pick(page, 'yes');
+      await check((await metaOf(page)).lastBackupAt >= b0, 'answering 네, 보냈어요 records the own backup');
+      await page.evaluate(() => { window.__shareMode = 'notallowed'; });
+      t = await run();
+      await check(t === '파일이 준비됐어요', `when the browser refuses (user activation expired) the app must offer a second [보내기] tap (got ${JSON.stringify(t)})`);
+      await pick(page, 'send');
+      t = await choiceTitle(page);
+      sh = await page.evaluate(() => window.__shared);
+      await check(t === '카톡·메일로 잘 보냈나요?' && sh.length === 2, 'the second tap must share the same file');
+      await pick(page, 'no');
+      await page.evaluate(() => { window.__shareMode = 'nofiles'; });
+      const dl0 = A.downloads.length;
+      t = await run();
+      await check(t === '이 기기에서는 바로 보내기가 안 돼요' && A.downloads.length === dl0 + 1 && /\.txt$/.test(A.downloads[dl0].suggestedFilename()), `without file sharing the app must download the .txt and say so honestly (got ${JSON.stringify(t)})`);
+      await pick(page, 'yes');
+    });
+
+    // ── ⑫ [백업 암호] 바꾸기 — 예전 파일은 예전 암호로 열린다고 말한다 ──
+    await guard('pass-change', async () => {
+      const v0 = (await metaOf(page)).backupPassCheck;
+      await page.locator('[data-a="backup-pass"]').click();
+      await page.waitForSelector('#keyPass2');
+      await check((await page.locator('#keyPassTitle').innerText()).includes('백업 암호 바꾸기') && (await page.locator('.pass-modal').innerText()).includes('예전에 만든 백업 파일은 예전 암호로 열려요'), 'changing the backup password must explain that old files keep the old password');
+      await page.locator('#keyPass1').fill('harness-pass-NEW'); await page.locator('#keyPass2').fill('harness-pass-NEW');
+      await page.locator('[data-a="pass-ok"]').click();
+      const t = await choiceTitle(page);
+      await check(t === '백업 암호를 바꿨어요' && (await choiceText(page)).includes('예전 암호로 열려요'), `the confirmation must repeat that old files open with the old password (got ${JSON.stringify(t)})`);
+      await pick(page, 'ok');
+      const v1 = (await metaOf(page)).backupPassCheck;
+      await check(v1 && v1.hash !== v0.hash, 'the verifier must change');
+    });
+
+    // ── ⑬ 잠금 화면(PIN 분실 복구)에서 암호 건 파일로 되찾기 — 60초 게이트 → 암호 창·선택창이 잠금 중에도 눌린다 ──
+    await guard('lock-restore', async () => {
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+      await page.locator('[data-a="hand-to-customer"]').click();
+      await page.waitForSelector('[data-a="lock-to-pin"]');
+      await page.locator('[data-a="lock-to-pin"]').click();
+      await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { recoveryGate: 500 }));
+      await page.locator('[data-a="pin-forgot"]').click();
+      await page.waitForTimeout(900);
+      const tmp = path.join(os.tmpdir(), 'b55c-pass-' + Date.now() + '.txt');
+      await fsp.writeFile(tmp, JSON.stringify(passFile1));
+      const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('[data-a="pin-forgot-restore"]').click()]);
+      await chooser.setFiles(tmp);
+      await page.waitForSelector('#keyPass1', { timeout: 8000 });
+      await check(await page.evaluate(() => window.__prepaidTestHooks.lockState().locked) === true && (await page.locator('#keyPassTitle').innerText()).includes('백업 파일 암호'), 'the pass-backup password dialog must open on the locked recovery screen (.txt accepted)');
+      await page.locator('#keyPass1').fill('harness-pass-NEW');
+      await page.locator('[data-a="pass-ok"]').click();
+      await page.waitForFunction(() => { const h = document.getElementById('keyPassHint'); return h && /암호가 맞지 않아요/.test(h.textContent); }, null, { timeout: 20000 });
+      await page.locator('#keyPass1').fill('harness-pass-01');
+      await page.locator('[data-a="pass-ok"]').click();
+      const t = await choiceTitle(page);
+      await check(t === '이 백업으로 되돌릴까요?' || t.includes('거래가 적은'), `the restore confirmation must appear while locked (got ${JSON.stringify(t)})`);
+      const goVal = 'go';
+      await pick(page, goVal);
+      await choiceTitle(page); await pick(page, 'ok');
+      const B = await readDb(page);
+      const d = diffRecs(ledgerAtPass1.transactions, B.transactions, []);
+      await check(d.length === 0, `restoring the pass-backup must bring back every transaction field INCLUDING signature images (${d.slice(0, 4).join(' | ')})`);
+      await page.waitForSelector('[data-a="pin-key"]', { timeout: 8000 });
+      await typePin(page, ['1', '2', '3', '4', '1', '2', '3', '4']);
+      await awaitUnlocked(page);
+      await fsp.unlink(tmp).catch(() => {});
+    });
+
+    await check(A.dialogs.filter(d => d.type === 'confirm' || d.type === 'prompt').length === 0, `no native confirm/prompt may appear in the backup/restore flows (got ${JSON.stringify(A.dialogs)})`);
+    await check(relay.st.reused === 0 && relay.st.violations.length === 0, `the app must respect the relay contract (reused tokens ${relay.st.reused}, violations ${JSON.stringify(relay.st.violations)})`);
+
+    // ── 화면 캡처(태블릿 가로 1024×768) ──
+    if (SHOTS) {
+      await page.setViewportSize({ width: 1024, height: 768 });
+      await goGuard(page); await shot(page, 'card-normal-1024');
+      await page.locator('[data-a="backup-now"]').click(); await choiceTitle(page); await shot(page, 'choice-3-1024');
+      await pick(page, 'save'); await page.waitForSelector('#keyPass1'); await shot(page, 'pass-dialog-1024');
+      await page.locator('[data-a="pass-cancel"]').click();
+      await putAll(page, { transactions: [tx('c-t11', 'c-e1', 'topup', 500, 11)] }); await resealChain(page); await reloadUnlock(page);
+      await goGuard(page); await page.locator('[data-a="guard-restore"]').click(); await choiceTitle(page); await pick(page, 'cloud'); await choiceTitle(page); await shot(page, 'restore-fewer-1024');
+      await pick(page, 'cancel');
+      await page.setViewportSize({ width: 390, height: 844 });
+    }
+  } finally { await A.ctx.close(); }
+
+  // ═════════════════════ 기기 B: 새 태블릿 — 암호 건 파일 하나로 장부 + 가게 열쇠 ═════════════════════
+  await guard('fresh-device', async () => {
+    const B = await newCtx();
+    try {
+      await B.page.goto(url, { waitUntil: 'load' });
+      await B.page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+      // (환영 화면은 버튼 하나 원칙(beta.27) — 새 태블릿 되찾기 입구를 따로 두지 않았다. 여기서는 숨은 파일 입력으로 같은 경로를 탄다.)
+      const pubB0 = (await metaOf(B.page)).pubKey;
+      await B.page.locator('#restoreFile').setInputFiles({ name: passFileName1.replace(/\.json$/, '.txt'), mimeType: 'text/plain', buffer: Buffer.from(JSON.stringify(passFile1), 'utf8') });
+      await B.page.waitForSelector('#keyPass1', { timeout: 8000 });
+      await B.page.locator('#keyPass1').fill('nope-nope-1');
+      await B.page.locator('[data-a="pass-ok"]').click();
+      await B.page.waitForFunction(() => { const h = document.getElementById('keyPassHint'); return h && /암호가 맞지 않아요/.test(h.textContent); }, null, { timeout: 20000 });
+      await B.page.locator('#keyPass1').fill('harness-pass-01');
+      await B.page.locator('[data-a="pass-ok"]').click();
+      const t = await choiceTitle(B.page); const txt = await choiceText(B.page);
+      await check(t === '이 백업으로 되돌릴까요?' && txt.includes('지금 0건') && txt.includes('가게 열쇠도 파일에서 함께 가져와요'), `a fresh tablet must show 0건 → M건 and that the key comes along (got ${JSON.stringify(txt.slice(0, 300))})`);
+      await pick(B.page, 'go');
+      const t2 = await choiceTitle(B.page);
+      await check(t2 === '되찾기를 마쳤어요' && (await choiceText(B.page)).includes('가게 열쇠도 함께 가져왔어요') && B.downloads.length === 0, 'a fresh tablet has nothing to snapshot and must report the imported key');
+      await pick(B.page, 'ok');
+      await B.page.waitForSelector('[data-a="pin-key"]', { timeout: 8000 });
+      await typePin(B.page, ['1', '2', '3', '4', '1', '2', '3', '4']);
+      await awaitUnlocked(B.page);
+      const m = await metaOf(B.page); const db = await readDb(B.page);
+      await check(m.pubKey === pubA && m.pubKey !== pubB0 && m.privKeyWrapped && m.restaurantId === RID && m.backupPassCheck && m.backupPassCheck.it === 600000 && m.myKeyBackedUpAt > 0,
+        'the pass-backup must bring the shop key (same public key), the registration and a backup-password verifier to the new tablet');
+      const d1 = diffRecs(ledgerAtPass1.transactions, db.transactions, []);
+      await check(d1.length === 0, `the new tablet's transactions must equal the original field by field incl. signatures (${d1.slice(0, 4).join(' | ')})`);
+      await check(diffRecs(ledgerAtPass1.employees, db.employees, []).length === 0, 'the new tablet\'s employees must equal the original');
+      const ch = await hookChain(B.page);
+      await check(ch.ok && ch.broken === 0, `the restored ledger must verify on the new tablet (got ${JSON.stringify(ch)})`);
+      // 가져온 열쇠로 서버 백업을 실제로 열 수 있다(소유 증명 + 복호)
+      await goGuard(B.page);
+      await B.page.locator('[data-a="guard-restore"]').click(); await choiceTitle(B.page); await pick(B.page, 'cloud');
+      const t3 = await choiceTitle(B.page);
+      await check(t3 === '이 백업으로 되돌릴까요?' || t3.includes('거래가 적은'), `the imported key must open the server backup on the new tablet (got ${JSON.stringify(t3)})`);
+      await pick(B.page, 'cancel');
+      await check(B.dialogs.filter(d => d.type !== 'beforeunload').length === 0, `no native dialogs on the new tablet (got ${JSON.stringify(B.dialogs)})`);
+    } finally { await B.ctx.close(); }
+  });
+
+  // ═════════════════════ 기기 C: 미등록 가게 + 예전 형식 파일(수정 전 앱이 만든 픽스처) ═════════════════════
+  await guard('unregistered-and-legacy', async () => {
+    const C = await newCtx();
+    const p = C.page;
+    try {
+      const fx = name => JSON.parse(fs.readFileSync(path.join(FIX, name), 'utf8'));
+      const plainFx = fx('beta54-plain.json'), keyFx = fx('beta54-key.json'), lockedFx = fx('beta54-locked.json'), cloudFx = fx('beta54-cloud-v1.json'), fxMeta = fx('beta54-fixtures.meta.json');
+      await p.goto(url, { waitUntil: 'load' }); await p.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 }); await p.waitForTimeout(200);
+      const now = Date.now();
+      await putAll(p, { meta: { setupComplete: true, welcomeSeen: true, termsAgreedAt: now, pinHash: legacyPin, shopName: '미등록식당', departments: ['총무과'], storeRegisterPending: true },
+        employees: [emp('u-e1', '최미등', '총무과')], transactions: [tx('u-t1', 'u-e1', 'open', 20000, 1), tx('u-t2', 'u-e1', 'use', 9000, 2, { signatureData: SIG })] });
+      await resealChain(p);
+      await reloadUnlock(p);
+      relay.st.log.length = 0;
+      await goGuard(p);
+      const box = await p.locator('#guardState').innerText();
+      await check(!box.includes('서버 자동 백업') && box.includes('가게를 등록하면 서버에도 자동 보관돼요') && (await p.locator('[data-a="toggle-auto-cloud"]').count()) === 0 && (await p.locator('[data-a="cloud-backup-delete"]').count()) === 0 && (await p.locator('.settings-card [disabled]').count()) === 0,
+        `an unregistered shop must see one reason line instead of the server row, no server links and no grey disabled buttons (got ${JSON.stringify(box)})`);
+      await shot(p, 'card-unregistered-390');
+      await p.locator('[data-a="backup-now"]').click();
+      const t = await choiceTitle(p);
+      const vals = await p.$$eval('.choice-modal [data-a="choice-pick"]', bs => bs.map(b => b.dataset.val + ':' + b.innerText.replace(/\s+/g, ' ').trim()));
+      await check(t === '내 보관용 백업을 남겨요' && vals.length === 3 && vals[2] === 'none:취소' && relay.st.log.length === 0, `an unregistered shop gets only the two own-copy choices and no server call (got ${JSON.stringify({ t, vals, log: relay.st.log })})`);
+      await pick(p, 'none');
+      await p.locator('[data-a="guard-restore"]').click(); await choiceTitle(p);
+      await check((await p.locator('.choice-modal [data-val="cloud"]').count()) === 0, 'an unregistered shop is not offered 서버에서 되찾기');
+      await pick(p, 'cancel');
+      // 예전 '내 열쇠 백업' 파일(12만 회) — 다른 열쇠가 이미 있고 거래가 있으므로 묻는다
+      await p.locator('#restoreFile').setInputFiles({ name: 'beta54-key.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(keyFx), 'utf8') });
+      await p.waitForSelector('#keyPass1', { timeout: 8000 });
+      await p.locator('#keyPass1').fill(fxMeta.pass);
+      await p.locator('[data-a="pass-ok"]').click();
+      await choiceTitle(p); await pick(p, 'replace');
+      await p.waitForFunction(pk => new Promise(res => { const r = indexedDB.open('prepaid-ledger-db'); r.onsuccess = () => { const q = r.result.transaction('meta').objectStore('meta').get('pubKey'); q.onsuccess = () => res(q.result && q.result.value === pk); }; }), keyFx.pubKey, { timeout: 15000 });
+      // 예전 잠긴 백업 → 그 열쇠로 열린다
+      const dl0 = C.downloads.length;
+      await p.locator('#restoreFile').setInputFiles({ name: 'beta54-locked.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(lockedFx), 'utf8') });
+      await choiceTitle(p); await pick(p, 'go'); await choiceTitle(p); await pick(p, 'ok');
+      let db = await readDb(p);
+      let d = diffRecs(plainFx.payload.transactions, db.transactions, []);
+      await check(d.length === 0 && db.transactions.length === fxMeta.transactions, `a beta.54 locked backup must restore every transaction field (${d.slice(0, 4).join(' | ')})`);
+      await check(C.downloads.length === dl0 + 1, 'restoring over a non-empty ledger must download a safety snapshot first');
+      // 예전 평문 백업
+      await p.locator('#restoreFile').setInputFiles({ name: 'beta54-plain.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(plainFx), 'utf8') });
+      await choiceTitle(p); await pick(p, 'go'); await choiceTitle(p); await pick(p, 'ok');
+      db = await readDb(p);
+      d = diffRecs(plainFx.payload.transactions, db.transactions, []);
+      await check(d.length === 0 && diffRecs(plainFx.payload.employees, db.employees, []).length === 0, `a beta.54 plain backup must restore field by field (${d.slice(0, 4).join(' | ')})`);
+      // 등록된 기기에서 등록 전에 만든 옛 백업을 되돌려도 이 기기의 가게 등록(열쇠에 묶여 있다)은 조용히 사라지지 않는다(A-2).
+      {
+        const before = await metaOf(p);
+        const older = JSON.parse(JSON.stringify(plainFx));
+        ['restaurantId', 'relayRegisteredAt', 'relayStoreName', 'storeAddr', 'districtSyncedAt'].forEach(k => { delete older.payload.meta[k]; });
+        delete older.checksum;
+        await p.locator('#restoreFile').setInputFiles({ name: 'older.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(older), 'utf8') });
+        await choiceTitle(p); await pick(p, 'go'); await choiceTitle(p); await pick(p, 'ok');
+        const after = await metaOf(p);
+        await check(before.restaurantId === fxMeta.restaurant_id && after.restaurantId === before.restaurantId && after.relayRegisteredAt === before.relayRegisteredAt && after.pubKey === before.pubKey,
+          `restoring an older backup without registration must keep this device's registration and key (before ${before.restaurantId}, after ${after.restaurantId})`);
+      }
+      // 예전 서버 v1 blob(서명 그림 포함)
+      relay.st.reg.set(cloudFx.restaurant_id, cloudFx.pubKey);
+      relay.st.head.set(cloudFx.restaurant_id, { blob: cloudFx.blob, blob_hash: cloudFx.blob_hash, updated_at: cloudFx.updated_at, gen: null });
+      await p.reload({ waitUntil: 'load' }); await unlockPin(p); await awaitUnlocked(p);
+      await goGuard(p);
+      await p.locator('[data-a="guard-restore"]').click(); await choiceTitle(p); await pick(p, 'cloud');
+      await choiceTitle(p); await pick(p, 'go'); await choiceTitle(p); await pick(p, 'ok');
+      db = await readDb(p);
+      d = diffRecs(plainFx.payload.transactions, db.transactions, []);
+      await check(d.length === 0, `a beta.54 server v1 blob must restore field by field, signatures included (${d.slice(0, 4).join(' | ')})`);
+      const ch = await hookChain(p);
+      await check(ch.tamperOk && ch.broken === 0, `legacy restores must keep the chain verifiable (got ${JSON.stringify(ch)})`);
+      await check(C.dialogs.length === 0, `no native dialogs in the legacy restore flows (got ${JSON.stringify(C.dialogs)})`);
+    } finally { await C.ctx.close(); }
+  });
+
+  console.log(`beta.55 A2 검증: ${passed} 통과, ${fails.length} 실패`);
+  if (fails.length) console.log(JSON.stringify(fails, null, 2));
+  return { passed, fails };
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -2394,6 +3106,14 @@ async function main() {
   if (process.env.E2E_ONLY === 'beta55b') {
     try {
       const r = await runBeta55b(browser, url, { 'Access-Control-Allow-Origin': '*' });
+      process.exitCode = r.fails.length ? 1 : 0;
+    } finally { await browser.close(); server.close(); }
+    return;
+  }
+  // E2E_ONLY=beta55c — beta.55 A2(장부 지키기·백업·되찾기) 블록만.
+  if (process.env.E2E_ONLY === 'beta55c') {
+    try {
+      const r = await runBeta55c(browser, url, { 'Access-Control-Allow-Origin': '*' });
       process.exitCode = r.fails.length ? 1 : 0;
     } finally { await browser.close(); server.close(); }
     return;
@@ -2475,6 +3195,7 @@ async function main() {
     await runBeta52(browser, url, cors);
     await runBeta55(browser, url, cors);
     await runBeta55b(browser, url, cors);
+    { const r55c = await runBeta55c(browser, url, cors); if (r55c.fails.length) throw new Error('[beta.55c] ' + r55c.fails[0]); }
 
     await page.goto(url, { waitUntil: 'load' });
 
@@ -2616,8 +3337,9 @@ async function main() {
     // 이 시점은 미등록 상태라 '가게 연락처(contact)' 카드는 아직 없다(등록 후에만 렌더).
     // beta.30: 부서 목록 관리는 직원 목록 관리 바로 아래다(등록·직원 관리와 같은 일감 — 사용자 지시).
     const foldedKeys = (await page.locator('.fold-head').evaluateAll(els => els.map(e => e.dataset.card)));
-    await assert(JSON.stringify(foldedKeys) === JSON.stringify(['enroll-auto', 'enroll-manual', 'employees', 'depts', 'ledger', 'cloud', 'basic', 'pin', 'info']),
-      `the collapsible settings cards must be exactly [자동·수동·직원 목록·부서·장부·클라우드·가게 정보·PIN·앱 정보] in order (got ${JSON.stringify(foldedKeys)})`);
+    // beta.55(A2): [장부 안전 저장·복원·검사]와 [폰을 잃어버려도 장부 되찾기]는 [장부 지키기] 카드 하나(data-card='ledger')로 합쳤다.
+    await assert(JSON.stringify(foldedKeys) === JSON.stringify(['enroll-auto', 'enroll-manual', 'employees', 'depts', 'ledger', 'basic', 'pin', 'info']),
+      `the collapsible settings cards must be exactly [자동·수동·직원 목록·부서·장부 지키기·가게 정보·PIN·앱 정보] in order (got ${JSON.stringify(foldedKeys)})`);
     // 위계 시각화(beta.30): 하위 카드 제목은 섹션 헤더(주항목)보다 15% 작아야 한다(20px → 17px).
     const titleSizes = await page.evaluate(() => {
       const px = el => parseFloat(getComputedStyle(el).fontSize);
@@ -2648,18 +3370,24 @@ async function main() {
     }
     // beta.45: 열쇠 백업은 자동 등록 카드(열쇠 지문 옆)로 옮겼다 — "놓치면 안 되는 일"이라는 성격은
     //   그대로이므로, 아직 안 했다면 **자동 등록 카드의 접힌 요약**이 그 사실을 말해야 한다.
-    await assert(!foldSummaries.find(f => f.title.includes('장부 안전 저장')).kicker.includes('열쇠'),
-      'the 장부 카드 summary must no longer advertise a key backup it does not hold');
+    // beta.55(A2): 장부 지키기 카드의 접힌 요약은 상태 상자와 **같은 함수**(guardStatus)에서 나온다.
+    {
+      const gs = await page.evaluate(() => window.__prepaidTestHooks.guardStatus());
+      const gk = foldSummaries.find(f => f.title === '장부 지키기');
+      await assert(!!gk && gk.kicker === gs.summary, `the 장부 지키기 summary must be the status function's sentence (got ${JSON.stringify(gk)} vs ${JSON.stringify(gs.summary)})`);
+      await assert(!gs.reg && gk.kicker.includes('가게를 등록하면 서버에도'), 'an unregistered store\'s 장부 지키기 summary must not pretend a server backup exists');
+    }
     // (등록 전이라 열쇠 자체가 없다 — 열쇠 백업 요약이 실제로 실리는지는 등록된 상태에서 ⑬이 검증한다.)
     // 접힌 상태에서는 본문이 DOM에 없다(숨김이 아니라 미렌더) → 펼치면 그 자리에 그대로 나타난다.
-    await assert(await count(page, '[data-a="export-safe"]') === 0, 'a collapsed card must not leave its actions in the DOM');
+    await assert(await count(page, '.settings-card [data-a="backup-now"]') === 0, 'a collapsed card must not leave its actions in the DOM');
     await openSettingsCard(page, 'ledger');
-    await assert(await count(page, '[data-a="export-safe"]') === 1, 'combined safe export action must be reachable once 장부 지키기 is expanded');
-    await assert(await count(page, '[data-a="export-key"]') === 0 && await count(page, '[data-a="verify-integrity"]') === 1, 'expanding 장부 지키기 must reveal every action it holds (the key backup moved out in beta.45)');
+    await assert(await count(page, '.settings-card [data-a="backup-now"]') === 1 && await count(page, '.settings-card [data-a="backup-now"].btn-primary') === 1, 'the single primary [지금 백업하기] must be reachable once 장부 지키기 is expanded');
+    await assert(await count(page, '[data-a="export-key"]') === 0 && await count(page, '[data-a="verify-integrity"]') === 1 && await count(page, '[data-a="guard-restore"]') === 1 && await count(page, '[data-a="backup-pass"]') === 1, 'expanding 장부 지키기 must reveal [되찾기][백업 암호][장부 검사] (no separate key backup)');
+    await assert(await count(page, '.card.settings-card:has(.fold-head[data-card="ledger"]) .btn-primary') === 1, 'the 장부 지키기 card must hold exactly one primary button');
     // 토글은 양방향이다(다시 누르면 접힌다).
     await page.locator('.fold-head[data-card="ledger"]').click();
     await page.waitForTimeout(80);
-    await assert(await count(page, '[data-a="export-safe"]') === 0, 'tapping the header again must collapse the card back');
+    await assert(await count(page, '.settings-card [data-a="backup-now"]') === 0, 'tapping the header again must collapse the card back');
     await openSettingsCard(page, 'ledger');
     // 접힘 상태는 세션 내에서만 산다 — 새로고침하면 다시 전부 접힌 짧은 설정 화면으로 돌아온다(영속화 금지).
     await page.reload({ waitUntil: 'load' });
@@ -2732,34 +3460,18 @@ async function main() {
       return { find: y('[data-a="relay-find-store"]'), money: y('.notice-money') };
     });
     await assert(unregOrder.find < unregOrder.money, `the [우리 가게 등록] button must come before the fine print (got ${JSON.stringify(unregOrder)})`);
-    // ── beta.48(F6): 접힘 요약은 **이 가게의 사실**만 말한다 ─────────────────────────
-    //   미등록인데 "월말 자동 백업 켜짐"이 뜨면 사장님은 백업이 돌고 있다고 읽는다 — 실제로는 등록 전이라
-    //   서버에 아무것도 저장되지 않는다(거짓 안심 = 폰을 잃었을 때 장부가 통째로 사라지는 길).
-    const cloudCardScope = '.card.settings-card:has(.fold-head[data-card="cloud"])';
-    const cloudSummaryUnreg = (await page.locator(`${cloudCardScope} .fold-head .section-kicker`).innerText()).trim();
-    await assert(cloudSummaryUnreg === '가게 등록 후 사용 가능', `an unregistered store's cloud-backup card must summarise as 가게 등록 후 사용 가능 (got ${JSON.stringify(cloudSummaryUnreg)})`);
-    await assert(!/켜짐|꺼짐/.test(cloudSummaryUnreg), 'the collapsed cloud card must not claim the monthly auto-backup is on before the store is registered');
-    // ── beta.49(e): 쓸 수 없는 조작은 회색 disabled가 아니라 **아예 뺀다** ─────────────────────
-    //   등록 전 클라우드 되찾기 카드는 제목에 🔒, 본문은 조작 없이 한 줄 + [우리 가게 등록하기] 하나뿐이다.
-    //   체크박스가 살아 있으면 사장님은 "켜 뒀으니 백업되고 있다"고 읽는다(거짓 안심 = 폰을 잃으면 장부도 잃는다).
-    const cloudTitleUnreg = (await page.locator(`${cloudCardScope} .fold-head .section-title`).innerText()).trim();
-    // 잠금 제목은 자물쇠 하나뿐이다 — 🔒와 📱이 나란히 붙으면 무엇을 말하는 아이콘인지 흐려진다.
-    await assert(cloudTitleUnreg === '🔒 폰을 잃어버려도 장부 되찾기',
-      `a locked cloud card must be titled "🔒 폰을 잃어버려도 장부 되찾기" (got ${JSON.stringify(cloudTitleUnreg)})`);
-    await openSettingsCard(page, 'cloud');
-    await assert(await count(page, `${cloudCardScope} input[type="checkbox"]`) === 0,
-      'the locked cloud card must not offer a (useless) auto-backup checkbox before the store is registered');
-    await assert(await count(page, `${cloudCardScope} [data-a="cloud-backup-now"]`) === 0 && await count(page, `${cloudCardScope} [data-a="cloud-backup-restore"]`) === 0,
-      'the locked cloud card must not offer the backup/restore buttons before the store is registered');
+    // ── beta.48(F6)·beta.49(e) → beta.55(A2): 미등록 가게의 장부 지키기 — 서버 줄 대신 이유 한 줄 + [우리 가게 등록하기], 회색 disabled 없음 ──
+    //   미등록인데 "자동 백업 켜짐"이 뜨면 사장님은 백업이 돌고 있다고 읽는다(거짓 안심). 서버 링크(끄기·지우기)도 없다.
+    const guardScope = '.card.settings-card:has(.fold-head[data-card="ledger"])';
+    await openSettingsCard(page, 'ledger');
     {
-      const lockedLines = (await page.locator(`${cloudCardScope}`).innerText()).split('\n').map(t => t.trim()).filter(Boolean);
-      await assert(lockedLines.includes('가게를 등록하면 쓸 수 있어요'), `the locked cloud card must state the one-line reason verbatim (got ${JSON.stringify(lockedLines)})`);
-      const btns = await page.locator(`${cloudCardScope} button:not([data-a="toggle-settings-card"])`).allInnerTexts();
-      await assert(btns.length === 1 && btns[0].trim() === '우리 가게 등록하기',
-        `the locked cloud card must offer exactly one way out, [우리 가게 등록하기] (got ${JSON.stringify(btns)})`);
+      const box = await page.locator('#guardState').innerText();
+      await assert(!box.includes('서버 자동 백업') && box.includes('가게를 등록하면 서버에도 자동 보관돼요'), `an unregistered store must see one reason line instead of a server row (got ${JSON.stringify(box)})`);
+      await assert(await count(page, `${guardScope} input[type="checkbox"]`) === 0 && await count(page, `${guardScope} [data-a="toggle-auto-cloud"]`) === 0 && await count(page, `${guardScope} [data-a="cloud-backup-delete"]`) === 0 && await count(page, `${guardScope} [disabled]`) === 0,
+        'the unregistered 장부 지키기 card must not offer server toggles/links nor grey disabled buttons');
     }
-    // 잠긴 카드의 버튼은 막힌 상태가 아니면 검색 모달을 연다(go-register-store 재사용) — 막다른 길이 아니다.
-    await page.locator(`${cloudCardScope} [data-a="go-register-store"]`).click();
+    // 이유 줄의 [우리 가게 등록하기]는 막힌 상태가 아니면 검색 모달을 연다(go-register-store 재사용) — 막다른 길이 아니다.
+    await page.locator(`${guardScope} [data-a="go-register-store"]`).click();
     await page.waitForSelector('#storeName', { timeout: 8000 });
     await page.locator('[data-a="close-modal"]').click();
     await page.waitForTimeout(120);
@@ -3117,16 +3829,29 @@ async function main() {
     await assert(!cloudCheck.dump.includes('0109999') && !cloudCheck.dump.includes('01099998888'), 'cloud backup payload must not leak raw phone digits');
 
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
-    await openSettingsCard(page, 'ledger');// beta.27 아코디언 — [장부 안전 저장]은 접힌 카드 안에 있다
+    // beta.55(A2): [장부 안전 저장](CSV+JSON)은 없어졌다 — 백업은 [장부 지키기 > 지금 백업하기] 하나, 엑셀(CSV)은 이력 화면 [엑셀로 내보내기].
+    //   이 가게는 미등록이라 서버 단계 없이 곧바로 "내 보관용" 선택창이 뜬다. 여기서는 '암호 없이'(예전 평문 형식)를 골라 그 파일을 검증한다.
+    await openSettingsCard(page, 'ledger');
     const capturedDownloads = [];
     const onDownload = download => capturedDownloads.push(download);
     page.on('download', onDownload);
-    await page.locator('[data-a="export-safe"]').click();
-    for (let i = 0; i < 20 && capturedDownloads.length < 2; i += 1) {
+    await page.locator('.settings-card [data-a="backup-now"]').click();
+    await page.waitForSelector('#choiceTitle', { timeout: 8000 });
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="save"]').click();
+    await page.waitForSelector('#keyPassPlain', { timeout: 8000 });
+    await page.locator('#keyPassPlain').check();
+    await page.locator('[data-a="pass-ok"]').click();
+    for (let i = 0; i < 40 && capturedDownloads.length < 1; i += 1) await page.waitForTimeout(100);
+    await page.waitForSelector('#choiceTitle', { timeout: 8000 });
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="yes"]').click();
+    await page.locator('[data-a="screen"][data-screen="history"]').click();
+    await page.locator('.top [data-a="export-csv"]').click();
+    for (let i = 0; i < 40 && capturedDownloads.length < 2; i += 1) {
       await page.waitForTimeout(100);
     }
     page.off('download', onDownload);
-    await assert(capturedDownloads.length >= 2, 'safe export should trigger two downloads');
+    await page.locator('[data-a="go-home"]').click();
+    await assert(capturedDownloads.length >= 2, 'the plain own backup + the history CSV export should trigger two downloads');
     const downloads = capturedDownloads.map(d => ({ item: d, name: d.suggestedFilename() }));
     const csvDownload = downloads.find(d => d.name.endsWith('.csv'));
     const jsonDownload = downloads.find(d => d.name.endsWith('.json'));
@@ -3159,19 +3884,14 @@ async function main() {
       await unlock();
       await page.waitForSelector('[data-a="quick-find-emp"]', { timeout: 15000 });
     };
-    // (1) 일반 백업 파일명은 월 기준(밥장부백업_YYYY-MM.json), 최종백업은 날짜까지 유지
-    await assert(/^밥장부백업_\d{4}-\d{2}\.json$/.test(jsonDownload.name), `monthly backup file name should be 밥장부백업_YYYY-MM.json, got ${jsonDownload.name}`);
+    // (1) 내 보관 백업 파일명: 암호 없이 = 밥장부백업_암호없음_YYYY-MM-DD.json(beta.55), 최종백업은 날짜까지 유지
+    await assert(/^밥장부백업_암호없음_\d{4}-\d{2}-\d{2}\.json$/.test(jsonDownload.name), `an unpassworded own backup should be named 밥장부백업_암호없음_YYYY-MM-DD.json, got ${jsonDownload.name}`);
     const finalFn = await page.evaluate(() => window.__prepaidTestHooks.backupFileName(true));
     await assert(/^밥장부백업_최종_\d{4}-\d{2}-\d{2}\.json$/.test(finalFn), `final backup file name should keep the day (밥장부백업_최종_YYYY-MM-DD.json), got ${finalFn}`);
 
-    // (2) 활동 게이트: 이번 달은 씨앗 거래로 활동 있음, 임의의 빈 달은 활동 0 → 어떤 트리거도 대상 아님
-    const gate = await page.evaluate(() => {
-      const H = window.__prepaidTestHooks, n = new Date();
-      const cur = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
-      return { curHas: H.monthHasActivity(cur), emptyHas: H.monthHasActivity('2099-01') };
-    });
-    await assert(gate.curHas === true, 'current month must register activity from seeded transactions');
-    await assert(gate.emptyHas === false, 'a zero-transaction month must report no activity (empty-month gate)');
+    // (2) beta.55(A2): 월말 판정은 없어졌다 — 서버 백업은 주 1회이고, 등록 전 가게에는 아예 대상이 아니다.
+    await assert(await page.evaluate(() => window.__prepaidTestHooks.cloudAutoDue()) === false, 'an unregistered store must never be due for a server backup');
+    await assert(await page.evaluate(() => typeof window.__prepaidTestHooks.monthlyBackupDue) === 'undefined', 'the month-end backup judgement must be gone (weekly now)');
 
     // 지난달(15일) 씨앗 거래 주입. txHash 비워 해시체인 검증은 이 거래를 건너뛴다(무결성 경고 유발 안 함).
     // beta.31: 예전에는 여기서 relayServer를 'https://relay.invalid.test'로 바꿔 백그라운드 백업을 DNS 실패로 끊었다.
@@ -3218,9 +3938,9 @@ async function main() {
     await assert(await count(page, '.mgr-summary') === 1, 'the expanded employees card must show its summary right away');
     await page.locator('[data-a="screen"][data-screen="home"]').click();
     await page.waitForTimeout(150);
-    // 리마인더 배너: 방금 백업했으므로 아직 조건 미충족 → 없음.
-    await assert(await count(page, '[data-a="dismiss-backup-reminder"]') === 0, 'the 30-day backup reminder must not show right after a backup');
-    // 마지막 백업을 40일 전으로 되돌리면(지난달 15일 씨앗 거래가 그 뒤에 있음) 배너가 선다.
+    // 백업 배너(beta.55: 장부 지키기 상태 하나): 방금 내 보관 백업을 했으므로 조건 미충족 → 없음.
+    await assert(await count(page, '.guard-banner') === 0, 'the backup banner must not show right after a backup');
+    // 마지막 백업을 40일 전으로 되돌리면(지난달 15일 씨앗 거래가 그 뒤에 있음) 배너가 선다 — 서버·내 보관 둘 다 오래됐을 때만(옛 30일 규칙).
     await page.evaluate(({ old }) => new Promise((resolve, reject) => {
       const req = indexedDB.open('prepaid-ledger-db');
       req.onerror = () => reject(req.error);
@@ -3236,29 +3956,36 @@ async function main() {
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.waitForSelector('[data-a="screen"][data-screen="home"]');
-    await assert(await count(page, '.banner[data-a="export-safe"]') === 1, 'a 40-day-old backup with newer transactions must raise the reminder banner');
-    // ✕로 닫으면 이번 실행 동안만 숨는다(다른 배너 2종과 같은 규칙).
-    await page.locator('.banner[data-a="export-safe"] [data-a="dismiss-backup-reminder"]').click();
+    await assert(await count(page, '.guard-banner[data-a="backup-now"]') === 1, 'a 40-day-old backup with newer transactions must raise the backup banner');
+    await assert((await page.locator('.guard-banner').innerText()).includes('백업한 지 오래됐어요'), 'the stale banner must say the ledger has not been backed up for a long time');
+    // ✕로 닫으면 이번 실행 동안만 숨는다(다른 배너와 같은 규칙).
+    await page.locator('.guard-banner [data-a="dismiss-guard-banner"]').click();
     await page.waitForTimeout(150);
-    await assert(await count(page, '.banner[data-a="export-safe"]') === 0, 'dismissing the reminder must hide it for this session');
+    await assert(await count(page, '.guard-banner') === 0, 'dismissing the banner must hide it for this session');
     await page.reload({ waitUntil: 'load' });
     await unlock();
-    await page.waitForSelector('.banner[data-a="export-safe"]', { timeout: 8000 });
-    // 배너 본문을 누르면 [장부 안전 저장]과 동일 동작(CSV + 복원용 JSON 두 파일) → 저장 도장으로 배너가 스스로 내려간다.
+    await page.waitForSelector('.guard-banner', { timeout: 8000 });
+    // 배너 본문을 누르면 [지금 백업하기]와 같은 길 → 내 보관 파일 저장 → 저장 도장으로 배너가 스스로 내려간다.
     const savedByBanner = [];
     const onBannerDownload = d => savedByBanner.push(d);
     page.on('download', onBannerDownload);
-    await page.locator('.banner[data-a="export-safe"]').click({ position: { x: 30, y: 40 } });
-    for (let i = 0; i < 40 && savedByBanner.length < 2; i += 1) await page.waitForTimeout(100);
+    await page.locator('.guard-banner').click({ position: { x: 30, y: 40 } });
+    await page.waitForSelector('#choiceTitle', { timeout: 8000 });
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="save"]').click();
+    await page.waitForSelector('#keyPassPlain', { timeout: 8000 });
+    await page.locator('#keyPassPlain').check();
+    await page.locator('[data-a="pass-ok"]').click();
+    for (let i = 0; i < 40 && savedByBanner.length < 1; i += 1) await page.waitForTimeout(100);
     page.off('download', onBannerDownload);
-    await assert(savedByBanner.length === 2 && savedByBanner.some(d => /^밥장부백업_/.test(d.suggestedFilename())),
-      `tapping the reminder banner must run the safe export (CSV + backup JSON, got ${JSON.stringify(savedByBanner.map(d => d.suggestedFilename()))})`);
+    await assert(savedByBanner.length === 1 && /^밥장부백업_/.test(savedByBanner[0].suggestedFilename()),
+      `tapping the backup banner must lead to the own backup (got ${JSON.stringify(savedByBanner.map(d => d.suggestedFilename()))})`);
+    await page.waitForSelector('#choiceTitle', { timeout: 8000 });
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="yes"]').click();
     await page.waitForTimeout(300);
-    await assert(await count(page, '.banner[data-a="export-safe"]') === 0, 'a completed safe export must clear the reminder banner without a reload');
+    await assert(await count(page, '.guard-banner') === 0, 'a confirmed own backup must clear the banner without a reload');
 
-    // (4) 자동 백업 토글: 기본 켜짐 → 끄면 저장·복원되고 [장부 저장] 버튼 설명에 "꺼져 있어요" 경고가 붙는다
-    // beta.49: 토글은 **등록된 가게에만** 있다(등록 전 카드는 잠금 안내 한 줄 + [우리 가게 등록하기]뿐).
-    //   그래서 이 구간은 등록 상태를 먼저 심는다 — 아래 (6) 자동 클라우드 트리거도 같은 상태를 쓴다.
+    // (4) 서버 자동 백업 끄기·켜기(글씨 링크): 기본 켜짐 → 끄면 앱 안 확인창을 거쳐 저장·재시작 후 유지 → 다시 켠다.
+    // beta.49: 이 조작은 **등록된 가게에만** 있다. 그래서 이 구간은 등록 상태를 먼저 심는다 — 아래 (6) 자동 서버 백업도 같은 상태를 쓴다.
     await page.evaluate(() => new Promise((resolve, reject) => {
       const req = indexedDB.open('prepaid-ledger-db');
       req.onerror = () => reject(req.error);
@@ -3274,81 +4001,31 @@ async function main() {
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
-    await openSettingsCard(page, 'cloud');// beta.27 아코디언 — 자동 백업 토글은 접힌 [폰 분실 대비] 카드 안에 있다
+    await openSettingsCard(page, 'ledger');
     await page.waitForSelector('[data-a="toggle-auto-cloud"]');
-    await assert(await page.locator('[data-a="toggle-auto-cloud"]').isChecked(), 'auto cloud backup toggle should default to ON');
+    await assert((await page.locator('[data-a="toggle-auto-cloud"]').innerText()).includes('끄기'), 'server auto backup should default to ON (the link offers 끄기)');
     await page.locator('[data-a="toggle-auto-cloud"]').scrollIntoViewIfNeeded().catch(() => {});
     await page.waitForTimeout(100);
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'settings-auto-backup.png') }).catch(() => {});
-    await page.locator('[data-a="toggle-auto-cloud"]').uncheck();
+    await page.locator('[data-a="toggle-auto-cloud"]').click();
+    await page.waitForSelector('.choice-modal [data-val="off"]', { timeout: 8000 });
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="off"]').click();
     await page.waitForTimeout(150);
     let mm = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
-    await assert(mm.autoCloudBackup === false, 'unchecking the toggle should persist autoCloudBackup=false');
-    // 재로드 후 토글 상태 복원(꺼짐 유지) 확인 → 다시 켠다
+    await assert(mm.autoCloudBackup === false, 'turning server auto backup off should persist autoCloudBackup=false');
     await page.reload({ waitUntil: 'load' });
     await unlock();
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
-    await openSettingsCard(page, 'cloud');
+    await openSettingsCard(page, 'ledger');
     await page.waitForSelector('[data-a="toggle-auto-cloud"]');
-    await assert(!(await page.locator('[data-a="toggle-auto-cloud"]').isChecked()), 'auto backup toggle state should be restored (still off) after reload');
-    await page.locator('[data-a="toggle-auto-cloud"]').check();
+    await assert((await page.locator('[data-a="toggle-auto-cloud"]').innerText()).includes('켜기') && (await page.locator('#guardState').innerText()).includes('꺼져 있어요'), 'the off state should survive a reload and be visible in the status box');
+    await page.locator('[data-a="toggle-auto-cloud"]').click();
     await page.waitForTimeout(150);
+    mm = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+    await assert(mm.autoCloudBackup === true, 'turning it back on should persist (no confirmation needed to turn safety ON)');
 
-    // (5) 이미 이번 대상 달을 백업했으면(lastMonthlyBackup 기록) monthlyBackupDue()=='' — 이 판정은 이제
-    //     화면 버튼이 아니라 월말 자동 클라우드 백업(maybeMonthlyAutoBackup)의 트리거로만 쓰인다(beta.29).
-    await page.evaluate(({ ym }) => new Promise((resolve, reject) => {
-      const req = indexedDB.open('prepaid-ledger-db');
-      req.onerror = () => reject(req.error);
-      req.onsuccess = () => {
-        const db = req.result;
-        const tx = db.transaction(['meta'], 'readwrite');
-        tx.objectStore('meta').put({ key: 'lastMonthlyBackup', value: ym });
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => reject(tx.error);
-      };
-    }), { ym: prevYmStr });
-    await page.reload({ waitUntil: 'load' });
-    await unlock();
-    await page.waitForSelector('[data-a="screen"][data-screen="home"]');
-    // ⚠️ 달력 의존 주의: 오늘이 "말일"이면 앱 규칙②(말일 + 이번 달 활동 + 미백업 → 이번 달)가 곧바로 이어 발동한다.
-    //    lastMonthlyBackup은 값이 하나뿐이라 지난달·이번 달을 동시에 기록할 수 없으므로, 말일에는 대상이 이번 달로
-    //    넘어가는 것이 정상 동작이다. 두 갈래 모두 완전한 계약을 단언한다(달력에 따라 검증이 느슨해지지 않게).
-    const nowD = new Date();
-    const curYmStr = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
-    const isLastDayToday = (() => { const n = new Date(), t = new Date(); t.setDate(n.getDate() + 1); return t.getMonth() !== n.getMonth(); })();
-    const dueAfterRecord = await page.evaluate(() => window.__prepaidTestHooks.monthlyBackupDue());
-    if (isLastDayToday) {
-      await assert(dueAfterRecord === curYmStr, `on the last day of the month the due target must roll over from ${prevYmStr} to ${curYmStr} (got "${dueAfterRecord}")`);
-    } else {
-      await assert(dueAfterRecord === '', 'monthlyBackupDue() must return empty once the due month is recorded as backed up');
-    }
-    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'no-banner-backed-up.png') }).catch(() => {});
-
-    // (6) 자동 클라우드 트리거: 토글 ON + 등록됨 + due 이면 조용히 서버 백업을 호출한다(네트워크 스파이).
-    //     활동 게이트/미등록/토글오프는 호출을 차단한다(스텁 fetch로 검증).
-    const spyResult = await page.evaluate(async ({ pubKey }) => {
-      const out = {};
-      // 등록 상태로 전환 + lastMonthlyBackup 초기화(due 복원)
-      await new Promise((resolve, reject) => {
-        const req = indexedDB.open('prepaid-ledger-db');
-        req.onsuccess = () => {
-          const db = req.result;
-          const tx = db.transaction(['meta'], 'readwrite');
-          tx.objectStore('meta').put({ key: 'restaurantId', value: 'test-rid' });
-          tx.objectStore('meta').put({ key: 'lastMonthlyBackup', value: '' });
-          tx.oncomplete = () => resolve(true);
-          tx.onerror = () => reject(tx.error);
-        };
-        req.onerror = () => reject(req.error);
-      });
-      return { pubKey, seeded: true };
-    }, { pubKey: mm.pubKey });
-    await assert(spyResult.seeded, 'registration state should be seeded for the auto-backup spy');
-    // 재로드해 등록 상태를 state에 반영(로드 시 자동 트리거는 더미 서버라 조용히 실패)
-    await page.reload({ waitUntil: 'load' });
-    await unlock();
-    await page.waitForSelector('[data-a="screen"][data-screen="home"]');
-    // fetch 스파이 설치: /api/challenge는 pubKey로 암호화한 토큰을 돌려주고, /api/ledger-backup 호출을 기록한다.
+    // (5)·(6) 주 1회 자동 서버 백업: 등록됨 + 켜짐 + 7일 넘음 + 바뀐 것 있음 → 조용히 서버를 부른다(네트워크 스파이).
+    //   잠금 해제 때 한 번 시도한 실패(안전망 목 500)가 남긴 '한 시간 재시도 간격'은 하니스 전용 훅으로 비운다.
     await page.evaluate(({ pubKey }) => {
       window.__ledgerBackupCalls = [];
       const orig = window.fetch.bind(window);
@@ -3363,34 +4040,27 @@ async function main() {
         }
         if (url.includes('/api/ledger-backup')) {
           window.__ledgerBackupCalls.push(url);
-          return new Response(JSON.stringify({ ok: true, updated_at: new Date().toISOString() }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          return new Response(JSON.stringify({ ok: true, updated_at: Date.now(), segments: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         return orig(u, opts);
       };
     }, { pubKey: mm.pubKey });
-    // 성공 경로: 토글 ON + 등록됨 + due 상태에서 트리거 → 서버 호출 발생 + lastMonthlyBackup 기록.
     const fired = await page.evaluate(async () => {
       window.__ledgerBackupCalls = [];
-      await window.__prepaidTestHooks.maybeMonthlyAutoBackup();
-      return window.__ledgerBackupCalls.length;
+      window.__prepaidTestHooks.cloudRetryGapReset();
+      await window.__prepaidTestHooks.maybeAutoCloudBackup();
+      return window.__ledgerBackupCalls.slice();
     });
-    await assert(fired >= 1, 'auto monthly backup should POST to /api/ledger-backup when toggle is on, registered, and due');
+    await assert(fired.length >= 2 && fired[fired.length - 1].endsWith('/api/ledger-backup'), `a due weekly backup should upload segments then the head LAST (got ${JSON.stringify(fired)})`);
     mm = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
-    await assert(mm.lastMonthlyBackup === prevYmStr, 'a successful auto backup should record lastMonthlyBackup for the due month');
-    // 기록된 뒤에는 재트리거해도 due가 아니므로 추가 서버 호출이 없어야 한다(1회/로드·중복 방지)
+    await assert(mm.cloudBackupState && mm.cloudBackupState.lastOkAt > Date.now() - 60000 && !mm.cloudBackupState.failSince && mm.lastCloudBackupAt > Date.now() - 60000, 'a successful weekly backup must record its time and clear the failure');
+    // 성공한 뒤 7일이 안 됐으면 다시 불러도 서버를 부르지 않는다(1회/주·중복 방지).
     const again = await page.evaluate(async () => {
       window.__ledgerBackupCalls = [];
-      await window.__prepaidTestHooks.maybeMonthlyAutoBackup();
+      await window.__prepaidTestHooks.maybeAutoCloudBackup();
       return window.__ledgerBackupCalls.length;
     });
-    if (isLastDayToday) {
-      // 말일: 지난달을 기록한 순간 이번 달이 새 대상이 되므로 한 번 더 저장되고, 기록도 이번 달로 넘어간다.
-      await assert(again >= 1, `on the last day the rolled-over current month should back up once more (got ${again})`);
-      const mmRoll = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
-      await assert(mmRoll.lastMonthlyBackup === curYmStr, `the rolled-over backup must record ${curYmStr} (got ${mmRoll.lastMonthlyBackup})`);
-    } else {
-      await assert(again === 0, 'once recorded, the due month must not trigger another server backup');
-    }
+    await assert(again === 0, 'within 7 days of a successful backup there must be no further server backup');
 
     // 정리: 씨앗 지난달 거래·릴레이 메타를 제거해 이후 변조/리셋 시나리오에 영향 주지 않게 한다
     await page.evaluate(({ ts }) => new Promise((resolve) => {
@@ -3732,7 +4402,7 @@ async function main() {
     await assert((await page.locator('.app').innerText()).includes('관할 지역: 서울특별시 광진구'), 'the registered settings card should display the jurisdiction it sent');
     const settingsAfterReg = await page.locator('.app').innerText();
     await assert(settingsAfterReg.includes('공공기관 명단 받는 중'), 'the settings auto-enrollment card should label the registered store 공공기관 명단 받는 중');
-    await assert(settingsAfterReg.includes('아직 안 함'), 'the key-backup button should carry a ⚠️ badge while the key has never been backed up (B3)');
+    await assert(settingsAfterReg.includes('아직 안 함'), 'the key pointer should carry a ⚠️ badge while no locked own backup (with the key) has been made (B3)');
     // beta.40: 새 신청이 있으면(count=2) 설정의 [온라인 자동 등록] 버튼은 흐린 모습을 벗고 활성(btn-primary)+숫자 배지가 된다.
     {
       const activeInbox = page.locator('.card.settings-card:has(.fold-head[data-card="enroll-auto"]) [data-a="relay-inbox"]');
@@ -3743,14 +4413,12 @@ async function main() {
     }
     // ── beta.49(e 원복): 등록되면 잠겼던 두 곳이 원래 모습으로 돌아온다 ──────────────────────
     {
-      await openSettingsCard(page, 'cloud');
-      await assert(await count(page, `${cloudCardScope} input[type="checkbox"][data-a="toggle-auto-cloud"]`) === 1,
-        'the cloud card must get its auto-backup checkbox back once the store is registered');
-      await assert(await count(page, `${cloudCardScope} [data-a="cloud-backup-now"]`) === 1 && await count(page, `${cloudCardScope} [data-a="cloud-backup-restore"]`) === 1,
-        'the cloud card must get its backup/restore buttons back once the store is registered');
-      const cloudTitleReg = (await page.locator(`${cloudCardScope} .fold-head .section-title`).innerText()).trim();
-      await assert(cloudTitleReg === '📱 폰을 잃어버려도 장부 되찾기',
-        `a registered cloud card must go back to its 📱 title (got ${JSON.stringify(cloudTitleReg)})`);
+      // beta.55(A2): 장부 지키기 카드에 서버 줄·글씨 링크(자동 백업 끄기·서버 백업 지우기)가 돌아온다.
+      await openSettingsCard(page, 'ledger');
+      await assert(await count(page, `${guardScope} [data-a="toggle-auto-cloud"]`) === 1 && await count(page, `${guardScope} [data-a="cloud-backup-delete"]`) === 1,
+        'the 장부 지키기 card must get its server links back once the store is registered');
+      await assert((await page.locator('#guardState').innerText()).includes('서버 자동 백업 (매주)') && !(await page.locator('#guardState').innerText()).includes('가게를 등록하면'),
+        'the status box must show the server row (not the registration reason) once the store is registered');
       await openSettingsCard(page, 'enroll-manual');
       await assert(await count(page, `${manualCardScope} [data-a="direct-transfer-open"]`) === 1,
         'the 수동 등록 card must hold the 담당자에게 받은 파일 entry point once the store is registered');
@@ -3817,7 +4485,7 @@ async function main() {
     // beta.49(b): 등록되면 "등록 안 됨"·"다른 기기에 등록됨" 칩은 사라진다(상태는 하나만 말한다).
     await assert(await count(page, '.pill-muted') === 0 && await count(page, '.pill-alert-soft') === 0,
       'a registered store must not keep an "unregistered"/"blocked" chip beside the receiving chip');
-    await assert(await count(page, '[data-a="dismiss-key-banner"]') === 1, 'home should nudge an un-backed-up key with a dismissible banner (B3)');
+    await assert(await count(page, '.guard-banner [data-a="dismiss-guard-banner"]') === 1 && (await page.locator('.guard-banner').innerText()).includes('가게 열쇠'), 'home should nudge an un-backed-up key with a dismissible banner (B3, beta.55: the 장부 지키기 banner)');
     const inboxPill = await page.locator('[data-a="relay-inbox"]').innerText();
     await assert(inboxPill.includes('📩') && inboxPill.includes('2건'), 'a 200 inbox-count should render the 📩 new-request chip on home');
 
@@ -3852,9 +4520,9 @@ async function main() {
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     inboxCountBody = { count: 2 };
     await page.waitForTimeout(400);
-    await page.locator('[data-a="dismiss-key-banner"]').click();
+    await page.locator('[data-a="dismiss-guard-banner"]').click();
     await page.waitForTimeout(150);
-    await assert(await count(page, '[data-a="dismiss-key-banner"]') === 0, 'dismissing the key-backup banner should hide it for this session');
+    await assert(await count(page, '.guard-banner') === 0, 'dismissing the key-backup banner should hide it for this session');
 
     // ───────────────────────────────────────────────────────────────
     // 소속(org) 필드: 저장은 분리, 표시는 무변화
@@ -4650,13 +5318,15 @@ async function main() {
       && JSON.stringify(afterLockedTry.transactions) === JSON.stringify(beforeLockedWipe.transactions),
       'cancelling the second confirm must leave the ledger untouched');
     const lockedConfirms = dialogs.slice(dialogsBeforeLockedBackup).filter(d => d.type === 'confirm');
-    await assert(lockedConfirms.length === 2 && lockedConfirms[1].message.includes('🔒 잠긴 백업 파일을 저장했습니다'),
+    // beta.55(A-5): 다운로드는 '시작'만 확인된다 — "저장했습니다"라고 단정하지 않고 파일이 보이는지 묻는다.
+    await assert(lockedConfirms.length === 2 && lockedConfirms[1].message.includes('잠긴 백업 파일 다운로드가 시작됐어요') && lockedConfirms[1].message.includes('파일이 보이나요') && !lockedConfirms[1].message.includes('저장했습니다'),
       `the second confirm must say the saved file is locked (got ${JSON.stringify(lockedConfirms.map(d => d.message.slice(0, 60)))})`);
 
     // 사장님에게는 막다른 길이 아니다 — 개인키가 살아 있는 이 기기에서 그 파일은 그대로 열린다.
     await page.locator('[data-a="pin-forgot-restore"]').click();
     await page.waitForTimeout(150);
     await page.locator('#restoreFile').setInputFiles({ name: lockedName, mimeType: 'application/json', buffer: Buffer.from(lockedRaw, 'utf8') });
+    await confirmInAppRestore(page);
     await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
     await page.waitForTimeout(500);
     const restoredLocked = await readDb(page);
@@ -6927,7 +7597,9 @@ async function main() {
     await page.locator('[data-a="screen"][data-screen="history"]').click();
     await page.waitForSelector('[data-a="export"]', { timeout: 8000 });
     await page.locator('[data-a="export"]').click();
+    await ownPlainBackupFromDialog(page);
     for (let i = 0; i < 25 && !reqBackups.length; i += 1) await page.waitForTimeout(100);
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="yes"]').click().catch(() => {});
     page.off('download', onReqBackup);
     await assert(reqBackups.length >= 1, 'the backup button must still produce a file');
     await page.locator('[data-a="go-home"]').click();
@@ -7063,7 +7735,9 @@ async function main() {
     await page.locator('[data-a="screen"][data-screen="history"]').click();
     await page.waitForSelector('[data-a="export"]', { timeout: 8000 });
     await page.locator('[data-a="export"]').click();
+    await ownPlainBackupFromDialog(page);
     for (let i = 0; i < 25 && !custBackups.length; i += 1) await page.waitForTimeout(100);
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="yes"]').click().catch(() => {});
     page.off('download', onCustBackup);
     await assert(custBackups.length >= 1, 'the [백업] button should still download a backup');
     await page.locator('[data-a="go-home"]').click();
@@ -7600,6 +8274,7 @@ async function main() {
     await page.locator('[data-a="screen"][data-screen="settings"]').click();
     await page.waitForSelector('#restoreFile', { state: 'attached' });
     await page.locator('#restoreFile').setInputFiles({ name: 'legacy-backup.json', mimeType: 'application/json', buffer: Buffer.from(legacyBackup, 'utf8') });
+    await confirmInAppRestore(page);
     for (let i = 0; i < 60; i += 1) {
       const db = await readDb(page);
       if (db.employees.length === 3 && db.employees.every(e => /^레거시/.test(e.name))) break;
@@ -7709,6 +8384,7 @@ async function main() {
       page.locator('[data-a="pin-forgot-restore"]').click()
     ]);
     await recoveryChooser.setFiles({ name: 'good-backup.json', mimeType: 'application/json', buffer: Buffer.from(goodBackup, 'utf8') });
+    await confirmInAppRestore(page);
     await page.waitForTimeout(1500);
     const recoveredDb = await readDb(page);
     await assert(recoveredDb.employees.length === 1 && recoveredDb.employees[0].name === '복구된직원', `the gated recovery path must actually restore the backup (got ${JSON.stringify(recoveredDb.employees.map(e => e.name))})`);
@@ -7735,7 +8411,9 @@ async function main() {
     const EXPECTED_CONSOLE = [
       { name: 'mocked HTTP 401/404/500', re: /Failed to load resource: the server responded with a status of (401|404|500)/, max: 60 },
       { name: 'offline/DNS 실패 시나리오', re: /net::ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_REFUSED|FAILED)/, max: 8 },
-      { name: '위 실패에 대한 앱의 정상적인 오류 로깅', re: /^error: (silent cloud backup|register-key|relay|keygen|key-backup)/, max: 8 }
+      // beta.55(A2): 명단을 받은 직후의 "백업을 갱신할까요?" 확인창이 없어지고 조용한 서버 백업이 그 자리에서 돈다 — 등록된 가게의
+      //   직접 전달·승인마다 시도하므로, 안전망 목(500)에 대한 'silent cloud backup' 로그가 몇 건 는다(예전에는 확인창을 닫아 시도 자체가 없었다).
+      { name: '위 실패에 대한 앱의 정상적인 오류 로깅', re: /^error: (silent cloud backup|register-key|relay|keygen|key-backup)/, max: 12 }
     ];
     const consoleTally = new Map(EXPECTED_CONSOLE.map(e => [e.name, 0]));
     const consoleUnexpected = [];
@@ -7746,7 +8424,7 @@ async function main() {
     });
     const consoleOverflow = EXPECTED_CONSOLE
       .filter(e => consoleTally.get(e.name) > e.max)
-      .map(e => `${e.name}: ${consoleTally.get(e.name)}건 > 상한 ${e.max}`);
+      .map(e => `${e.name}: ${consoleTally.get(e.name)}건 > 상한 ${e.max} ${JSON.stringify(consoleProblems.filter(m => e.re.test(m)).map(m => m.slice(0, 60)))}`);
     await assert(consoleUnexpected.length === 0,
       `the browser console must stay clean — ${consoleUnexpected.length} unexpected error/warning(s): ${JSON.stringify([...new Set(consoleUnexpected)].slice(0, 5))}`);
     await assert(consoleOverflow.length === 0,

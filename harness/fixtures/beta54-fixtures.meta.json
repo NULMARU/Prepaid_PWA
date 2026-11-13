@@ -1,0 +1,11 @@
+{
+  "appVersion": "1.0.0-beta.54",
+  "ref": "HEAD",
+  "pass": "fixture-pass-54",
+  "restaurant_id": "rid-fix54",
+  "employees": 2,
+  "transactions": 6,
+  "keyType": "prepaid-key-backup",
+  "lockedType": "prepaid-locked-backup",
+  "generatedAt": "2026-11-13T18:23:03.460Z"
+}
