@@ -135,9 +135,13 @@
 |---|---|
 | **명단 확인값** (불일치 시 수신 차단) | `batch_hash` — `batchHashOf()`(앱) / `canonOf()`+`batchHash()`(담당자 웹) |
 | **관할 지역** | `district` — `relayDistrict()`(앱) / `jurisQuery()`(담당자 웹) / `normalizeDistrict()`(서버) |
-| **내 열쇠 백업** | `exportKeyBackup()` / `importKeyBackup()` — RSA 개인키를 사용자 암호로 봉인 |
-| **장부 안전 저장** | `exportSafeLedger()` — 복원용 JSON + 엑셀용 CSV 쌍 |
-| 클라우드 원장 백업 | `buildCloudBackupBlob()` → `/api/ledger-backup` |
+| **장부 지키기** 카드(beta.55) | `guardCardHtml()` — 상태는 `guardStatus()` 한 함수(상자·접힌 요약·홈 배너 `guardBanner()` 공용) |
+| **지금 백업하기** | `backupNow()` — 서버 백업(`cloudBackupRun()`) 뒤 내 보관 3갈래(`ownBackupFlow()`) |
+| **백업 암호** / 암호 건 백업 파일 | `askBackupPass()`·`backupPassChange()`, `buildPassBackup()`/`openPassBackup()` — `prepaid-pass-backup`(장부+가게 열쇠). 검증자 `meta.backupPassCheck` |
+| **되찾기** | `guardRestoreChoice()` → `relayRestoreFromCloud()` / `onRestoreFile()` → 모두 `restoreLedger()`(비교 확인창·안전 사본) |
+| (예전) 내 열쇠 백업 | `importKeyBackup()` — 읽기만. 만드는 버튼은 beta.55에서 없앰 |
+| 서버(클라우드) 원장 백업 | v2 `cloudBackupRun()` → `/api/ledger-backup/seg`(조각) + `/api/ledger-backup`(머리, `gen`) · 구서버 `cloudBackupRunV1()` |
+| 엑셀로 내보내기 | `exportCsvLedger()` — 이력 화면, 복원 불가 |
 | 소유 증명 | `/api/challenge` → `auth_token` (RSA 챌린지-응답, 1회용) |
 | 기관 인증 | 이메일 OTP → `X-Agency-Token`(24시간) |
 | 수신함 | `/api/inbox`, 배지는 `/api/inbox-count` |

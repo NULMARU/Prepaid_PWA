@@ -9,8 +9,9 @@
 | owner-settings.webp | 음식점 앱 설정 중 명단 등록 | 자동 등록과 수동 등록의 위치 |
 | agency-template.webp | 담당자 웹 명단 만들기(2026-11 재촬영: 1식 단가 칸) | 양식 다운로드·파일 선택 |
 | agency-confirm.webp | 담당자 웹 가게별 합계 확인 | 전송 전 금액 대조 |
+| owner-guard.webp | 음식점 앱 설정 > 장부 지키기 카드(**2026-11-14, beta.55 촬영**) | 상태 상자·[지금 백업하기]·되찾기·백업 암호 위치 |
 
-`harness/homepage-preview.mjs`의 `/demo.html`(기본 금액·서명), `?screen=search`(가상 이름 1명 검색 후 확인), `?screen=settings`와 `/agency-demo.html`에서 촬영했습니다. 이 경로는 로컬 확인용이며 운영 앱 기능이 아닙니다.
+`harness/homepage-preview.mjs`의 `/demo.html`(기본 금액·서명), `?screen=search`(가상 이름 1명 검색 후 확인), `?screen=settings`와 `/agency-demo.html`에서 촬영했습니다. `owner-guard.webp`는 같은 방식(메모리 초기 상태 주입·`connect-src 'none'`·외부 요청 차단, 390px·2배율 요소 캡처 후 440px WebP)으로 세션 스크래치 스크립트에서 찍었습니다 — 가게 이름 '밥장부 예시식당', 서버 2일 전·내 보관 1일 전은 가상 값입니다. 이 경로는 로컬 확인용이며 운영 앱 기능이 아닙니다.
 
 김밥·예시기관·예시식당, 잔액/선금 90,000원·사용 9,000원은 모두 가상 데이터입니다. 메모리 초기 상태만 주입했고 CSP `connect-src 'none'`으로 외부 요청을 차단했습니다. 인증번호 발송·명단 전송·거래 저장은 실행하지 않았습니다.
 

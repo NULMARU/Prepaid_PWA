@@ -60,12 +60,12 @@
 | `agency-web/index.html` | 전화번호 입력·CSV 열·전송 필드가 **존재하지 않는다**. blob `items[]`는 `{name, dept, amount, org?}` |
 | `server/schema.sql` / `worker.js` | 전화번호 컬럼·필드 없음 |
 | `index.html` — `setPhone()` / `getPhone()` | 기기 로컬 저장 시 `aesEncryptStr(…, meta.deviceSecret)` = **PBKDF2-SHA256 120,000회 → AES-GCM-256**. `meta.deviceSecret`은 백업에서 제외되므로 다른 기기로는 복호화 불가 |
-| `index.html` — **`stripPhonesForCloud()`** | 클라우드 원장 백업 blob 생성 시 모든 직원에서 `phone`·`phoneConsent`를 **구조분해로 제거**. 암호문조차 서버로 가지 않는다 |
+| `index.html` — **`stripPhonesForCloud()`** | 클라우드 원장 백업 생성 시 모든 직원에서 `phone`·`phoneConsent`를 **구조분해로 제거**. 암호문조차 서버로 가지 않는다. beta.55 v2에서는 `cloudBackupRun()`(조각·머리)과 `cloudBackupRunV1()`(구서버 폴백)·`buildCloudBackupBlob()`(잠긴 파일)이 모두 이 함수를 지난 `core`를 쓴다. 조각의 거래는 `segTx()`의 **고정 키 목록**만 싣는다(서명 그림 제외) — 거래에 필드를 추가해도 목록에 넣지 않으면 서버에 가지 않는다 |
 | `index.html` — `setPhoneConsent()` + UI | 직원 동의가 있을 때만 저장. "전화번호는 이 폰에만 저장되며 서버로 전송되지 않아요" 고지. 「전화번호 일괄 파기」 기능 제공 |
 
 **리스크**: 전화번호는 그 자체로 식별성이 강하고, 문자 발송 기능과 결합하면 **연락처 DB**가 된다. 이 하나 때문에 서비스 전체가 "개인정보를 모으는 서비스"로 재분류된다.
 
-**가장 깨지기 쉬운 지점**: `stripPhonesForCloud()`. 클라우드 백업에 필드를 추가하다가 이 필터를 우회하면 **암호문 형태로라도 전화번호가 서버에 올라간다**. 신규 필드를 넣을 때 반드시 이 함수를 지나는지 확인할 것.
+**가장 깨지기 쉬운 지점**: `stripPhonesForCloud()`와 v2 머리 조립부(`cloudBackupRun()`이 `core.payload.employees`를 머리에 싣는다). 클라우드 백업에 필드를 추가하다가 이 필터를 우회하면 **암호문 형태로라도 전화번호가 서버에 올라간다**. 신규 필드를 넣을 때 반드시 이 함수를 지나는지 확인할 것.
 
 ---
 

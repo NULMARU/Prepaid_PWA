@@ -1,6 +1,6 @@
 # 06 — 테스트 체계
 
-한 줄 요약: **`bash harness/verify-all.sh` → 16/16이 정상**(로컬 8 + 라이브 5 + 접속 3, 2026-11-13 기준). 실패 로그는 `/tmp/v1.log`~`/tmp/v9.log`.
+한 줄 요약: **`bash harness/verify-all.sh` → 16/16이 정상**(로컬 8 + 라이브 5 + 접속 3, 2026-11-13 기준). beta.55(2026-11-14) 로컬 수치: phase2 **735** · 반응형 **3,215** · e2e beta.55 블록 70·63·101 · 담당자 웹 4종 **99** · 갱신 보존 beta.54→55 **29/29**. 실패 로그는 `/tmp/v1.log`~`/tmp/v9.log`.
 
 > 아래 단언 개수는 **표에 적은 릴리스의 실행 기준**이며 릴리스마다 늘어난다. 개수 자체가 아니라 **책임 분담과 공백**을 보라.
 > `git push` 시에는 GitHub Actions가 서버 계약 하니스·정적 검사·링크 검사·앱 기동 스모크를 **배포 게이트**로 먼저 돌린다(§2.1).
@@ -12,20 +12,21 @@
 
 | 하니스 | 대상 | 브라우저 | 서버 | 검증 규모 | 실패 방식 |
 |---|---|---|---|---|---|
-| `prepaid.e2e.js` | **실제 `index.html`** (로컬 정적 서버 + Playwright chromium) | ✅ | ❌ 전 `/api/**`를 `context.route`로 목킹 | `assert()` 호출 1,111곳 | fail-fast, `exit 1` + 성공 시 `{"ok": true, …}` JSON |
-| `phase2.e2e.mjs` | **실제 worker 코드** — `import { handle, makeMemoryStore } from '../server/src/worker.js'` | ❌ | ✅ 로직은 진짜, 저장소만 메모리 | 42개 섹션 · 최근 실행 **427 통과** | 누적 카운트, `결과: N 통과, M 실패` |
+| `prepaid.e2e.js` | **실제 `index.html`** (로컬 정적 서버 + Playwright chromium) | ✅ | ❌ 전 `/api/**`를 `context.route`로 목킹 | `assert()` 호출 1,111곳 | fail-fast, `exit 1` + 성공 시 `{"ok": true, …}` JSON. beta.55 블록은 `E2E_ONLY=beta55`(A1a 70)·`beta55b`(A1b 63)·`beta55c`(A2·A3 백업 101)로 따로, `E2E_SOFT=1`이면 단언별 실패 목록 |
+| `phase2.e2e.mjs` | **실제 worker 코드** — `import { handle, makeMemoryStore } from '../server/src/worker.js'` | ❌ | ✅ 로직은 진짜. 저장소는 메모리 store **와** `node:sqlite` D1 어댑터(실제 `makeD1Store` SQL)를 같은 시나리오로 | 최근 실행 **735 통과**(beta.55) | 누적 카운트, `결과: N 통과, M 실패` |
 | `phase2.live.mjs` | **배포된 라이브 서버 + 실제 D1** | ❌ | ✅ 진짜(프로덕션 D1을 실제로 쓴다) | 6단계 | 누적 카운트 |
-| `responsive.e2e.mjs` | **실제 `index.html`** 의 기하(레이아웃) | ✅ | ❌ `/api/**` 전부 `200 []` 스텁 | `check()` 318곳 × 4뷰포트(+디바이스 프로파일) · 최근 실행 **2,625 검사**(beta.49) | 누적, 실패 목록 출력 |
+| `responsive.e2e.mjs` | **실제 `index.html`** 의 기하(레이아웃) | ✅ | ❌ `/api/**` 전부 `200 []` 스텁 | 폰 4뷰포트(+디바이스 프로파일) + **태블릿 가로·세로 6종**(beta.55) · 최근 실행 **3,215 검사**(beta.55) | 누적, 실패 목록 출력 |
 | `dongsearch.e2e.mjs` | **실제 `index.html`** 의 동 이름 검색(zipmap 순회 보조 경로) | ✅ | ❌ 공공 API 한글 장애를 목으로 재현 | **46 검사**(beta.52) | 누적 카운트 |
-| `agency-xlsx.e2e.mjs` | **실제 `agency-web/index.html`** — 엑셀(.xlsx) 양식 다운로드·업로드 | ✅ | ❌ 외부 요청 전부 404 | **18 검사**(2026-10-31) | 누적, `N pass` |
+| `agency-xlsx.e2e.mjs` | **실제 `agency-web/index.html`** — 엑셀(.xlsx) 양식 다운로드·업로드·금액 검증 | ✅ | ❌ 외부 요청 전부 404 | **29 검사**(beta.55) | 누적, `N pass` |
 | `agency-csvchoice.e2e.mjs` | 담당자 웹 3단계 — 명단 파일 바꾸기/덧붙이기·되돌리기·비우기 | ✅ | ❌ 외부 요청 전부 404 | **19 검사**(2026-10-31) | 누적, `N pass` |
-| `agency-sent.e2e.mjs` | 담당자 웹 — 급량개수×1식 단가, 보내기 완료 잠금·다시 보내기 | ✅ | ❌ `/api/submit`만 목 | **21 검사**(2026-11-06) | 누적, `N pass` |
-| `experimental/upgrade.e2e.js` (+ 래퍼 `upgrade-check.sh`) | **구버전 앱의 실제 UI로 만든 장부**를 신버전 앱이 그대로 여는지(IndexedDB 필드 단위 비교) | ✅ | ❌ 전부 목 | 일반 24 · 서비스워커 경로 27(beta.54) | 누적, 실패 시 보고서 JSON |
+| `agency-sent.e2e.mjs` | 담당자 웹 — 급량개수×1식 단가, 보내기 완료 잠금·다시 보내기 | ✅ | ❌ `/api/submit`만 목 | **35 검사**(beta.55 — 부분 실패 문구·전송 상태 보존 추가) | 누적, `N pass` |
+| `agency-net.e2e.mjs` | 담당자 웹 — 전송 중 인증 만료(즉시 중단·1단계 이동·같은 접수번호 재시도), 목록 조회 실패 [다시 시도]·늦은 응답 버림, 지문 기록 조회 실패 시 전송 차단 | ✅ | ❌ 네트워크 목 | **16 검사**(beta.55 신설) | 누적, `N pass` |
+| `experimental/upgrade.e2e.js` (+ 래퍼 `upgrade-check.sh`) | **구버전 앱의 실제 UI로 만든 장부**를 신버전 앱이 그대로 여는지(IndexedDB 필드 단위 비교) | ✅ | ❌ 전부 목 | beta.54→55 2모드 합계 **29/29**(래퍼 출력) | 누적, 실패 시 보고서 JSON |
 | `app-smoke.mjs` | 빈 브라우저로 `index.html?e2e=1` 기동 — 첫 화면·[시작하기]·콘솔 오류 0·외부 요청 0 | ✅ | ❌ 외부 요청 전부 차단 | 5 검사 | `exit 1` (CI 게이트용) |
 | `check-static.mjs` | 파일만 읽음 — meta 키⊂`META_KEYS`(+`META_DEVICE_KEYS`·`backupCore` 제외 키), `APP_VERSION`=`CACHE_NAME`, `server/src` NUL 바이트, 기관 수 vs 문서 표기 | ❌ | ❌ | 7 검사 | `exit 1` |
 | `check-links.mjs` | 파일만 읽음 — `homepage/*.html`·`docs/*.html`의 상대 링크·파일·앵커, 우리 도메인 절대 주소(로컬 파일로 대응), 오래된 "beta.NN 기준" 표기 경고 | ❌ | ❌ | 링크 217개(2026-11-13) | `exit 1`(경고는 실패 아님) |
 
-phase2 목 **478 통과**·반응형 **2,781 검사**는 beta.53(2026-11-01) 실행 기준이다(표의 427·2,625는 그 이전 기록).
+이전 기록: phase2 427(beta.48)→478(beta.53)→**735**(beta.55, D1 어댑터 포함), 반응형 2,625(beta.49)→2,781(beta.53)→**3,215**(beta.55).
 
 보조: `harness/build-agencies.mjs`·`harness/build-zipmap.mjs`는 **테스트가 아니라 데이터 생성기**(기관 목록·우편번호 매핑 재생성). `verify-all.sh`가 돌리지 않는다.
 `harness/check-manual-pdfs.py`는 안내서 PDF(`docs/manuals/*.pdf`) 검사기다(파일 0개·빈 쪽·쪽 밖 글 상자 = 실패, 쪽수 출력). pymupdf가 필요해 verify-all에는 넣지 않았다 — PDF를 다시 만들 때 `uv run --with pymupdf python harness/check-manual-pdfs.py`.
@@ -67,7 +68,7 @@ phase2 목 **478 통과**·반응형 **2,781 검사**는 beta.53(2026-11-01) 실
 | 2 | | phase2 목 하니스 — 등록→암호화→복호화→batch_hash→변조탐지→해제 | exit code |
 | 3 | | 폰 반응형 e2e — 360/390/412/768px | exit code |
 | 4 | | 동 이름 검색 e2e — zipmap 전 구역 완주·비추측 원칙 | exit code |
-| 5 | | 담당자 웹 e2e 3종(xlsx·csvchoice·sent) | 셋 다 exit 0 |
+| 5 | | 담당자 웹 e2e 4종(xlsx·csvchoice·sent·net) | 넷 다 exit 0 (통과 수 합계 표시) |
 | 6 | | **정적 계약 검사** (`check-static.mjs`) | exit code |
 | 7 | | **문서·홈페이지 링크** (`check-links.mjs`) | exit code(경고는 개수만 표시) |
 | 8 | | **갱신 보존** (`upgrade-check.sh` — 최신 `live-beta*` 태그 → 작업 트리, 일반·서비스워커 2모드) | exit code |
@@ -122,9 +123,9 @@ deploy: needs: [test, smoke]             # 하나라도 실패하면 GitHub Page
 
 | # | 공백 | 근거·이력 | 위험도 |
 |---|---|---|---|
-| G1 | **(일부 메움)** `agency-web/index.html`을 브라우저로 구동하는 하니스는 3종(xlsx·csvchoice·sent, 2026-10-31~11-06)이 생겼다 — 엑셀 양식·업로드, 파일 바꾸기/덧붙이기, 급량개수×단가, 보내기 완료 잠금 | 아직 미검증: `canonOf()`/`batchHash()`가 앱·서버와 같은 값을 내는지, `jurisQuery()`, OTP UI, 열쇠 지문 확인 게이트, 복수 전송·429 페이싱, **`submission_id` 발급 규칙**([04](04-contracts.md) C9 — "재시도는 같은 sid, 새 [보내기]는 새 sid"). 하니스들은 각자 `batch_hash`를 **독립 재구현**해서 쓴다(3벌) | 중 |
+| G1 | **(일부 메움)** `agency-web/index.html`을 브라우저로 구동하는 하니스는 4종(xlsx·csvchoice·sent 2026-10-31~11-06, net beta.55)이 생겼다 — 엑셀 양식·업로드, 파일 바꾸기/덧붙이기, 급량개수×단가, 보내기 완료 잠금, 인증 만료·목록 실패 | 아직 미검증: `canonOf()`/`batchHash()`가 앱·서버와 같은 값을 내는지, `jurisQuery()`, OTP UI, 열쇠 지문 확인 게이트, 복수 전송·429 페이싱, **`submission_id` 발급 규칙**([04](04-contracts.md) C9 — "재시도는 같은 sid, 새 [보내기]는 새 sid"). 하니스들은 각자 `batch_hash`를 **독립 재구현**해서 쓴다(3벌) | 중 |
 | G2 | **실제 클라이언트 ↔ 실제 worker를 잇는 테스트가 없다** | `prepaid.e2e.js`는 API 전부 목, `phase2.e2e.mjs`는 브라우저 없음. 필드명 불일치는 "독립적으로 쓰인 두 기대값이 우연히 일치"할 때만 잡힌다 — **`district` 장애가 정확히 이 계열**이었다 | **높음** |
-| G3 | **`makeD1Store`(실제 SQL)를 실행하는 테스트가 없다** | `phase2.e2e.mjs`는 `makeMemoryStore()`(같은 파일 안의 두 번째 구현)를 쓴다. §20-h(부분문자열 충돌·LIKE 이스케이프), §23(JOIN 시맨틱), §24(100개 청크)처럼 **SQL 성격의 단언이 전부 JS 메모리 구현에 대해서만 증명**돼 있다. 등가성은 주석으로만 주장된다 | **높음** |
+| G3 | **(beta.55에서 메움)** ~~`makeD1Store`(실제 SQL)를 실행하는 테스트가 없다~~ — phase2가 `node:sqlite` 어댑터로 실제 D1 문장을 같은 시나리오로 돈다. 남은 차이: 운영 D1의 배치·타이밍·바인딩 상한은 로컬 sqlite와 다를 수 있다 | `phase2.e2e.mjs`는 `makeMemoryStore()`(같은 파일 안의 두 번째 구현)를 쓴다. §20-h(부분문자열 충돌·LIKE 이스케이프), §23(JOIN 시맨틱), §24(100개 청크)처럼 **SQL 성격의 단언이 전부 JS 메모리 구현에 대해서만 증명**돼 있다. 등가성은 주석으로만 주장된다 | **높음** |
 | G4 | 라이브 제출 happy-path 미검증(OTP 수신 불가) + 라이브 `district`/`registered-list` 미검증 | `phase2.live.mjs` 스스로 선언. 라이브 관할 목록이 비어 있어도 하니스는 모른다 | 중 |
 | G5 | **(일부 메움)** `sw.js` | `APP_VERSION`↔`CACHE_NAME` 일치는 `check-static.mjs`가, 구→신 서비스워커 배포 경로(새 버전 로드·구 캐시 정리)는 갱신 보존 게이트 `--sw 1` 모드가 본다. 오프라인 동작·교차 출처 캐시 차단은 여전히 무단언 | 낮음 |
 | G6 | `docs/admin.html` 미검증 | 엔드포인트(`/api/admin/stats`)만 §19에서 검증 | 낮음 |
@@ -147,6 +148,20 @@ deploy: needs: [test, smoke]             # 하나라도 실패하면 GitHub Page
 | 잠긴 백업 파일에 평문 직원 이름이 없음 + 같은 기기 복원 성공 | `prepaid.e2e.js` (C13) |
 
 **남은 것**: 위 G10(실기기 더블탭·운영 D1 타이밍), G1(담당자 웹 자동 하니스 — `submission_id` 규칙이 사람 확인에만 의존), G4(라이브 제출 happy-path).
+
+### beta.55에서 메운 공백
+
+| 메운 것 | 어디에 |
+|---|---|
+| 실제 D1 SQL 문장 실행(G3) | `phase2.e2e.mjs` — node:sqlite 어댑터 |
+| 서버 백업 v2 계약을 **강제하는** 목(토큰 1회용·gen 형식·조각/머리 상한·머리가 다른 세대 삭제·구서버 404) + 끊긴 업로드·고아 조각·열린 조각 복원 | `prepaid.e2e.js` `runBeta55c` |
+| 예전 형식 파일(평문·잠긴·열쇠·클라우드 v1)을 **beta.54 실제 UI로 만든 픽스처**로 복원 | `harness/fixtures/beta54-*.json` + `runBeta55c` |
+| 태블릿 가로·세로 fits(손님 compose·사장님 확인·사용 모달·증표) | `responsive.e2e.mjs` |
+| 두 창 동시 열기(Web Locks)·명단 음수 금액·1비트 서명 | `runBeta55` |
+| 사용 등록 창 초점·확인 대기 60초·증표 닫으면 손님 화면 | `runBeta55b` |
+| 담당자 웹 인증 만료·목록 실패 | `agency-net.e2e.mjs` |
+
+새 단언은 구역마다 **수정 전 코드에서 실패함을 확인**했다. 남은 것: 실기기(안드로이드 태블릿 공유 시트·가로 키보드), 엑셀 실물로 .xlsx 열기.
 
 ### 이 공백들이 만든 실제 사고 (반복 금지)
 
@@ -184,7 +199,8 @@ node harness/prepaid.e2e.js                     # 음식점 앱 e2e
 node harness/phase2.e2e.mjs                     # 서버 목 하니스 (CI 게이트와 같은 명령)
 node harness/responsive.e2e.mjs                 # 폰 반응형
 node harness/dongsearch.e2e.mjs                 # 동 이름 검색
-node harness/agency-xlsx.e2e.mjs                # 담당자 웹 엑셀 양식 (csvchoice·sent도 같은 방식)
+node harness/agency-xlsx.e2e.mjs                # 담당자 웹 엑셀 양식 (csvchoice·sent·net도 같은 방식)
+E2E_ONLY=beta55c node harness/prepaid.e2e.js    # beta.55 백업 블록만 (beta55·beta55b도 같은 방식, E2E_SOFT=1이면 실패 목록)
 node harness/check-static.mjs                   # 정적 계약 (CI 게이트)
 node harness/check-links.mjs                    # 문서·홈페이지 링크 (CI 게이트)
 node harness/app-smoke.mjs                      # 앱 기동 스모크 (CI 게이트)

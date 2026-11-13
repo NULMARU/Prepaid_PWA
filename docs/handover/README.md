@@ -1,6 +1,6 @@
 # 밥장부(선입금대장) — 인수인계 문서
 
-이 리포를 **처음 받은 개발자**를 위한 문서 묶음이다. 최종 갱신 **2026-09-12 (beta.48)**, 백업 `schemaVersion 3`, IndexedDB `VER 3`.
+이 리포를 **처음 받은 개발자**를 위한 문서 묶음이다. 최종 갱신 **2026-11-14 (beta.55)**, 평문 백업 `schemaVersion 3`(+ beta.55 암호 건 파일 `prepaid-pass-backup`·서버 백업 v2 조각), IndexedDB `VER 3`. beta.55 개요는 루트 `CLAUDE.md`의 완료 기록, 데이터 형식은 [03](03-data-model.md) §4·§6.
 현재 앱 버전은 `index.html`의 `APP_VERSION` 상수에서 직접 읽을 것(활발히 올라가는 중이다).
 
 ## 이 문서들의 원칙
@@ -10,7 +10,7 @@
   |---|---|
   | REST API 스펙·에러 코드·보존 정책 상세 | `server/PROTOCOL.md` |
   | D1 스키마(컬럼 주석 포함) | `server/schema.sql`(신규 설치용 전체 스키마) |
-  | D1 마이그레이션 이력 | `server/migrations-2026-07.sql` · `-2026-08.sql` · `-2026-09.sql` (**월별 파일, 각각 append-only**) |
+  | D1 마이그레이션 이력 | `server/migrations-2026-07.sql` · `-2026-08.sql` · `-2026-09.sql` · `-2026-10.sql` · `-2026-11.sql` (**월별 파일, 각각 append-only**) |
   | 릴리스 이력·의사결정 로그 | `CLAUDE.md`(「완료」 절) |
   | 사용자 관점 사용법 | `docs/manual-restaurant.html` · `docs/manual-agency.html` · `docs/manual-staff.html` |
   | 개인정보처리방침·이용약관 확정본 | `docs/privacy.html` · `docs/terms.html` |

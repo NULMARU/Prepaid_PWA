@@ -64,7 +64,7 @@ const APP='선입금대장', APP_VERSION='1.0.0-beta.NN', DB='prepaid-ledger-db'
 | `reason` | string | `'공공기관 신청 승인'`, `'CSV 임포트'`, `'서명 확인'` 등 |
 | `note` | string | 비고. 자동 등록은 `기관명 부서명` 라벨, 손님 요청 거래는 `손님 요청 금액 N원` |
 | `targetTransactionId` | string\|null | `void`에서만 — 취소 대상 `use` |
-| `signatureData` | string | **data URL**(`sigD()`가 `^data:image/` 강제). `use`에만 존재 |
+| `signatureData` | string | **data URL**(`sigD()`가 `^data:image/` 강제). `use`에만 존재. **beta.55부터 새 서명은 1비트(흑백) PNG, 폭 320px**(`sigRaster`→`sigEncode`, 약 1.3~1.7K자 — CompressionStream이 없으면 320px JPEG 폴백). 예전 서명은 그대로. 서버 백업 v2에는 **실리지 않는다**(§6) |
 | `signatureHash` | string | `SHA-256(signatureData)`. **txHash에는 포함되지 않는다** |
 | `txHash` / `prevHash` | hex | 해시 체인(§2) |
 | `createdAt` | number(ms) | 항상 `nextTxTime()` — **엄격 단조 증가(+1ms)** 로 배치 순서 = 체인 순서 |
@@ -110,7 +110,7 @@ employeeId | amount | afterBalance | prevHash | createdAt
 
 ## 4. 백업 JSON 포맷
 
-생성: **`backupCore()`** → `buildBackupPayload()`. 파일명 `backupFileName()`(`밥장부백업_YYYY-MM.json`, 최종본은 `밥장부백업_최종_YYYY-MM-DD.json`).
+생성: **`backupCore()`** → `buildBackupPayload()`. 이 평문 형식(schemaVersion 3)은 beta.55부터 ① "암호 없이" 고른 내 보관 백업(`밥장부백업_암호없음_YYYY-MM-DD.txt|.json`) ② 전체 초기화 직전 최종본(`밥장부백업_최종_YYYY-MM-DD.json`) ③ 암호 건 파일·안전 사본의 **안쪽 `core`** 로만 쓴다. 사장님의 기본 백업은 아래 암호 건 파일이다.
 
 ```jsonc
 {
@@ -128,7 +128,7 @@ employeeId | amount | afterBalance | prevHash | createdAt
 
 **포함**: 숨김 직원 포함 전 직원, 전 거래(**`signatureData` data URL 그대로** — 백업 용량의 지배적 요인), `meta.pubKey`, **암호화된 `phone`·`phoneConsent`**, 그리고 **"이미 받았다/이미 반영했다" 기록 4종**(`receivedBatchLog`·`receivedBatchHashes`·`receivedTransferLog`·`approvedSummaryLog`)과 미통보 대기열 `pendingNotify`.
 → 이 기록들이 백업에서 빠지면 **복원한 기기가 같은 명단을 중복 경고 없이 다시 받아들인다**(선금 이중 반영). 기기 전용이라 일부러 빼는 값(`inboxCountCache`)과 혼동하지 말 것 — 판단 기준은 "다른 기기에서 되살아나야 하는 사실인가"다.
-**제외**(`backupCore()`가 구조분해로 제거): `deviceSecret`, `privKeyWrapped`, `pinHash`, `pinFails`, `pinDelayUntil`, `inboxCountCache`.
+**제외**(`backupCore()`가 구조분해로 제거): `deviceSecret`, `privKeyWrapped`, `pinHash`, `pinFails`, `pinDelayUntil`, `inboxCountCache`, **`backupPassCheck`·`cloudBackupState`**(beta.55, 기기 전용).
 → `deviceSecret`이 빠지므로 **다른 기기에서 복원하면 `phone` 암호문은 복호화 불가**(설계상 안전 동작).
 
 ### schemaVersion 정책 (`parseBackupPayload()`)
@@ -167,11 +167,28 @@ employeeId | amount | afterBalance | prevHash | createdAt
 - `pubKey`가 없는 기기면 파일을 만들지 않고 2차 확인창에 `⚠️ 이 기기에는 열쇠가 없어 백업 없이 지웁니다.`를 붙인다.
 - 복원: 복원 파일 선택기가 `type==='prepaid-locked-backup'`을 보면 `restoreLockedBackup()`으로 보내 개인키로 `decryptBlob` → 나온 core를 **기존 `restoreFromParsed()`** 에 그대로 태운다. 개인키가 없거나 `pubKeyFp`가 다르면 복호화를 시도하기 전에 `LOCKED_BACKUP_HELP` 안내를 띄운다("…'내 열쇠 백업'을 먼저 가져온 뒤(설정 > 자동 등록 카드) 다시 선택해 주세요").
 
+### 암호 건 백업 파일 `prepaid-pass-backup` (beta.55 — 사장님의 기본 백업)
+
+```jsonc
+{ "type": "prepaid-pass-backup", "v": 1, "appName": "선입금대장", "appVersion": "1.0.0-beta.55", "exportedAt": 0,
+  "z": 1,                                    // 1 = 안쪽이 gzip, 0 = 비압축(CompressionStream 없음)
+  "kdf": { "name": "PBKDF2", "hash": "SHA-256", "it": 600000, "salt": "<b64 16B>" },
+  "iv": "<b64 12B>", "ct": "<b64 AES-256-GCM>" }
+// ct 평문 = gzip( JSON{ core: buildBackupPayload()(서명 그림 포함·checksum 포함), key: {pubKey, pkcs8} | null } )
+```
+
+- `buildPassBackup(pass, withKey)` / `openPassBackup(file, pass)`. **가게 열쇠(`key`)는 등록된 가게만** 넣는다 — 파일 하나 + 백업 암호 하나로 새 기기에서 장부와 열쇠를 함께 되찾는다(예전 「내 열쇠 백업」을 대체).
+- 파일명 `밥장부백업_YYYY-MM-DD.txt`(공유 시트용 `text/plain`) 또는 `.json`(이 기기에 저장). 복원기는 확장자와 무관하게 `type`으로 판별한다.
+- 암호는 저장하지 않는다. 기기에는 검증자 `meta.backupPassCheck = {v:1, it:600000, salt, hash}`(PBKDF2)만 두어 오타를 잡는다. 입력값 그대로 → 앞뒤 공백 뗀 값 순으로 시도.
+- 복원 시 열쇠: 짝 검증(`keyPairMatches`) 실패면 장부만, 기기에 **다른** 열쇠가 있으면 지문 두 개를 보여 주고 바꿀지 묻는다(B-05).
+
 ### 관련 파일 산출물
 
-- `exportSafeLedger()` — 「장부 안전 저장」: 복원용 JSON + 사람이 읽는 CSV 쌍.
-- `exportCsvLedger()` — 엑셀용 CSV(소속/부서/직원명/잔액/메모 + 거래내역). **복원 불가**.
-- `exportKeyBackup()` / `importKeyBackup()` — 「내 열쇠 백업」 `{type:'prepaid-key-backup', v:1, pubKey, pkBackup}`. `pkBackup`은 **사용자 암호(8자 이상)** 로 래핑되며 그 암호는 어디에도 저장되지 않는다. 이 파일을 잃으면 폰 분실 시 클라우드 백업도 영구 복호화 불가 → 앱이 배너·배지로 백업을 강권한다.
+- `ownBackupFlow(how)` → `deliverOwnBackup()` — [지금 백업하기]의 내 보관 갈래(공유 시트 `navigator.share({files})` / 다운로드). 기록은 사장님 확인("보냈어요/보여요") 뒤 `markOwnBackup()`이 `lastBackupAt`(+열쇠 포함이면 `myKeyBackedUpAt`)에 남긴다.
+- `restoreSafetySnapshot()` — 되찾기 덮어쓰기 직전 사본 `밥장부_되돌리기전_잠긴사본_YYYY-MM-DD.json`(가게 열쇠로 잠금, `prepaid-locked-backup`) / 같은 백업 암호로 만든 암호 사본 / 열쇠가 없을 때만 평문 사본(PIN 분실 경로에서는 평문 사본 금지).
+- `exportCsvLedger()` — 이력 화면 [엑셀로 내보내기]. 소속/부서/직원명/잔액/메모 + 거래내역 CSV(엑셀 수식 주입 방지 `'` 접두). **복원 불가**. (예전 「장부 안전 저장」의 JSON+CSV 쌍은 beta.55에서 없어졌다.)
+- `importKeyBackup()` — 예전 「내 열쇠 백업」 `{type:'prepaid-key-backup', v:1, pubKey, pkBackup}`(PBKDF2 120k)을 **읽기만** 한다. 새로 만드는 버튼은 없다.
+- 읽기 호환(전부 [되찾기] > [파일에서 되찾기]·환영 화면 링크·PIN 복구 화면 공통 `onRestoreFile`): 평문 schemaVersion 1~3 · `prepaid-locked-backup` · `prepaid-pass-backup` · `prepaid-key-backup`.
 
 ---
 
@@ -202,6 +219,11 @@ employeeId | amount | afterBalance | prevHash | createdAt
 | `approvedSummaryLog` | **beta.48** `[{sid, h, at}]` 최근 300. 서버 승인으로 **장부에 반영한** `summary_id` |
 | `pendingNotify` | **beta.48** `[{sid, at}]`. 장부에는 반영했으나 서버에 `APPROVED` 통보가 아직 성공하지 못한 건(상한 없음 — 통보가 성공하면 즉시 빠진다) |
 | `inboxCountCache` | 마지막으로 확인한 📩 배지 개수. **기기 전용**(backupCore 제외) |
+| `backupPassCheck` | **beta.55** 백업 암호 검증자 `{v,it,salt,hash}`. 암호 자체는 없다. **기기 전용**(backupCore 제외, 복원 시 이 기기 값 유지 — 단 암호 건 파일을 되찾았고 기기에 없으면 그 암호로 새로 만든다) |
+| `cloudBackupState` | **beta.55** 서버 백업 v2 기기 상태 `{v,mode,gen,segSize,segs:{n:ph},counts,bh,txCount,fp,headAt,lastOkAt,lastTryAt,failSince,lastError,pendingGen,pendingSegSize}`. **기기 전용**, 복원·초기화·서버 백업 지우기 때 `null` |
+| `lastBackupAt` | (뜻 변경) beta.55부터 **"내 보관 백업"** 시각 — 사장님이 보냈다/보인다고 확인한 때만 갱신. 전체 초기화 최종본·안전 사본은 갱신하지 않는다 |
+| `myKeyBackedUpAt` | (뜻 변경) **가게 열쇠가 든 암호 건 내 보관 백업**을 한 때(예전 「내 열쇠 백업」 시각도 그대로 인정). 비어 있고 등록됐으면 `keyBackupUrgent()` → "⚠ 가게 열쇠가 이 기기에만 있어요" |
+| `lastCloudBackupAt` · `autoCloudBackup` | 서버 백업 마지막 성공 시각 · 자동 백업 켜짐(`!== false`). 주기는 **월말 → 주 1회**(`cloudAutoDue()`) |
 | `chainTip` / `txCount` | 해시 체인 꼬리 앵커(§2) |
 
 **beta.48의 세 키는 전부 "돈이 두 번 들어가는 것"을 막는 장치**다. `receivedTransferLog`는 같은 파일 재열기를 아예 차단하고, `approvedSummaryLog`는 이미 반영한 신청을 다시 열지 못하게 하며, `pendingNotify`는 "장부에는 넣었는데 서버에 못 알린" 상태를 기억해 두었다가 인터넷이 되면 통보만 재시도한다([04](04-contracts.md) C11). 셋 다 `backupCore()`에 **포함**된다 — 복원한 기기에서도 같은 중복 방어가 살아 있어야 하기 때문이다.
@@ -210,16 +232,17 @@ employeeId | amount | afterBalance | prevHash | createdAt
 
 ---
 
-## 6. 클라우드 원장 백업 blob
+## 6. 서버(클라우드) 원장 백업 — v2 조각 (beta.55) / v1 한 덩어리
 
-- 생성: **`buildCloudBackupBlob()`**
-  1. `stripPhonesForCloud(backupCore())` — 모든 직원에서 **`phone`·`phoneConsent` 제거**(불변식 4의 마지막 방어선).
-  2. 랜덤 AES-GCM-256 키 + 12바이트 IV로 본문 암호화.
-  3. 그 AES 키를 **자기 자신의 `meta.pubKey`(RSA-OAEP)** 로 봉인.
-  4. `{encKey, iv, ct}` base64 반환 → base64 문자열로 감싸 업로드.
-- 업로드: `relayBackupNow()`(수동) / `relayBackupSilent()` / `maybeMonthlyAutoBackup()`(월 1회, `autoCloudBackup !== false` + 그 달 활동 있음). **blob base64 100만 자 상한**, 초과 시 중단.
-- 복원: `relayRestoreFromCloud()` — `blob_hash` 재검증 → `decryptBlob()`(로컬 개인키) → `restoreFromParsed()`.
-- 서버 측 상한: `MAX_LEDGER_BLOB = 1MB` (`server/src/worker.js`).
+**v2**(`cloudBackupRun()`, PROTOCOL §4.13 · [04](04-contracts.md)):
+1. 거래를 `sortTxAsc`(원장 순서)로 **300건씩 조각**. 조각 평문 `{v:2, seg_no, transactions:[segTx(t)…]}` — `segTx`는 고정 키 순서로 **`signatureData`를 뺀다**(`signatureHash`는 유지). 직원의 `phone`·`phoneConsent`도 `stripPhonesForCloud()`로 뺀다.
+2. `packBytes` = gzip(`z:1`, 없으면 `z:0`) → `sealForCloud` = 기존 하이브리드 암호(AES-GCM-256 + 자기 `pubKey` RSA-OAEP 래핑) → `base64(JSON{v,z,encKey,iv,ct})`. `ph` = **압축 전** JSON 바이트의 SHA-256(브라우저마다 gzip 바이트가 달라 헛재업로드가 생기므로).
+3. 바뀐 조각만 `POST /api/ledger-backup/seg`(≤400,000자). **조각을 모두 올린 뒤** 머리 `{v:2, gen, appName, appVersion, exportedAt, employees, meta, txCount, chainTip, segs:[{n,ph,count}]}`를 같은 방식으로 봉인해 `POST /api/ledger-backup {…, gen}`(≤1,000,000자). 서버는 머리를 받는 순간 다른 세대 조각을 지운다.
+4. 새 세대(`gen`)가 필요한 때: 처음 / 거래 수가 줄었음(복원) / 닫힌 조각 내용 변경. 머리 전에 끊긴 새 세대는 `pendingGen`으로 기억했다가 **같은 번호로** 다시 올린다(고아 조각 누적 방지).
+- 주기: `maybeAutoCloudBackup()` — 앱 시작·잠금 해제 때, 등록·자동 켜짐·온라인·장부 있음·마지막 성공 7일 이상·`ledgerFp()` 변경. 실패 뒤 재시도 1시간 간격. 명단 승인 직후 `cloudBackupAfterRoster()`가 조용히 한 번.
+- 복원: `relayRestoreFromCloud()` — 머리 `blob_hash` 검증 → `openFromCloud`(열쇠 불일치는 `backup_key_mismatch`) → v2면 `cloudFetchSegments()`가 5개씩 받아 `ph`·건수·`chainTip` 검증(머리 건수보다 긴 조각은 앞부분이 `ph`와 맞으면 잘라 씀 — 머리 전 끊긴 업로드 대응) → `restoreLedger(…, {noSig})`. 되찾은 `use` 거래는 서명 그림이 없고 이력에 "서명 그림은 이 백업에 없어요 (서명 기록은 확인됨)".
+- **v1**(예전 서버·예전 백업): 장부 전체 한 덩어리(`MAX_LEDGER_BLOB` 1MB). 조각 API가 404인 서버에는 `cloudBackupRunV1()`이 서명 제외·압축만 적용해 같은 자리에 올린다. 읽기는 계속 지원.
+- `buildCloudBackupBlob()`은 이제 **잠긴 파일**(`exportLockedBackup` — PIN 분실 초기화·되찾기 안전 사본) 전용이다.
 
 ---
 
@@ -246,12 +269,13 @@ employeeId | amount | afterBalance | prevHash | createdAt
 
 | 테이블 | 역할 | 수명 |
 |---|---|---|
-| `public_key_registry` | 음식점 공개키·이름·`district`·업무용 연락처 · **`deregistered_at`**(NULL=활성) | 해제 시 삭제가 아니라 **30일 휴지통** → 그 뒤 cron이 삭제 |
+| `public_key_registry` | 음식점 공개키·이름·`district`·업무용 연락처 · **`deregistered_at`**(NULL=활성) · **`taken_over_at`**(beta.55 — 다른 열쇠가 휴지통 가게를 인수한 시각. 이보다 먼저 쓰인 원장 백업은 새 주인에게 숨기고 30일 cron에 맡긴다) | 해제 시 삭제가 아니라 **30일 휴지통** → 그 뒤 cron이 삭제 |
 | `deposit_summary` | 기관·부서·총액·인원수·`batch_hash`·**`dedupe_key`**·상태 (**개인별 금액·이름 없음**) | 처리 후 30일 |
 | `encrypted_blob` | 암호문 | **수령 즉시 파기**, 미수령 72시간 |
 | `consent_log` | 기관·부서·연월 + 담당자 이메일 **SHA-256 해시** | 180일 |
 | `auth_challenge` | 소유증명 챌린지 토큰 **해시** | 5분, 1회용 |
-| `ledger_backup` | 음식점당 암호화 원장 1행 | 사용자 삭제 시까지 · **등록 해제 후에는 30일**(그 안에 같은 열쇠로 재등록하면 되찾는다) |
+| `ledger_backup` | 음식점당 암호화 원장 1행(v1 전체 또는 v2 **머리**). **beta.55 `gen`** 컬럼 = 머리의 세대(v1 업로드는 NULL) | 사용자 삭제 시까지 · **등록 해제 후에는 30일**(그 안에 같은 열쇠로 재등록하면 되찾는다). 다른 열쇠가 인수해도 즉시 지우지 않는다(새 주인에게는 404) |
+| `ledger_backup_seg` | **beta.55** v2 조각 `(restaurant_id, gen, seg_no)` → 암호문 blob | 머리가 오면 다른 세대 삭제 · 고아 세대는 14일 뒤 cron ⑦ · 가게당 1,000행 상한(가득 차면 하루 넘게 조용한 고아 세대부터 비움) · `ledger_backup`을 지우는 모든 경로에서 함께 삭제 |
 | `agency_otp` / `agency_token` | OTP 해시 / 세션 토큰 해시 (**이메일도 해시**, 도메인부만 `email_domain`에 평문) | 10분 / 24시간 |
 | `agency_keycheck` | 열쇠 지문 확인 이력(기관·부서·가게 id·지문·**`agency_domain`**) | **TTL 정리 대상 아님**(장기 보관 — 개인정보 없음) |
 | `seen_institution` / `seen_department` / `seen_restaurant` / `stats_counter` | 비식별 집계 | 무기한(비개인) |

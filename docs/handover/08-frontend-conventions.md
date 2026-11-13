@@ -116,7 +116,9 @@
 ```js
 const LOCK_ALLOWED = new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore',
  'lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back',
- 'cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit']);
+ 'cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit',
+ 'pass-ok','pass-cancel','pass-toggle',   // beta.52 — PIN 복구 화면의 열쇠·백업 파일 암호 입력창
+ 'choice-pick']);                          // beta.55 — PIN 복구 화면 복원의 앱 안 선택창(열린 창이 없으면 무동작, 잠글 때 열린 창은 취소)
 ```
 
 > `//   ⚠️ 이 목록에 원장을 쓰는 액션을 추가하지 말 것. 손님은 '요청'만 만들 수 있고 '기록'은 만들 수 없다.`
@@ -141,7 +143,7 @@ const LOCK_ALLOWED = new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-can
 - **초기 뷰포트(`scrollY === 0`)에서 잰다** — `scrollIntoView` 후에 재지 않는다(관대함 봉인).
 - 대상: `#custAmountInput`, `.cust-sig #signCanvas`의 **윗변·아랫변 모두**, `.cust-actions` 버튼 3개 **전부**, `.cust-links` 버튼 2개.
 - 조건: `top >= -1 && bottom <= innerHeight + 1`. 버튼 높이 ≥ 48px, 온보딩 터치 타깃 ≥ 44px.
-- 적용 폭: `width <= 767`.
+- 적용 폭: 폰 `width <= 767` + **beta.55 태블릿 6종**(1024×768·1180×820·1280×800·960×600 가로, 768×1024·800×1280 세로) — 손님 compose·사장님 확인(PIN)·사용 모달·증표.
 - 실측 근거: beta.22 iPhone 13에서 서명판은 180px 중 107px만 보였고 [사장님 확인 받기]는 **화면 밖 174px 아래**였다.
 
 CSS 쪽 대응 규칙: 폰 세로 여유는 CSS로만 되돌려 받는다.
@@ -164,6 +166,21 @@ CSS 쪽 대응 규칙: 폰 세로 여유는 CSS로만 되돌려 받는다.
 | 화면 전환은 지역 변수 `stage`가 아니라 `state.custStage`를 함께 고쳐야 한다 | beta.25 — 강등을 지역 변수로만 하면 세 곳의 리더가 어긋난다 |
 | 사장님 홈 검색은 **부분 일치**, 손님 검색은 **접두 일치**(`nameStartsWith`) | 용도가 다르다(주석 명시). 통일하지 말 것 |
 | 손님 화면 왕복 시 **금액은 보존, 서명은 재작성** | 서명 dataURL 사본을 만들면 "요청은 휘발성" 불변식이 깨진다 |
+
+---
+
+## 5a. beta.55에서 생긴 공통 장치 (새 코드는 이것을 쓴다)
+
+| 장치 | 규약 |
+|---|---|
+| **앱 안 창 3종** — `askChoice({title,lines,buttons})` · `askText({…검증 함수})` · `state.passDialog`(`askBackupPass`) | 기본 팝업(`window.prompt/confirm/alert`)을 **새로 만들지 않는다**. 셋 다 `overlaysHtml()`에 그려 setupGuide·PIN 복구 화면 위에도 뜬다. 열려 있는 동안 `canAutoLock()`은 거짓이지만 `TIMERS.modalIdleCap`(10분) 상한으로는 잠긴다(B-10). 진한 버튼(`cls:'btn-primary'`)은 하나 — 위험한 선택지는 기본을 **[취소]** 로(되찾기에서 건수가 줄 때). busy 오버레이가 창을 덮으므로 띄우기 전 `clearBusy()`. 남아 있는 기본 팝업: 전체 초기화 확인(`confirmWipeWithBackup`의 `window.confirm` 2회) — 미결 |
+| **입력 초안 보존** — `FORM_DRAFT_IDS` | 설정 화면의 입력칸(빠른 등록·가게 이름·연락처·새 부서)은 재렌더 전 값을 흡수해 되돌린다(C1 — 토스트·와이파이 끊김 한 번에 전부 지워지던 사고). 새 입력칸은 이 목록에 id를 넣거나 자체 state로 흡수할 것 |
+| **중계 호출** — `relayFetch(url, opts, ms)` | 모든 서버 요청은 이것으로(기본 20초, 백업 60초, 시간 초과는 `code:'timeout'`). 오류 문구는 `relayErrMsg(e, fallback)`·`relayCodeErr(code,msg)`·`RELAY_ERR_KO` — 영문 `e.message`를 사장님에게 보이지 않는다 |
+| **한 번에 한 창** — `acquireInstanceLock()` | Web Locks `prepaid-ledger-db:one-window`를 앱 수명 동안 쥔다. 두 번째 창은 저장소조차 열지 않고 "다른 창에서 이미 열려 있어요"(1.5초 뒤). Web Locks가 없으면 `withTxLock` 안의 `instanceFreshBeforeWrite()`가 꼬리 앵커를 대조한다. ⚠️ 관련 변수는 `var`(init이 스크립트 중간에서 불림 — TDZ) · **하니스는 브라우저 컨텍스트를 분리**해야 한다 |
+| **태블릿 가로 배치** | `@media(min-width:768px) and (orientation:landscape)`에서 손님 compose·PIN 화면을 두 칸 grid로(`.cust-col`·`.pin-col`은 세로에서 `display:contents`). **전부 CSS** — 캔버스 노드를 만들거나 옮기지 않는다(3중 보호 불변). 서명판 높이는 `svh`에 묶는다 |
+| **서명 인코딩** — `signPad.toDataUrl()`(async)·`snapshot()`+`sigEncode()` | 새 서명은 1비트 PNG 320px. 호출 시점 획을 먼저 복사하므로 인코딩 중 획이 늘어도 섞이지 않는다. `cust-sign-submit`은 `custSignEncoding` 가드 |
+| **사용 등록 창 초점** | 손님 요청(`preAmount>0`)으로 열리면 초점은 [저장] — 금액 칸에 두면 태블릿 키보드가 서명·버튼을 가린다(현장 보고). 사장님이 직접 연 창은 금액 칸 |
+| **백업 상태 문구** — `guardStatus()` | 장부 지키기 상자·접힌 요약·홈 배너(`guardBanner()`)가 **같은 객체**를 읽는다. 백업 관련 문구를 다른 곳에서 따로 계산하지 말 것 |
 
 ---
 
