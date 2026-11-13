@@ -83,6 +83,9 @@ tr.sub td{background:#eef2f7;font-weight:700}
 .kc-check{display:flex;align-items:flex-start;gap:8px;margin:8px 0 0;font-size:14px;color:#1f2937;cursor:pointer;line-height:1.5}
 .kc-check input{width:auto;min-height:auto;flex:0 0 auto;margin-top:2px;transform:scale(1.25)}
 .kc-ok{font-size:13px;color:var(--ok);font-weight:700;padding:4px 0}
+/* 좁은 화면(폰·390px)에서 표가 화면 밖으로 밀어내지 않게 표 영역 안에서만 가로로 밀리게 한다 */
+#csvResult,#confirmBox,#sendResult,#skipBox{overflow-x:auto;max-width:100%}
+td{overflow-wrap:anywhere}
 .kc-ok .kc-fpmini{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted);font-weight:600}
 </style>
 </head>
@@ -240,7 +243,20 @@ qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
 </script>
 <script>
 (()=>{'use strict';
-const S={authed:false,token:null,email:'',otpMode:null,restaurants:[],rows:null,rawRows:null,csvFormat:null,fileErrors:[],fileWarnings:[],valid:false,groups:null,mode:null,lastList:[],registered:new Set(),agencyIndex:null,agency:null,dept:'',jurisList:[],excluded:new Set(JSON.parse(localStorage.getItem('agency-excluded')||'[]')),
+// ── 브라우저 저장소 보호(D-8) ──
+// 기관 PC는 보안 정책으로 저장소(쿠키·사이트 데이터)를 막아 두는 일이 있다. 그러면 localStorage에
+// 손대는 순간 예외가 나고, 이 스크립트 첫 줄에서 죽으면 화면이 통째로 멈춘다(빈 화면).
+// 값이 깨져 있어도(JSON 아님) 마찬가지다. 그래서 읽기·쓰기는 모두 아래 함수로만 한다 — 실패하면
+// '저장 안 됨'으로 조용히 넘어가고 화면은 계속 동작한다(이 브라우저에 기억만 못 할 뿐).
+function lsGet(k){try{return window.localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{window.localStorage.setItem(k,v);return true}catch(e){return false}}
+function lsDel(k){try{window.localStorage.removeItem(k)}catch(e){}}
+function lsJSON(k,def){try{const s=lsGet(k);if(s==null)return def;const v=JSON.parse(s);return v==null?def:v}catch(e){return def}}
+function ssGet(k){try{return window.sessionStorage.getItem(k)}catch(e){return null}}
+function ssSet(k,v){try{window.sessionStorage.setItem(k,v);return true}catch(e){return false}}
+function ssDel(k){try{window.sessionStorage.removeItem(k)}catch(e){}}
+const S={authed:false,token:null,email:'',otpMode:null,restaurants:[],rows:null,rawRows:null,csvFormat:null,fileErrors:[],fileWarnings:[],valid:false,groups:null,mode:null,lastList:[],registered:new Set(),agencyIndex:null,agency:null,dept:'',jurisList:[],excluded:new Set((v=>Array.isArray(v)?v.filter(x=>typeof x==='string'):[])(lsJSON('agency-excluded',[]))),
+  jurisErr:'',           // 관할 목록 조회 실패 사유(빈 값 = 실패 아님). '목록이 비었다'와 구분한다(D-2).
   // 이번에 보내지지 않는 것들(차단이 아니라 '확인 후 진행'). skipped=CSV에 있으나 2단계에서 선택되지 않은
   // 음식점(미등록 등), missingSel=선택했지만 이번 CSV에 없는 음식점. 둘 다 전송 로직에서는 이미 안전하게
   // 빠지므로(buildGroups) 게이트가 아니라 '봤다'는 1회 확인만 요구한다.
@@ -252,8 +268,9 @@ const S={authed:false,token:null,email:'',otpMode:null,restaurants:[],rows:null,
   kcMsg:new Map(),       // restaurant_id → 확인 시도 결과 안내(409 등)
   regInfo:new Map(),     // restaurant_id → {registered_at, verified}
   kcUnsupported:false,   // 서버에 지문 확인 API가 아직 없음(구서버 호환 — 게이트 비활성)
+  kcLoadErr:false,       // 이 부서의 확인 기록을 불러오지 못함 → 확인 카드 대신 [다시 시도], 전송 차단(D-7)
   kcBusy:false};
-function saveExcluded(){localStorage.setItem('agency-excluded',JSON.stringify([...S.excluded]))}
+function saveExcluded(){lsSet('agency-excluded',JSON.stringify([...S.excluded]))}
 const $=id=>document.getElementById(id);
 const subtle=window.crypto.subtle;
 const enc=new TextEncoder(),dec=new TextDecoder();
@@ -263,7 +280,10 @@ function log(m){const el=$('log');$('logWrap').classList.remove('hide');el.textC
 // ── 이용약관·개인정보처리방침 동의(최초 1회) ──
 const TERMS_URL='https://app.bapjangbu.com/docs/terms.html',PRIVACY_URL='https://app.bapjangbu.com/docs/privacy.html';
 const TERMS_KEY='bapjangbu_terms_agreed';
-function hasAgreedTerms(){return !!localStorage.getItem(TERMS_KEY)}
+// 저장소가 막힌 PC에서는 동의를 기억할 수 없다 — 이 창에서만이라도 동의가 유지되게 메모리에 함께 둔다
+// (그러지 않으면 [동의하고 시작]을 눌러도 다시 막혀 아무것도 할 수 없다).
+let termsAgreedMem=false;
+function hasAgreedTerms(){return termsAgreedMem||!!lsGet(TERMS_KEY)}
 
 // ── 중계 서버 주소 고정(프로덕션) ────────────────────────────────────────────
 // 예전에는 localStorage['relay-server']를 아무 값으로나 바꿀 수 있었다. 공용 PC에서 앞사람이
@@ -362,7 +382,9 @@ const AGENCY_EMAIL_RE=/^[^\s@]+@([a-z0-9-]+\.)*(go|korea|or|ac)\.kr$/;
 function validAgencyEmail(e){return AGENCY_EMAIL_RE.test(String(e==null?'':e).trim().toLowerCase())}
 // 서버 오류 코드 → 담당자가 이해할 수 있는 한글 안내. 원시 코드는 화면에 노출하지 않는다.
 const AUTH_ERR_MSG={
-  rate_limited:'1분 뒤 다시 시도해 주세요.',
+  // 서버에 scope가 없는 예전 응답용. 원인이 둘(같은 이메일 1분 / 같은 사무실 인터넷 주소 시간당 5회)이라 둘 다 말한다.
+  rate_limited:'인증번호 요청이 잠시 막혔어요. 방금 요청하셨다면 1분 뒤에, 같은 사무실에서 여러 번 요청했다면 최대 1시간 뒤에 다시 시도해 주세요.',
+  invalid_email:'이메일 주소 형식이 맞지 않아요. 다시 확인해 주세요.',
   email_send_failed:'지금은 인증 메일을 보낼 수 없어요. 잠시 후에도 안 되면 내일 다시 시도하거나 contact@bapjangbu.com으로 알려 주세요.',
   email_not_configured:'지금은 인증 메일을 보낼 수 없어요. 잠시 후에도 안 되면 내일 다시 시도하거나 contact@bapjangbu.com으로 알려 주세요.',
   invalid_domain:'공공기관·공공성 기관 이메일(go.kr · korea.kr · or.kr · ac.kr)만 쓸 수 있어요.',
@@ -377,12 +399,51 @@ function authErrMsg(code){
 }
 // 제출 실패 문구: 서버는 코드(snake_case)와 한글 설명("입력 길이 초과" 등)을 섞어 돌려준다.
 // 코드는 번역하거나 일반 문구로 감추고, 이미 한글인 설명은 그대로 살린다.
+// 인증번호 요청 제한(429 rate_limited) 안내(D-3). 서버가 scope('ip'|'email')·retry_after_s를 주면 정확히,
+// 없으면(예전 서버) 두 원인을 함께 말한다. 사무실은 여러 사람이 인터넷 주소 하나를 같이 쓰므로 'ip'가 흔하다.
+function waitText(sec){
+  const n=Math.max(1,Math.round(Number(sec)||0));
+  if(n<60)return n+'초';
+  const m=Math.ceil(n/60);
+  return m>=60?'1시간':'약 '+m+'분';
+}
+function rateLimitMsg(j,res){
+  let sec=j&&j.retry_after_s!=null?Number(j.retry_after_s):NaN;
+  if(!(sec>0)&&res&&res.headers){const h=Number(res.headers.get('Retry-After'));if(h>0)sec=h}
+  const scope=j&&j.scope;
+  if(scope==='email')return '같은 이메일로 방금 인증번호를 보냈어요. '+(sec>0?waitText(sec)+' 뒤에':'1분 뒤에')+' 다시 요청할 수 있어요. 먼저 받은 메일(스팸함 포함)을 확인해 주세요.';
+  if(scope==='ip')return '같은 사무실 인터넷 주소에서 인증번호 요청이 많아 잠시 막혔어요(최대 1시간). '+(sec>0?waitText(sec)+' 뒤에':'잠시 후')+' 다시 시도해 주세요. 이미 받은 인증번호가 있으면 그 번호를 입력하시면 됩니다.';
+  return AUTH_ERR_MSG.rate_limited+(sec>0?' (약 '+waitText(sec)+' 뒤 가능)':'');
+}
+// 명단 보내기·지문 확인 실패 코드 → 담당자 말(D-8). 서버는 코드(snake_case)와 한글 설명을 섞어 돌려준다.
+// 알려진 것은 번역하고, 모르는 코드는 상태 번호로 짐작해 '무엇을 하면 되는지'를 말한다. 원시 코드는 내보내지 않는다.
+const SUBMIT_ERR_MSG={
+  too_many_pending:'이 음식점에 아직 받지 않은 명단이 많이 쌓여 있어 더 보낼 수 없어요. 사장님께 앱에서 먼저 명단을 받아 달라고 연락해 주세요.',
+  deregistered:'이 음식점은 지금 밥장부 등록이 해제돼 있어 보낼 수 없어요. 사장님께 앱에서 다시 등록해 달라고 안내해 주세요.',
+  not_registered:'이 음식점은 밥장부에 등록돼 있지 않아 보낼 수 없어요. 사장님께 앱 설치·가게 등록을 안내해 주세요.',
+  restaurant_not_registered:'이 음식점은 밥장부에 등록돼 있지 않아 보낼 수 없어요. 사장님께 앱 설치·가게 등록을 안내해 주세요.',
+  restaurant_not_found:'이 음식점은 밥장부에 등록돼 있지 않아 보낼 수 없어요. 사장님께 앱 설치·가게 등록을 안내해 주세요.',
+  not_found:'이 음식점은 밥장부에 등록돼 있지 않거나 등록이 해제됐어요. 사장님께 앱에서 가게 등록을 확인해 달라고 해 주세요.',
+  invalid_fingerprint:'열쇠 지문 형식이 맞지 않아요. 화면을 새로 고친 뒤 다시 확인해 주세요.',
+  rate_limited:'요청이 많아 잠시 막혔어요(같은 사무실 인터넷 주소를 여럿이 쓰면 그럴 수 있어요). 1분쯤 뒤 다시 시도해 주세요.',
+  '입력 길이 초과':'명단이 너무 크거나 음식점·소속·부서 이름이 너무 길어요. 부서를 나눠 두 번에 보내거나 이름을 줄여 주세요.'
+};
 function submitErrMsg(code,status){
   const k=String(code==null?'':code).trim();
+  if(SUBMIT_ERR_MSG[k])return SUBMIT_ERR_MSG[k];
   if(AUTH_ERR_MSG[k])return AUTH_ERR_MSG[k];
-  if(!k)return '전송 실패('+status+')';
-  if(/^[a-z0-9_]+$/.test(k))return AUTH_ERR_GENERIC;
-  return k;
+  // 이미 한글로 된 설명 중 담당자가 읽고 행동할 수 있는 것은 그대로 살린다. 형식 오류류("… 유효하지 않음", "… 형식 오류",
+  // "… 필요")는 이 웹이 만든 값의 문제라 담당자가 고칠 수 없다 — 새로 고침을 권한다.
+  if(k&&!/^[a-z0-9_]+$/.test(k)&&!/(유효하지 않음|형식 오류|필요)$/.test(k))return k;
+  const st=Number(status)||0;
+  if(st===401)return AUTH_ERR_MSG.agency_auth_required;
+  if(st===404)return SUBMIT_ERR_MSG.not_found;
+  if(st===409)return '이 음식점의 상태가 바뀌어 보내지 못했어요. 2단계에서 음식점을 다시 확인해 주세요.';
+  if(st===413)return SUBMIT_ERR_MSG['입력 길이 초과'];
+  if(st===429)return SUBMIT_ERR_MSG.rate_limited;
+  if(st>=500)return '서버에 잠시 문제가 있어요. 잠시 후 다시 보내 주세요.';
+  if(st===400||k)return '보낸 명단 형식을 서버가 받지 않았어요. 화면을 새로 고친 뒤 다시 보내 주세요. 계속되면 contact@bapjangbu.com으로 알려 주세요.';
+  return '보내지 못했어요('+(st||'연결 오류')+'). 잠시 후 다시 시도해 주세요.';
 }
 // ── 인증 토큰 보존(sessionStorage) ──
 // 새로고침·탭 복귀마다 OTP 메일을 다시 보내는 것은 담당자 대기시간 낭비이자 발송 한도(무료 100통/일)
@@ -404,16 +465,26 @@ function restoreToken(){
   return true;
 }
 // 서버가 401(agency_auth_required)을 주면 토큰이 죽은 것 — 폐기하고 1단계로 되돌린다.
+// ⚠️ 열쇠 지문 확인 기록(S.keychecks)은 여기서 지우지 않는다(D-1). 예전에는 지웠는데, 전송 도중 401이 나면
+//   남은 가게가 '확인 기록 없음'이 되어 거짓 "열쇠 지문이 달라요"로 실패했다. 기록은 기관+부서 범위의 서버 값이고
+//   다시 인증하면 loadKeychecks가 새로 받아 온다. 올린 명단·보낸 결과(접수번호)도 그대로 둔다 — 다시 인증하면
+//   보내지 못한 건만 같은 접수번호로 이어서 보낼 수 있어야 한다.
 function expireToken(){
+  const wasAuthed=S.authed;
   S.token=null;S.authed=false;S.otpMode=null;clearToken();
-  S.keychecks=new Map();
+  kcLoadSeq++; // 진행 중인 확인 기록 조회 결과는 버린다
   if(idleTimer){clearTimeout(idleTimer);idleTimer=null}
   $('logoutBtn').classList.add('hide');
   $('authStep1').classList.remove('hide');
   $('authStep2').classList.add('hide');
   if($('otp'))$('otp').value='';
-  $('authMsg').innerHTML='<span class="bad">인증이 만료됐어요. 인증번호를 다시 받아 주세요.</span>';
+  const unsent=[...relayResults.values()].filter(r=>!r.ok).length;
+  $('authMsg').innerHTML='<span class="bad">인증이 만료됐어요. 인증번호를 다시 받아 주세요.</span>'+
+    (unsent?'<br><b>올려 둔 명단은 그대로 있어요.</b> 다시 인증하면 보내지 못한 '+unsent+'건을 같은 접수번호로 이어서 보낼 수 있어요(중복 접수 없음).':'');
+  // 1단계 화면으로 데려간다 — 예전에는 3단계 화면에 그대로 있어 인증 칸이 보이지 않았다.
+  if(wasAuthed||viewNow!==1){setView(1);updateStepper()}
   if($('authCard')&&$('authCard').scrollIntoView)$('authCard').scrollIntoView({block:'start'});
+  if($('email')&&$('email').focus)try{$('email').focus()}catch(e){}
 }
 function unlockAfterAuth(){
   $('searchCard').classList.remove('hide');$('csvCard').classList.remove('hide');
@@ -421,6 +492,8 @@ function unlockAfterAuth(){
   resetIdle();          // 무조작 30분 자동 인증 폐기 타이머 시작
   loadKeychecks();      // 이 기관+부서가 이미 확인해 둔 가게 목록
   revalidate();
+  // 인증 만료로 멈췄던 전송이 있으면 결과표를 '다시 보내기' 버튼이 있는 모습으로 다시 그린다(D-1).
+  if(relayResults.size&&S.relaySig===sendSig()&&S.valid)renderRelayResults(true);
 }
 // ── 인증 해제(로그아웃) ─────────────────────────────────────────────────────
 // 공용 PC·공용 태블릿에서 자리를 뜰 때 토큰과 화면에 남은 명단을 즉시 지운다.
@@ -443,6 +516,9 @@ function doLogout(idle){
   S.keychecks=new Map();S.fps=new Map();S.fpErr=new Map();S.kcMsg=new Map();
   S.skipped=[];S.missingSel=[];S.skipAck=false;S.skipSig='';skipProbe.clear();probeSeq++;
   keyInfoCache.clear();relayResults=new Map();relayPubCache=new Map();
+  // 보내기 완료 잠금·보낸 기록도 함께 지운다(D-6). 예전에는 잠금 서명(sentSig)이 남아, 같은 명단을 다시 올리면
+  //   결과표·[그래도 다시 보내기] 없이 버튼만 "✓ 보내기 완료"로 잠긴 막다른 길이 됐다.
+  S.sentSig=null;clearSentStore();kcLoadSeq++;kcSeq++;S.kcLoadErr=false;S.kcBusy=false;
   if($('csv'))$('csv').value='';
   if($('otp'))$('otp').value='';
   ['csvResult','results','directPanel','sendResult','keycheckList','skipBox','confirmBox'].forEach(id=>{if($(id))$(id).innerHTML=''});
@@ -455,7 +531,8 @@ function doLogout(idle){
   $('authMsg').innerHTML=idle
     ?'<span class="warn">⏱ 30분 동안 사용이 없어 인증을 해제했어요. 계속하려면 다시 인증해 주세요.</span>'
     :'<span class="good">인증을 해제했어요.</span> 다시 이용하시려면 인증번호를 받아 주세요.';
-  renderSelected();updateStepper();
+  $('modeCards').querySelectorAll('.mode-card').forEach(x=>{x.classList.remove('sel');x.setAttribute('aria-pressed','false')});
+  renderSelected();renderJurisList();updateStepper(); // 관할 목록의 체크 표시도 비운 선택과 맞춘다
   if($('authCard')&&$('authCard').scrollIntoView)$('authCard').scrollIntoView({block:'start'});
 }
 $('logoutBtn').addEventListener('click',()=>doLogout(false));
@@ -505,7 +582,7 @@ async function requestOtp(){
           '급한 건이면 <a href="mailto:contact@bapjangbu.com">contact@bapjangbu.com</a>으로 알려 주세요.';
         return;
       }
-      $('authMsg').innerHTML='<span class="bad">'+esc(authErrMsg(j.error))+'</span>';
+      $('authMsg').innerHTML='<span class="bad">'+esc(j.error==='rate_limited'||r.status===429?rateLimitMsg(j,r):authErrMsg(j.error))+'</span>';
       return;
     }
     if(j.dev_otp){
@@ -532,7 +609,7 @@ async function requestOtp(){
       // 사용자가 번호를 받을 방법이 없다는 뜻. 실제 검증 단계를 건너뛰고 정직하게 형식 확인만 표시한다.
       pilotFormatConfirm(e);
     }
-  }catch(err){$('authMsg').innerHTML='<span class="bad">요청 실패: '+esc(err.message)+'</span>'}
+  }catch(err){$('authMsg').innerHTML='<span class="bad">인증번호를 요청하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.</span>'}
   finally{$('authBtn').disabled=false;$('resendBtn').disabled=false}
 }
 async function verifyOtp(){
@@ -543,14 +620,14 @@ async function verifyOtp(){
     const r=await fetch(srv()+'/api/agency/verify-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:S.email,otp})});
     if(r.status===404||r.status===501){fallbackAuth(S.email);return}
     let j={};try{j=await r.json()}catch{}
-    if(!r.ok){$('authMsg').innerHTML='<span class="bad">'+esc(authErrMsg(j.error))+'</span>';return}
+    if(!r.ok){$('authMsg').innerHTML='<span class="bad">'+esc(j.error==='rate_limited'?rateLimitMsg(j,r):authErrMsg(j.error))+'</span>';return}
     S.token=j.token||null;S.authed=true;
     if(S.token)saveToken(S.token,S.email); // 새로고침 시 OTP 재발송 방지(B4)
     $('authStep1').classList.add('hide');
     $('authStep2').classList.add('hide');
     $('authMsg').innerHTML='<span class="good">✅ 인증됨 · '+esc(S.email)+'</span>';
     unlockAfterAuth();
-  }catch(err){$('authMsg').innerHTML='<span class="bad">확인 실패: '+esc(err.message)+'</span>'}
+  }catch(err){$('authMsg').innerHTML='<span class="bad">인증번호를 확인하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.</span>'}
   finally{$('otpBtn').disabled=false}
 }
 // 주소를 잘못 적었을 때 되돌아가는 길. 1단계로 되돌리되 적었던 주소는 남겨 두고 전체 선택해 둔다
@@ -610,10 +687,10 @@ function selectAgency(sido,aid){
   loadKeychecks(); // 기관이 바뀌면 확인 기록 범위(기관+부서)도 바뀐다
   fetchJurisdiction();
 }
-function saveAgencySelection(){if(S.agency)localStorage.setItem(AGENCY_LS_KEY,JSON.stringify({sido:S.agency.sido,id:S.agency.id}))}
+function saveAgencySelection(){if(S.agency)lsSet(AGENCY_LS_KEY,JSON.stringify({sido:S.agency.sido,id:S.agency.id}))}
 function restoreAgencySelection(){
-  let saved=null;try{saved=JSON.parse(localStorage.getItem(AGENCY_LS_KEY)||'null')}catch{saved=null}
-  if(!saved||!saved.sido)return;
+  const saved=lsJSON(AGENCY_LS_KEY,null);
+  if(!saved||typeof saved!=='object'||typeof saved.sido!=='string')return;
   const rg=S.agencyIndex.regions.find(x=>x.name===saved.sido);
   if(!rg)return;
   $('sidoSel').value=saved.sido;
@@ -626,13 +703,13 @@ function restoreAgencySelection(){
 $('sidoSel').addEventListener('change',()=>{
   populateAgencies($('sidoSel').value);
   $('agencySel').value='';
-  S.agency=null;$('jurisBox').classList.add('hide');
+  S.agency=null;jurisSeq++;S.jurisList=[];S.jurisErr='';$('jurisBox').classList.add('hide');
   $('agencyMsg').innerHTML='소속 기관을 선택하면 관할 음식점이 자동으로 표시됩니다.';
   validateAndRenderCsv();
 });
 $('agencySel').addEventListener('change',()=>{
   const sido=$('sidoSel').value,aid=$('agencySel').value;
-  if(!sido||!aid){S.agency=null;$('jurisBox').classList.add('hide');$('agencyMsg').innerHTML='소속 기관을 선택하면 관할 음식점이 자동으로 표시됩니다.';validateAndRenderCsv();return;}
+  if(!sido||!aid){S.agency=null;jurisSeq++;S.jurisList=[];S.jurisErr='';$('jurisBox').classList.add('hide');$('agencyMsg').innerHTML='소속 기관을 선택하면 관할 음식점이 자동으로 표시됩니다.';validateAndRenderCsv();return;}
   selectAgency(sido,aid);
   validateAndRenderCsv();
 });
@@ -665,28 +742,49 @@ function jurisQuery(){
   }
   return p.toString();
 }
+// 관할 목록 조회(D-2). ① 실패(429·5xx·끊김)를 '음식점이 없어요'로 말하지 않는다 — 사무실은 여러 사람이 인터넷
+// 주소 하나를 같이 써서 조회 한도(분당 20회)에 걸리기 쉽다. ② 기관을 빨리 바꾸면 앞 기관의 늦은 응답이 뒤 기관
+// 목록을 덮을 수 있어, 순번(jurisSeq)이 최신인 응답만 화면에 반영한다.
+let jurisSeq=0;
+function jurisFailMsg(status){
+  if(status===429)return '요청이 많아 잠시 목록을 불러오지 못했어요(같은 사무실 인터넷 주소를 여럿이 쓰면 그럴 수 있어요). 1분쯤 뒤 [다시 시도]를 눌러 주세요.';
+  if(status>=500)return '서버에 잠시 문제가 있어 관할 음식점 목록을 불러오지 못했어요. 잠시 후 [다시 시도]를 눌러 주세요.';
+  if(status)return '관할 음식점 목록을 불러오지 못했어요. 잠시 후 [다시 시도]를 눌러 주세요.';
+  return '인터넷 연결이 끊겨 관할 음식점 목록을 불러오지 못했어요. 연결을 확인하고 [다시 시도]를 눌러 주세요.';
+}
 async function fetchJurisdiction(){
+  const my=++jurisSeq;
   if(!S.agency)return;
   $('jurisBox').classList.remove('hide');
+  // 앞 기관의 목록을 그대로 두면 다른 기관 음식점을 고를 수 있다 — 새로 받기 전에 비운다.
+  S.jurisList=[];S.jurisErr='';
   if(!srv()){$('jurisList').innerHTML='<div class="bad">서버 주소를 입력하세요.</div>';return;}
   $('jurisList').innerHTML='<div class="meta">관할 음식점을 불러오는 중…</div>';
+  let r=null,j=null;
   try{
-    const r=await fetch(srv()+'/api/registered-list?'+jurisQuery());
+    r=await fetch(srv()+'/api/registered-list?'+jurisQuery());
+    if(my!==jurisSeq)return; // 그 사이 기관이 바뀜 — 늦게 온 응답은 버린다
     if(r.status===404||r.status===501){jurisFallback();return;}
-    const j=await r.json();
-    const list=(j&&Array.isArray(j.restaurants))?j.restaurants:[];
-    S.jurisList=list.slice().sort((a,b)=>String(a.restaurant_name||'').localeCompare(String(b.restaurant_name||''),'ko'));
-    // 등록 시각·공공데이터 대조 여부(신설 필드, 구서버는 없음)를 배지용으로 보관한다.
-    S.jurisList.forEach(x=>{
-      if(x&&x.restaurant_id&&(x.registered_at!=null||x.verified!=null))
-        S.regInfo.set(String(x.restaurant_id),{registered_at:x.registered_at,verified:x.verified});
-    });
+    if(r.ok){try{j=await r.json()}catch(e){j=null}}
+  }catch(e){r=null}
+  if(my!==jurisSeq)return;
+  if(!r||!r.ok||!j||!Array.isArray(j.restaurants)){
+    S.jurisList=[];S.jurisErr=jurisFailMsg(r?(r.ok?500:r.status):0);
     renderJurisList();
-  }catch(e){jurisFallback();}
+    return;
+  }
+  const list=j.restaurants;
+  S.jurisList=list.slice().sort((a,b)=>String(a.restaurant_name||'').localeCompare(String(b.restaurant_name||''),'ko'));
+  // 등록 시각·공공데이터 대조 여부(신설 필드, 구서버는 없음)를 배지용으로 보관한다.
+  S.jurisList.forEach(x=>{
+    if(x&&x.restaurant_id&&(x.registered_at!=null||x.verified!=null))
+      S.regInfo.set(String(x.restaurant_id),{registered_at:x.registered_at,verified:x.verified});
+  });
+  renderJurisList();
 }
-// 빈 목록·구서버 404: 안내 + 이름 검색 보조 경로 유지
+// 구서버 404: 안내 + 이름 검색 보조 경로 유지
 function jurisFallback(){
-  S.jurisList=[];
+  S.jurisList=[];S.jurisErr='';
   renderJurisList();
   $('nameSearch').open=true;
 }
@@ -745,6 +843,12 @@ function updateSelCount(){
 }
 function renderJurisList(){
   updateSelCount();
+  if(S.jurisErr){
+    $('jurisList').innerHTML='<div class="bad" style="font-size:14px">불러오지 못했어요</div><div class="meta" style="margin-top:4px">'+esc(S.jurisErr)+'</div>'+
+      '<button type="button" id="jurisRetryBtn" class="btn-primary" style="margin-top:8px">다시 시도</button>';
+    $('jurisRetryBtn').addEventListener('click',()=>fetchJurisdiction());
+    return;
+  }
   if(!S.jurisList.length){
     $('jurisList').innerHTML='<div class="meta">이 지역에 아직 관할 등록 음식점이 없어요. 음식점이 앱에서 (재)등록하면 목록에 나타납니다.</div>';
     return;
@@ -797,30 +901,48 @@ async function fingerprintOf(spkiB64){
 const DEPT_LS_KEY='agency-department';
 const KEYGATE_MSG='아래 가게는 아직 열쇠 지문을 확인하지 않았어요. 2-1단계에서 사장님과 통화해 지문을 맞춰 본 뒤 보내 주세요.';
 const SKIPGATE_MSG='이번에 명단이 전달되지 않는 음식점이 있습니다. 4단계 확인의 목록을 보시고 "위 음식점은 이번에 보내지 않는 것을 확인했습니다"에 체크해 주세요.';
+const KC_PREV_UNKNOWN='?'; // 서버가 '예전 확인값과 다름'만 알려 줄 때(값은 비공개)의 표시
 const keyInfoCache=new Map(); // restaurant_id → {pub,contact,fp} — 지문 조회용(전송 시에는 새로 받아 재검증)
 function kcScope(){return{institution:S.agency?S.agency.name:'',department:S.dept||''}}
 function kcHeaders(extra){const h=Object.assign({},extra||{});if(S.token)h['X-Agency-Token']=S.token;return h}
 // 로그인 직후·기관/부서 변경 시 호출. 이 부서가 이미 확인해 둔 가게 목록을 받아 둔다.
+// D-7: ① 조회 실패를 '확인 기록 없음'으로 삼키지 않는다 — 그러면 '지문이 바뀜(빨간 경고)'이어야 할 가게가
+//   평범한 '확인 필요' 카드로 보여, 바뀐 지문을 처음 보는 값처럼 확인하게 된다. 실패하면 [다시 시도]만 보이고
+//   그 가게들로는 보내지 않는다. ② 기관·부서를 빨리 바꾸면 앞 조회의 늦은 응답이 뒤 범위를 덮을 수 있어,
+//   순번(kcLoadSeq)이 최신인 응답만 반영한다. ③ 같은 범위를 다시 받을 때(재인증 등)는 받는 동안 기존 기록을 둔다.
+let kcLoadSeq=0,kcLoadedScope='';
+function kcScopeKey(){return (S.agency?S.agency.name:'')+'\u0000'+(S.dept||'')}
 async function loadKeychecks(){
-  S.keychecks=new Map();
+  const my=++kcLoadSeq;
+  const scopeKey=kcScopeKey();
+  if(scopeKey!==kcLoadedScope){S.keychecks=new Map();kcLoadedScope=scopeKey}
+  S.kcLoadErr=false;
   // 서버는 institution·department가 모두 있어야 확인 기록을 저장·조회한다(PROTOCOL §4.8).
   // 부서가 비어 있으면 조회 자체를 하지 않고, 화면에서 부서 입력을 먼저 요청한다.
   if(!S.authed||!S.agency||!S.dept){renderKeycheck();revalidate();return}
   const sc=kcScope();
+  let failed=false;
   try{
     const r=await fetch(srv()+'/api/agency/keychecks?institution='+encodeURIComponent(sc.institution)+'&department='+encodeURIComponent(sc.department),{headers:kcHeaders()});
+    if(my!==kcLoadSeq)return; // 그 사이 기관·부서가 바뀌었거나 다시 조회함 — 낡은 응답은 버린다
     if(r.status===401){expireToken();return}
     // 구서버(지문 확인 API 이전)에서는 이 기능 전체를 비활성화한다 — 확인할 방법이 없는데
     // 전송을 막으면 담당자가 아무것도 못 하게 된다(서버 배포가 항상 먼저다).
     if(r.status===404||r.status===501){S.kcUnsupported=true;renderKeycheck();revalidate();return}
     if(!r.ok)throw new Error('status '+r.status);
     const j=await r.json();
-    const list=(j&&Array.isArray(j.keychecks))?j.keychecks:(Array.isArray(j)?j:[]);
-    list.forEach(x=>{if(x&&x.restaurant_id)S.keychecks.set(String(x.restaurant_id),{fingerprint:String(x.fingerprint||''),checked_at:x.checked_at})});
+    if(my!==kcLoadSeq)return;
+    const list=(j&&Array.isArray(j.keychecks))?j.keychecks:(Array.isArray(j)?j:null);
+    if(!list)throw new Error('bad shape');
+    const m=new Map();
+    list.forEach(x=>{if(x&&x.restaurant_id)m.set(String(x.restaurant_id),{fingerprint:String(x.fingerprint||''),checked_at:x.checked_at})});
+    // 받는 사이에 이 화면에서 새로 확인한 가게는(서버 저장 성공분) 그대로 둔다.
+    S.keychecks.forEach((v,k)=>{if(v&&v.local&&!m.has(k))m.set(k,v)});
+    S.keychecks=m;
     S.kcUnsupported=false;
-  }catch(e){
-    // 네트워크 오류는 '확인 기록 없음'으로 남겨 둔다(안전한 쪽 = 다시 확인 요청).
-  }
+  }catch(e){failed=true}
+  if(my!==kcLoadSeq)return;
+  S.kcLoadErr=failed;
   renderKeycheck();revalidate();
 }
 // 선택된 가게들의 '현재 지문'을 서버에서 받아 온다(공개키 조회 = 레이트리밋 대상이라 페이싱).
@@ -856,6 +978,7 @@ function kcStatusOf(rid){
 function keyCheckPending(){
   if(S.kcUnsupported)return [];
   if(!S.dept)return S.restaurants.slice(); // 부서를 적기 전에는 확인 자체가 불가능
+  if(S.kcLoadErr)return S.restaurants.slice(); // 확인 기록을 못 읽었다 — 바뀐 지문을 알아챌 수 없으므로 보내지 않는다
   return S.restaurants.filter(r=>kcStatusOf(r.restaurant_id)!=='ok');
 }
 function allKeyChecked(){return keyCheckPending().length===0}
@@ -890,6 +1013,14 @@ function renderKeycheck(){
     if(b)b.addEventListener('click',()=>{$('deptInput').scrollIntoView({block:'center'});$('deptInput').focus()});
     return;
   }
+  if(S.kcLoadErr){
+    box.innerHTML='<div class="kc-card kc-danger"><div class="bad" style="font-size:15px">확인 기록을 불러오지 못했어요</div>'+
+      '<div style="font-size:13px;margin-top:4px">이 부서가 전에 확인한 열쇠 지문을 서버에서 받지 못했어요. 지문이 바뀐 가게를 알아챌 수 없어서, 다시 불러올 때까지 <b>명단을 보내지 않습니다</b>.</div>'+
+      '<div class="btns" style="margin-top:8px"><button type="button" class="btn-primary" data-a="kc-reload">다시 시도</button></div></div>';
+    const rb=box.querySelector('[data-a="kc-reload"]');
+    if(rb)rb.addEventListener('click',()=>{rb.disabled=true;rb.textContent='불러오는 중…';loadKeychecks()});
+    return;
+  }
   const done=[],pend=[];
   S.restaurants.forEach(r=>{(kcStatusOf(r.restaurant_id)==='ok'?done:pend).push(r)});
   let html='';
@@ -913,7 +1044,9 @@ function renderKeycheck(){
       const old=(S.keychecks.get(rid)||{}).fingerprint||'';
       html+='<div class="kc-card kc-danger">'+head+
         '<div class="bad" style="margin-top:6px;font-size:15px">⛔ 열쇠 지문이 전에 확인한 값과 달라요</div>'+
-        '<div style="font-size:13px;margin-top:4px">전에 확인한 지문 <span class="kc-old">'+esc(old)+'</span> → 지금 지문</div>'+
+        (old===KC_PREV_UNKNOWN
+          ?'<div style="font-size:13px;margin-top:4px">이 부서가 예전에 확인한 지문과 지금 지문이 달라요. 지금 지문:</div>'
+          :'<div style="font-size:13px;margin-top:4px">전에 확인한 지문 <span class="kc-old">'+esc(old)+'</span> → 지금 지문</div>')+
         '<div class="kc-fp">'+esc(fp)+'</div>'+
         '<div class="bad" style="font-size:13px">가게가 기기를 바꿨거나, 다른 사람이 가로챘을 수 있어요. <b>반드시 전화로 확인하세요.</b></div>'+
         (msg?'<div class="warn" style="font-size:13px;margin-top:6px">'+esc(msg)+'</div>':'')+
@@ -944,18 +1077,28 @@ function renderKeycheck(){
   }));
 }
 // 체크 → 서버에 확인 기록 저장. 실패하면 확인된 것으로 치지 않는다(게이트 유지).
+// confirm_change(D-7): 화면이 '지문이 바뀜(빨간 카드)'을 보여 준 상태에서 체크했을 때만 보낸다. 예전에는 409가
+//   오면 무조건 confirm_change:true로 다시 보내, 담당자가 바뀐 줄 모르고 체크한 경우에도 덮어썼다.
+//   새 서버는 바뀐 지문을 confirm_change 없이 저장하지 않고 409 fingerprint_changed를 준다 → 빨간 카드로 바꿔
+//   다시 통화·확인을 받는다. 예전 서버(409는 fingerprint_mismatch + current뿐)와도 그대로 맞물린다.
 async function confirmKey(rid){
   const fp=S.fps.get(rid);
   if(!fp||!S.dept||!S.agency)return; // 서버가 institution·department를 요구한다(§4.8)
-  const sc=kcScope();
+  const sc=kcScope(),scopeKey=kcScopeKey(),loadSeq=kcLoadSeq;
+  const wasChanged=kcStatusOf(rid)==='changed';
   const body={institution:sc.institution,department:sc.department,restaurant_id:rid,fingerprint:fp};
+  if(wasChanged)body.confirm_change=true;
   const post=b=>fetch(srv()+'/api/agency/keycheck',{method:'POST',headers:kcHeaders({'Content-Type':'application/json'}),body:JSON.stringify(b)});
+  // 응답을 기다리는 사이 기관·부서가 바뀌었으면 결과를 지금 범위에 적지 않는다(다른 부서 확인으로 둔갑 방지).
+  const stale=()=>scopeKey!==kcScopeKey()||(loadSeq!==kcLoadSeq&&kcLoadedScope!==scopeKey);
   S.kcMsg.delete(rid);
   try{
-    let res=await post(body);
+    const res=await post(body);
+    if(stale())return;
     if(res.status===401){expireToken();return}
     if(res.status===409){
       let j={};try{j=await res.json()}catch{}
+      if(stale())return;
       const cur=String(j.current||'');
       if(cur&&cur!==fp){
         // 우리가 화면에 띄운 지문이 이미 낡았다 — 그 사이 가게 키가 바뀐 것. 새 지문으로 다시 확인받는다.
@@ -963,21 +1106,27 @@ async function confirmKey(rid){
         S.kcMsg.set(rid,'확인하는 사이에 가게 열쇠가 바뀌었어요. 새 지문으로 다시 통화해 확인해 주세요.');
         renderKeycheck();revalidate();return;
       }
-      // 서버에 저장된 확인값과 다른 경우 — 담당자가 방금 통화로 확인했으므로 '변경 확인'으로 재요청한다.
-      res=await post(Object.assign({},body,{confirm_change:true}));
-      if(res.status===409){
-        S.kcMsg.set(rid,'이 가게의 열쇠가 예전 확인값과 달라 서버가 저장을 거부했어요. 사장님과 통화해 기기 변경 여부를 확인하고, 그래도 계속되면 contact@bapjangbu.com으로 알려 주세요.');
+      if(!wasChanged){
+        // 이 부서가 예전에 다른 지문으로 확인해 둔 가게다(화면이 몰랐던 경우 — 확인 기록 조회가 늦었거나 비었음).
+        // 서버는 예전 지문 값을 알려 주지 않는다(had_previous:true만) — '예전과 다름'만 표시한다.
+        const prev=String(j.previous||'');
+        S.keychecks.set(rid,{fingerprint:prev||KC_PREV_UNKNOWN,checked_at:null});
+        S.kcMsg.set(rid,'이 부서는 이 가게를 예전에 다른 열쇠 지문으로 확인했어요. 아래 새 지문이 맞는지 사장님과 다시 통화해 확인해 주세요.');
         renderKeycheck();revalidate();return;
       }
+      S.kcMsg.set(rid,'이 가게의 열쇠가 예전 확인값과 달라 서버가 저장을 거부했어요. 사장님과 통화해 기기 변경 여부를 확인하고, 그래도 계속되면 contact@bapjangbu.com으로 알려 주세요.');
+      renderKeycheck();revalidate();return;
     }
     if(!res.ok){
       let j={};try{j=await res.json()}catch{}
+      if(stale())return;
       S.kcMsg.set(rid,'확인 기록을 저장하지 못했어요: '+submitErrMsg(j.error,res.status));
       renderKeycheck();revalidate();return;
     }
-    S.keychecks.set(rid,{fingerprint:fp,checked_at:Date.now()});
+    S.keychecks.set(rid,{fingerprint:fp,checked_at:Date.now(),local:true});
     S.kcMsg.delete(rid);
   }catch(e){
+    if(stale())return;
     S.kcMsg.set(rid,'확인 기록을 저장하지 못했어요(네트워크). 잠시 후 다시 체크해 주세요.');
   }
   renderKeycheck();revalidate();
@@ -986,7 +1135,9 @@ async function confirmKey(rid){
 function assertKeyConfirmed(g,fp){
   if(S.kcUnsupported)return;
   const c=S.keychecks.get(g.restaurant_id);
-  if(!c||c.fingerprint!==fp){
+  // 확인 기록이 없는 것(조회 실패·인증 만료 등)과 지문이 실제로 바뀐 것은 다른 일이다 — 문구를 나눈다(D-1).
+  if(!c||!c.fingerprint)throw new Error('이 부서의 열쇠 지문 확인 기록이 없어 보내지 않았어요. 2-1단계에서 확인한 뒤 다시 보내 주세요.');
+  if(c.fingerprint!==fp){
     S.fps.set(g.restaurant_id,fp);
     renderKeycheck();
     throw new Error('열쇠 지문이 확인한 값과 달라요(지금 '+fp+'). 2-1단계에서 사장님과 통화해 다시 확인해 주세요.');
@@ -996,7 +1147,7 @@ function applyDept(){
   const v=($('deptInput').value||'').trim();
   if(v===S.dept)return;
   S.dept=v;
-  try{localStorage.setItem(DEPT_LS_KEY,S.dept)}catch(e){}
+  lsSet(DEPT_LS_KEY,S.dept);
   loadKeychecks(); // 부서가 바뀌면 확인 기록도 그 부서 것으로 다시 받는다
 }
 $('deptInput').addEventListener('change',applyDept);
@@ -1004,46 +1155,68 @@ let deptTimer=null;
 $('deptInput').addEventListener('input',()=>{if(deptTimer)clearTimeout(deptTimer);deptTimer=setTimeout(applyDept,600)});
 
 // ── 2-B. 음식점 이름 검색 (보조 경로 — 이름 필수 + 지역(구·동) 텍스트로 결과 좁히기, 미등록 가게는 표시하지 않음) ──
-$('searchBtn').addEventListener('click',async()=>{
+// 이름 검색 실패 안내(D-2): 서버 코드·영문 오류를 그대로 보이지 않고, '없어요'와 '못 찾아봤어요'를 구분한다.
+function searchFailMsg(status,code){
+  const k=String(code==null?'':code);
+  if(status===429||k==='rate_limited')return '요청이 많아 잠시 검색이 막혔어요(같은 사무실 인터넷 주소를 여럿이 쓰면 그럴 수 있어요). 1분쯤 뒤 다시 검색해 주세요.';
+  if(status===400&&k&&!/^[a-z0-9_]+$/.test(k))return k; // "우편번호는 5자리 숫자입니다" 같은 입력 안내
+  if(status>=500)return '공공데이터 검색 서버에 잠시 문제가 있어요. 잠시 후 다시 검색해 주세요.';
+  if(status)return '검색하지 못했어요. 잠시 후 다시 검색해 주세요.';
+  return '인터넷 연결이 끊겨 검색하지 못했어요. 연결을 확인하고 다시 검색해 주세요.';
+}
+function searchFailHtml(msg){
+  return '<div class="bad" style="font-size:14px">검색하지 못했어요</div><div class="meta" style="margin-top:4px">'+esc(msg)+'</div>'+
+    '<button type="button" data-a="search-retry" style="margin-top:8px">다시 검색</button>';
+}
+let searchSeq=0;
+async function runNameSearch(){
   if(!navigator.onLine){alert('인터넷 연결을 확인해 주세요.');return}
   const q=($('q').value||'').trim(),regionText=($('region').value||'').trim();
   if(!srv()){alert('서버 주소를 입력하세요.');return}
   const zipText=(($('zip')&&$('zip').value)||'').replace(/\D/g,'').slice(0,5);
   if(!q&&!zipText){alert('음식점 이름이나 우편번호를 입력하세요.');return}
+  const my=++searchSeq; // 검색을 연달아 누르면 마지막 검색의 응답만 반영한다
+  const fail=msg=>{if(my!==searchSeq)return;S.lastList=[];$('results').innerHTML=searchFailHtml(msg);
+    const rb=$('results').querySelector('[data-a="search-retry"]');if(rb)rb.addEventListener('click',runNameSearch)};
   $('results').innerHTML='<div class="meta">검색 중…</div>';
-  try{
-    // 공공데이터가 한글 조건 검색을 못 받는 상태(2026-08)에서는 우편번호로 후보를 받고
-    // 이름은 서버가 걸러 준다. 우편번호가 없으면 기존 이름 검색을 그대로 시도한다.
-    const qsParts=[];if(q)qsParts.push('q='+encodeURIComponent(q));if(zipText)qsParts.push('zip='+zipText);
-    const r=await fetch(srv()+'/api/restaurants?'+qsParts.join('&'));
-    const list=await r.json();
-    if(!Array.isArray(list)){$('results').innerHTML='<div class="bad">'+esc(list.error||'검색 오류')+'</div>';return}
-    if(!list.length){$('results').innerHTML='<div class="meta">'+(zipText?'검색 결과가 없습니다. 우편번호와 음식점 이름을 다시 확인해 주세요.':'이름만으로는 찾지 못했습니다. 음식점의 <b>우편번호 5자리</b>를 함께 넣고 다시 검색해 보세요.')+'</div>';S.lastList=[];return}
-    const capped=list.slice(0,50);
-    let reg=[];try{reg=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(capped.map(x=>x.restaurant_id).join(','))).then(x=>x.json())}catch(e){}
-    S.registered=new Set(Array.isArray(reg)?reg:[]);
-    // 미등록 가게는 아예 표시하지 않음
-    const registeredOnly=capped.filter(x=>S.registered.has(x.restaurant_id));
-    if(!registeredOnly.length){
+  // 공공데이터가 한글 조건 검색을 못 받는 상태(2026-08)에서는 우편번호로 후보를 받고
+  // 이름은 서버가 걸러 준다. 우편번호가 없으면 기존 이름 검색을 그대로 시도한다.
+  const qsParts=[];if(q)qsParts.push('q='+encodeURIComponent(q));if(zipText)qsParts.push('zip='+zipText);
+  let r,list;
+  try{r=await fetch(srv()+'/api/restaurants?'+qsParts.join('&'))}catch(e){return fail(searchFailMsg(0))}
+  try{list=await r.json()}catch(e){list=null}
+  if(my!==searchSeq)return;
+  if(!r.ok||!Array.isArray(list))return fail(searchFailMsg(r.ok?500:r.status,list&&list.error));
+  if(!list.length){$('results').innerHTML='<div class="meta">'+(zipText?'검색 결과가 없습니다. 우편번호와 음식점 이름을 다시 확인해 주세요.':'이름만으로는 찾지 못했습니다. 음식점의 <b>우편번호 5자리</b>를 함께 넣고 다시 검색해 보세요.')+'</div>';S.lastList=[];return}
+  const capped=list.slice(0,50);
+  // 등록 여부 조회가 실패하면 '등록된 음식점이 없어요'가 아니라 '확인하지 못했어요'다.
+  let reg=null,rs=0;
+  try{const rr=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(capped.map(x=>x.restaurant_id).join(',')));rs=rr.status;if(rr.ok)reg=await rr.json()}catch(e){reg=null}
+  if(my!==searchSeq)return;
+  if(!Array.isArray(reg))return fail(rs===429?searchFailMsg(429):'음식점은 찾았지만 밥장부 등록 여부를 확인하지 못했어요. 잠시 후 다시 검색해 주세요.');
+  S.registered=new Set(reg);
+  // 미등록 가게는 아예 표시하지 않음
+  const registeredOnly=capped.filter(x=>S.registered.has(x.restaurant_id));
+  if(!registeredOnly.length){
+    S.lastList=[];
+    $('results').innerHTML='<div class="meta">이 지역에 아직 등록된 음식점이 없어요. 음식점에 앱 설치를 안내해 주세요.</div>';
+    return;
+  }
+  // 지역(구·동) 텍스트 필터 — 입력한 모든 낱말이 주소에 포함되는 항목만
+  const tokens=regionText.split(/\s+/).filter(Boolean);
+  let filtered=registeredOnly;
+  if(tokens.length){
+    filtered=registeredOnly.filter(x=>tokens.every(t=>(x.address||'').includes(t)));
+    if(!filtered.length){
       S.lastList=[];
-      $('results').innerHTML='<div class="meta">이 지역에 아직 등록된 음식점이 없어요. 음식점에 앱 설치를 안내해 주세요.</div>';
+      $('results').innerHTML='<div class="meta">지역 조건을 빼고 다시 검색해 보세요.</div>';
       return;
     }
-    // 지역(구·동) 텍스트 필터 — 입력한 모든 낱말이 주소에 포함되는 항목만
-    const tokens=regionText.split(/\s+/).filter(Boolean);
-    let filtered=registeredOnly;
-    if(tokens.length){
-      filtered=registeredOnly.filter(x=>tokens.every(t=>(x.address||'').includes(t)));
-      if(!filtered.length){
-        S.lastList=[];
-        $('results').innerHTML='<div class="meta">지역 조건을 빼고 다시 검색해 보세요.</div>';
-        return;
-      }
-    }
-    S.lastList=filtered;
-    renderResults();
-  }catch(e){$('results').innerHTML='<div class="bad">검색 실패: '+esc(e.message)+'</div>'}
-});
+  }
+  S.lastList=filtered;
+  renderResults();
+}
+$('searchBtn').addEventListener('click',runNameSearch);
 function renderResults(){
   if(!S.lastList.length){$('results').innerHTML='';return}
   const counts=nameCounts(S.lastList,'name');
@@ -1101,10 +1274,12 @@ const HEADER_ALIAS={'소속기관':'소속','소속기관명':'소속','급량�
 function hasPayCol(fmt){return fmt==='pay'||fmt==='meal'}
 // 1식 단가: 급량개수를 금액으로 바꿀 때만 쓴다. 기관마다 달라 고칠 수 있게 두고, 이 브라우저에 기억한다.
 const UNIT_PRICE_KEY='agency-unit-price',UNIT_PRICE_DEFAULT=9000;
-function loadUnitPrice(){try{const n=parseInt(localStorage.getItem(UNIT_PRICE_KEY),10);return n>0?n:UNIT_PRICE_DEFAULT}catch(e){return UNIT_PRICE_DEFAULT}}
+// 한 사람 금액 상한(D-4). 식대 선금으로 1,000만 원을 넘는 값은 사실상 입력 실수(0을 더 친 것·날짜 칸 등)다.
+const MAX_PER_PERSON=10000000;
+function loadUnitPrice(){const n=parseInt(lsGet(UNIT_PRICE_KEY),10);return n>0&&n<=MAX_PER_PERSON?n:UNIT_PRICE_DEFAULT}
 // 급량개수: 양의 정수만('10', '10개', '10식' 허용). 비어 있으면 0, 잘못된 값이면 NaN.
 S.unitPrice=loadUnitPrice();
-function parseMeals(v){const s=String(v==null?'':v).replace(/[\s,]/g,'').replace(/(개|식|끼)$/,'');if(!s)return 0;return /^\d+$/.test(s)&&Number(s)>0?Number(s):NaN}
+function parseMeals(v){const s=toAsciiDigits(v).replace(/[\s,\u00a0]/g,'').replace(/(개|식|끼)$/,'');if(!s)return 0;return /^\d{1,6}$/.test(s)&&Number(s)>0?Number(s):NaN}
 // 양식에 미리 채울 줄: 2단계에서 고른 음식점마다 3줄(음식점명·소속기관·부서명). 직원명·금액은 비워 둔다.
 //   음식점명은 고른 가게 이름 그대로라 "글자까지 똑같이"를 담당자가 맞출 필요가 없다.
 //   직원명·금액 등을 채우지 않고 남긴 줄은 업로드 때 건너뛴다(isUnfilledRow).
@@ -1204,6 +1379,25 @@ async function readXlsxTable(buf){
   const texts=el=>[...el.getElementsByTagNameNS(NS,'t')].filter(t=>!t.closest||!t.closest('rPh')).map(t=>t.textContent).join('');
   const ssx=await get('xl/sharedStrings.xml');
   const shared=ssx?[...parse(ssx).getElementsByTagNameNS(NS,'si')].map(texts):[];
+  // 날짜 서식 칸 찾기(D-4): 엑셀은 날짜를 숫자(예: 46327)로 저장하고 서식으로만 날짜로 보여 준다. 금액 칸이 날짜
+  //   서식이면 그 숫자가 그대로 금액으로 들어가므로, 칸 스타일(s)이 날짜 서식인지 표시해 두고 금액 칸이면 막는다.
+  const dateXf=new Set();
+  try{
+    const stx=await get('xl/styles.xml');
+    if(stx){
+      const sd=parse(stx);
+      const custom=new Map();
+      [...sd.getElementsByTagNameNS(NS,'numFmt')].forEach(n=>custom.set(Number(n.getAttribute('numFmtId')),String(n.getAttribute('formatCode')||'')));
+      const isDateFmt=id=>{
+        if((id>=14&&id<=22)||(id>=45&&id<=47)||(id>=27&&id<=36)||(id>=50&&id<=58))return true;
+        const code=custom.get(id);if(!code)return false;
+        const bare=code.replace(/"[^"]*"/g,'').replace(/\[[^\]]*\]/g,'').replace(/\\./g,'');
+        return /[ymdhs]/i.test(bare)&&!/^[#0.,\s%]*$/.test(bare);
+      };
+      const xfs=sd.getElementsByTagNameNS(NS,'cellXfs')[0];
+      if(xfs)[...xfs.getElementsByTagNameNS(NS,'xf')].forEach((xf,i)=>{if(isDateFmt(Number(xf.getAttribute('numFmtId'))))dateXf.add(i)});
+    }
+  }catch(e){/* 서식을 못 읽어도 값 읽기는 계속한다 */}
   const sx=await get(sheetPath);if(!sx)throw new Error('엑셀 파일에서 시트를 찾지 못했어요');
   const doc=parse(sx);if(doc.getElementsByTagName('parsererror').length)throw new Error('엑셀 시트를 읽지 못했어요');
   const table=[];
@@ -1217,6 +1411,7 @@ async function readXlsxTable(buf){
       if(t==='s')val=v?(shared[parseInt(v.textContent,10)]||''):'';
       else if(t==='inlineStr'){const is=c.getElementsByTagNameNS(NS,'is')[0];val=is?texts(is):''}
       else val=v?v.textContent:'';
+      if(v&&(!t||t==='n'||t==='d')&&(t==='d'||dateXf.has(Number(c.getAttribute('s')||0)))){(arr.dateCols||(arr.dateCols=new Set())).add(col)}
       arr[col]=String(val).trim();
     });
     for(let i=0;i<arr.length;i++)if(arr[i]==null)arr[i]='';
@@ -1230,26 +1425,43 @@ $('unitPrice').value=S.unitPrice.toLocaleString();
 $('unitPrice').addEventListener('input',e=>{
   const n=parseWon(e.target.value);
   S.unitPrice=n>0?n:NaN;
-  if(n>0){try{localStorage.setItem(UNIT_PRICE_KEY,String(n))}catch(err){}}
+  if(n>0)lsSet(UNIT_PRICE_KEY,String(n));
   if(S.rawRows)validateAndRenderCsv();
 });
 $('unitPrice').addEventListener('blur',e=>{if(S.unitPrice>0)e.target.value=S.unitPrice.toLocaleString()});
 $('csvTemplateBtn').addEventListener('click',()=>{
   downloadBlob(buildXlsx(TEMPLATE_COLS,templateRows()),'선입금대장_명단양식.xlsx');
 });
+// CSV 칸이 = + - @ 탭·줄바꿈으로 시작하면 엑셀이 수식으로 읽는다(수식 주입, D-5). 미리 채운 칸(가게 이름 등)
+// 앞에 ' 를 붙여 글자로만 보이게 하고, 올릴 때는 같은 ' 를 떼어 원래 이름과 맞춘다(stripCsvGuard).
+// 엑셀(.xlsx) 양식은 모든 칸을 글자(inlineStr)로 쓰므로 해당 없음 — 그대로 둔다.
+function csvGuard(v){v=String(v==null?'':v);return /^[=+\-@\t\r]/.test(v)?"'"+v:v}
+function stripCsvGuard(v){v=String(v==null?'':v);return /^'[=+\-@\t\r]/.test(v)?v.slice(1):v}
 $('csvTemplateCsvLink').addEventListener('click',e=>{
   e.preventDefault();
   // 엑셀이 없거나 CSV가 꼭 필요할 때만. 같은 줄을 미리 채운다(UTF-8 BOM — 엑셀 한글 깨짐 방지).
   const q=v=>/[",\r\n]/.test(v)?'"'+String(v).replace(/"/g,'""')+'"':v;
-  const csv=[TEMPLATE_COLS].concat(templateRows()).map(r=>r.map(q).join(',')).join('\r\n')+'\r\n';
+  const csv=[TEMPLATE_COLS].concat(templateRows().map(r=>r.map(csvGuard))).map(r=>r.map(q).join(',')).join('\r\n')+'\r\n';
   downloadBlob(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}),'선입금대장_명단양식.csv');
 });
 function parseLine(line,delim){delim=delim||',';const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===delim&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
-function parseWon(v){const s=String(v==null?'':v).replace(/,/g,'').replace(/원/g,'').replace(/\s/g,'').trim();if(!s)return NaN;const n=Number(s);return Number.isInteger(n)?n:NaN}
+// 금액 읽기(D-4): ₩ ￦ 원 쉼표 공백만 떼고 **숫자만** 남아야 한다. 예전에는 Number()에 맡겨 0x2328(16진수)·1e4(지수)·
+// 20자리 수가 금액으로 통과했고, ￦9,000은 거꾸로 거부됐다. 소수·음수·문자는 NaN(→ "숫자만" 안내).
+// 전각 숫자(９０００)는 한글 입력기에서 흔해 반각으로 바꿔 받는다.
+function toAsciiDigits(v){return String(v==null?'':v).replace(/[\uFF10-\uFF19]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFF10+48))}
+function parseWon(v){const s=toAsciiDigits(v).replace(/[₩￦원,\s\u00a0]/g,'');if(!s||!/^\d+$/.test(s))return NaN;return Number(s)} // 너무 긴 수는 상한(1,000만 원) 검사에서 걸린다
+// 날짜처럼 생긴 금액(엑셀이 칸 서식을 날짜로 바꾼 경우: 2026-11-01, 2026.11.1, 11월 1일 등).
+function looksLikeDate(v){const s=String(v==null?'':v).trim();return /^\d{2,4}[-./]\d{1,2}[-./]\d{1,4}\.?$/.test(s)||/^\d{1,2}[-/]\d{1,2}$/.test(s)||/\d+\s*월\s*\d+\s*일/.test(s)||/^\d{4}\s*년/.test(s)}
 // ── CSV 인코딩 자동 감지: BOM→UTF-8 확정 / UTF-8(fatal) 시도 실패 시 EUC-KR / UTF-8 성공해도 치환문자(U+FFFD) 있으면 EUC-KR과 비교해 적은 쪽 채택 ──
 function countReplacementChars(s){let n=0;for(let i=0;i<s.length;i++)if(s.charCodeAt(i)===0xFFFD)n++;return n}
 function decodeCsvBuffer(buf){
   const u=new Uint8Array(buf);
+  // UTF-16(엑셀의 [유니코드 텍스트] 저장 등 — BOM FF FE / FE FF). 예전에는 UTF-8로 잘못 읽어 첫 줄부터 깨졌다(D-8).
+  if(u.length>=2&&((u[0]===0xFF&&u[1]===0xFE)||(u[0]===0xFE&&u[1]===0xFF))){
+    let text=new TextDecoder(u[0]===0xFF?'utf-16le':'utf-16be').decode(buf);
+    if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+    return{text,encoding:'utf-16'};
+  }
   const hasBom=u.length>=3&&u[0]===0xEF&&u[1]===0xBB&&u[2]===0xBF;
   if(hasBom){
     let text=new TextDecoder('utf-8').decode(buf);
@@ -1278,6 +1490,10 @@ function normName(s){return String(s==null?'':s).trim().replace(/\s+/g,' ')}
 // 비어 있다고 명단을 막지 않는다. CSV의 열 이름('입금자명')은 하위호환 때문에 그대로 둔다.
 const ERR_BLANK='빈 칸이 있어요 (음식점명·부서명·직원명은 꼭 채워 주세요)';
 const ERR_AMOUNT='금액 칸에는 숫자만 적어 주세요 (예: 9000 또는 9,000)';
+const ERR_AMOUNT_MAX='한 사람 금액은 1,000만 원까지 적을 수 있어요 — 0을 더 적지 않았는지 확인해 주세요';
+const ERR_AMOUNT_DATE='금액(또는 급량개수) 칸이 날짜로 바뀌어 있어요 — 엑셀에서 그 칸의 서식을 [숫자]나 [일반]으로 바꾼 뒤 다시 적어 주세요';
+const ERR_EXTRA_COLS='칸 수가 첫 줄보다 많아요 — 금액에 쉼표를 넣었다면 따옴표로 감싸거나("9,000") 쉼표 없이 적어 주세요. [엑셀 양식 다운로드]로 받은 파일을 쓰면 이런 일이 없어요';
+const ERR_COMMA_SPLIT='금액의 쉼표 때문에 칸이 나뉜 것 같아요(예: 10,000 → 10과 000) — 쉼표 없이 적거나 [엑셀 양식 다운로드]로 받은 파일을 써 주세요';
 const ERR_AMOUNT_OR_MEALS='급량개수 또는 선금금액을 적어 주세요';
 const ERR_MEALS='급량개수는 숫자만 적어 주세요 (예: 10)';
 const ERR_MEAL_MISMATCH='선금금액이 급량개수 × 1식 단가와 달라요 — 둘 중 하나만 적어 주세요';
@@ -1331,11 +1547,15 @@ $('csv').addEventListener('change',async e=>{
   }else{
     let decoded;
     try{decoded=decodeCsvBuffer(buf)}catch(err){rejectKeepingPrev(['인코딩 인식 실패: '+err.message]);return}
-    const lines=decoded.text.split(/\r?\n/).filter(l=>l.trim());
+    // 줄 번호는 '파일의 실제 줄'로 센다(D-8). 예전에는 빈 줄을 먼저 걸러 낸 뒤 번호를 매겨, 빈 줄이 끼면
+    //   화면의 '몇 번째 줄'이 실제 파일과 어긋났다.
+    const all=decoded.text.split(/\r\n|\n|\r/);
+    const lines=[];lineNos=[];
+    all.forEach((l,i)=>{if(l.trim()){lines.push(l);lineNos.push(i+1)}});
     if(decoded.encoding==='euc-kr')warnings.push('EUC-KR(공공기관 엑셀 기본 저장 형식)로 인식해 자동 변환했습니다.');
     const fl=lines[0]||'';
     const delim=(!fl.includes(',')&&fl.includes('\t'))?'\t':',';
-    table=lines.map(l=>parseLine(l,delim));lineNos=lines.map((_,i)=>i+1);
+    table=lines.map(l=>parseLine(l,delim));
   }
   const firstLine=(table[0]||[]).join(',');
   const header=(table[0]||[]).map(h=>String(h).replace(/\s/g,'')).map(h=>HEADER_ALIAS[h]||h);
@@ -1360,7 +1580,9 @@ $('csv').addEventListener('change',async e=>{
     rawRows=[];
     const oddPay=new Set();let unfilled=0;
     for(let i=1;i<table.length;i++){
-      const f=table[i];if(f.every(x=>!x))continue;
+      // CSV 양식의 ' 머리(수식 주입 방지, D-5)는 떼어 원래 이름으로 맞춘다.
+      const f=table[i].map(x=>stripCsvGuard(x));if(f.every(x=>!x))continue;
+      f.dateCols=table[i].dateCols;
       // 급량 양식: 음식점명,소속,부서명,직원명,급량개수,선금금액,입금자명,결제구분
       // 결제 양식: 음식점명,소속,부서명,직원명,선금금액,입금자명,결제구분
       // 소속 양식: 음식점명,소속,부서명,직원명,선금금액,입금자명
@@ -1375,19 +1597,30 @@ $('csv').addEventListener('change',async e=>{
           :{rest:f[0]||'',org:'',inst:'',dept:f[1]||'',name:f[2]||'',amount:f[3],payer:f[4]||'',payMethod:''};
       // 양식에 미리 채워 둔 줄(음식점명·소속기관·부서명만 있고 직원명·금액·입금자명·결제구분이 빈 줄)은
       //   담당자가 쓰지 않은 줄이다 — 오류로 막지 않고 건너뛰되, 몇 줄인지는 안내한다(조용히 삼키지 않음).
-      if(!o.name&&!String(o.amount==null?'':o.amount).trim()&&!o.meals&&!o.payer&&!o.payMethod){unfilled++;continue}
+      const extra=!isZip&&f.slice(header.length).some(x=>String(x).trim());
+      if(!extra&&!o.name&&!String(o.amount==null?'':o.amount).trim()&&!o.meals&&!o.payer&&!o.payMethod){unfilled++;continue}
       const amtText=String(o.amount==null?'':o.amount).trim();
       const amt=amtText?parseWon(o.amount):NaN;
+      // 금액·급량개수 칸 위치(양식마다 다름) — 날짜 서식 칸·쉼표로 갈라진 금액을 찾는 데 쓴다.
+      const amtCol=isMeal?5:((isPay||isOrg||isOld)?4:3),mealCol=isMeal?4:-1;
+      const dateCell=(f.dateCols&&(f.dateCols.has(amtCol)||f.dateCols.has(mealCol)))||looksLikeDate(amtText)||(isMeal&&looksLikeDate(o.meals));
+      // 따옴표 없는 "10,000"이 10 | 000 두 칸으로 갈라진 경우(초과 칸이 없어도 입금자명 칸에 000이 들어간다).
+      const commaSplit=!isZip&&/^\d{1,3}$/.test(amtText)&&/^\d{3}$/.test(String(f[amtCol+1]||'').trim());
       // 급량개수가 있으면 금액은 개수 × 1식 단가로 정한다(단가가 바뀌어도 다시 계산되도록 validateAndRenderCsv에서 곱한다).
       const meals=parseMeals(o.meals);
       let structErr='';
       // '소속'·'입금자명'·'결제구분'은 빈 칸이어도 오류가 아니다(선택 항목).
       //   · 소속   : 2단계 기관으로 자동 채움
       //   · 입금자명: 카드결제에는 개념 자체가 없음(PROTOCOL §2 선택 필드)
-      if(!o.rest||!o.dept||!o.name)structErr=ERR_BLANK;
+      if(extra)structErr=ERR_EXTRA_COLS;
+      else if(commaSplit)structErr=ERR_COMMA_SPLIT;
+      else if(!o.rest||!o.dept||!o.name)structErr=ERR_BLANK;
+      else if(dateCell)structErr=ERR_AMOUNT_DATE;
       else if(Number.isNaN(meals))structErr=ERR_MEALS;
-      else if(meals>0){if(amtText&&!(amt>0))structErr=ERR_AMOUNT}
-      else if(!(amt>0))structErr=isMeal?ERR_AMOUNT_OR_MEALS:ERR_AMOUNT;
+      else if(meals>0){if(amtText&&!(amt>0))structErr=ERR_AMOUNT;else if(amt>MAX_PER_PERSON)structErr=ERR_AMOUNT_MAX}
+      else if(!amtText&&isMeal)structErr=ERR_AMOUNT_OR_MEALS;
+      else if(!(amt>0))structErr=ERR_AMOUNT;
+      else if(amt>MAX_PER_PERSON)structErr=ERR_AMOUNT_MAX;
       if(o.payMethod&&PAY_METHODS.indexOf(o.payMethod)<0)oddPay.add(o.payMethod);
       // 중복 행 검사는 소속이 자동 채워진 뒤라야 정확하므로 validateAndRenderCsv로 옮겼다.
       rawRows.push({...o,amount:amt,meals:meals>0?meals:0,line:lineNos[i],structErr});
@@ -1526,19 +1759,23 @@ async function probeSkipped(names){
       if(my===probeSeq)renderSkipNotice();
       let st={state:'unknown'};
       try{
+        // 조회 실패(429·5xx·끊김)는 '미등록'이 아니라 '확인하지 못함'이다 — 사장님께 엉뚱한 설치 안내를 하지 않게.
         const r=await fetch(srv()+'/api/restaurants?q='+encodeURIComponent(n));
-        const list=await r.json();
+        const list=r.ok?await r.json():null;
         if(Array.isArray(list)&&list.length){
           const exact=list.filter(x=>normName(x.name)===normName(n));
           const cand=(exact.length?exact:list).slice(0,20);
-          let reg=[];
-          try{reg=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(cand.map(x=>x.restaurant_id).join(','))).then(x=>x.json())}catch(e){}
-          const regSet=new Set(Array.isArray(reg)?reg:[]);
-          const hits=cand.filter(x=>regSet.has(x.restaurant_id));
-          st=hits.length
-            ?{state:'registered',hits:hits.slice(0,3).map(x=>({name:x.name,addr:shortAddr(x.address)}))}
-            :{state:'unregistered'};
-        }else st={state:'unregistered'};
+          let reg=null;
+          try{const rr=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(cand.map(x=>x.restaurant_id).join(',')));if(rr.ok)reg=await rr.json()}catch(e){reg=null}
+          if(!Array.isArray(reg))st={state:'unknown'};
+          else{
+            const regSet=new Set(reg);
+            const hits=cand.filter(x=>regSet.has(x.restaurant_id));
+            st=hits.length
+              ?{state:'registered',hits:hits.slice(0,3).map(x=>({name:x.name,addr:shortAddr(x.address)}))}
+              :{state:'unregistered'};
+          }
+        }else st=Array.isArray(list)?{state:'unregistered'}:{state:'unknown'};
       }catch(e){st={state:'unknown'}}
       skipProbe.set(normName(n),st);
       if(my===probeSeq)renderSkipNotice();
@@ -1570,6 +1807,7 @@ function skipReasonHtml(name){
     (p.hits&&p.hits.length?' ('+p.hits.map(h=>esc(h.name)+(h.addr?' · '+esc(h.addr):'')).join(' / ')+')':'')+
     ' — 2단계의 <b>[음식점 등록명단에 없는 경우 이름으로 한번 더 검색해보세요]에서 찾아 선택하면 이번에 함께 보낼 수 있어요.</div>';
   else if(p.state==='unregistered')html+='<div class="meta" style="font-size:12px">아직 <b>밥장부에 등록되지 않은 음식점</b>입니다 — 사장님께 앱 설치·가게 등록을 안내해 주세요.</div>';
+  else if(p.state==='unknown')html+='<div class="meta" style="font-size:12px">등록 여부를 확인하지 못했어요(조회 실패). 2단계의 이름 검색으로 직접 찾아보세요.</div>';
   return html;
 }
 function needSkipAck(){return S.skipped.length>0||S.missingSel.length>0}
@@ -1654,6 +1892,7 @@ function validateAndRenderCsv(){
       const unit=S.unitPrice;
       if(!(unit>0)){mealErr=ERR_UNIT_PRICE;amount=NaN}
       else if(r.amount>0&&r.amount!==r.meals*unit)mealErr=ERR_MEAL_MISMATCH;
+      else if(r.meals*unit>MAX_PER_PERSON){mealErr=ERR_AMOUNT_MAX;amount=NaN}
       else amount=r.meals*unit;
     }
     let err='';
@@ -1836,7 +2075,11 @@ function renderConfirm(){
     '<table><thead><tr><th>음식점</th>'+(multiOrg?'<th>소속</th>':'')+'<th>부서</th><th>인원</th><th>선금 합계</th><th>결제자·입금자명<br><span class="meta">(선택)</span></th></tr></thead><tbody>'+rows+'</tbody></table>'+
     // 결제 단위는 가게다. 총 합계는 담당자의 검산용 참고값 — 설명 박스는 지나친 설명이라 삭제하고
     // (사용자 지시 2026-08-10) 숫자 한 줄만 남긴다.
-    '<div class="meta" style="margin-top:8px">총 합계 '+totalAmount.toLocaleString()+'원 · 음식점 '+byStore.size+'곳 · '+totalPeople+'명 (참고용 — 결제는 가게별로 따로)</div>';
+    '<div class="meta" style="margin-top:8px">총 합계 '+totalAmount.toLocaleString()+'원 · 음식점 '+byStore.size+'곳 · '+totalPeople+'명 (참고용 — 결제는 가게별로 따로)</div>'+
+    // 바로 보내기 한 건의 크기 상한(서버 200KB)을 넘을 듯한 그룹은 미리 알린다(D-8).
+    (groups.some(g=>estCipherLen(g.items)>MAX_CIPHERTEXT)
+      ?'<div class="warn" id="tooBigWarn" style="margin-top:6px;font-size:13px">⚠️ '+groups.filter(g=>estCipherLen(g.items)>MAX_CIPHERTEXT).map(g=>esc(g.restaurant_name+' / '+g.department)).join(', ')+' — '+esc(TOO_BIG_MSG)+'</div>'
+      :'');
 }
 function computeStep(){
   if(!S.authed)return 1;
@@ -1901,6 +2144,8 @@ function revalidate(){
     div.style.cssText='margin-bottom:8px;border-color:var(--warn);background:#fff4e5;color:#7a5209;font-size:13px';
     div.innerHTML=(!S.dept
       ?'<b>먼저 2단계 [우리 부서(과)] 칸에 부서 이름을 적고, 2-1단계에서 열쇠 지문을 확인해 주세요</b>'
+      :S.kcLoadErr
+      ?'<b>열쇠 지문 확인 기록을 불러오지 못해 지금은 보낼 수 없어요</b> — 2-1단계에서 [다시 시도]를 눌러 주세요'
       :'<b>먼저 2-1단계에서 열쇠 지문을 확인해 주세요</b> — '+pendingKeys.map(r=>esc(r.name)).join(', '))+
       '<div class="meta" style="margin-top:4px">사장님과 통화로 지문을 맞춰 봐야, 가게인 척 등록한 다른 사람에게 명단이 가지 않습니다.</div>';
     $('submitCard').insertBefore(div,$('submitCard').firstChild);
@@ -1913,7 +2158,17 @@ function revalidate(){
   if(ok&&S.mode&&!keyOk)$('submitBtn').textContent='열쇠 지문 확인 후 보낼 수 있어요';
   else if(ok&&S.mode&&!skipOk)$('submitBtn').textContent='4단계에서 보내지 않는 음식점을 확인해 주세요';
   else if(ok&&S.mode)$('submitBtn').textContent=S.mode==='relay'?'동의 확인 후 바로 보내기':'동의 확인 후 직접 전달 준비';
-  if(ok&&!sending&&sentLocked()){$('submitBtn').disabled=true;$('submitBtn').textContent='✓ 보내기 완료'}
+  const locked=ok&&!sending&&sentLocked();
+  // 새로 고침 뒤에도 보낸 결과(접수번호·성공 여부)를 탭 저장소에서 되살려 결과표·재시도 버튼을 보여 준다(D-6).
+  if(locked&&!relayResults.size)restoreRelayFromStore();
+  // 인증 만료 등으로 결과표가 지워졌어도, 같은 명단이면 다시 그려 [실패한 건 다시 보내기]를 잃지 않게 한다.
+  if(ok&&!sending&&relayResults.size&&S.relaySig===sendSig()&&!$('sendResult').innerHTML)renderRelayResults(true);
+  if(locked){
+    const anyFail=[...relayResults.values()].some(r=>!r.ok);
+    $('submitBtn').disabled=true;
+    // 일부만 보낸 상태를 '✓ 보내기 완료'라고 말하면 거짓이다 — 남은 일이 있다고 말한다.
+    $('submitBtn').textContent=anyFail?'일부 실패 — 아래에서 다시 보내기':'✓ 보내기 완료';
+  }
   updateStepper();
 }
 
@@ -1971,7 +2226,7 @@ function showTermsGate(){
   $('termsAgree').addEventListener('change',e=>$('termsOk').disabled=!e.target.checked);
   $('termsOk').addEventListener('click',()=>{
     if(!$('termsAgree').checked)return;
-    localStorage.setItem(TERMS_KEY,String(Date.now()));
+    termsAgreedMem=true;lsSet(TERMS_KEY,String(Date.now())); // 저장이 막힌 PC여도 이 창에서는 계속 진행된다
     $('modalRoot').innerHTML='';
     document.removeEventListener('keydown',termsTrap);
     if($('authBtn'))$('authBtn').disabled=false;
@@ -2032,10 +2287,14 @@ async function fetchRetry(url,opts,onRetry){
     }
     try{
       const res=await fetch(url,opts);
-      if(res.status===429){lastErr=new Error('요청이 잠시 제한되었어요(429). 잠시 후 다시 보내주세요.');lastErr.rateLimited=true;continue}
-      if(res.status>=500){lastErr=new Error('서버 오류('+res.status+')');continue}
+      if(res.status===429){
+        // 가게별 대기 명단 상한(too_many_pending)은 기다려도 풀리지 않는다 — 다시 시도하지 않고 바로 이유를 보여 준다.
+        let code='';try{code=String((await res.clone().json()).error||'')}catch(e){}
+        if(code==='too_many_pending')return res;
+        lastErr=new Error(SUBMIT_ERR_MSG.rate_limited);lastErr.rateLimited=true;continue}
+      if(res.status>=500){lastErr=new Error('서버에 잠시 문제가 있어요('+res.status+'). 잠시 후 다시 보내 주세요.');continue}
       return res;
-    }catch(e){lastErr=new Error('네트워크 오류: '+e.message)}
+    }catch(e){lastErr=new Error('인터넷 연결이 끊겨 보내지 못했어요. 연결을 확인하고 다시 보내 주세요.')}
   }
   throw lastErr||new Error('요청 실패');
 }
@@ -2087,7 +2346,8 @@ async function getPubKey(restaurant_id,cache,pace,onRetry){
 }
 // 연락처 형식 재검증(서버 응답을 그대로 신뢰하지 않음) — kakao_link는 open.kakao.com 시작만, email은 단순 형식만 허용
 function isValidKakaoLink(v){return typeof v==='string'&&/^https:\/\/open\.kakao\.com\//.test(v)}
-function isValidEmail(v){return typeof v==='string'&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
+// mailto 링크에 그대로 붙으므로 ? & # 같은 문자가 든 값은 받지 않는다(D-8 — '?cc=' 등으로 받는 사람·제목이 바뀌는 것 방지).
+function isValidEmail(v){return typeof v==='string'&&v.length<=254&&/^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(v)}
 // 접수번호(submission_id)·직접 전달 파일 식별자(transfer_id)에 쓰는 UUID v4.
 // [보내기] 1회당 그룹마다 새로 만들고, [실패 재시도]는 앞 시도의 값을 그대로 다시 쓴다 — 서버는 같은
 // 접수번호를 만나면 "같은 전송의 재시도"로 보고 중복 접수를 만들지 않는다(값이 다르면 내용이 같아도 새 접수).
@@ -2107,7 +2367,60 @@ const SUBMIT_OK_MSG='✅ 보냄 — 음식점이 앱에서 받으면 장부에 �
 // 명단을 새로 올리거나 음식점을 바꾸면 서명(sig)이 달라져 잠금이 저절로 풀린다. 실패 건은 [실패한 건 다시 보내기]
 // (같은 접수번호 — 중복 없음)로만 다시 보낸다.
 function sendSig(){return JSON.stringify([S.restaurants.map(r=>r.restaurant_id).sort(),(S.rows||[]).filter(r=>!r.err&&!r.skip).map(r=>[normName(r.rest),r.org,r.dept,r.name,r.amount])])}
-function sentLocked(){return !!S.sentSig&&S.sentSig===sendSig()}
+// ── 보낸 기록을 이 탭에 보존(D-6) ──
+// 예전에는 접수번호·잠금이 메모리에만 있어, 새로 고침 뒤 같은 명단을 다시 올려 보내면 새 접수번호로 한 번 더 접수됐다.
+// sessionStorage(탭을 닫으면 사라짐)에 그룹별 {접수번호, 연월, 성공 여부}만 둔다. ⚠️ 직원명·금액·부서명 원문은
+// 저장하지 않는다 — 그룹을 알아보는 키와 잠금 서명은 탭마다 다른 소금(salt)을 섞은 해시값뿐이다.
+const SENT_KEY='agency-sent-v1';
+function h53(str,seed){let h1=0xdeadbeef^seed,h2=0x41c6ce57^seed;for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);h1=Math.imul(h1^c,2654435761);h2=Math.imul(h2^c,1597334677)}
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return (h2>>>0).toString(16).padStart(8,'0')+(h1>>>0).toString(16).padStart(8,'0')}
+function loadSentStore(){
+  let o=null;try{o=JSON.parse(ssGet(SENT_KEY)||'null')}catch(e){o=null}
+  if(!o||o.v!==1||typeof o.salt!=='string'||!o.groups||typeof o.groups!=='object')o={v:1,salt:uuid4(),lock:null,groups:{}};
+  return o;
+}
+let sentStore=null;
+function sentStoreGet(){if(!sentStore)sentStore=loadSentStore();return sentStore}
+function saveSentStore(){ssSet(SENT_KEY,JSON.stringify(sentStoreGet()))}
+function clearSentStore(){sentStore=null;ssDel(SENT_KEY)}
+function sentHash(x){const st=sentStoreGet();return h53(st.salt+'|'+x,1)+h53(st.salt+'|'+x,2)}
+// 그룹(가게·소속·부서)과 명단 내용(이름|부서|금액)이 같으면 같은 키 — 내용이 바뀐 그룹은 새 전송이다.
+function groupStoreId(g){return sentHash(groupKey(g)+'\u0000'+canonOf(g.items))}
+function storedGroup(g){const e=sentStoreGet().groups[groupStoreId(g)];return e&&typeof e.sid==='string'?e:null}
+function rememberGroup(g,row){
+  const st=sentStoreGet();
+  st.groups[groupStoreId(g)]={sid:row.sid,ym:row.ym,ok:!!row.ok};
+  const ks=Object.keys(st.groups);if(ks.length>500)delete st.groups[ks[0]]; // 한 탭에서 그럴 일은 없지만 상한
+  saveSentStore();
+}
+function sentLocked(){
+  if(S.sentSig&&S.sentSig===sendSig())return true;
+  const st=sentStoreGet();
+  return !!st.lock&&!!S.rows&&st.lock===sentHash(sendSig());
+}
+// 새로 고침 뒤 같은 명단을 다시 올렸을 때: 저장된 접수번호·성공 여부로 결과표를 다시 만든다.
+function restoreRelayFromStore(){
+  const groups=[...buildGroups().values()];
+  if(!groups.length)return;
+  S.sentSig=sendSig();S.relaySig=S.sentSig;
+  groups.forEach(g=>{
+    const e=storedGroup(g);
+    relayResults.set(groupKey(g),e
+      ?{g,ok:!!e.ok,sid:e.sid,ym:e.ym,restored:true,detail:e.ok?'':'보내지 못함(새로 고침 전 기록)'}
+      :{g,ok:false,sid:uuid4(),ym:currentYearMonth(),restored:true,detail:'보내지 않음'});
+  });
+}
+// 전송 중에 창을 닫거나 새로 고치려 하면 브라우저 기본 경고를 띄운다(보내는 중인 건이 어디까지 갔는지 모르게 된다).
+window.addEventListener('beforeunload',e=>{if(sending){e.preventDefault();e.returnValue='';return ''}});
+// 바로 보내기 한 건의 암호문이 서버 상한(200KB)을 넘으면 서버가 '입력 길이 초과'로 거부한다. 보내기 전에 미리 알린다(D-8).
+const MAX_CIPHERTEXT=200*1024;
+const TOO_BIG_MSG='이 가게·부서 명단이 너무 커서 한 번에 보낼 수 없어요. 부서를 나눠(예: 총무과1·총무과2) 두 번에 보내거나 [직접 전달]을 써 주세요.';
+function estCipherLen(items){
+  const n=enc.encode(JSON.stringify({v:1,items})).length;
+  return Math.ceil((n+16)/3)*4+400; // AES-GCM 태그 16바이트 + base64, RSA 키·iv·필드 이름 몫
+}
+const AUTH_EXPIRED_DETAIL='인증 만료로 보내지 않음';
 function showSentModal(storeN){
   lastFocused=document.activeElement;
   $('modalRoot').innerHTML=`<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="sentTitle">
@@ -2145,6 +2458,8 @@ function orgTagOf(g){return (g.institution&&(!S.agency||g.institution!==S.agency
 // 구서버(deduped·repaired 필드 없음)는 dedup=null이 되어 기존 동작 그대로다.
 function dedupInfo(row){
   if(!row.ok)return null;
+  if(row.prior)return{cls:'good',attention:false,text:'✅ 앞서 보냄 — 같은 내용이라 다시 보내지 않았어요'};
+  if(row.restored)return{cls:'good',attention:false,text:'✅ 보냄(새로 고침 전 기록) — 음식점이 앱에서 받으면 장부에 반영돼요'};
   if(row.repaired)return{cls:'good',attention:false,text:'✅ 접수 완료(이전 실패분 복구)'};
   if(!row.dedup)return null;
   if(row.dedup==='APPROVED')return{cls:'warn',attention:true,text:'ℹ️ 음식점이 이미 승인한 명단이에요(재전송되지 않음)'};
@@ -2170,8 +2485,13 @@ function renderRelayResults(final){
     '</tbody></table>';
   if(final){
     if(failRows.length){
-      html+='<div class="bad" style="margin-top:8px;font-size:13px">⛔ '+failRows.length+'건이 전송되지 않았습니다(성공 '+okN+'건). 아래 버튼으로 실패한 건만 다시 보낼 수 있어요. 이 버튼은 <b>같은 접수번호</b>로 다시 보내므로 중복 접수되지 않습니다(새로 [보내기]를 누르면 새 접수번호가 붙어 새 건이 됩니다).</div>'+
-        '<button type="button" class="btn-primary" id="retryFailBtn"'+(sending?' disabled':'')+' style="margin-top:8px">실패한 '+failRows.length+'건 다시 보내기</button>';
+      const authN=failRows.filter(r=>r.authExpired).length;
+      html+=(authN&&!S.authed
+        ?'<div class="bad" style="margin-top:8px;font-size:13px">⛔ 인증이 만료돼 '+authN+'건을 보내지 못했어요(성공 '+okN+'건). <b>1단계에서 다시 인증</b>한 뒤 이 화면에서 아래 버튼을 누르면 <b>같은 접수번호</b>로 보내므로 중복 접수되지 않습니다.</div>'
+        :'<div class="bad" style="margin-top:8px;font-size:13px">⛔ '+failRows.length+'건이 전송되지 않았습니다(성공 '+okN+'건). 아래 버튼으로 실패한 건만 다시 보낼 수 있어요. 이 버튼은 <b>같은 접수번호</b>로 다시 보내므로 중복 접수되지 않습니다(새로 [보내기]를 누르면 새 접수번호가 붙어 새 건이 됩니다).</div>')+
+        (S.authed
+          ?'<button type="button" class="btn-primary" id="retryFailBtn"'+(sending?' disabled':'')+' style="margin-top:8px">실패한 '+failRows.length+'건 다시 보내기</button>'
+          :'<button type="button" class="btn-primary" id="reauthBtn" style="margin-top:8px">1단계로 가서 다시 인증하기</button>');
     }else if(attentionRows.length){
       // 실패는 아니지만 '보냈다'고 말하면 거짓이 되는 경우 — 확인이 필요하다고 정직하게 안내한다.
       html+='<div style="margin-top:8px;padding:10px 12px;background:#fff4e5;border:1px solid #f6c464;border-radius:8px;font-size:13px">'+
@@ -2193,33 +2513,49 @@ function renderRelayResults(final){
   const rt=$('resendToggle');
   if(rt)rt.addEventListener('click',()=>$('resendBox').classList.toggle('hide'));
   const rg=$('resendGo');
-  if(rg)rg.addEventListener('click',()=>{S.sentSig=null;$('resendToggle').parentNode.remove();revalidate();$('submitBtn').focus()});
+  // 정말 한 번 더 보낼 때: 잠금과 이 탭의 보낸 기록(접수번호)을 비운다 → 다음 [보내기]는 새 접수번호로 새 건이 된다.
+  if(rg)rg.addEventListener('click',()=>{S.sentSig=null;clearSentStore();$('resendToggle').parentNode.remove();revalidate();$('submitBtn').focus()});
   const rb=$('retryFailBtn');
-  if(rb)rb.addEventListener('click',()=>{if(sending)return;runRelay(failRows.map(r=>r.g))});
+  // 인증 없이 누르면(만료 직후 등) 보내지 않고 1단계로 데려간다(D-1).
+  if(rb)rb.addEventListener('click',()=>{if(sending)return;if(!S.authed){expireToken();return}runRelay(failRows.map(r=>r.g))});
+  const ra=$('reauthBtn');
+  if(ra)ra.addEventListener('click',()=>expireToken());
 }
 async function runRelay(list){
   if(!list.length)return;
   if(sending)return; // 재진입 차단(S6)
+  if(!S.authed){expireToken();return} // 인증 없이는 한 건도 보내지 않는다(D-1)
   sending=true;
   const btn=$('submitBtn'),prevText=btn.textContent,prevDisabled=btn.disabled;
   btn.disabled=true;btn.textContent='보내는 중…';
   const prog=$('sendProgress');prog.classList.remove('hide');
-  const year_month=currentYearMonth();
   const ids=new Set(list.map(g=>g.restaurant_id));
+  // 접수번호·연월은 시작할 때 그룹마다 정해 탭 저장소에 먼저 적어 둔다(D-6). 도중에 새로 고침해도 같은 명단을 다시
+  //   보내면 같은 접수번호가 쓰여 서버가 중복으로 받지 않는다. 재시도는 첫 시도의 연월을 그대로 쓴다(월이 바뀌어도).
+  const plan=list.map(g=>{
+    const prevRow=relayResults.get(groupKey(g)),st=storedGroup(g);
+    const sid=(prevRow&&prevRow.sid)||(st&&st.sid)||uuid4();
+    const ym=(prevRow&&prevRow.ym)||(st&&st.ym)||currentYearMonth();
+    if(!st||st.sid!==sid)rememberGroup(g,{sid,ym,ok:false});
+    return{g,sid,ym};
+  });
   // 공개키는 캐시에 없는 것만 요청한다(재시도 실행에서는 대부분 캐시 적중).
   const pubMisses=[...ids].filter(id=>!relayPubCache.has(id)).length;
   const pace=pacerFor(pubMisses,pubMisses+list.length);
   // 진행 표시는 '가게×부서' 단위임을 헤더에 밝힌다 — 5곳을 골랐는데 12건이 도는 이유가 보이도록.
   prog.innerHTML='<div style="font-weight:700">음식점 '+ids.size+'곳 · 부서 조합 '+list.length+'건</div><div id="sendProgLine" style="font-weight:400;margin-top:2px"></div>';
   const line=$('sendProgLine');
-  let i=0;
+  let i=0,authExpired=false;
   try{
-    for(const g of list){
+    for(const {g,sid,ym} of plan){
       i+=1;
-      // 접수번호는 이 [보내기]에서 그룹마다 한 번만 만든다. [실패 재시도]는 앞 시도가 남긴 값을 그대로 써야
-      // 서버가 같은 전송으로 알아본다(doSubmitRelay가 새 전송 때 relayResults를 비우므로 그때는 새 값이 된다).
-      const prevRow=relayResults.get(groupKey(g));
-      const sid=(prevRow&&prevRow.sid)||uuid4();
+      // 인증이 만료되면(401) 남은 건은 보내지 않는다 — 계속 보내 봐야 전부 401이고, 그 사이 '지문이 달라요' 같은
+      //   엉뚱한 실패가 섞인다(D-1). 같은 접수번호를 남겨 두었다가 다시 인증한 뒤 이어서 보낸다.
+      if(authExpired){
+        const row={g,ok:false,detail:AUTH_EXPIRED_DETAIL,sid,ym,authExpired:true};
+        relayResults.set(groupKey(g),row);
+        continue;
+      }
       const base='보내는 중 '+i+'/'+list.length+' — '+g.restaurant_name+(g.department?' / '+g.department:'')+orgTagOf(g);
       line.textContent=base;
       const onRetry=(n,wait)=>{line.textContent=base+' · 실패해서 '+Math.round(wait/1000)+'초 뒤 다시 시도('+n+'/'+MAX_RETRY+')…'};
@@ -2229,25 +2565,30 @@ async function runRelay(list){
         // 지문 재검증: 확인한 뒤 키가 바뀌었다면(가게 기기 교체·가로채기) 이 건은 보내지 않는다.
         assertKeyConfirmed(g,entry.fp);
         const blob=await encryptBlob(g.items,entry.pub);
+        // 서버 상한(200KB)을 넘는 암호문은 보내 봐야 거부된다 — 요청 없이 이유를 말한다(D-8).
+        if(JSON.stringify(blob).length>MAX_CIPHERTEXT)throw new Error(TOO_BIG_MSG);
         const bh=await batchHash(g.items);
         const total=g.items.reduce((s,i2)=>s+i2.amount,0);
-        const body={summary:{institution:g.institution,department:g.department,restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,year_month,total_amount:total,member_count:g.items.length,batch_hash:bh,submission_id:sid},blob:{restaurant_id:g.restaurant_id,ciphertext:blob},consent:{institution:g.institution,department:g.department,year_month}};
+        const body={summary:{institution:g.institution,department:g.department,restaurant_id:g.restaurant_id,restaurant_name:g.restaurant_name,year_month:ym,total_amount:total,member_count:g.items.length,batch_hash:bh,submission_id:sid},blob:{restaurant_id:g.restaurant_id,ciphertext:blob},consent:{institution:g.institution,department:g.department,year_month:ym}};
         const submitHeaders={'Content-Type':'application/json'};
         if(S.token)submitHeaders['X-Agency-Token']=S.token;
         await paceWait(pace,false);
         const res=await fetchRetry(srv()+'/api/submit',{method:'POST',headers:submitHeaders,body:JSON.stringify(body)},onRetry);
         let j={};try{j=await res.json()}catch{}
-        // 토큰 만료(B4): 남은 건도 전부 401이 날 것이므로 즉시 인증 단계로 되돌린다.
-        if(res.status===401){expireToken();throw new Error(AUTH_ERR_MSG.agency_auth_required)}
-        if(!res.ok)throw new Error(submitErrMsg(j.error,res.status));
+        // 토큰 만료(B4·D-1): 이 건과 남은 건을 '인증 만료로 보내지 않음'으로 두고 즉시 멈춘다.
+        if(res.status===401){authExpired=true;const e=new Error(AUTH_EXPIRED_DETAIL);e.authExpired=true;throw e}
+        if(!res.ok)throw new Error(j.error==='too_many_pending'&&Number(j.max)>0
+          ?'이 음식점에 아직 받지 않은 명단이 '+Number(j.max)+'건 쌓여 있어 더 보낼 수 없어요. 사장님이 앱에서 받은 뒤 다시 보내 주세요(이 건은 같은 접수번호로 다시 보낼 수 있어요).'
+          :submitErrMsg(j.error,res.status));
         // 구서버는 deduped 필드가 없다 → dedup=null(기존 동작).
         const dedup=j.deduped===true?String(j.status||'PENDING'):null;
         const repaired=j.repaired===true; // 구서버에는 없는 필드 — 없으면 false
-        relayResults.set(groupKey(g),{g,ok:true,dedup,repaired,detail:String(j.summary_id||''),sid});
+        const row={g,ok:true,dedup,repaired,detail:String(j.summary_id||''),sid,ym};
+        relayResults.set(groupKey(g),row);rememberGroup(g,row);
         const tail=repaired?' [중간에 끊겼던 전송 복구 · 접수 완료]':(dedup?' [같은 접수번호가 이미 접수됨 · 상태 '+dedup+']':'');
         log((dedup&&!repaired?'ℹ️ ':'✅ ')+g.restaurant_name+' / '+g.department+orgTagOf(g)+' ('+g.items.length+'명, '+total.toLocaleString()+'원) → '+j.summary_id+tail);
       }catch(e){
-        relayResults.set(groupKey(g),{g,ok:false,detail:e.message,sid});
+        relayResults.set(groupKey(g),{g,ok:false,detail:e.message,sid,ym,authExpired:!!e.authExpired});
         log('❌ '+g.restaurant_name+' / '+g.department+orgTagOf(g)+': '+e.message);
       }
       renderRelayResults(false);
@@ -2256,21 +2597,24 @@ async function runRelay(list){
     prog.classList.add('hide');prog.innerHTML='';
     btn.textContent=prevText;btn.disabled=prevDisabled;
     sending=false; // 재진입 잠금 해제 — 반드시 revalidate 전에 풀어야 버튼 상태가 맞는다
+    if(authExpired){S.token=null;S.authed=false;S.otpMode=null;clearToken()} // 결과표가 '다시 인증' 안내를 그리도록 먼저 내린다
     // 한 건이라도 보냈으면 같은 명단으로는 전송 버튼을 다시 살리지 않는다(보내기 완료 잠금).
-    if([...relayResults.values()].some(r=>r.ok))S.sentSig=sendSig();
+    if([...relayResults.values()].some(r=>r.ok)){S.sentSig=sendSig();sentStoreGet().lock=sentHash(S.sentSig);saveSentStore()}
     revalidate();
   }
   renderRelayResults(true);
   const rows=[...relayResults.values()];
   const failN=rows.filter(r=>!r.ok).length;
-  if(!failN)showSentModal(new Set(rows.map(r=>r.g.restaurant_id)).size);
   const dedupN=rows.filter(r=>{const d=dedupInfo(r);return d&&d.attention}).length;
   const storeN=new Set(rows.map(r=>r.g.restaurant_id)).size;
   log('\n완료: 성공 '+(rows.length-failN)+' · 실패 '+failN+(dedupN?' · 확인 필요(이미 처리된 명단) '+dedupN:'')+'\n서버는 내용을 볼 수 없으며, 음식점이 받는 즉시 서버에서 삭제됩니다(받지 않으면 최대 3일 후 자동 삭제).'+skipLogText()+'\n\n💰 결제 확인: 방금 보낸 명단은 음식점 '+storeN+'곳 · '+rows.length+'건입니다 — 결제(제로페이, 카드 등)는 가게별로 앱 밖에서 따로 진행해 주세요. 결제 단위를 명단 단위와 맞추시면 사장님이 한 건씩 대조하기 쉬워 승인이 빨라집니다(필수는 아닙니다). 한 가게 몫을 한 번에 결제하셨다면 4단계 확인 표를 캡처해 사장님께 함께 전달하세요.\n\n다음 할 일: 음식점에 전화 등으로 전달 사실을 알려 주시고, 이 화면(또는 위 로그)을 캡처해 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.');
+  if(authExpired){expireToken();return} // 1단계 화면으로 — 다시 인증하면 이 결과표로 돌아와 이어서 보낸다
+  if(!failN)showSentModal(storeN);
 }
 async function doSubmitRelay(){
   if(sending)return; // 재진입 차단(S6) — 이중 클릭·동의 모달 재진입
   if(sentLocked())return; // 이미 보낸 같은 명단(보내기 완료 잠금)
+  if(!S.authed){expireToken();return}
   if(!navigator.onLine){alert('인터넷 연결을 확인해 주세요.');return}
   // 최종 방어선: 동명 선택이 남아 있으면 어떤 명단도 보내지 않는다.
   if(dupSelectedNames().length){alert(DUP_MSG);return}
@@ -2283,8 +2627,18 @@ async function doSubmitRelay(){
   $('log').textContent='';$('logWrap').classList.remove('hide');$('logWrap').open=false;
   relayResults=new Map();relayPubCache=new Map();
   $('sendResult').innerHTML='';
-  const list=[...buildGroups().values()];
-  if(!list.length){log('보낼 명단이 없습니다. 1~3단계를 다시 확인해 주세요.');return}
+  const all=[...buildGroups().values()];
+  if(!all.length){log('보낼 명단이 없습니다. 1~3단계를 다시 확인해 주세요.');return}
+  // 이 탭에서 이미 보낸(성공한) 그룹과 내용까지 같은 그룹은 다시 보내지 않는다(D-6) — 일부만 고쳐 다시 올린 명단을
+  //   보낼 때 성공했던 가게에 같은 명단이 한 번 더 가는 일을 막는다. 정말 한 번 더 보낼 때는 [그래도 다시 보내기].
+  const list=[];
+  all.forEach(g=>{
+    const st=storedGroup(g);
+    if(st&&st.ok)relayResults.set(groupKey(g),{g,ok:true,prior:true,sid:st.sid,ym:st.ym,detail:''});
+    else list.push(g);
+  });
+  S.relaySig=sendSig();
+  if(!list.length){S.sentSig=S.relaySig;sentStoreGet().lock=sentHash(S.sentSig);saveSentStore();revalidate();renderRelayResults(true);return}
   await runRelay(list);
 }
 // ── 5-B. 직접 전달 (서버에 올리지 않음 — 파일/공유/QR) ──
@@ -2466,7 +2820,7 @@ $('stepper').addEventListener('click',e=>{const li=e.target.closest('li');if(li)
 $('stepper').addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const li=e.target.closest('li');if(!li)return;e.preventDefault();gotoStep(Number(li.getAttribute('data-n')))});
 updateStepper();
 renderServerWarning(); // 기본값과 다른 중계 서버 주소가 쓰이면 상단에 붉은 배너
-try{S.dept=localStorage.getItem(DEPT_LS_KEY)||''}catch(e){S.dept=''}
+S.dept=String(lsGet(DEPT_LS_KEY)||'').slice(0,40);
 $('deptInput').value=S.dept;
 loadAgencyIndex(); // 소속 기관 목록(agency-index.json) 로드 + 마지막 선택 복원
 // 새로고침·뒤로가기로 돌아온 경우, 아직 살아 있는 인증 토큰이 있으면 1단계를 건너뛴다(B4).
