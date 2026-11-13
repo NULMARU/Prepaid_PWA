@@ -9,10 +9,13 @@ CREATE TABLE IF NOT EXISTS public_key_registry (
   contact_email   TEXT,                -- 업무용 공식 접수 이메일(선택)
   district        TEXT,                -- 관할 지역(공개 사업장 정보, 예 "서울특별시 광진구"). 개인정보 아님(§0 허용). 등록 목록 조회용.
   verified        INTEGER NOT NULL DEFAULT 0, -- 1=최초 등록 시 공공데이터에서 실존·상호 대조 성공, 0=미확인(공공API 장애 등). 개인정보 아님.
-  deregistered_at INTEGER              -- 등록 해제 시각(NULL=활성). 해제는 즉시 삭제가 아니라 **30일 휴지통**이다(§4.12):
+  deregistered_at INTEGER,             -- 등록 해제 시각(NULL=활성). 해제는 즉시 삭제가 아니라 **30일 휴지통**이다(§4.12):
                                        -- 담당자에게는 즉시 '없는 가게'(public-key 404·목록 제외)지만, 소유 증명과
                                        -- 원장 백업 되찾기는 30일간 그대로 된다. 30일이 지나면 TTL cron이 이 행과
                                        -- ledger_backup을 함께 삭제한다. 활성 조회는 전부 `deregistered_at IS NULL`.
+  taken_over_at   INTEGER              -- (2026-11, beta.55) 해제된 가게를 '다른 열쇠'가 인수한 시각(NULL=인수된 적 없음).
+                                       -- 인수 때 옛 원장 백업(ledger_backup·ledger_backup_seg)을 지우지 않고, 이 시각보다
+                                       -- 먼저 쓰인 백업은 새 주인에게 보이지 않게 숨긴다(get 404·list 제외). 30일 뒤 cron이 지운다.
 );
 
 CREATE TABLE IF NOT EXISTS deposit_summary (
@@ -81,6 +84,20 @@ CREATE TABLE IF NOT EXISTS ledger_backup (
   blob          TEXT NOT NULL,
   blob_hash     TEXT,
   updated_at    INTEGER NOT NULL
+);
+
+-- 조각 백업(2026-11, beta.55, PROTOCOL §4.13). 장부가 1MB 단일 blob에 들어가지 않는 가게를 위해 클라이언트가
+-- 장부를 조각으로 나눠 각각 암호화해 올린다(서버는 내용을 모른다 — 전부 암호문). 조각은 세대(gen)로 묶이고,
+-- 그 세대의 머리(ledger_backup, gen 포함 업로드)가 저장되는 순간 같은 배치로 다른 세대 조각이 지워진다.
+-- ledger_backup을 지우는 모든 곳(사용자 삭제·30일 휴지통 cron·인수 30일 뒤 cron)에서 함께 지운다. 가게당 1,000행 상한.
+CREATE TABLE IF NOT EXISTS ledger_backup_seg (
+  restaurant_id TEXT NOT NULL,
+  gen           TEXT NOT NULL,         -- 백업 세대 식별자(/^[A-Za-z0-9_-]{8,40}$/)
+  seg_no        INTEGER NOT NULL,      -- 0..999
+  blob          TEXT NOT NULL,         -- 암호문(≤ 400,000자)
+  blob_hash     TEXT,
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (restaurant_id, gen, seg_no)
 );
 
 -- 기관 OTP 인증(단계적 활성화). 이메일 도메인은 .go.kr/.korea.kr만 허용.

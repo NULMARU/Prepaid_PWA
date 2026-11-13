@@ -34,6 +34,7 @@
 
 | 릴리스 | 실제 순서 | 비고 |
 |---|---|---|
+| beta.55 (2026-11) | 마이그레이션 2문(`migrations-2026-11.sql`) → 서버 → 담당자 웹 → 음식점 앱 | 🔴 **문 2(`taken_over_at` 컬럼)를 서버 배포 전에** — 새 서버의 `getPublicKey`가 이 컬럼을 읽으므로 없으면 등록·챌린지·백업이 전부 500. 프론트 쪽 새 필드(`gen`, `confirm_change`)는 선택 필드이고 새 오류 코드(`not_registered`·`too_many_pending`·`takeover_locked`·`invalid_public_key`·`fingerprint_changed`)는 구버전 프론트가 일반 오류로 보여 줄 뿐 깨지지 않는다 |
 | beta.48 (2026-09) | 마이그레이션 7문 → 서버 → **담당자 웹 → 음식점 앱** | `submission_id`·`transfer_id`가 둘 다 선택 필드라 어느 쪽을 먼저 내도 깨지지 않는다. `migrations-2026-09.sql` 머리말·`PROTOCOL.md` §9가 이 순서로 적혀 있다 |
 | beta.26 (2026-08) | 마이그레이션 → 서버 → 음식점 앱 → 담당자 웹 | 앱이 **수신자**인 계약 변경이었다(`org` 선택 필드 + district) |
 
@@ -79,6 +80,8 @@ bash harness/verify-all.sh    # 12/12 기대
   | `server/migrations-2026-07.sql` | `processed_at`, `district`, `contact_*`, `agency_email_hash`, 보존·집계 계열 |
   | `server/migrations-2026-08.sql` | 문 1~5 — `verified`, `agency_domain`(deposit_summary), `agency_keycheck` 등 |
   | `server/migrations-2026-09.sql` | 문 1~7 — beta.48(아래) |
+  | `server/migrations-2026-10.sql` | 문 1~2 — `admin_action_log`(운영자 휴지통 처리) |
+  | `server/migrations-2026-11.sql` | 문 1~2 — beta.55 `ledger_backup_seg`(조각 백업) + `public_key_registry.taken_over_at`(인수 시각). 문 2는 ALTER라 재실행하면 duplicate column — 이미 적용된 것 |
 
   신규 설치는 `server/schema.sql` 하나로 끝난다(마이그레이션 결과가 이미 반영돼 있다).
 - 🔴 **`wrangler d1 execute --remote --file`을 쓰지 말 것.** OAuth 토큰과 import API가 비호환이라 **오류 2036**이 난다.
@@ -213,7 +216,9 @@ npx wrangler secret put RESEND_API_KEY
 | 담당자가 "보냈는데 없어졌다" | `deduped:true` 응답 확인([04](04-contracts.md) C6) / `batch_hash` 충돌([04](04-contracts.md) C1 부수 계약) / 담당자 웹이 `submission_id`를 싣는 버전인가(구버전은 같은 달 같은 내용이 멱등으로 삼켜진다) |
 | 사장님이 "같은 명단이 두 번 들어갔다" | 승인 아웃박스([04](04-contracts.md) C11) — 수신함에 `장부에 반영됨 · 서버 알림 대기`가 떠 있는가 / 직접 전달 파일을 두 번 열었는가(`transfer_id`가 없는 구버전 파일이면 경고만 뜬다) |
 | 등록 해제한 가게가 담당자 목록에 계속 보인다 | `deregistered_at`이 실제로 찍혔는가 — 활성 필터가 빠진 경로가 있는지 확인([04](04-contracts.md) C12) |
-| "등록 해제했는데 백업을 되찾고 싶다" | 해제 후 **30일 안**이면 같은 열쇠로 재등록하면 된다(`reactivated:true`). 30일이 지났으면 cron이 이미 지웠다 — 복구 불가 |
+| "등록 해제했는데 백업을 되찾고 싶다" | 해제 후 **30일 안**이면 같은 열쇠로 재등록하면 된다(`reactivated:true`). 30일이 지났으면 cron이 이미 지웠다 — 복구 불가. 그 사이 **다른 열쇠가 인수**했어도 인수 후 30일까지는 옛 백업 행이 남아 있다(beta.55, 새 주인에게만 숨김) — §12 "인수 뒤 옛 백업" |
+| 사장님이 "가게 등록이 `takeover_locked`로 막힌다" | 운영자가 [휴지통으로] 처리한 지 7일이 안 된 가게를 **다른 열쇠**로 등록하려는 것(beta.55). 원래 기기는 같은 열쇠로 바로 되살릴 수 있다. 부당 선점 정리 직후라면 7일 뒤에 진짜 사장님이 등록하거나, 본인 확인 후 아래 §12 터미널 절차로 잠금 없이 처리 |
+| 담당자가 "`too_many_pending`으로 안 보내진다" | 그 가게 수신함에 미수령 신청이 30건 쌓였다(beta.55). 사장님이 받기·거절을 하면 풀린다(72시간 지나면 자동 만료) |
 | 배포했는데 안 바뀐다 | Pages `--branch=main` 누락(§5) / GitHub Pages 런 실패(§6) / 커스텀 도메인 반영 지연 |
 | 새 프론트에서 CORS 오류 | `ALLOW_ORIGIN`에 추가 후 `wrangler deploy`(§8) |
 | 관리자 통계가 503 | `ADMIN_TOKEN` 미등록(§7) |
@@ -231,7 +236,7 @@ npx wrangler secret put RESEND_API_KEY
 ### 우선 경로 — 관리자 화면 [휴지통으로] (2026-10~)
 
 본인 확인을 마쳤으면 터미널 대신 `https://app.bapjangbu.com/docs/admin.html`(ADMIN_TOKEN 로그인) → **등록 가게** 표에서 해당 행의 [휴지통으로] → 사유(테스트 등록 / 폐업 / 사장님 요청·본인 확인 완료 / 부당 선점) 고르기 → 메모(선택, 개인정보 금지) → **가게 ID를 그대로 입력** → [휴지통으로 옮기기]. 효과는 아래 터미널 절차 3)과 같고(`/api/admin/deregister`, PROTOCOL §8.4), 미수령 건수·클라우드 백업 유무가 창에 미리 보이며, 처리 내역은 같은 화면의 **운영자 조치 기록**(`admin_action_log`)에 남는다. 전역 24시간 20건 상한이 있다.
-- **부당 선점**이면 처리 직후 진짜 사장님이 앱에서 바로 [우리 가게 등록]을 하게 안내한다 — 선점한 쪽이 같은 열쇠로 다시 등록하면 되살아나기 때문이다(다른 열쇠로 먼저 등록하는 쪽이 선착순으로 인수).
+- **부당 선점**이면 — ⚠️ beta.55부터 관리자 화면으로 휴지통에 넣은 가게는 **7일 동안 다른 열쇠로 인수할 수 없다**(`409 takeover_locked`, ADMIN_TOKEN 유출 시 "휴지통 → 곧바로 인수" 차단). 선점한 쪽은 같은 열쇠로 언제든 되살릴 수 있으므로, 진짜 사장님이 곧바로 등록해야 하는 부당 선점 정리는 **아래 터미널 절차 3)**으로 한다(감사 행이 없어 잠금이 걸리지 않는다 — 터미널 접근 = Cloudflare 계정 권한이라 토큰 유출과 같은 위험이 아니다). 그 뒤 진짜 사장님이 앱에서 바로 [우리 가게 등록]을 하게 안내한다(다른 열쇠로 먼저 등록하는 쪽이 선착순으로 인수).
 - 관리자 화면에는 즉시 삭제·되돌리기·키 지정이 **일부러 없다**(아래 "하지 말 것"과 같은 이유). 화면을 쓸 수 없을 때(서버 배포 전 등)만 아래 터미널 절차를 쓴다.
 
 ### 터미널 절차(대체) — **삭제가 아니라 휴지통에 넣는다** (beta.48~)
@@ -253,7 +258,11 @@ npx wrangler d1 execute prepaid-relay --remote --command \
   "UPDATE public_key_registry SET deregistered_at=<now_ms> WHERE restaurant_id='<ID>' AND deregistered_at IS NULL"
 ```
 
-이 시점부터 새 열쇠의 `register-key`는 **선착순 신규 등록**으로 통과한다(공공데이터 실존·상호 대조 수행). 다른 키로 등록되는 순간 서버가 **옛 `ledger_backup`과 옛 연락처를 스스로 지운다**(새 열쇠로는 열 수도 없는 데이터라서) — 운영자가 따로 지울 필요가 없다. 30일이 지나도록 아무도 등록하지 않으면 cron이 행과 백업을 함께 정리한다.
+이 시점부터 새 열쇠의 `register-key`는 **선착순 신규 등록**으로 통과한다(공공데이터 실존·상호 대조 수행). 다른 키로 등록되는 순간 서버가 **옛 연락처를 스스로 지운다**. 옛 원장 백업(`ledger_backup`·`ledger_backup_seg`)은 beta.55부터 **그 순간 지우지 않는다** — `taken_over_at`(인수 시각)보다 오래된 백업은 새 주인에게 보이지 않고, 인수 30일 뒤 cron이 지운다. 운영자가 따로 지울 필요가 없다. 30일이 지나도록 아무도 등록하지 않으면 cron이 행과 백업(머리·조각)을 함께 정리한다.
+
+#### 인수 뒤 옛 백업 (beta.55)
+
+잘못된 인수(착오·토큰 유출)였다면, 인수 후 **30일 안**에는 옛 주인의 백업 행이 그대로 있다(옛 열쇠로 암호화된 상태). 이때 옛 주인이 열쇠 백업을 갖고 있다면 본인 확인 후 운영자가 수작업으로 되돌릴 수 있다 — 단, 새 키를 심는 것이 아니라 **새 주인 등록을 휴지통에 넣고(3) 옛 주인이 자기 열쇠로 다시 등록**하게 하는 순서다(다시 '다른 열쇠 인수'가 되므로 `taken_over_at`이 갱신되고, 그보다 오래된 옛 백업은 여전히 숨겨진다 → 필요하면 `UPDATE ledger_backup SET updated_at=<now_ms> WHERE restaurant_id='<ID>'`로 '지금 주인 것'으로 표시. 이 UPDATE는 본인 확인을 마친 경우에만).
 
 사장님에게는 "앱에서 다시 [우리 가게 등록]을 해 주세요"라고 회신한다. beta.26+ 앱은 district도 함께 실어 보내므로 담당자 웹 관할 목록에 바로 나타난다.
 
@@ -262,9 +271,11 @@ npx wrangler d1 execute prepaid-relay --remote --command \
 폐업·사업자 변경처럼 **되돌릴 일이 없고 옛 백업을 남겨 둘 이유도 없는** 경우, 또는 사장님이 "지금 전부 지워 달라"고 명시적으로 요청한 경우에만.
 
 ```bash
-# 백업을 먼저, 키 행을 나중에 — 순서가 뒤바뀌면 아무도 되찾을 수 없는 백업만 남는다
+# 백업(머리·조각)을 먼저, 키 행을 나중에 — 순서가 뒤바뀌면 아무도 되찾을 수 없는 백업만 남는다
 npx wrangler d1 execute prepaid-relay --remote --command \
   "DELETE FROM ledger_backup WHERE restaurant_id='<ID>'"
+npx wrangler d1 execute prepaid-relay --remote --command \
+  "DELETE FROM ledger_backup_seg WHERE restaurant_id='<ID>'"
 npx wrangler d1 execute prepaid-relay --remote --command \
   "DELETE FROM public_key_registry WHERE restaurant_id='<ID>'"
 ```

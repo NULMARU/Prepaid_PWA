@@ -45,6 +45,25 @@ const MAX_CIPHERTEXT = 200 * 1024; // 암호 blob 직렬화(JSON.stringify) 바�
 const MAX_LEDGER_BLOB = 1024 * 1024; // 암호화 원장 백업 blob(base64 문자열) 상한 ~1MB
 const MAX_REGISTERED_IDS = 100;    // /api/registered?ids= 한 번에 조회 가능한 id 개수(초과 시 400 — 청킹은 클라이언트 몫)
 const MAX_ALG = 64;                // 암호 blob의 alg 표기(선택) 길이 상한
+// ── 조각(segment) 백업(beta.55, PROTOCOL §4.13) ──
+// 원장 백업이 1MB 단일 blob 상한에 닿는 가게(서명 그림이 많은 가게)를 위해, 클라이언트가 장부를
+// 여러 조각으로 나눠 암호화해 올린다. 서버는 조각의 내용을 모른다(전부 암호문 문자열).
+const MAX_SEG_BLOB = 400000;       // 조각 하나의 blob 문자열 길이 상한
+const MAX_SEG_NO = 999;            // seg_no 범위 0..999
+const MAX_SEGMENTS_PER_STORE = 1000; // 가게당 조각 행 상한(모든 gen 합계)
+const MAX_SEG_GET = 5;             // /api/ledger-backup/seg/get 한 번에 받을 수 있는 조각 수
+const SEG_GEN_RE = /^[A-Za-z0-9_-]{8,40}$/; // 백업 세대(gen) 식별자 형식
+// ── 명단 신청 상한(beta.55, E-5) ──
+// 가게 하나에 쌓일 수 있는 미수령(PENDING·72시간 이내) 신청 수 상한. 정상 운용은 한 달에 부서 수만큼
+// (수 건~십수 건)이라 30이면 넉넉하고, 이를 넘는 것은 오작동·남용이다(사장님 수신함이 묻힌다).
+// 동시 제출 경합으로 1~2건 넘칠 수 있는 '느슨한 상한'이다(정확한 원자 상한은 필요 없다).
+const MAX_PENDING_PER_RESTAURANT = 30;
+const INBOX_LIMIT = 50;            // /api/inbox 한 번에 돌려주는 최대 건수(오래된 것부터)
+// ── 운영자 휴지통 가게의 인수 잠금(beta.55, E-2) ──
+// 운영자(/api/admin/deregister)가 휴지통에 넣은 가게는 7일 동안 '다른 열쇠'로 인수할 수 없다.
+// ADMIN_TOKEN이 새어도 "휴지통에 넣고 → 곧바로 자기 열쇠로 인수"가 되지 않게 하는 시간 벽이다.
+// 원래 열쇠를 가진 기기의 같은 키 재등록(되돌리기)은 잠금과 무관하게 즉시 된다.
+const ADMIN_TAKEOVER_LOCK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // 데이터 보존 최소화(PROTOCOL.md §6): 암호문은 수령(승인/거절) 즉시 파기, 미수령 시
 // 최대 72시간 후 자동 파기. 비식별 요약(총액·인원·해시)만 30일 보관 후 삭제.
@@ -195,6 +214,21 @@ async function encryptChallenge(publicKeySpkiB64, tokenB64) {
   const ct = await subtle.encrypt({ name: 'RSA-OAEP' }, pub, encU.encode(tokenB64));
   return b64(ct);
 }
+// 공개키 검증(beta.55, E-2c): 등록 시점에 '실제로 쓸 수 있는 RSA-OAEP 공개키'인지 확인한다.
+// 예전에는 아무 문자열이나 저장돼, 깨진 키로 가게를 선점하면 담당자 웹·챌린지 발급이 그 자리에서
+// 터지거나(500) 진짜 주인이 소유 증명을 받을 수 없는 상태가 만들어졌다.
+// 음식점 앱은 RSA-OAEP 2048/SHA-256 키를 `exportKey('spki')` → base64로 보낸다(index.html genKeyPair) —
+// encryptChallenge와 **같은 importKey 인자**로 열리는지 보고, 모듈러스는 2048~4096비트만 받는다.
+const RSA_MIN_BITS = 2048, RSA_MAX_BITS = 4096;
+async function validRsaPublicKey(publicKeySpkiB64) {
+  try {
+    const k = await subtle.importKey('spki', unb64(String(publicKeySpkiB64)), { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+    const bits = k && k.algorithm && k.algorithm.modulusLength;
+    return Number.isInteger(bits) && bits >= RSA_MIN_BITS && bits <= RSA_MAX_BITS;
+  } catch (_) {
+    return false;
+  }
+}
 // 보호 엔드포인트 공통 인증 검사: SHA-256(auth_token)이 해당 restaurant_id의 미만료 챌린지와
 // 일치하면 그 챌린지 행을 삭제(1회용)하고 true. 아니면 false → 호출부에서 401 auth_required.
 async function verifyAuth(store, restaurant_id, auth_token) {
@@ -284,17 +318,21 @@ function emailDomainOf(v) {
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 60;
 const rateLimitMap = new Map();
-function checkRateLimitWith(map, request, max, windowMs = RATE_LIMIT_WINDOW_MS) {
+// 반환: {ok:boolean, retry_after_s:number} — retry_after_s는 이 IP의 창이 끝나기까지 남은 초(올림).
+function rateLimitStateWith(map, request, max, windowMs = RATE_LIMIT_WINDOW_MS) {
   const ip = request.headers.get('CF-Connecting-IP');
-  if (!ip) return true; // 헤더 없는 요청(로컬·하니스·서버간 호출)은 대상 밖
+  if (!ip) return { ok: true, retry_after_s: 0 }; // 헤더 없는 요청(로컬·하니스·서버간 호출)은 대상 밖
   const now = Date.now();
   const entry = map.get(ip);
   if (!entry || now - entry.windowStart > windowMs) {
     map.set(ip, { windowStart: now, count: 1 });
-    return true;
+    return { ok: true, retry_after_s: 0 };
   }
   entry.count++;
-  return entry.count <= max;
+  return { ok: entry.count <= max, retry_after_s: Math.max(1, Math.ceil((entry.windowStart + windowMs - now) / 1000)) };
+}
+function checkRateLimitWith(map, request, max, windowMs = RATE_LIMIT_WINDOW_MS) {
+  return rateLimitStateWith(map, request, max, windowMs).ok;
 }
 function checkRateLimit(request) { return checkRateLimitWith(rateLimitMap, request, RATE_LIMIT_MAX); }
 
@@ -351,7 +389,9 @@ const challengeRateLimitMap = new Map();
 function checkChallengeRateLimit(request) { return checkRateLimitWith(challengeRateLimitMap, request, PUBLIC_KEY_RATE_LIMIT_MAX); }
 // restaurant_id당 '미만료' 챌린지 상한. 정상 클라이언트는 발급 즉시 소비(1회용)하므로 동시에
 // 여러 건이 살아 있을 이유가 없다 — 미소비 챌린지 누적(저장 남용)을 막는 상한이며, 삽입 전에
-// 만료분을 먼저 지운다.
+// 만료분을 먼저 지운다. beta.55(E-1): 상한에 차면 429로 거절하지 않고 **가장 오래된 것을 지우고**
+// 새로 발급한다 — /api/challenge는 무인증이라 예전에는 남이 5번만 불러 두면 진짜 사장님의
+// 승인·백업·해제가 5분간 전부 막혔다(429). 행 수 상한(5)은 그대로 유지된다.
 const MAX_OPEN_CHALLENGES = 5;
 
 // OTP 발송 남용 차단(F-03).
@@ -366,9 +406,11 @@ const OTP_DAILY_BUDGET_DEFAULT = 80;
 const OTP_IP_RATE_LIMIT_MAX = 5;
 const OTP_IP_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1시간
 const otpRateLimitMap = new Map();
-function checkOtpIpRateLimit(request) {
-  return checkRateLimitWith(otpRateLimitMap, request, OTP_IP_RATE_LIMIT_MAX, OTP_IP_RATE_LIMIT_WINDOW_MS);
+function otpIpRateLimitState(request) {
+  return rateLimitStateWith(otpRateLimitMap, request, OTP_IP_RATE_LIMIT_MAX, OTP_IP_RATE_LIMIT_WINDOW_MS);
 }
+const OTP_RESEND_THROTTLE_MS = 60 * 1000; // 같은 이메일 재요청 최소 간격
+const OTP_MAX_ATTEMPTS = 5;               // OTP 하나당 비교 시도 상한(맞힌 시도 포함)
 // 발송 예산 카운터 키(UTC 일자). stats_counter를 재사용하므로 스키마 변경이 없고, 값은
 // "그날 몇 통 보냈나"라는 비식별 집계뿐이다(수신자 정보 없음).
 function otpBudgetKey(now) {
@@ -524,6 +566,12 @@ function storeSearchKeyword(name) {
 const DIAG_ID_PREFIX = '__diag_';
 const isDiagId = (id) => String(id == null ? '' : id).startsWith(DIAG_ID_PREFIX);
 
+// 조각 번호 검사(정수 0..999). JSON 숫자만 받는다("3" 같은 문자열·3.5·음수는 거절).
+function validSegNo(v) { return Number.isInteger(v) && v >= 0 && v <= MAX_SEG_NO; }
+// 다른 열쇠 인수(beta.55 E-2) 이전의 백업인가 — 인수 시각보다 먼저 쓰인 머리·조각은 새 주인의 것이 아니다.
+function takeoverCutoff(reg) { return reg && reg.taken_over_at != null ? Number(reg.taken_over_at) : 0; }
+function isPreTakeover(row, reg) { const t = takeoverCutoff(reg); return !!t && Number(row.updated_at) < t; }
+
 async function verifyStoreIdentity(env, restaurant_id, restaurant_name) {
   if (isDiagId(restaurant_id)) return 'unknown'; // 진단용 id — 등록 허용, verified=0
   // 상호가 비어 있으면 대조 자체가 성립하지 않는다 — 조건 없는 전체 조회를 날리지 않고
@@ -572,8 +620,13 @@ export async function handle(request, env, store) {
   if (path === '/api/challenge' && request.method === 'POST' && !checkChallengeRateLimit(request))
     return j({ error: 'rate_limited' }, 429);
   // OTP 요청은 이메일 발송(외부 비용·수신자 괴롭힘)로 이어지므로 IP당 시간당 5회로 더 낮게 제한.
-  if (path === '/api/agency/request-otp' && request.method === 'POST' && !checkOtpIpRateLimit(request))
-    return j({ error: 'rate_limited' }, 429);
+  // beta.55(D-3): 사무실 NAT를 함께 쓰는 담당자들은 이 한도에 최대 1시간 막힐 수 있다 — 담당자 웹이
+  // "1분 뒤"가 아니라 정확한 안내를 하도록 scope('ip')와 retry_after_s(남은 초)를 함께 싣는다.
+  // error 값은 예전과 같은 'rate_limited'다(기존 클라이언트 호환).
+  if (path === '/api/agency/request-otp' && request.method === 'POST') {
+    const st = otpIpRateLimitState(request);
+    if (!st.ok) return j({ error: 'rate_limited', scope: 'ip', retry_after_s: st.retry_after_s }, 429);
+  }
 
   try {
     if (path === '/api/register-key' && request.method === 'POST') {
@@ -589,6 +642,8 @@ export async function handle(request, env, store) {
       const district = normalizeDistrict(districtRaw);
       if (tooLong(restaurant_id, MAX_STR) || tooLong(restaurant_name, MAX_STR) || tooLong(public_key, MAX_PUBKEY) || tooLong(districtRaw, MAX_DISTRICT))
         return j({ error: '입력 길이 초과' }, 400);
+      // beta.55(E-2c): 열리지 않는 공개키는 어떤 경로(최초·재등록·인수)로도 저장하지 않는다.
+      if (!(await validRsaPublicKey(public_key))) return j({ error: 'invalid_public_key' }, 400);
       // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id에 '다른' 공개키로 재등록하려면
       // 기존 키 소유를 증명(챌린지-응답)해야 한다. 동일 키 재등록은 앱 재시도(네트워크 실패 등)일
       // 수 있으므로 인증 없이 200(멱등). 최초 등록은 선착순으로 인증 불요.
@@ -621,13 +676,28 @@ export async function handle(request, env, store) {
         if (deregistered) {
           // 해제된 가게를 '다른 열쇠'로 등록하는 것은 재등록이 아니라 **선착순 신규 등록**이다
           // (예전의 하드 삭제와 같은 취급 — 폐업 후 다른 사장님이 같은 자리를 인수하는 경로).
-          // 따라서 최초 등록과 동일하게 공공데이터 실존·상호를 대조하고, 새 열쇠로는 열 수 없는
-          // 옛 원장 백업·옛 연락처는 그 시점에 지운다(다음 주인이 물려받지 않게).
+          // 따라서 최초 등록과 동일하게 공공데이터 실존·상호를 대조하고, 옛 연락처는 그 시점에 지운다
+          // (다음 주인이 이전 주인의 연락처를 물려받지 않게).
+          //
+          // beta.55(E-2) 변경 두 가지:
+          //  ① **운영자가 휴지통에 넣은 가게는 7일간 다른 열쇠로 인수할 수 없다**(409 takeover_locked).
+          //     ADMIN_TOKEN이 새면 "휴지통 → 곧바로 자기 열쇠로 인수"가 한 번에 가능했다. 7일이면 원래
+          //     사장님이 앱을 열어 같은 열쇠로 되살릴(재등록 = 되돌리기) 시간이 충분하다.
+          //     사장님 스스로의 해제(/api/deregister — 소유 증명 필요)는 잠그지 않는다(폐업·양도 경로).
+          //  ② **옛 원장 백업(머리·조각)을 인수 시점에 지우지 않는다.** 예전에는 같은 배치에서 지워,
+          //     잘못된 인수(토큰 유출·착오) 한 번이 되돌릴 수 없는 백업 소실이 됐다. 이제 인수 시각
+          //     (taken_over_at)보다 오래된 백업은 **새 주인에게 보이지 않고**(get·list 404/제외 — 새 열쇠로는
+          //     어차피 못 여는 암호문이다), 운영자 수작업 복구를 위해 30일 남았다가 cron이 지운다.
+          //     새 주인이 새 백업을 올리면 머리는 그 자리에서 대체되고, gen을 실은 머리는 다른 세대 조각을 지운다.
+          const nowTk = Date.now();
+          const deregAt = Number(existing.deregistered_at);
+          if (nowTk - deregAt < ADMIN_TAKEOVER_LOCK_MS && await store.wasAdminDeregistered(restaurant_id, deregAt)) {
+            return j({ error: 'takeover_locked', locked_until: deregAt + ADMIN_TAKEOVER_LOCK_MS }, 409);
+          }
           const verdictTakeover = await verifyStoreIdentity(env, restaurant_id, restaurant_name);
           if (verdictTakeover === 'mismatch') return j({ error: 'store_not_found' }, 400);
-          // 키 교체와 옛 백업 삭제는 한 배치로(둘 중 하나만 반영되는 상태를 만들지 않는다).
           await store.takeoverKey({
-            restaurant_id, restaurant_name, public_key, registered_at: Date.now(),
+            restaurant_id, restaurant_name, public_key, registered_at: nowTk, taken_over_at: nowTk,
             district: district || null, verified: verdictTakeover === 'ok' ? 1 : 0
           });
           return j({ ok: true });
@@ -677,12 +747,16 @@ export async function handle(request, env, store) {
       if (tooLong(restaurant_id, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
       const row = await store.getPublicKey(restaurant_id);
       if (!row) return j({ error: '등록된 공개키 없음' }, 404);
-      // 저장 남용 방어: 삽입 전에 만료분을 먼저 지우고, 그래도 미만료 챌린지가 상한(5)에
-      // 차 있으면 새로 발급하지 않는다(정상 클라이언트는 발급 즉시 1회용으로 소비한다).
+      // 저장 남용 방어: 삽입 전에 만료분을 먼저 지우고, 미만료 챌린지가 상한(5)에 차 있으면
+      // 가장 오래된 것부터 지워 새 1건이 들어갈 자리를 만든다(beta.55 E-1 — 예전엔 429 거절이라
+      // 무인증 호출 5번으로 사장님 인증을 막을 수 있었다). 행 수는 여전히 최대 5다.
+      // 남는 위험: 공격자가 '발급~소비' 사이(수백 ms)에 5건을 더 발급하면 그 1건이 밀려날 수 있다 —
+      // IP당 분당 20회 한도가 그 속도를 늦추고, 앱은 401이면 챌린지를 다시 받아 재시도한다.
       const nowChal = Date.now();
       await store.deleteExpiredChallenges(restaurant_id, nowChal);
-      if (await store.countOpenChallenges(restaurant_id, nowChal) >= MAX_OPEN_CHALLENGES)
-        return j({ error: 'too_many_challenges' }, 429);
+      const openChal = await store.countOpenChallenges(restaurant_id, nowChal);
+      if (openChal >= MAX_OPEN_CHALLENGES)
+        await store.deleteOldestChallenges(restaurant_id, nowChal, openChal - MAX_OPEN_CHALLENGES + 1);
       const token_b64 = randomB64(32);
       const token_hash = await sha256hex(token_b64);
       await store.createChallenge({ restaurant_id, token_hash, expires_at: nowChal + 5 * 60 * 1000 });
@@ -827,6 +901,15 @@ export async function handle(request, env, store) {
       // 담당자가 알 수 있는 유일한 통로가 응답이다. 신규 제출 응답은 기존과 동일하게 {summary_id}만.
       const dedupe_key = dedupeKeyOf(submission_id, batch_hash, year_month);
       const nowSubmit = Date.now();
+      // beta.55(E-5): 받는 가게가 **지금 활성 등록 상태**여야 새 암호문을 받는다. 예전에는 아무
+      // restaurant_id로나 접수돼, 등록되지 않았거나 휴지통에 있는 가게 앞으로 아무도 열지 못할 암호문이
+      // 72시간씩 쌓였다. 휴지통 상태도 '없는 가게'와 똑같이 404 — /api/public-key와 같은 규칙(§4.12)이라
+      // 해제 여부를 새로 드러내지 않는다. 이미 접수된 건의 멱등 응답(deduped)은 이 검사 앞에서 돌려준다
+      // (응답만 잃은 재시도가 "없는 가게"로 바뀌어 보이지 않게).
+      const requireActiveRestaurant = async () => {
+        const reg = await store.getPublicKey(restaurant_id);
+        return !!reg && reg.deregistered_at == null;
+      };
       if (dedupe_key) {
         const dup = await store.findSummaryByDedupe(restaurant_id, dedupe_key);
         if (dup) {
@@ -837,6 +920,7 @@ export async function handle(request, env, store) {
           // (승인·거절·만료 시 즉시 파기한다는 보존 정책 §6을 되돌리는 경로가 되므로).
           const repairable = dup.status === 'PENDING' && Number(dup.created_at) > nowSubmit - PENDING_TTL_MS;
           if (repairable && !(await store.hasBlob(dup.id))) {
+            if (!(await requireActiveRestaurant())) return j({ error: 'not_registered' }, 404);
             await store.insertBlob({
               id: uuid(), summary_id: dup.id, restaurant_id: blob_restaurant_id,
               ciphertext: ciphertextStr, delivered: 0, created_at: nowSubmit
@@ -846,6 +930,12 @@ export async function handle(request, env, store) {
           return j({ summary_id: dup.id, deduped: true, status: dup.status });
         }
       }
+
+      if (!(await requireActiveRestaurant())) return j({ error: 'not_registered' }, 404);
+      // 가게별 미수령 신청 상한(beta.55, E-5): 수신함(PENDING·72시간 이내, 암호문 있는 건)이 이미
+      // 30건이면 새 건을 받지 않는다. 사장님이 받거나 거절하면(또는 72시간이 지나면) 다시 받는다.
+      if (await store.inboxCount(restaurant_id) >= MAX_PENDING_PER_RESTAURANT)
+        return j({ error: 'too_many_pending', max: MAX_PENDING_PER_RESTAURANT }, 429);
 
       // 원자 저장: summary + blob + consent를 **한 배치(D1 트랜잭션)**로 쓴다. 예전에는 문장을
       // 따로 실행해, blob 삽입이 실패하면 요약만 남는 고아 상태가 만들어졌다(위 복구 경로가
@@ -950,6 +1040,10 @@ export async function handle(request, env, store) {
       if (!restaurant_id || typeof blob !== 'string' || !blob) return j({ error: 'restaurant_id·blob 필요' }, 400);
       if (tooLong(restaurant_id, MAX_STR) || tooLong(blob_hash, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
       if (blob.length > MAX_LEDGER_BLOB) return j({ error: 'blob 크기 초과(1MB)' }, 400);
+      // 선택 필드 gen(beta.55, §4.13): 조각 백업의 '머리'라는 표시. 오면 형식을 검사하고, 머리 저장과
+      // **같은 배치로** 이 가게의 다른 세대(gen) 조각을 지운다. 없으면(v1 앱) 조각을 건드리지 않는다.
+      const gen = b.gen != null ? String(b.gen) : '';
+      if (b.gen != null && !SEG_GEN_RE.test(gen)) return j({ error: 'invalid_gen' }, 400);
       const authed = await verifyAuth(store, restaurant_id, b.auth_token);
       if (!authed) return j({ error: 'auth_required' }, 401);
       // 해제(휴지통) 상태에서는 **새 백업을 받지 않는다**(409). 30일 뒤 지워질 자리에 새 백업을
@@ -957,7 +1051,7 @@ export async function handle(request, env, store) {
       // 안에는 그대로 되고, 다시 쓰려면 재등록(같은 열쇠)으로 되살리면 된다.
       const regRow = await store.getPublicKey(restaurant_id);
       if (regRow && regRow.deregistered_at != null) return j({ error: 'deregistered' }, 409);
-      await store.upsertLedgerBackup({ restaurant_id, blob, blob_hash, updated_at: Date.now() });
+      await store.upsertLedgerBackup({ restaurant_id, blob, blob_hash, updated_at: Date.now(), gen: gen || null });
       return j({ ok: true });
     }
 
@@ -968,22 +1062,92 @@ export async function handle(request, env, store) {
       const authed = await verifyAuth(store, restaurant_id, b.auth_token);
       if (!authed) return j({ error: 'auth_required' }, 401);
       const row = await store.getLedgerBackup(restaurant_id);
-      if (!row) return j({ error: 'not_found' }, 404);
+      // 다른 열쇠로 인수되기 전의 옛 백업은 새 주인에게 '없는 것'이다(beta.55 E-2 — 예전엔 인수 때 지워져
+      // 404였다. 지금은 운영자 복구용으로 30일 남지만 응답은 예전과 같은 404).
+      if (!row || isPreTakeover(row, await store.getPublicKey(restaurant_id))) return j({ error: 'not_found' }, 404);
       return j({ blob: row.blob, blob_hash: row.blob_hash, updated_at: row.updated_at });
     }
 
     // 백업을 직접 지우고 싶을 때(예: 기기를 되찾아 클라우드 백업이 더는 필요 없을 때) 사용.
-    // 소유 증명(auth_token) 필요(감사 항목 2).
+    // 소유 증명(auth_token) 필요(감사 항목 2). beta.55: 머리와 함께 조각(§4.13)도 지운다.
+    // 응답은 예전과 같다 — 지울 것이 하나도 없으면 404, 있으면 {ok:true}.
     if (path === '/api/ledger-backup/delete' && request.method === 'POST') {
       const b = await request.json();
       const restaurant_id = String(b.restaurant_id || '');
       if (!restaurant_id) return j({ error: 'restaurant_id 필요' }, 400);
       const authed = await verifyAuth(store, restaurant_id, b.auth_token);
       if (!authed) return j({ error: 'auth_required' }, 401);
-      const row = await store.getLedgerBackup(restaurant_id);
-      if (!row) return j({ error: 'not_found' }, 404);
-      await store.deleteLedgerBackup(restaurant_id);
+      const since = takeoverCutoff(await store.getPublicKey(restaurant_id));
+      const removed = await store.deleteLedgerBackup(restaurant_id, since);
+      if (!removed) return j({ error: 'not_found' }, 404);
       return j({ ok: true });
+    }
+
+    // ── 조각(segment) 백업 (beta.55, PROTOCOL §4.13) ── 전부 소유 증명(1회용 auth_token) 필요.
+    // 서버는 조각의 내용을 모른다(클라이언트가 자기 공개키로 암호화한 문자열). 조각은 세대(gen)로 묶이고,
+    // 그 세대의 '머리'를 /api/ledger-backup(gen 포함)에 올리는 순간 다른 세대 조각은 같은 배치로 지워진다.
+    if (path === '/api/ledger-backup/seg' && request.method === 'POST') {
+      const b = await request.json();
+      const restaurant_id = String(b.restaurant_id || '');
+      const gen = String(b.gen == null ? '' : b.gen);
+      const seg_no = b.seg_no;
+      const blob = b.blob;
+      const blob_hash = b.blob_hash != null ? String(b.blob_hash) : '';
+      if (!restaurant_id) return j({ error: 'restaurant_id 필요' }, 400);
+      if (tooLong(restaurant_id, MAX_STR) || tooLong(blob_hash, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      if (!SEG_GEN_RE.test(gen)) return j({ error: 'invalid_gen' }, 400);
+      if (!validSegNo(seg_no)) return j({ error: 'invalid_seg_no' }, 400);
+      if (typeof blob !== 'string' || !blob) return j({ error: 'blob 필요' }, 400);
+      if (blob.length > MAX_SEG_BLOB) return j({ error: 'blob 크기 초과', max: MAX_SEG_BLOB }, 400);
+      const authed = await verifyAuth(store, restaurant_id, b.auth_token);
+      if (!authed) return j({ error: 'auth_required' }, 401);
+      const regRow = await store.getPublicKey(restaurant_id);
+      if (regRow && regRow.deregistered_at != null) return j({ error: 'deregistered' }, 409);
+      // 가게당 조각 행 상한(모든 세대 합계). 이미 있는 (gen,seg_no)를 다시 올리는 것은 행이 늘지 않으므로 허용.
+      const cnt = await store.countLedgerSegs(restaurant_id, gen, seg_no);
+      if (!cnt.exists && cnt.total >= MAX_SEGMENTS_PER_STORE)
+        return j({ error: 'too_many_segments', max: MAX_SEGMENTS_PER_STORE }, 400);
+      const updated_at = Date.now();
+      await store.upsertLedgerSeg({ restaurant_id, gen, seg_no, blob, blob_hash: blob_hash || null, updated_at });
+      return j({ ok: true, updated_at });
+    }
+
+    if (path === '/api/ledger-backup/seg/get' && request.method === 'POST') {
+      const b = await request.json();
+      const restaurant_id = String(b.restaurant_id || '');
+      const gen = String(b.gen == null ? '' : b.gen);
+      const seg_nos = b.seg_nos;
+      if (!restaurant_id) return j({ error: 'restaurant_id 필요' }, 400);
+      if (tooLong(restaurant_id, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      if (!SEG_GEN_RE.test(gen)) return j({ error: 'invalid_gen' }, 400);
+      if (!Array.isArray(seg_nos) || seg_nos.length < 1 || seg_nos.length > MAX_SEG_GET || !seg_nos.every(validSegNo))
+        return j({ error: 'invalid_seg_nos', max: MAX_SEG_GET }, 400);
+      const authed = await verifyAuth(store, restaurant_id, b.auth_token);
+      if (!authed) return j({ error: 'auth_required' }, 401);
+      // 휴지통 상태에서도 된다(v1 get과 같다 — 30일 복구 경로). 인수 전 옛 조각은 빠진다.
+      const since = takeoverCutoff(await store.getPublicKey(restaurant_id));
+      const uniq = [...new Set(seg_nos.map(Number))];
+      const rows = await store.getLedgerSegs(restaurant_id, gen, uniq);
+      return j({
+        segments: rows.filter(x => !(since && x.updated_at < since))
+          .sort((a, c) => a.seg_no - c.seg_no)
+          .map(x => ({ seg_no: x.seg_no, blob: x.blob, blob_hash: x.blob_hash != null ? x.blob_hash : null, updated_at: x.updated_at }))
+      });
+    }
+
+    if (path === '/api/ledger-backup/seg/list' && request.method === 'POST') {
+      const b = await request.json();
+      const restaurant_id = String(b.restaurant_id || '');
+      if (!restaurant_id) return j({ error: 'restaurant_id 필요' }, 400);
+      if (tooLong(restaurant_id, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
+      const authed = await verifyAuth(store, restaurant_id, b.auth_token);
+      if (!authed) return j({ error: 'auth_required' }, 401);
+      const since = takeoverCutoff(await store.getPublicKey(restaurant_id));
+      const rows = await store.listLedgerSegs(restaurant_id);
+      return j({
+        segments: rows.filter(x => !(since && x.updated_at < since))
+          .map(x => ({ gen: x.gen, seg_no: x.seg_no, blob_hash: x.blob_hash != null ? x.blob_hash : null, updated_at: x.updated_at, size: Number(x.size) || 0 }))
+      });
     }
 
     // ── 기관 OTP 인증 인프라 (단계적 활성화, AUTH_MODE 3분기) ──
@@ -1011,8 +1175,9 @@ export async function handle(request, env, store) {
       const email_hash_legacy = await emailKeyLegacy(email);
       const existing = await store.getAgencyOtp(email_hash)
         || (email_hash_legacy !== email_hash ? await store.getAgencyOtp(email_hash_legacy) : null);
-      if (existing && existing.created_at && now - existing.created_at < 60 * 1000)
-        return j({ error: 'rate_limited' }, 429);
+      // beta.55(D-3): 이메일 단위 60초 스로틀은 scope:'email' + 남은 초를 함께 알린다.
+      if (existing && existing.created_at && now - existing.created_at < OTP_RESEND_THROTTLE_MS)
+        return j({ error: 'rate_limited', scope: 'email', retry_after_s: Math.max(1, Math.ceil((existing.created_at + OTP_RESEND_THROTTLE_MS - now) / 1000)) }, 429);
       // 서버 자체 일일 발송 예산(F-03): Resend를 호출하기 전에 D1 카운터로 먼저 막는다.
       // OTP 행을 만들기 '전'에 검사하므로 60초 스로틀을 소모하지 않는다(재시도 블랙홀 방지).
       if (env.AUTH_MODE === 'prod') {
@@ -1077,13 +1242,24 @@ export async function handle(request, env, store) {
         if (row) lookup_key = email_hash_legacy;
       }
       if (!row || row.expires_at < Date.now()) return j({ error: 'invalid_otp' }, 401);
-      if (row.attempts >= 5) return j({ error: 'too_many_attempts' }, 429);
+      if (row.attempts >= OTP_MAX_ATTEMPTS) return j({ error: 'too_many_attempts' }, 429);
+      // beta.55(E-4): 시도 횟수를 **비교하기 전에 원자적으로** 하나 올린다(attempts<5일 때만).
+      // 예전에는 '읽기 → 비교 → 틀리면 +1'이라, 같은 순간에 수십 건을 보내면 모두 attempts=0을 읽고
+      // 통과해 5회 상한이 무력했다(6자리 OTP를 병렬로 대입하는 경로). 이제 증가에 실패하면(이미 5회)
+      // 비교 자체를 하지 않는다. 맞힌 시도도 한 번으로 세지만 곧바로 행을 지우므로 영향이 없다.
+      const slot = await store.tryIncrementAgencyOtpAttempts(lookup_key, OTP_MAX_ATTEMPTS);
+      if (!slot) {
+        // 0행 갱신 = 이미 5회를 다 썼거나, 그 사이 다른 요청이 맞혀서 행이 지워졌다.
+        const still = await store.getAgencyOtp(lookup_key);
+        if (!still) return j({ error: 'invalid_otp' }, 401);
+        return j({ error: 'too_many_attempts' }, 429);
+      }
       const otp_hash = await sha256hex(otp);
       if (otp_hash !== row.otp_hash) {
-        await store.incrementAgencyOtpAttempts(lookup_key);
         return j({ error: 'invalid_otp' }, 401);
       }
-      await store.deleteAgencyOtp(lookup_key);
+      // 맞힌 요청도 원자 삭제의 '승자'만 토큰을 받는다(같은 코드를 병렬로 보내 토큰 여러 개를 받지 않게).
+      if (!(await store.consumeAgencyOtp(lookup_key, row.otp_hash))) return j({ error: 'invalid_otp' }, 401);
       const token = randomB64(32);
       const token_hash = await sha256hex(token);
       // 토큰 행에는 항상 '현재 방식'의 이메일 해시를 저장한다(consent_log 기록에 그대로 재사용).
@@ -1119,6 +1295,14 @@ export async function handle(request, env, store) {
       if (!row || row.deregistered_at != null) return j({ error: 'not_found' }, 404);
       const current = await fingerprintOfSpki(row.public_key);
       if (current !== fingerprint) return j({ error: 'fingerprint_mismatch', current }, 409);
+      // beta.55(D-7): 이 (기관·부서·음식점)에 **이미 다른 지문으로 확인한 기록**이 있으면, 담당자가
+      // "기기 변경을 사장님과 통화로 확인했다"는 뜻으로 confirm_change:true를 보낼 때만 덮어쓴다.
+      // 예전에는 조용히 덮어써, 확인 이력이 '바뀐 열쇠'를 아무 표시 없이 승인한 것처럼 바뀌었다.
+      // 예전 값 자체는 돌려주지 않는다(다른 도메인이 남긴 기록일 수 있다) — 있었다는 사실만 알린다.
+      // 담당자 웹(confirmKey)은 409에 current가 화면 지문과 같으면 confirm_change:true로 다시 보낸다.
+      const prevKc = await store.getKeycheck(institution, department, restaurant_id);
+      if (prevKc && prevKc.fingerprint && prevKc.fingerprint !== current && b.confirm_change !== true)
+        return j({ error: 'fingerprint_changed', current, had_previous: true }, 409);
       // 확인 기록은 **그 도메인으로 인증한 담당자**의 것이다(F5). 기관·부서명은 담당자가 직접
       // 적는 자칭 값이라, 남의 기관명을 적어 조회하면 그 부서의 확인 이력을 읽어갈 수 있었다
       // (어느 음식점과 거래하는지 + 지문이 새는 경로). 저장 시 토큰 도메인을 함께 박아 두고
@@ -1166,9 +1350,12 @@ export async function handle(request, env, store) {
     //     켜 주면 소유 증명을 우회하는 셈이다.
     //   · 공개키 지정·교체 — 운영자는 사장님 기기의 키를 알 방법이 없고 알아서도 안 된다.
     //   · 무인증 경로 — 전부 ADMIN_TOKEN 필수.
-    // 그래서 ADMIN_TOKEN이 새도 공격자가 할 수 있는 최악은 "가게를 휴지통에 넣기"(하루 20곳 상한)이고,
-    // 가게를 가로채거나(키 심기) 백업을 지우는 일은 할 수 없다 — 원래 열쇠를 가진 기기는 같은 키로
-    // 다시 등록해 즉시 되살릴 수 있다.
+    // ADMIN_TOKEN이 새면(정확한 범위 — beta.55에서 고쳐 씀): 이 경로로 직접 하는 일은 "가게를 휴지통에 넣기"
+    // (하루 20곳 상한)뿐이지만, 휴지통 가게는 다른 열쇠로 선착순 인수(register-key)될 수 있다. 예전에는
+    // "가로채기·백업 삭제로 이어지지 않는다"고 적었으나 사실이 아니었다(휴지통 → 공격자 열쇠로 인수 → 그 순간
+    // 옛 백업 삭제). beta.55부터 ① 운영자 휴지통 가게는 7일간 다른 열쇠 인수가 막히고(takeover_locked) 그동안
+    // 원래 열쇠를 가진 기기는 같은 키 재등록으로 즉시 되살릴 수 있으며 ② 인수가 일어나도 옛 백업은 30일
+    // 남는다(새 주인에게는 숨김). 남는 위험: 사장님이 7일 안에 앱을 열지 않으면 그 뒤에는 인수될 수 있다.
     if (path.startsWith('/api/admin/') && path !== '/api/admin/stats') {
       const isRegistry = path === '/api/admin/registry' && request.method === 'GET';
       const isActions = path === '/api/admin/actions' && request.method === 'GET';
@@ -1293,7 +1480,8 @@ export function makeD1Store(DB) {
     // district·deregistered_at까지 함께 읽는다: 전자는 '관할 변경에 인증이 필요한가'(F5) 판정용,
     // 후자는 '해제(휴지통) 상태인가' 판정용. 호출부가 엔드포인트별로 노출 여부를 정한다.
     async getPublicKey(id) {
-      return await DB.prepare('SELECT restaurant_id,restaurant_name,public_key,contact_kakao,contact_email,district,deregistered_at FROM public_key_registry WHERE restaurant_id=?').bind(id).first();
+      // taken_over_at(beta.55): 다른 열쇠 인수 시각 — 그보다 오래된 백업은 새 주인에게 보이지 않는다.
+      return await DB.prepare('SELECT restaurant_id,restaurant_name,public_key,contact_kakao,contact_email,district,deregistered_at,taken_over_at FROM public_key_registry WHERE restaurant_id=?').bind(id).first();
     },
     // 등록 해제 = 30일 휴지통(§4.12). 행·연락처·원장 백업을 지우지 않고 표시만 남긴다 —
     // 담당자에게는 즉시 '없는 가게'가 되고(활성 필터), 30일 뒤 cron이 실제로 지운다.
@@ -1305,14 +1493,18 @@ export function makeD1Store(DB) {
       await DB.prepare('UPDATE public_key_registry SET deregistered_at=NULL, restaurant_name=?, district=COALESCE(?,district) WHERE restaurant_id=?')
         .bind(r.restaurant_name, r.district != null ? r.district : null, r.restaurant_id).run();
     },
-    // 해제된 가게를 '다른 열쇠'로 선착순 인수: 키·이름·관할·verified를 새로 쓰고 해제 표시를 지우며,
-    // 새 열쇠로는 열 수도 없는 옛 연락처·옛 원장 백업을 같은 배치에서 제거한다(다음 주인이 물려받지 않게).
+    // 해제된 가게를 '다른 열쇠'로 선착순 인수: 키·이름·관할·verified를 새로 쓰고 해제 표시를 지우며
+    // 옛 연락처를 지운다(다음 주인이 물려받지 않게). beta.55(E-2): 옛 원장 백업(머리·조각)은 **지우지 않는다** —
+    // taken_over_at을 남겨 그보다 오래된 백업을 새 주인에게서 숨기고, 30일 뒤 cron이 지운다(운영자 복구 여지).
     async takeoverKey(r) {
-      await DB.batch([
-        DB.prepare('UPDATE public_key_registry SET restaurant_name=?, public_key=?, registered_at=?, district=?, verified=?, contact_kakao=NULL, contact_email=NULL, deregistered_at=NULL WHERE restaurant_id=?')
-          .bind(r.restaurant_name, r.public_key, r.registered_at, r.district != null ? r.district : null, r.verified ? 1 : 0, r.restaurant_id),
-        DB.prepare('DELETE FROM ledger_backup WHERE restaurant_id=?').bind(r.restaurant_id)
-      ]);
+      await DB.prepare('UPDATE public_key_registry SET restaurant_name=?, public_key=?, registered_at=?, district=?, verified=?, contact_kakao=NULL, contact_email=NULL, deregistered_at=NULL, taken_over_at=? WHERE restaurant_id=?')
+        .bind(r.restaurant_name, r.public_key, r.registered_at, r.district != null ? r.district : null, r.verified ? 1 : 0, r.taken_over_at, r.restaurant_id).run();
+    },
+    // 그 해제가 운영자 휴지통 처리였는가(beta.55 E-2b): adminDeregister는 deregistered_at과 감사 행의
+    // created_at에 **같은 now**를 쓴다. 사장님이 그 뒤 스스로 해제했다면 시각이 달라 false가 된다.
+    async wasAdminDeregistered(restaurant_id, deregistered_at) {
+      const r = await DB.prepare("SELECT 1 c FROM admin_action_log WHERE restaurant_id=? AND action='deregister' AND created_at=? LIMIT 1").bind(restaurant_id, deregistered_at).first();
+      return !!r;
     },
     // 업무용 연락처(선택) upsert. 대상 restaurant_id가 없으면 영향 row 0(호출부에서 404 사전 체크).
     async setContact(restaurant_id, contact) {
@@ -1326,13 +1518,15 @@ export function makeD1Store(DB) {
       const r = await DB.prepare('SELECT restaurant_id FROM public_key_registry WHERE deregistered_at IS NULL AND restaurant_id IN (' + ph + ')').bind(...ids).all();
       return (r.results || []).map(x => x.restaurant_id);
     },
+    // 진단용 id 제외(beta.55 E-8): 예전 `NOT LIKE '__diag\_%'`는 앞의 '__'가 이스케이프되지 않아
+    // '아무 두 글자 + diag_'로 시작하는 실제 id까지 숨겼다. 접두사 7글자를 그대로 비교한다.
     // 시도(+선택 시군구)로 등록 음식점 조회 — 정규화 후 '정확 일치'.
     //  · sigungu 있음: 정규화(district) = "{sido} {sigungu}"  (부분 일치 금지 — 서구/강서구 오매칭 방지)
     //  · sigungu 없음: 정규화(district) = sido  또는  "{sido} "로 시작(시도 경계를 공백으로 고정)
     // NULL district(레거시)는 제외. 이름 가나다 정렬(BINARY=한글 순서).
     // 정규화 식(SQL_NORM_DISTRICT)은 인덱스를 타지 못하지만 등록 음식점 테이블은 소규모라 무시 가능.
     async registeredByDistrict(sido, sigungu) {
-      let sql = "SELECT restaurant_id, restaurant_name, district, registered_at, verified FROM public_key_registry WHERE deregistered_at IS NULL AND district IS NOT NULL AND restaurant_id NOT LIKE '__diag\\_%' ESCAPE '\\' AND ";
+      let sql = "SELECT restaurant_id, restaurant_name, district, registered_at, verified FROM public_key_registry WHERE deregistered_at IS NULL AND district IS NOT NULL AND substr(restaurant_id,1,7) <> '__diag_' AND ";
       const params = [];
       if (sigungu) {
         sql += SQL_NORM_DISTRICT + ' = ?';
@@ -1393,7 +1587,9 @@ export function makeD1Store(DB) {
       // agency_domain은 실어 보낸다(§4.11): 기관명은 담당자 자칭이라 서버가 검증할 수 없고,
       // 검증 가능한 유일한 단서가 '인증된 이메일 도메인'이므로 음식점 앱이 함께 표시해 대조하게 한다.
       // 구버전 토큰·마이그레이션 이전 행은 null 그대로 나간다(앱이 "확인 불가"로 표시).
-      const r = await DB.prepare("SELECT s.id as summary_id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.agency_domain, s.created_at, s.status, b.ciphertext FROM deposit_summary s JOIN encrypted_blob b ON b.summary_id=s.id WHERE s.restaurant_id=? AND s.status='PENDING' AND s.created_at>? ORDER BY s.created_at").bind(restaurant_id, cutoff).all();
+      // beta.55(E-5): 한 번에 최대 INBOX_LIMIT(50)건, 오래된 것부터(예전과 같은 순서). 가게별 미수령 상한(30)이
+      // 있어 정상 운용에서는 잘리지 않는다 — 상한 도입 전에 쌓인 건이 있어도 응답이 무한히 커지지 않게.
+      const r = await DB.prepare("SELECT s.id as summary_id, s.institution, s.department, s.restaurant_id, s.restaurant_name, s.year_month, s.total_amount, s.member_count, s.agency_domain, s.created_at, s.status, b.ciphertext FROM deposit_summary s JOIN encrypted_blob b ON b.summary_id=s.id WHERE s.restaurant_id=? AND s.status='PENDING' AND s.created_at>? ORDER BY s.created_at LIMIT ?").bind(restaurant_id, cutoff, INBOX_LIMIT).all();
       return (r.results || []).map(row => ({
         summary_id: row.summary_id,
         summary: { institution: row.institution, department: row.department, restaurant_id: row.restaurant_id, restaurant_name: row.restaurant_name, year_month: row.year_month, total_amount: row.total_amount, member_count: row.member_count, agency_domain: row.agency_domain != null ? row.agency_domain : null, created_at: row.created_at },
@@ -1440,16 +1636,52 @@ export function makeD1Store(DB) {
       const r = await DB.prepare('SELECT COUNT(*) c FROM auth_challenge WHERE restaurant_id=? AND expires_at>?').bind(restaurant_id, now).first();
       return (r && r.c) || 0;
     },
+    // 상한에 찼을 때 가장 먼저 만료될(=가장 오래된) 미만료 챌린지 n개를 지운다(beta.55 E-1).
+    async deleteOldestChallenges(restaurant_id, now, n) {
+      await DB.prepare('DELETE FROM auth_challenge WHERE rowid IN (SELECT rowid FROM auth_challenge WHERE restaurant_id=? AND expires_at>? ORDER BY expires_at ASC, rowid ASC LIMIT ?)')
+        .bind(restaurant_id, now, n).run();
+    },
     // ── 암호화 원장 백업 ──
+    // b.gen이 있으면(조각 백업의 머리, §4.13) 머리 저장과 같은 배치로 다른 세대 조각을 지운다.
     async upsertLedgerBackup(b) {
-      await DB.prepare('INSERT INTO ledger_backup (restaurant_id,blob,blob_hash,updated_at) VALUES (?,?,?,?) ON CONFLICT(restaurant_id) DO UPDATE SET blob=excluded.blob, blob_hash=excluded.blob_hash, updated_at=excluded.updated_at')
-        .bind(b.restaurant_id, b.blob, b.blob_hash, b.updated_at).run();
+      const head = DB.prepare('INSERT INTO ledger_backup (restaurant_id,blob,blob_hash,updated_at) VALUES (?,?,?,?) ON CONFLICT(restaurant_id) DO UPDATE SET blob=excluded.blob, blob_hash=excluded.blob_hash, updated_at=excluded.updated_at')
+        .bind(b.restaurant_id, b.blob, b.blob_hash, b.updated_at);
+      if (!b.gen) { await head.run(); return; }
+      await DB.batch([head, DB.prepare('DELETE FROM ledger_backup_seg WHERE restaurant_id=? AND gen<>?').bind(b.restaurant_id, b.gen)]);
     },
     async getLedgerBackup(restaurant_id) {
       return await DB.prepare('SELECT blob, blob_hash, updated_at FROM ledger_backup WHERE restaurant_id=?').bind(restaurant_id).first();
     },
-    async deleteLedgerBackup(restaurant_id) {
-      await DB.prepare('DELETE FROM ledger_backup WHERE restaurant_id=?').bind(restaurant_id).run();
+    // 머리와 조각을 한 배치로 지운다. since(인수 시각)가 있으면 그 뒤에 쓰인 것만 — 인수 전 옛 백업은
+    // 새 주인이 지울 수 있는 '자기 것'이 아니다(cron 몫). 반환: 하나라도 지웠으면 true.
+    async deleteLedgerBackup(restaurant_id, since = 0) {
+      const res = await DB.batch([
+        DB.prepare('DELETE FROM ledger_backup WHERE restaurant_id=? AND updated_at>=?').bind(restaurant_id, since),
+        DB.prepare('DELETE FROM ledger_backup_seg WHERE restaurant_id=? AND updated_at>=?').bind(restaurant_id, since)
+      ]);
+      return (res || []).some(x => x && x.meta && x.meta.changes > 0);
+    },
+    // ── 조각 백업(§4.13) ──
+    async countLedgerSegs(restaurant_id, gen, seg_no) {
+      const r = await DB.prepare('SELECT COUNT(*) c, COALESCE(SUM(CASE WHEN gen=? AND seg_no=? THEN 1 ELSE 0 END),0) e FROM ledger_backup_seg WHERE restaurant_id=?')
+        .bind(gen, seg_no, restaurant_id).first();
+      return { total: (r && r.c) || 0, exists: !!(r && r.e) };
+    },
+    async upsertLedgerSeg(x) {
+      await DB.prepare('INSERT INTO ledger_backup_seg (restaurant_id,gen,seg_no,blob,blob_hash,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(restaurant_id,gen,seg_no) DO UPDATE SET blob=excluded.blob, blob_hash=excluded.blob_hash, updated_at=excluded.updated_at')
+        .bind(x.restaurant_id, x.gen, x.seg_no, x.blob, x.blob_hash, x.updated_at).run();
+    },
+    async getLedgerSegs(restaurant_id, gen, seg_nos) {
+      if (!seg_nos.length) return [];
+      const ph = seg_nos.map(() => '?').join(',');
+      const r = await DB.prepare('SELECT seg_no, blob, blob_hash, updated_at FROM ledger_backup_seg WHERE restaurant_id=? AND gen=? AND seg_no IN (' + ph + ')')
+        .bind(restaurant_id, gen, ...seg_nos).all();
+      return r.results || [];
+    },
+    async listLedgerSegs(restaurant_id) {
+      const r = await DB.prepare('SELECT gen, seg_no, blob_hash, updated_at, length(blob) AS size FROM ledger_backup_seg WHERE restaurant_id=? ORDER BY gen, seg_no')
+        .bind(restaurant_id).all();
+      return r.results || [];
     },
     // ── 기관 OTP ──
     // agency_otp.email / agency_token.email 컬럼에는 **이메일의 SHA-256 해시**만 넣는다(평문 미저장,
@@ -1464,6 +1696,16 @@ export function makeD1Store(DB) {
     },
     async incrementAgencyOtpAttempts(emailHash) {
       await DB.prepare('UPDATE agency_otp SET attempts=attempts+1 WHERE email=?').bind(emailHash).run();
+    },
+    // beta.55(E-4): 조건부 원자 증가 — attempts<max일 때만 +1. 갱신된 행이 있으면 true(비교해도 된다).
+    async tryIncrementAgencyOtpAttempts(emailHash, max) {
+      const r = await DB.prepare('UPDATE agency_otp SET attempts=attempts+1 WHERE email=? AND attempts<?').bind(emailHash, max).run();
+      return !!(r && r.meta && r.meta.changes > 0);
+    },
+    // 맞힌 OTP 소비: 같은 해시의 행을 지운 요청만 true(병렬로 같은 코드를 보내도 토큰은 1개).
+    async consumeAgencyOtp(emailHash, otpHash) {
+      const r = await DB.prepare('DELETE FROM agency_otp WHERE email=? AND otp_hash=?').bind(emailHash, otpHash).run();
+      return !!(r && r.meta && r.meta.changes > 0);
     },
     async deleteAgencyOtp(emailHash) {
       await DB.prepare('DELETE FROM agency_otp WHERE email=?').bind(emailHash).run();
@@ -1482,6 +1724,10 @@ export function makeD1Store(DB) {
     async upsertKeycheck(k) {
       await DB.prepare('INSERT INTO agency_keycheck (institution,department,restaurant_id,fingerprint,checked_at,agency_domain) VALUES (?,?,?,?,?,?) ON CONFLICT(institution,department,restaurant_id) DO UPDATE SET fingerprint=excluded.fingerprint, checked_at=excluded.checked_at, agency_domain=excluded.agency_domain')
         .bind(k.institution, k.department, k.restaurant_id, k.fingerprint, k.checked_at, k.agency_domain != null ? k.agency_domain : null).run();
+    },
+    async getKeycheck(institution, department, restaurant_id) {
+      return await DB.prepare('SELECT fingerprint, checked_at, agency_domain FROM agency_keycheck WHERE institution=? AND department=? AND restaurant_id=?')
+        .bind(institution, department, restaurant_id).first();
     },
     // 도메인 결속(F5): 인증 도메인이 같은 행만. agency_domain이 NULL인 레거시 행은 어느 도메인의
     // 기록인지 알 수 없으므로 제외한다(토큰에 도메인이 없으면 결과도 비어 있다 — 구버전 토큰).
@@ -1534,7 +1780,8 @@ export function makeD1Store(DB) {
       const r = await DB.prepare(
         "SELECT r.restaurant_id, r.restaurant_name, r.district, r.registered_at, r.deregistered_at, r.verified," +
         " CASE WHEN COALESCE(r.contact_kakao,'')<>'' OR COALESCE(r.contact_email,'')<>'' THEN 1 ELSE 0 END AS has_contact," +
-        " EXISTS(SELECT 1 FROM ledger_backup b WHERE b.restaurant_id=r.restaurant_id) AS has_backup," +
+        // 인수(beta.55) 전 옛 백업은 지금 주인의 것이 아니므로 '있음'으로 세지 않는다.
+        " EXISTS(SELECT 1 FROM ledger_backup b WHERE b.restaurant_id=r.restaurant_id AND b.updated_at >= COALESCE(r.taken_over_at,0)) AS has_backup," +
         " (SELECT COUNT(*) FROM deposit_summary s WHERE s.restaurant_id=r.restaurant_id AND s.status='PENDING' AND s.created_at > ?) AS pending" +
         " FROM public_key_registry r ORDER BY r.registered_at DESC LIMIT 500"
       ).bind(pendingCutoff).all();
@@ -1560,50 +1807,75 @@ export function makeD1Store(DB) {
       return (r.results || []).map(x => ({ action: x.action, restaurant_id: x.restaurant_id, reason_code: x.reason_code, memo: x.memo, created_at: x.created_at }));
     },
     // ── TTL 정리(개인정보 최소화 목적). cron에서 호출. ──
+    // beta.55(E-10): 단계마다 try/catch — 예전에는 한 단계가 던지면 그 뒤 단계(휴지통 비우기 등)가
+    // 그날 통째로 건너뛰어졌다. 실패한 단계 이름·메시지만 errors에 담아 돌려준다(개인정보 없음).
     async cleanupTTL(now) {
+      const errors = [];
+      const step = async (name, fn) => { try { await fn(); } catch (e) { errors.push(name + ': ' + ((e && e.message) || 'error')); } };
+      let expiredIds = [], ids = [], deregIds = [];
       // 1) 미수령 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 파기(§6). inbox 쿼리도
       // 별도로 created_at 조건을 걸어 이중 방어하므로, 이 단계는 cron 주기(1일) 동안의
       // 저장 최소화를 담당한다.
-      const pendingCutoff = now - PENDING_TTL_MS;
-      const expiredRows = await DB.prepare("SELECT id FROM deposit_summary WHERE status='PENDING' AND created_at < ?").bind(pendingCutoff).all();
-      // 행마다 문장 2개를 발행하면 만료 건이 몰린 날 D1 왕복이 폭증하므로 100개씩 IN (...) 배치로 실행한다
-      // (동작 결과는 행 단위 루프와 동일 — 같은 id 집합에 같은 삭제·전이를 적용).
-      const expiredIds = (expiredRows.results || []).map(r => r.id);
-      for (const part of chunkIds(expiredIds, CLEANUP_CHUNK)) {
-        const ph = part.map(() => '?').join(',');
-        await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id IN (' + ph + ')').bind(...part).run();
-        // ⚠️ 바인딩 100개 상한: processed_at 1개 + id 99개 = 100. CLEANUP_CHUNK를 100으로 올리면
-        //    이 문장만 101개가 되어 만료 건이 몰린 날 cron이 통째로 실패한다.
-        await DB.prepare("UPDATE deposit_summary SET status='EXPIRED', processed_at=? WHERE id IN (" + ph + ")").bind(now, ...part).run();
-      }
+      await step('expire_pending', async () => {
+        const pendingCutoff = now - PENDING_TTL_MS;
+        const expiredRows = await DB.prepare("SELECT id FROM deposit_summary WHERE status='PENDING' AND created_at < ?").bind(pendingCutoff).all();
+        // 행마다 문장 2개를 발행하면 만료 건이 몰린 날 D1 왕복이 폭증하므로 99개씩 IN (...) 배치로 실행한다
+        // (동작 결과는 행 단위 루프와 동일 — 같은 id 집합에 같은 삭제·전이를 적용).
+        expiredIds = (expiredRows.results || []).map(r => r.id);
+        for (const part of chunkIds(expiredIds, CLEANUP_CHUNK)) {
+          const ph = part.map(() => '?').join(',');
+          await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id IN (' + ph + ')').bind(...part).run();
+          // ⚠️ 바인딩 100개 상한: processed_at 1개 + id 99개 = 100. CLEANUP_CHUNK를 100으로 올리면
+          //    이 문장만 101개가 되어 만료 건이 몰린 날 cron이 통째로 실패한다.
+          await DB.prepare("UPDATE deposit_summary SET status='EXPIRED', processed_at=? WHERE id IN (" + ph + ")").bind(now, ...part).run();
+        }
+      });
       // 2) 처리 완료(APPROVED/REJECTED/EXPIRED) 후 30일 지난 비식별 요약 삭제(동일하게 배치 실행).
-      const cutoff = now - RETENTION_TTL_MS;
-      const rows = await DB.prepare("SELECT id FROM deposit_summary WHERE status IN ('APPROVED','REJECTED','EXPIRED') AND processed_at IS NOT NULL AND processed_at < ?").bind(cutoff).all();
-      const ids = (rows.results || []).map(r => r.id);
-      for (const part of chunkIds(ids, CLEANUP_CHUNK)) {
-        const ph = part.map(() => '?').join(',');
-        await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id IN (' + ph + ')').bind(...part).run();
-        await DB.prepare('DELETE FROM deposit_summary WHERE id IN (' + ph + ')').bind(...part).run();
-      }
-      await DB.prepare('DELETE FROM auth_challenge WHERE expires_at<?').bind(now).run();
-      await DB.prepare('DELETE FROM agency_otp WHERE expires_at<?').bind(now).run();
-      await DB.prepare('DELETE FROM agency_token WHERE expires_at<?').bind(now).run();
+      await step('purge_processed', async () => {
+        const cutoff = now - RETENTION_TTL_MS;
+        const rows = await DB.prepare("SELECT id FROM deposit_summary WHERE status IN ('APPROVED','REJECTED','EXPIRED') AND processed_at IS NOT NULL AND processed_at < ?").bind(cutoff).all();
+        ids = (rows.results || []).map(r => r.id);
+        for (const part of chunkIds(ids, CLEANUP_CHUNK)) {
+          const ph = part.map(() => '?').join(',');
+          await DB.prepare('DELETE FROM encrypted_blob WHERE summary_id IN (' + ph + ')').bind(...part).run();
+          await DB.prepare('DELETE FROM deposit_summary WHERE id IN (' + ph + ')').bind(...part).run();
+        }
+      });
+      await step('expired_auth', async () => {
+        await DB.prepare('DELETE FROM auth_challenge WHERE expires_at<?').bind(now).run();
+        await DB.prepare('DELETE FROM agency_otp WHERE expires_at<?').bind(now).run();
+        await DB.prepare('DELETE FROM agency_token WHERE expires_at<?').bind(now).run();
+      });
       // 3) consent_log(기관·부서·연월·이메일 해시)도 무기한 보관하지 않고 180일 후 삭제(§6).
-      await DB.prepare('DELETE FROM consent_log WHERE consented_at < ?').bind(now - CONSENT_RETENTION_TTL_MS).run();
+      await step('consent_log', async () => {
+        await DB.prepare('DELETE FROM consent_log WHERE consented_at < ?').bind(now - CONSENT_RETENTION_TTL_MS).run();
+      });
       // 4) feedback(자유 입력 본문)도 보존기한을 둔다 — 180일 경과분 삭제(§6).
-      await DB.prepare('DELETE FROM feedback WHERE created_at IS NOT NULL AND created_at < ?').bind(now - FEEDBACK_RETENTION_TTL_MS).run();
-      // 5) 등록 해제 후 30일 지난 휴지통 비우기(§4.12): 암호화 원장 백업을 먼저 지우고 키 행을 지운다.
+      await step('feedback', async () => {
+        await DB.prepare('DELETE FROM feedback WHERE created_at IS NOT NULL AND created_at < ?').bind(now - FEEDBACK_RETENTION_TTL_MS).run();
+      });
+      // 5) 등록 해제 후 30일 지난 휴지통 비우기(§4.12): 암호화 원장 백업(머리·조각)을 먼저 지우고 키 행을 지운다.
       //    순서가 중요하다 — 키 행이 먼저 사라지면 소유 증명을 발급할 수 없어, 남은 백업은 아무도
       //    되찾을 수 없는 죽은 데이터가 된다.
-      const deregCutoff = now - DEREGISTER_GRACE_MS;
-      const deregRows = await DB.prepare('SELECT restaurant_id FROM public_key_registry WHERE deregistered_at IS NOT NULL AND deregistered_at < ?').bind(deregCutoff).all();
-      const deregIds = (deregRows.results || []).map(r => r.restaurant_id);
-      for (const part of chunkIds(deregIds, CLEANUP_CHUNK)) {
-        const ph = part.map(() => '?').join(',');
-        await DB.prepare('DELETE FROM ledger_backup WHERE restaurant_id IN (' + ph + ')').bind(...part).run();
-        await DB.prepare('DELETE FROM public_key_registry WHERE restaurant_id IN (' + ph + ')').bind(...part).run();
-      }
-      return { deletedSummaries: ids.length, expiredSummaries: expiredIds.length, purgedDeregistered: deregIds.length };
+      await step('purge_deregistered', async () => {
+        const deregCutoff = now - DEREGISTER_GRACE_MS;
+        const deregRows = await DB.prepare('SELECT restaurant_id FROM public_key_registry WHERE deregistered_at IS NOT NULL AND deregistered_at < ?').bind(deregCutoff).all();
+        deregIds = (deregRows.results || []).map(r => r.restaurant_id);
+        for (const part of chunkIds(deregIds, CLEANUP_CHUNK)) {
+          const ph = part.map(() => '?').join(',');
+          await DB.prepare('DELETE FROM ledger_backup WHERE restaurant_id IN (' + ph + ')').bind(...part).run();
+          await DB.prepare('DELETE FROM ledger_backup_seg WHERE restaurant_id IN (' + ph + ')').bind(...part).run();
+          await DB.prepare('DELETE FROM public_key_registry WHERE restaurant_id IN (' + ph + ')').bind(...part).run();
+        }
+      });
+      // 6) 다른 열쇠 인수(beta.55 E-2) 후 30일 지난 '인수 전 옛 백업'(머리·조각) 삭제. 인수 때 바로 지우지 않고
+      //    새 주인에게서 숨겨 둔 것을 여기서 정리한다(새 주인이 그 사이 새 백업을 올렸으면 이미 대체됐다).
+      await step('purge_pre_takeover', async () => {
+        const tkCutoff = now - DEREGISTER_GRACE_MS;
+        await DB.prepare('DELETE FROM ledger_backup WHERE EXISTS (SELECT 1 FROM public_key_registry r WHERE r.restaurant_id=ledger_backup.restaurant_id AND r.taken_over_at IS NOT NULL AND r.taken_over_at < ? AND ledger_backup.updated_at < r.taken_over_at)').bind(tkCutoff).run();
+        await DB.prepare('DELETE FROM ledger_backup_seg WHERE EXISTS (SELECT 1 FROM public_key_registry r WHERE r.restaurant_id=ledger_backup_seg.restaurant_id AND r.taken_over_at IS NOT NULL AND r.taken_over_at < ? AND ledger_backup_seg.updated_at < r.taken_over_at)').bind(tkCutoff).run();
+      });
+      return { deletedSummaries: ids.length, expiredSummaries: expiredIds.length, purgedDeregistered: deregIds.length, errors };
     }
   };
 }
@@ -1623,6 +1895,8 @@ export default {
     const store = makeD1Store(env.DB);
     ctx.waitUntil((async () => {
       const result = await store.cleanupTTL(Date.now());
+      // 단계별 실패가 있으면 error 로그로 남긴다(실패 단계 이름·메시지뿐 — 개인정보 없음).
+      if (result.errors && result.errors.length) console.error('TTL cleanup step errors', result.errors);
       console.log('TTL cleanup', result);
     })());
   }
@@ -1632,6 +1906,7 @@ export default {
 export function makeMemoryStore() {
   const keys = new Map(), summaries = [], blobs = [], consents = [];
   const challenges = [], ledgerBackups = new Map(), agencyOtps = new Map(), agencyTokens = new Map();
+  const ledgerSegs = new Map(); // key: restaurant_id\u0000gen\u0000seg_no → {restaurant_id,gen,seg_no,blob,blob_hash,updated_at}
   const keychecks = new Map(); // key: institution\u0000department\u0000restaurant_id
   // 비식별 집계 통계(하니스용 — D1과 동등 구조): 조직정보·공개ID 집합, 누적 카운터, 피드백.
   const seenInstitutions = new Set(), seenDepartments = new Set(), seenRestaurants = new Set();
@@ -1640,6 +1915,7 @@ export function makeMemoryStore() {
   // 고장 주입 스위치(하니스 전용): D1 배치가 실패했을 때 "부분 저장이 남지 않는다"를 검증하려면
   // 목에서도 같은 실패를 재현할 수 있어야 한다. insertSubmission 안에서만 본다(1회용).
   let failNextBlobInsert = false;
+  let failCleanupStep = null; // cleanupTTL 단계 고장 주입(1회용, 하니스 전용)
   // D1 바인딩 상한(문장당 100개) 재현기: 목은 SQL을 쓰지 않으므로 '한 문장에 몇 개를 묶었는가'를
   // 직접 세어 상한을 넘으면 D1과 같이 실패시킨다 — CLEANUP_CHUNK 회귀(100으로 되돌리기)를 잡는다.
   const D1_MAX_BINDS = 100;
@@ -1649,12 +1925,12 @@ export function makeMemoryStore() {
     if (n > D1_MAX_BINDS) throw new Error('D1 바인딩 상한 초과(' + what + '): ' + n + ' > ' + D1_MAX_BINDS);
   };
   return {
-    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, agencyOtps, agencyTokens, keychecks, seenInstitutions, seenDepartments, seenRestaurants, counters, feedbacks, adminActions, maxBindsSeen }),
+    _dump: () => ({ keys, summaries, blobs, consents, challenges, ledgerBackups, ledgerSegs, agencyOtps, agencyTokens, keychecks, seenInstitutions, seenDepartments, seenRestaurants, counters, feedbacks, adminActions, maxBindsSeen }),
     // 하니스가 원자성(전부 성공 or 전부 미반영)을 검증하기 위한 1회용 고장 주입 스위치.
     _failNextBlobInsert(v = true) { failNextBlobInsert = !!v; },
     // 침묵 덮어쓰기 방지: 이미 등록된 restaurant_id는 handle()에서 사전 차단하므로
     // 여기서는 신규 삽입만 수행(다른 키로의 재등록은 updateKey를 통해서만 가능).
-    async registerKey(r) { keys.set(r.restaurant_id, { ...r, verified: r.verified ? 1 : 0, deregistered_at: null }); },
+    async registerKey(r) { keys.set(r.restaurant_id, { ...r, verified: r.verified ? 1 : 0, deregistered_at: null, taken_over_at: null }); },
     // D1의 updateKey(UPDATE ... SET restaurant_name=,public_key=,registered_at= WHERE ...)는
     // contact_kakao/contact_email 컬럼을 건드리지 않아 보존된다. 메모리 store도 전체 치환이
     // 아닌 병합으로 동일하게 동작시켜야 한다(연락처가 키 재등록 시 조용히 사라지면 안 됨).
@@ -1672,7 +1948,8 @@ export function makeMemoryStore() {
       row.restaurant_name = r.restaurant_name;
       if (r.district != null) row.district = r.district;
     },
-    // 해제된 가게를 다른 열쇠로 선착순 인수 — 키·이름·관할·verified 갱신 + 연락처·옛 백업 제거(D1 배치와 동등).
+    // 해제된 가게를 다른 열쇠로 선착순 인수 — 키·이름·관할·verified 갱신 + 연락처 제거(D1과 동등).
+    // beta.55(E-2): 옛 백업은 지우지 않고 taken_over_at만 남긴다(새 주인에게 숨김 → 30일 뒤 cron).
     async takeoverKey(r) {
       const row = keys.get(r.restaurant_id);
       if (!row) return;
@@ -1684,7 +1961,10 @@ export function makeMemoryStore() {
       row.contact_kakao = null;
       row.contact_email = null;
       row.deregistered_at = null;
-      ledgerBackups.delete(r.restaurant_id);
+      row.taken_over_at = r.taken_over_at;
+    },
+    async wasAdminDeregistered(restaurant_id, deregistered_at) {
+      return adminActions.some(a => a.restaurant_id === restaurant_id && a.action === 'deregister' && a.created_at === deregistered_at);
     },
     // 해제(휴지통) 상태는 '명단 받기 가능'이 아니다 — D1과 동일하게 활성 행만.
     async registeredAmong(ids) { return ids.filter(id => { const row = keys.get(id); return !!row && row.deregistered_at == null; }); },
@@ -1749,11 +2029,14 @@ export function makeMemoryStore() {
       // 여기서 created_at으로 직접 걸러낸다.
       const cutoff = Date.now() - PENDING_TTL_MS;
       const out = [];
-      for (const s of summaries) {
+      // D1의 ORDER BY created_at과 동등하게 시각 순으로(정렬은 안정 — 같은 시각이면 삽입 순).
+      const ordered = summaries.slice().sort((a, b) => a.created_at - b.created_at);
+      for (const s of ordered) {
         if (s.restaurant_id !== restaurant_id || s.status !== 'PENDING' || !(s.created_at > cutoff)) continue;
         const b = blobs.find(x => x.summary_id === s.id);
         if (!b) continue; // D1의 JOIN과 동일 — blob이 없으면 제외
         // D1과 동일하게 batch_hash는 응답에서 제외하고(오라클 차단, §4.9), agency_domain은 포함한다(§4.11).
+        if (out.length >= INBOX_LIMIT) break; // D1의 ORDER BY created_at LIMIT 50과 동등(삽입 순 = 시각 순)
         out.push({ summary_id: s.id, summary: { institution: s.institution, department: s.department, restaurant_id: s.restaurant_id, restaurant_name: s.restaurant_name, year_month: s.year_month, total_amount: s.total_amount, member_count: s.member_count, agency_domain: s.agency_domain != null ? s.agency_domain : null, created_at: s.created_at }, ciphertext: JSON.parse(b.ciphertext), status: s.status });
       }
       return out;
@@ -1794,14 +2077,61 @@ export function makeMemoryStore() {
     async countOpenChallenges(restaurant_id, now) {
       return challenges.filter(c => c.restaurant_id === restaurant_id && c.expires_at > now).length;
     },
+    // D1과 동등: 가장 먼저 만료될 미만료 챌린지 n개 삭제(같은 만료 시각이면 먼저 넣은 것부터).
+    async deleteOldestChallenges(restaurant_id, now, n) {
+      const victims = challenges.map((c, i) => ({ c, i }))
+        .filter(x => x.c.restaurant_id === restaurant_id && x.c.expires_at > now)
+        .sort((a, b) => a.c.expires_at - b.c.expires_at || a.i - b.i)
+        .slice(0, Math.max(0, n)).map(x => x.c);
+      for (const v of victims) { const i = challenges.indexOf(v); if (i !== -1) challenges.splice(i, 1); }
+    },
     // ── 암호화 원장 백업 ──
-    async upsertLedgerBackup(b) { ledgerBackups.set(b.restaurant_id, b); },
+    // D1 배치와 동등: gen이 있으면 머리 저장과 함께 다른 세대 조각 삭제(§4.13).
+    async upsertLedgerBackup(b) {
+      ledgerBackups.set(b.restaurant_id, { restaurant_id: b.restaurant_id, blob: b.blob, blob_hash: b.blob_hash, updated_at: b.updated_at });
+      if (b.gen) for (const [k, x] of ledgerSegs) if (x.restaurant_id === b.restaurant_id && x.gen !== b.gen) ledgerSegs.delete(k);
+    },
     async getLedgerBackup(restaurant_id) { return ledgerBackups.get(restaurant_id) || null; },
-    async deleteLedgerBackup(restaurant_id) { ledgerBackups.delete(restaurant_id); },
+    async deleteLedgerBackup(restaurant_id, since = 0) {
+      let removed = false;
+      const h = ledgerBackups.get(restaurant_id);
+      if (h && h.updated_at >= since) { ledgerBackups.delete(restaurant_id); removed = true; }
+      for (const [k, x] of ledgerSegs) if (x.restaurant_id === restaurant_id && x.updated_at >= since) { ledgerSegs.delete(k); removed = true; }
+      return removed;
+    },
+    // ── 조각 백업(§4.13) — D1과 동등 ──
+    async countLedgerSegs(restaurant_id, gen, seg_no) {
+      let total = 0, exists = false;
+      for (const x of ledgerSegs.values()) if (x.restaurant_id === restaurant_id) { total++; if (x.gen === gen && x.seg_no === seg_no) exists = true; }
+      return { total, exists };
+    },
+    async upsertLedgerSeg(x) { ledgerSegs.set(x.restaurant_id + '\u0000' + x.gen + '\u0000' + x.seg_no, { ...x }); },
+    async getLedgerSegs(restaurant_id, gen, seg_nos) {
+      return seg_nos.map(n => ledgerSegs.get(restaurant_id + '\u0000' + gen + '\u0000' + n)).filter(Boolean)
+        .map(x => ({ seg_no: x.seg_no, blob: x.blob, blob_hash: x.blob_hash, updated_at: x.updated_at }));
+    },
+    async listLedgerSegs(restaurant_id) {
+      return [...ledgerSegs.values()].filter(x => x.restaurant_id === restaurant_id)
+        .sort((a, b) => (a.gen < b.gen ? -1 : a.gen > b.gen ? 1 : a.seg_no - b.seg_no))
+        .map(x => ({ gen: x.gen, seg_no: x.seg_no, blob_hash: x.blob_hash, updated_at: x.updated_at, size: x.blob.length }));
+    },
     // ── 기관 OTP ── (키·저장값 모두 이메일의 SHA-256 해시 — D1과 동일하게 평문 미저장)
     async getAgencyOtp(emailHash) { return agencyOtps.get(emailHash) || null; },
     async upsertAgencyOtp(o) { agencyOtps.set(o.email_hash, o); },
     async incrementAgencyOtpAttempts(emailHash) { const o = agencyOtps.get(emailHash); if (o) o.attempts++; },
+    // D1의 조건부 UPDATE와 동등 — 검사와 증가 사이에 await가 없어 이 자체로 원자적이다.
+    async tryIncrementAgencyOtpAttempts(emailHash, max) {
+      const o = agencyOtps.get(emailHash);
+      if (!o || !(o.attempts < max)) return false;
+      o.attempts++;
+      return true;
+    },
+    async consumeAgencyOtp(emailHash, otpHash) {
+      const o = agencyOtps.get(emailHash);
+      if (!o || o.otp_hash !== otpHash) return false;
+      agencyOtps.delete(emailHash);
+      return true;
+    },
     async deleteAgencyOtp(emailHash) { agencyOtps.delete(emailHash); },
     // D1과 동등: email_domain 미지정(구버전 토큰)은 null로 정규화(§4.11 — 하위호환 경로).
     async createAgencyToken(t) { agencyTokens.set(t.token_hash, { ...t, email_domain: t.email_domain != null ? t.email_domain : null }); },
@@ -1810,6 +2140,9 @@ export function makeMemoryStore() {
     async upsertKeycheck(k) {
       keychecks.set(k.institution + '\u0000' + k.department + '\u0000' + k.restaurant_id,
         { ...k, agency_domain: k.agency_domain != null ? k.agency_domain : null });
+    },
+    async getKeycheck(institution, department, restaurant_id) {
+      return keychecks.get(institution + '\u0000' + department + '\u0000' + restaurant_id) || null;
     },
     // D1과 동등한 도메인 결속(F5): 인증 도메인이 같은 행만, 레거시(agency_domain NULL)는 제외.
     async listKeychecks(institution, department, agency_domain) {
@@ -1850,7 +2183,7 @@ export function makeMemoryStore() {
           registered_at: k.registered_at, deregistered_at: k.deregistered_at != null ? k.deregistered_at : null,
           verified: k.verified ? 1 : 0,
           has_contact: (k.contact_kakao || k.contact_email) ? 1 : 0,
-          has_backup: ledgerBackups.has(k.restaurant_id) ? 1 : 0,
+          has_backup: (ledgerBackups.has(k.restaurant_id) && ledgerBackups.get(k.restaurant_id).updated_at >= (k.taken_over_at || 0)) ? 1 : 0,
           pending: summaries.filter(s => s.restaurant_id === k.restaurant_id && s.status === 'PENDING' && s.created_at > pendingCutoff).length
         }));
     },
@@ -1867,51 +2200,88 @@ export function makeMemoryStore() {
       return adminActions.slice().sort((a, b) => b.created_at - a.created_at).slice(0, limit)
         .map(a => ({ action: a.action, restaurant_id: a.restaurant_id, reason_code: a.reason_code, memo: a.memo, created_at: a.created_at }));
     },
-    // ── TTL 정리 ──
+    // ── TTL 정리 ── (D1과 같은 단계·같은 순서, 단계별 try/catch — beta.55 E-10)
+    // 하니스 전용 고장 주입: _failCleanupStep(name)으로 그 단계를 1회 실패시켜 "다음 단계는 계속된다"를 검증한다.
+    _failCleanupStep(name) { failCleanupStep = name; },
     async cleanupTTL(now) {
+      const errors = [];
+      const step = async (name, fn) => {
+        try {
+          if (failCleanupStep === name) { failCleanupStep = null; throw new Error('주입된 고장'); }
+          await fn();
+        } catch (e) { errors.push(name + ': ' + ((e && e.message) || 'error')); }
+      };
+      let toExpire = [], toDelete = [], deregIds = [];
       // 1) 미수령 72시간 경과 PENDING → EXPIRED 전이 + blob 즉시 파기(§6).
       // D1과 동일하게 CLEANUP_CHUNK 단위로 묶어 처리하고, 문장당 바인딩 수(상한 100)를 재현 검사한다
       // — UPDATE는 processed_at 1개 + id N개를 함께 바인딩하므로 N=100이면 D1에서 터진다.
-      const pendingCutoff = now - PENDING_TTL_MS;
-      const toExpire = summaries.filter(s => s.status === 'PENDING' && s.created_at < pendingCutoff);
-      for (const part of chunkIds(toExpire, CLEANUP_CHUNK)) {
-        noteBinds(part.length, 'DELETE encrypted_blob IN');
-        noteBinds(part.length + 1, "UPDATE deposit_summary SET processed_at=? WHERE id IN");
-        part.forEach(s => {
-          const bi = blobs.findIndex(b => b.summary_id === s.id); if (bi !== -1) blobs.splice(bi, 1);
-          s.status = 'EXPIRED';
-          s.processed_at = now;
-        });
-      }
+      await step('expire_pending', async () => {
+        const pendingCutoff = now - PENDING_TTL_MS;
+        toExpire = summaries.filter(s => s.status === 'PENDING' && s.created_at < pendingCutoff);
+        for (const part of chunkIds(toExpire, CLEANUP_CHUNK)) {
+          noteBinds(part.length, 'DELETE encrypted_blob IN');
+          noteBinds(part.length + 1, "UPDATE deposit_summary SET processed_at=? WHERE id IN");
+          part.forEach(s => {
+            const bi = blobs.findIndex(b => b.summary_id === s.id); if (bi !== -1) blobs.splice(bi, 1);
+            s.status = 'EXPIRED';
+            s.processed_at = now;
+          });
+        }
+      });
       // 2) 처리 완료(APPROVED/REJECTED/EXPIRED) 후 30일 지난 비식별 요약 삭제.
-      const cutoff = now - RETENTION_TTL_MS;
-      const toDelete = summaries.filter(s => (s.status === 'APPROVED' || s.status === 'REJECTED' || s.status === 'EXPIRED') && s.processed_at && s.processed_at < cutoff);
-      for (const part of chunkIds(toDelete, CLEANUP_CHUNK)) {
-        noteBinds(part.length, 'DELETE encrypted_blob IN');
-        noteBinds(part.length, 'DELETE deposit_summary IN');
-        part.forEach(s => {
-          const bi = blobs.findIndex(b => b.summary_id === s.id); if (bi !== -1) blobs.splice(bi, 1);
-          const si = summaries.indexOf(s); if (si !== -1) summaries.splice(si, 1);
-        });
-      }
-      for (let i = challenges.length - 1; i >= 0; i--) if (challenges[i].expires_at < now) challenges.splice(i, 1);
-      for (const [email, o] of agencyOtps) if (o.expires_at < now) agencyOtps.delete(email);
-      for (const [th, t] of agencyTokens) if (t.expires_at < now) agencyTokens.delete(th);
+      await step('purge_processed', async () => {
+        const cutoff = now - RETENTION_TTL_MS;
+        toDelete = summaries.filter(s => (s.status === 'APPROVED' || s.status === 'REJECTED' || s.status === 'EXPIRED') && s.processed_at && s.processed_at < cutoff);
+        for (const part of chunkIds(toDelete, CLEANUP_CHUNK)) {
+          noteBinds(part.length, 'DELETE encrypted_blob IN');
+          noteBinds(part.length, 'DELETE deposit_summary IN');
+          part.forEach(s => {
+            const bi = blobs.findIndex(b => b.summary_id === s.id); if (bi !== -1) blobs.splice(bi, 1);
+            const si = summaries.indexOf(s); if (si !== -1) summaries.splice(si, 1);
+          });
+        }
+      });
+      await step('expired_auth', async () => {
+        for (let i = challenges.length - 1; i >= 0; i--) if (challenges[i].expires_at < now) challenges.splice(i, 1);
+        for (const [email, o] of agencyOtps) if (o.expires_at < now) agencyOtps.delete(email);
+        for (const [th, t] of agencyTokens) if (t.expires_at < now) agencyTokens.delete(th);
+      });
       // 3) consent_log도 무기한 보관하지 않고 180일 후 삭제(§6).
-      const consentCutoff = now - CONSENT_RETENTION_TTL_MS;
-      for (let i = consents.length - 1; i >= 0; i--) if (consents[i].consented_at < consentCutoff) consents.splice(i, 1);
+      await step('consent_log', async () => {
+        const consentCutoff = now - CONSENT_RETENTION_TTL_MS;
+        for (let i = consents.length - 1; i >= 0; i--) if (consents[i].consented_at < consentCutoff) consents.splice(i, 1);
+      });
       // 4) feedback(자유 입력)도 180일 경과분 삭제(§6) — D1과 동등.
-      const feedbackCutoff = now - FEEDBACK_RETENTION_TTL_MS;
-      for (let i = feedbacks.length - 1; i >= 0; i--) if (feedbacks[i].created_at != null && feedbacks[i].created_at < feedbackCutoff) feedbacks.splice(i, 1);
-      // 5) 등록 해제 후 30일 지난 휴지통 비우기(§4.12) — 백업 먼저, 그 다음 키 행(D1과 같은 순서).
-      const deregCutoff = now - DEREGISTER_GRACE_MS;
-      const deregIds = [...keys.values()].filter(k => k.deregistered_at != null && k.deregistered_at < deregCutoff).map(k => k.restaurant_id);
-      for (const part of chunkIds(deregIds, CLEANUP_CHUNK)) {
-        noteBinds(part.length, 'DELETE ledger_backup IN');
-        noteBinds(part.length, 'DELETE public_key_registry IN');
-        part.forEach(id => { ledgerBackups.delete(id); keys.delete(id); });
-      }
-      return { deletedSummaries: toDelete.length, expiredSummaries: toExpire.length, purgedDeregistered: deregIds.length };
+      await step('feedback', async () => {
+        const feedbackCutoff = now - FEEDBACK_RETENTION_TTL_MS;
+        for (let i = feedbacks.length - 1; i >= 0; i--) if (feedbacks[i].created_at != null && feedbacks[i].created_at < feedbackCutoff) feedbacks.splice(i, 1);
+      });
+      // 5) 등록 해제 후 30일 지난 휴지통 비우기(§4.12) — 백업(머리·조각) 먼저, 그 다음 키 행(D1과 같은 순서).
+      await step('purge_deregistered', async () => {
+        const deregCutoff = now - DEREGISTER_GRACE_MS;
+        deregIds = [...keys.values()].filter(k => k.deregistered_at != null && k.deregistered_at < deregCutoff).map(k => k.restaurant_id);
+        for (const part of chunkIds(deregIds, CLEANUP_CHUNK)) {
+          noteBinds(part.length, 'DELETE ledger_backup IN');
+          noteBinds(part.length, 'DELETE ledger_backup_seg IN');
+          noteBinds(part.length, 'DELETE public_key_registry IN');
+          part.forEach(id => {
+            ledgerBackups.delete(id);
+            for (const [k, x] of ledgerSegs) if (x.restaurant_id === id) ledgerSegs.delete(k);
+            keys.delete(id);
+          });
+        }
+      });
+      // 6) 다른 열쇠 인수 후 30일 지난 '인수 전 옛 백업'(머리·조각) 삭제(beta.55 E-2) — D1과 동등.
+      await step('purge_pre_takeover', async () => {
+        const tkCutoff = now - DEREGISTER_GRACE_MS;
+        for (const k of keys.values()) {
+          if (k.taken_over_at == null || !(k.taken_over_at < tkCutoff)) continue;
+          const h = ledgerBackups.get(k.restaurant_id);
+          if (h && h.updated_at < k.taken_over_at) ledgerBackups.delete(k.restaurant_id);
+          for (const [key, x] of ledgerSegs) if (x.restaurant_id === k.restaurant_id && x.updated_at < k.taken_over_at) ledgerSegs.delete(key);
+        }
+      });
+      return { deletedSummaries: toDelete.length, expiredSummaries: toExpire.length, purgedDeregistered: deregIds.length, errors };
     }
   };
 }
