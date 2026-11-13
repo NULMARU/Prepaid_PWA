@@ -401,7 +401,7 @@ async function drawSignature(page) {
     await page.locator('[data-a="save-use"]').click();
     await page.waitForTimeout(700);
     // 저장 직후 증표가 자동으로 열린다 — 닫는다.
-    if (await page.locator('.receipt-modal').count()) { await page.locator('.receipt-modal [data-a="close-modal"]').click(); await page.waitForTimeout(150); }
+    if (await page.locator('.receipt-modal').count()) { await page.locator('.receipt-modal [data-a="receipt-close"], .receipt-modal [data-a="close-modal"]').first().click(); await page.waitForTimeout(150); }
 
     // ── 사용 등록 후 취소(void) — 직원 ① ─────────────────────────────────────────
     await page.locator(`[data-a="use"][data-id="${e1.id}"]`).click();
@@ -411,7 +411,7 @@ async function drawSignature(page) {
     await drawSignature(page);
     await page.locator('[data-a="save-use"]').click();
     await page.waitForTimeout(700);
-    if (await page.locator('.receipt-modal').count()) { await page.locator('.receipt-modal [data-a="close-modal"]').click(); await page.waitForTimeout(150); }
+    if (await page.locator('.receipt-modal').count()) { await page.locator('.receipt-modal [data-a="receipt-close"], .receipt-modal [data-a="close-modal"]').first().click(); await page.waitForTimeout(150); }
     db = await readDb(page);
     const toVoid = db.transactions.filter(t => t.type === 'use' && t.employeeId === e1.id).sort((a, b) => b.createdAt - a.createdAt)[0];
     await page.locator('[data-a="screen"][data-screen="history"]').click();
@@ -616,7 +616,7 @@ async function drawSignature(page) {
       const okBal = rt.includes(money(balB[e.name]) + '원');
       receiptReport.push(`${e.name}: warn=${warn} 잔액표시=${okBal}`);
       if (warn !== 0 || !okBal) receiptAllOk = false;
-      await page.locator('.receipt-modal [data-a="close-modal"]').click();
+      await page.locator('.receipt-modal [data-a="receipt-close"], .receipt-modal [data-a="close-modal"]').first().click();
       await page.waitForTimeout(200);
     }
     check('e1', '직원 3명 증표 모두 경고 없이 잔액 표시', receiptAllOk, receiptReport.join(' / '));
@@ -639,7 +639,7 @@ async function drawSignature(page) {
     await drawSignature(page);
     await page.locator('[data-a="save-use"]').click();
     await page.waitForTimeout(900);
-    if (await page.locator('.receipt-modal').count()) { await page.locator('.receipt-modal [data-a="close-modal"]').click(); await page.waitForTimeout(200); }
+    if (await page.locator('.receipt-modal').count()) { await page.locator('.receipt-modal [data-a="receipt-close"], .receipt-modal [data-a="close-modal"]').first().click(); await page.waitForTimeout(200); }
     const snapC = await readDb(page);
     const newTx = snapC.transactions.filter(t => !snapB.transactions.some(o => o.id === t.id));
     const balE1after = balOf(snapC, e1.id);

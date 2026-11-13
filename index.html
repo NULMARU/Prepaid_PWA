@@ -34,11 +34,11 @@
 .title h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.4px;background:linear-gradient(135deg,var(--primary),#2874a6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .sub{margin-top:3px;color:var(--muted);font-size:12px;letter-spacing:.2px}
 .tool{display:flex;gap:6px;flex-wrap:wrap}
-.tool button{min-height:38px;padding:0 13px;font-size:13px;font-weight:700;border-radius:10px}
+.tool button{min-height:44px;padding:0 13px;font-size:14px;font-weight:700;border-radius:10px}
 /* 홈 상단 [장부 저장] — 상시 노출(월간 배너 대체). 저장 시점(monthlyBackupDue)이면 강조색 + ⚠️ 배지가 붙는다. */
 /* [손님 셀프 조회] — 1탭으로 손님 화면(잠금)으로 넘어가는 버튼. 홈에서 가장 자주 쓰는 버튼이라 눈에 띄게 둔다. */
 .tool .handoff{background:var(--primary);border-color:var(--primary);color:#fff}
-/* 홈 필터 2행 — 1행은 검색창 전폭(폰에서도 300px+), 2행은 소속 필터 + 음성 검색 */
+/* 홈 필터 2행 — 1행은 검색창 전폭(폰에서도 300px+), 2행은 소속 필터(beta.55: 음성 검색 제거) */
 .home-filters{display:grid;gap:8px;margin-top:10px}
 .home-filters .filter-row{display:flex;gap:8px}
 .home-filters .filter-row>input,.home-filters .filter-row>select{flex:1 1 auto;min-width:0}
@@ -77,7 +77,9 @@
 /* 설정 위계(beta.30): 섹션 헤더(주항목) 20px > 접힘 카드 제목(하위 항목) 17px — 15% 작게 해 소속 관계가 눈에 읽히게 */
 .fold-head .section-title{font-size:17px}
 .fold-head:active{background:var(--primary-soft)}
-.fold-arrow{flex:0 0 auto;font-size:13px;color:var(--muted);line-height:1}
+.fold-arrow{flex:0 0 auto;font-size:16px;color:var(--muted);line-height:1}
+/* beta.55(C13): 접힌 카드의 요약 줄은 14px — 어르신 사장님이 요약만 읽고 카드를 고른다(예전 12px). */
+.fold-head .section-kicker{font-size:14px}
 .section-actions{display:grid;gap:8px}
 .action-btn{display:flex;gap:10px;align-items:flex-start;text-align:left;justify-content:flex-start;padding:13px 14px;min-height:58px}
 .action-btn .action-icon{width:24px;flex:0 0 24px;text-align:center;font-size:17px;line-height:1.25}
@@ -116,9 +118,9 @@
 .group-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:6px 2px 8px;min-height:48px;border-bottom:1.5px solid #eef1f4;cursor:pointer;border-radius:8px;transition:background .15s}
 .group-head:active{background:var(--primary-soft)}
 .group-headline{display:flex;align-items:center;gap:8px;min-width:0}
-.group-toggle{font-size:11px;color:var(--muted);width:16px;flex:0 0 16px;text-align:center}
+.group-toggle{font-size:14px;color:var(--muted);width:18px;flex:0 0 18px;text-align:center}
 .group-title{font-size:18px;font-weight:800;letter-spacing:-.2px;color:var(--primary)}
-.group-meta{color:var(--muted);font-size:12px;font-weight:600}
+.group-meta{color:var(--muted);font-size:14px;font-weight:600}
 /* 회사 그룹 안의 부서 소제목(하위 카테고리) */
 .group-sub{font-size:13px;font-weight:800;color:var(--muted);padding:8px 2px 2px;letter-spacing:-.2px}
 
@@ -249,11 +251,28 @@
 .namecard-note{font-size:11px;font-weight:600;opacity:.85;letter-spacing:-.2px;word-break:keep-all}
 /* 증표 안내 한 줄 — 명함(카드) **바깥**이다. 카드 안에 넣으면 손님에게 보여주는 그 그림이 지저분해지고,
    사진으로 남긴 증표에도 앱 사용법이 함께 찍힌다. 닫기 버튼 근처에 작은 글씨로만 둔다. */
-.receipt-tip{margin-top:12px;font-size:12.5px;line-height:1.6;color:var(--muted);text-align:center;word-break:keep-all}
+.receipt-tip{margin-top:12px;font-size:13px;line-height:1.6;color:var(--muted);text-align:center;word-break:keep-all}
+/* beta.55(C4): 약관 동의 줄 — 줄 전체가 44px 이상 표적, 체크 칸 22px. 동의 없이 버튼을 누르면 칸이 강조되고 이유가 남는다. */
+.terms-row{display:flex;align-items:center;gap:12px;min-height:48px;cursor:pointer;margin:0;padding:4px 0}
+.terms-row input[type=checkbox]{width:22px;height:22px;min-height:auto;flex-shrink:0;margin:0}
+.terms-text{font-size:15px;line-height:1.5;word-break:keep-all}
+.terms-links{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:2px;padding-left:34px}
+.terms-links a{display:inline-flex;align-items:center;min-height:44px;font-size:14px;font-weight:700}
+.terms-why{font-size:15px;font-weight:800;color:var(--danger);line-height:1.4;word-break:keep-all}
+.terms-why:empty{display:none}
+.terms-card.terms-need{border-color:var(--danger)!important;box-shadow:0 0 0 3px rgba(192,57,43,.18)}
+/* beta.55(B-09): 증표 아래 [문자 안내 보내기] — 진짜 링크(a href="sms:…"). 버튼처럼 보이되 탭이 곧 문자 앱 열기다. */
+.receipt-sms{margin-top:10px;text-align:center}
+.receipt-sms .receipt-sms-link{display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:12px;font-size:16px;font-weight:800;text-decoration:none}
+.receipt-sms .meta{margin-top:6px;font-size:13px;line-height:1.5;word-break:keep-all}
+/* beta.55(C5): 좁은 폰(≤400px)에서는 명함 비율(1.58:1)을 풀어 준다 — aspect-ratio에 min-height가 걸리면 그 높이가 **최소 폭**으로 옮겨져
+   (200px × 1.58 = 316px) 카드가 360px 폰의 모달 폭을 넘어 오른쪽이 잘렸다. 높이는 내용이 정하고 최소 190px만 지킨다. */
+@media(max-width:400px){.namecard{aspect-ratio:auto;min-height:190px;padding:16px 16px}.namecard-who{font-size:17px;overflow-wrap:anywhere}.receipt-bal{font-size:34px}}
 .modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 .pass-back{z-index:50}
 /* beta.54 앱 안 선택창 — 버튼은 위에서 아래로(진한 버튼이 맨 위), 폰의 column-reverse 규칙보다 우선 */
-.choice-modal .choice-line{margin:6px 0;line-height:1.55}.modal-actions.choice-actions{flex-direction:column}.choice-actions button{min-width:100%;min-height:52px;white-space:normal;line-height:1.3}
+.choice-modal .choice-line,.text-modal .choice-line{margin:6px 0;line-height:1.55}
+.text-chips{margin-top:4px}.modal-actions.choice-actions{flex-direction:column}.choice-actions button{min-width:100%;min-height:52px;white-space:normal;line-height:1.3}
 .mgr-head .mgr-rename{margin-left:auto;min-height:36px;padding:0 10px;font-size:12px;flex-shrink:0}
 .batch-list{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}.batch-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;padding:8px 0;border-bottom:1px solid #eef1f4;font-size:13px}.batch-row:last-of-type{border-bottom:0}.batch-row .small{min-height:36px}.pass-modal{width:min(100%,460px)}.pass-modal .help{line-height:1.6}
 .pass-show{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:14px;color:var(--muted);cursor:pointer;min-height:40px}.pass-show input{width:20px;height:20px;min-height:0;margin:0;padding:0;flex:none}
@@ -343,7 +362,7 @@
 .pin-key.fn:active{background:var(--bg);transform:scale(.95)}
 .pin-msg{margin-top:18px;font-size:13px;color:var(--danger);text-align:center;min-height:20px;font-weight:600}
 .pin-reset{margin-top:20px;text-align:center}
-.pin-reset button{min-height:auto;padding:8px 16px;font-size:12px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px}
+.pin-reset button{min-height:44px;padding:8px 16px;font-size:14px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px}
 .pin-delay{margin-top:16px;text-align:center;font-size:13px;font-weight:700;color:var(--danger);line-height:1.6;max-width:320px}
 .pin-key[disabled]{opacity:.4}
 /* ─── 잠금 화면 = 손님 화면 ─── */
@@ -382,6 +401,7 @@
    (responsive.e2e.mjs가 "오류가 떠도 버튼이 움직이지 않는다"를 계약으로 고정한다). */
 .cust-req-err{min-height:22px;margin-top:8px;font-size:15px;font-weight:800;color:var(--danger);line-height:1.4;word-break:keep-all}
 .cust-req-quick{margin-top:6px}
+.cust-quick-gap{visibility:hidden;min-height:56px}
 .cust-req-quick button{min-height:56px;font-size:17px}
 .cust-req-field{margin-top:12px;text-align:left}
 .cust-req-field label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px}
@@ -402,7 +422,10 @@
 .pin-req-amt{font-size:34px;font-weight:900;letter-spacing:-1.2px;color:var(--primary);line-height:1.15;margin-top:2px;word-break:keep-all}
 .pin-req-sign{margin-top:6px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
 .pin-req-sign img{display:block;width:100%;height:56px;object-fit:contain}
-.pin-req-note{margin-top:6px;font-size:11px;color:var(--muted);line-height:1.5;word-break:keep-all}
+.pin-req-note{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.5;word-break:keep-all}
+/* beta.55(C8): "사장님 확인" 화면의 남은 초 한 줄 — [처음으로] 바로 아래. 숫자만 1초마다 바뀐다. */
+.pin-ho-left{margin-top:6px;font-size:14px;color:var(--muted);line-height:1.4;word-break:keep-all}
+.pin-ho-left b{color:var(--text);font-variant-numeric:tabular-nums}
 /* 사용 모달: 손님이 미리 한 서명 썸네일 */
 .sig-pre img{display:block;width:100%;height:120px;object-fit:contain;background:#fff}
 .receipt-row.req strong{line-height:1.2}
@@ -419,7 +442,8 @@
 .cust-chip{display:inline-block;font-size:10px;font-weight:700;color:var(--muted);background:#eef1f4;border-radius:6px;padding:2px 6px;margin-left:4px}
 .cust-chip.void{background:var(--danger-soft);color:var(--danger)}
 .cust-foot{margin-top:22px;text-align:center}
-.cust-foot button{min-height:auto;padding:8px 16px;font-size:12px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px}
+/* beta.55(C13): [사장님용 잠금 해제]·[처음으로] — 어르신 손가락 기준 44px 표적·14px 글자(예전 34px·12px). 색은 본문 보조색(대비 4.5:1 이상). */
+.cust-foot button{min-height:44px;padding:8px 18px;font-size:14px;font-weight:700;color:#4a5562;background:none;border:1px solid var(--line);border-radius:10px}
 /* ─── beta.24: 요청 작성 화면의 보조 링크 두 개 ─────────────────────────────
    [최근 사용 내역 보기] = 선택적 상세 화면(잔액·최근 5건)으로. 조회만 하러 온 손님의 길.
    [금액을 모르겠어요 / 사장님 부르기] = A단계 인계. 잔액 초과·단체 식사처럼 손님이 금액을 정할 수
@@ -497,6 +521,7 @@
 .cust-compose .cust-req-err{min-height:19px;margin-top:2px;font-size:15px;line-height:1.25}
 .cust-compose .cust-req-quick{margin-top:4px}
 .cust-compose .cust-req-quick button{min-height:48px;font-size:16px}
+.cust-compose .cust-req-quick .cust-quick-gap{min-height:48px}
 .cust-compose .cust-req-field{margin-top:6px}
 /* 라벨은 "시각적으로만" 숨긴다 — 폰에서는 잔액 한 줄과 입력칸 사이가 빠듯해 글자가 서로 겹친다.
    DOM에서 지우지는 않는다(for/aria 연결 유지 → 스크린리더에는 그대로 읽힌다). */
@@ -524,6 +549,39 @@
 .cust-detail .cust-actions{margin-top:10px;gap:6px}
 .cust-detail .cust-actions button{min-height:48px;font-size:16px}
 .cust-detail .cust-foot{margin-top:10px}
+}
+/* ─── beta.55(C2, 사용자 결정 §1-6): 태블릿 **가로**에서 손님 요청 화면을 한 화면에 ─────────────────────
+   세로 한 줄 배치는 1024×768 가로 태블릿에서 [사장님 확인 받기]가 화면 밖으로 나갔다(현장 캡처). 가로에서는 두 칸으로 나눈다:
+   왼쪽 = 이름·잔액·빠른 금액·금액 칸·보조 링크 2개, 오른쪽 = 서명 안내·서명판·버튼 3개. 서명판 높이는 화면 높이(svh)에 묶는다.
+   세로 화면에서는 두 묶음이 display:contents라 아무것도 달라지지 않는다. ⚠️ 전부 CSS다 — 캔버스 노드를 만들거나 옮기지 않는다
+   (회전하면 initSignPad의 resize가 획을 보존한 채 백킹 스토어를 다시 잡는다). */
+.cust-col{display:contents}
+@media(min-width:768px) and (orientation:landscape){
+.cust-screen.cust-compose{padding:14px 20px 12px}
+.cust-screen.cust-compose .cust-head{margin-bottom:8px;max-width:960px}
+.cust-screen.cust-compose .cust-title{display:none}
+.cust-compose .cust-body{max-width:960px}
+.cust-compose .cust-card{max-width:960px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);grid-template-rows:1fr auto;column-gap:22px;padding:16px 20px;text-align:center}
+.cust-compose .cust-col{display:flex;flex-direction:column;min-width:0}
+.cust-compose .cust-col-a{grid-column:1;grid-row:1;justify-content:center}
+.cust-compose .cust-col-b{grid-column:2;grid-row:1/span 2}
+.cust-compose .cust-links{grid-column:1;grid-row:2;align-self:end}
+.cust-compose .cust-sign-title{margin-top:0;padding-top:0;border-top:none}
+.cust-compose .cust-sig .signature{height:clamp(150px,calc(100svh - 350px),380px)}
+.cust-compose .cust-req-actions{margin-top:8px}
+.cust-screen.cust-compose .cust-foot{margin-top:8px}
+}
+.pin-col{display:contents}
+@media(min-width:768px) and (orientation:landscape){
+.pin-screen.pin-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:1fr auto;column-gap:40px;align-items:center;justify-items:center;padding:20px 32px}
+.pin-main .pin-col{display:flex;flex-direction:column;align-items:center;min-width:0;width:100%}
+.pin-main .pin-col-a{grid-column:1;grid-row:1}
+.pin-main .pin-col-b{grid-column:2;grid-row:1/span 2}
+.pin-main>.cust-foot{grid-column:1;grid-row:2;margin-top:8px}
+.pin-main .pin-req{margin:0 0 4px}
+.pin-main .pin-dots{margin-bottom:22px}
+.pin-main .pin-msg{margin-top:10px}
+.pin-main .pin-reset{margin-top:10px}
 }
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
 /* 폰: 빠른 금액은 3개를 한 줄에(세로로 길게 늘어져 스크롤되는 것 방지).
@@ -588,7 +646,11 @@ function naverMapUrl(name,addr){const head=String(addr||'').trim().split(/\s+/).
 //     길게 준다 — 어르신이 금액을 고르고 손가락으로 서명하는 데 30초는 너무 짧고, 화면이 튀면 처음부터 다시
 //     해야 한다. 그렇다고 무한히 두면 작성 중이던 금액·서명이 다음 손님에게 그대로 남는다. 60초가 그 사이의 값이다.
 //     만료 동작은 조회 화면과 같다: 작성 내용(금액·서명) 전부 폐기 + 손님 초기 화면.
-const TIMERS={custIdle:30000,custComposeIdle:60000,autoLock:90000,pendingTtl:120000,pinDelay:60000,recoveryGate:60000,modalIdleCap:600000,ownerPinIdle:120000};
+//   handoffPinIdle = beta.55(사용자 결정 §1-8): 손님이 요청을 넘긴 "사장님 확인" 화면의 유휴 복귀. 예전에는 조회 화면과 같은
+//     30초(custIdle)였다 — 사장님이 주방에서 나오는 사이에 화면이 손님 첫 화면으로 돌아가 손님이 서명부터 다시 해야 했다.
+//     60초로 늘리고 화면에 남은 초를 보여 준다(#handoffLeft — 숫자 노드만 1초마다 바꾼다, 전체 render 금지).
+//     요청 자체의 수명(pendingTtl 120초)은 그대로다.
+const TIMERS={custIdle:30000,custComposeIdle:60000,autoLock:90000,pendingTtl:120000,pinDelay:60000,recoveryGate:60000,modalIdleCap:600000,ownerPinIdle:120000,handoffPinIdle:60000,pinKeyGuard:500};
 const DEFAULT_RELAY='https://prepaid-relay.sulsul-plus.workers.dev';
 const TERMS_URL='https://app.bapjangbu.com/docs/terms.html',PRIVACY_URL='https://app.bapjangbu.com/docs/privacy.html';
 const DEFAULT_ORG='공공기관';
@@ -602,13 +664,17 @@ const COMMON_DEPTS=[...DEFAULT_DEPTS];
 //   custAmount = 작성 중인 금액, pendingAmount·pendingSign = 사장님께 넘긴 요청의 내용.
 //   저장소·서버·백업 어디에도 나가지 않는다(state.data 바깥이라 backupCore/repo.apply의 사정권 밖이다).
 //   "손님은 요청을 만들고, 사장님은 기록을 만든다" — 이 4개는 요청이지 기록이 아니다.
-const state={loaded:false,mode:'준비 중',screen:'home',search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},expandedEmps:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreZip:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',formDrafts:{},search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},expandedEmps:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreZip:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 // lastInputAt = 마지막 **사용자 조작** 시각. 유휴 만료의 유일한 기준이다(렌더는 이 값을 건드리지 못한다).
 //   init()이 첫 render를 부르기 전에 반드시 초기화돼 있어야 하므로 선언을 여기(최상단 상태 묶음)에 둔다.
 let lastInputAt=Date.now();
 let repo,signPad=null,modalOpenKey=null,modalReturnFocus=null,modalKeydownHandler=null,qrStream=null,qrDetector=null,qrLoopActive=false;
 // 유휴 타이머(자동 잠금·손님 화면 자동 복귀)와 PIN 지연 카운트다운 타이머 — init()이 위에서 먼저 돌기 때문에 선언은 여기 최상단에 둔다.
-let idleTimer=null,pinDelayTimer=null,recoveryTimer=null,handoffTtlTimer=null;
+let formDraftSkip=new Set();// beta.55(C1): 방금 저장한 설정 칸 — 다음 한 번의 흡수에서 화면에 남은 옛 글자를 다시 줍지 않는다
+let idleTimer=null,pinDelayTimer=null,recoveryTimer=null,handoffTtlTimer=null,handoffLeftTimer=null;
+// beta.55(C3): "사장님 확인" 화면에 들어온 직후 잠깐 동안은 숫자판 입력을 받지 않는다 — 손님이 [사장님 확인 받기]를 두 번 누르면
+//   두 번째 탭이 같은 자리에 새로 생긴 숫자 키에 떨어져 비밀번호 한 자리가 들어가고, 틀린 횟수가 오른다(폰 재현).
+let pinKeyGuardUntil=0;
 document.addEventListener('click',onClick);document.addEventListener('input',onInput);document.addEventListener('change',onInput);qs('restoreFile').addEventListener('change',onRestoreFile);qs('csvFile').addEventListener('change',onCsvFile);qs('directTransferFile').addEventListener('change',onDirectTransferFile);
 let composing=false;document.addEventListener('compositionstart',()=>{composing=true});document.addEventListener('compositionend',(e)=>{composing=false;onInput(e)});
 // 온/오프라인 상태 pill 토글 — 상태 저장 없이 재렌더만(navigator.onLine을 직접 읽음)
@@ -650,7 +716,7 @@ function __handleBack(){try{
   try{const ae=document.activeElement;if(ae&&ae!==document.body&&typeof ae.blur==='function'){document.removeEventListener('input',onInput);document.removeEventListener('change',onInput);__re=true;ae.blur()}}catch(e){}
   try{
     if(state.pinLocked){__retrap();return}                                            // ④ 잠금 우회 금지: 아무 전환도 안 함
-    if(state.modal){state.modal=null;render();__retrap();return}                       // ① 모달만 닫기(기존 close-modal과 동일)
+    if(state.modal){if(state.modal.type==='receipt')closeReceiptModal();else{state.modal=null;render()}__retrap();return} // ① 모달만 닫기(beta.55: 손님 요청 증표는 [닫고 손님 화면으로]와 같게)
     if(state.screen!=='home'){state.screen='home';state.historyEmployeeId='';render();__retrap();return} // ② 홈으로
     // ③ 홈 + 모달 없음 → "한 번 더" 종료 안내(히스토리를 자연 소진시켜 탭이 닫히게)
     const t=now();
@@ -685,7 +751,9 @@ idleSinceInput:now()-lastInputAt,
 pendingAmount:num(state.pendingAmount),pendingSignLen:str(state.pendingSign).length,
 modalPreAmount:num(state.modal&&state.modal.preAmount),modalPreSignLen:str(state.modal&&state.modal.preSign).length,
 // 입력 중인 PIN은 **길이만** 노출한다(값은 절대 내보내지 않는다) — 유휴 복귀가 부분 입력을 실제로 지웠는지 검증용.
-pinLen:str(state.pinInput).length}),
+pinLen:str(state.pinInput).length,
+// beta.55(C3·C8): "사장님 확인" 진입 직후 숫자판 무시가 남은 ms, 화면에 보이는 남은 초(값만 — 판정은 앱이 한다).
+pinKeyGuardLeft:Math.max(0,pinKeyGuardUntil-Date.now()),handoffLeftSec:handoffLeftSec()}),
 // 순수 판정 함수 2개(읽기 전용, 저장·전송 경로 없음) — 돈 파서와 "지금 화면을 갈아엎으면 안 되는가" 판정을
 //   하니스가 직접 못 박기 위해 노출한다. 이 둘이 느슨해지면 금액이 조용히 바뀌고 서명이 사라진다.
 // 최후의 방벽(custComposeGuard) 검증용 — 하니스가 "게이트를 빼먹은 새 경로"를 흉내 내 render를 직접 부른다.
@@ -1105,6 +1173,27 @@ function dismissChoiceDialog(){const d=state.choiceDialog;if(!d)return;state.cho
 function choiceDialogHtml(){const d=state.choiceDialog;if(!d)return '';
 return `<div class="modal-back pass-back choice-back"><div class="modal choice-modal" role="dialog" aria-modal="true" aria-labelledby="choiceTitle"><h2 id="choiceTitle">${esc(d.title)}</h2>${d.lines.map(l=>`<p class="help choice-line">${l}</p>`).join('')}<div class="modal-actions choice-actions">${d.buttons.map(b=>`<button class="${esc(str(b.cls)||'btn')}" data-a="choice-pick" data-val="${esc(str(b.val))}">${esc(str(b.label))}</button>`).join('')}</div></div></div>`}
 document.addEventListener('keydown',function(e){if(!state.choiceDialog)return;if(e.key==='Escape'){e.preventDefault();closeChoiceDialog(null)}});
+// ── 앱 안 글자 입력창(beta.55, C12) — 기기 기본 팝업(window.prompt) 대신 ─────────────────────────
+// 사용 취소 사유·전화번호·공공기관명을 window.prompt로 받았다. 그 팝업은 **무엇을** 고치는지(어느 직원·얼마·언제)를 보여 주지 못하고,
+//   형식이 틀리면 3초 토스트 한 줄로 거절돼 창이 닫혀 버렸다. → 앱 안 창: 대상을 위에 적고, 거절 사유는 창 안에 남고, 다시 고칠 수 있다.
+// 선택창·열쇠 암호 창과 같은 자리(overlaysHtml)·같은 규칙이다 — 잠금으로 넘어가면 '취소'로 조용히 닫히고(dismissTextDialog),
+//   떠 있는 동안에는 전체 render를 미루며(renderIsDisruptive) 자동 잠금은 10분 상한만 건다. 입력 중에는 render하지 않는다(안내 한 줄만 고친다).
+// o = {title, lines:[esc된 html…], label, value, type, inputmode, placeholder, okLabel, okCls, chips:[문구…], check:(v)=>{ok,value,msg}} → Promise<value|null>
+function askText(o){return new Promise(resolve=>{const prev=state.textDialog;o=o||{};
+state.textDialog={title:str(o.title),lines:Array.isArray(o.lines)?o.lines:[],label:str(o.label),value:String(o.value==null?'':o.value),type:str(o.type)||'text',inputmode:str(o.inputmode),placeholder:str(o.placeholder),okLabel:str(o.okLabel)||'확인',okCls:str(o.okCls)||'btn-primary',chips:Array.isArray(o.chips)?o.chips.map(str).filter(Boolean):[],check:typeof o.check==='function'?o.check:(v=>({ok:true,value:v})),err:'',focused:false,resolve};
+if(prev&&typeof prev.resolve==='function'){try{prev.resolve(null)}catch(e){}}render()})}
+function closeTextDialog(val){const d=state.textDialog;if(!d)return;state.textDialog=null;render();try{d.resolve(val==null?null:val)}catch(e){}}
+function dismissTextDialog(){const d=state.textDialog;if(!d)return;state.textDialog=null;try{d.resolve(null)}catch(e){}}
+function textDialogHtml(){const d=state.textDialog;if(!d)return '';
+const im=d.inputmode?` inputmode="${esc(d.inputmode)}"`:'';
+const chips=d.chips.length?`<div class="dept-picks text-chips">${d.chips.map(c=>`<span class="dept-pick" data-a="text-chip" data-v="${esc(c)}">${esc(c)}</span>`).join('')}</div>`:'';
+return `<div class="modal-back pass-back text-back"><div class="modal text-modal" role="dialog" aria-modal="true" aria-labelledby="textDlgTitle"><h2 id="textDlgTitle">${esc(d.title)}</h2>${d.lines.map(l=>`<p class="help choice-line">${l}</p>`).join('')}<div class="form"><div class="field"><label for="textDlgInput">${esc(d.label)}</label><input id="textDlgInput" type="${esc(d.type)}"${im} autocomplete="off" enterkeyhint="done" placeholder="${esc(d.placeholder)}" value="${esc(d.value)}"></div>${chips}</div><div id="textDlgErr" class="pass-hint bad" aria-live="polite">${esc(d.err)}</div><div class="modal-actions"><button class="btn" data-a="text-cancel">취소</button><button class="${esc(d.okCls)}" data-a="text-ok">${esc(d.okLabel)}</button></div></div></div>`}
+function focusTextDialog(){const d=state.textDialog;if(!d||d.focused)return;const el=qs('textDlgInput');if(!el)return;d.focused=true;try{el.focus()}catch(e){}}
+function textOk(){const d=state.textDialog;if(!d)return;const el=qs('textDlgInput');if(el)d.value=el.value||'';let r;try{r=d.check(d.value)||{ok:false,msg:'다시 확인해 주세요.'}}catch(e){r={ok:false,msg:'다시 확인해 주세요.'}}
+if(!r.ok){d.err=str(r.msg)||'다시 확인해 주세요.';const h=qs('textDlgErr');if(h)h.textContent=d.err;if(el){try{el.focus()}catch(e){}}return}
+closeTextDialog(r.value==null?d.value:r.value)}
+document.addEventListener('keydown',function(e){const d=state.textDialog;if(!d)return;if(e.key==='Escape'){e.preventDefault();closeTextDialog(null);return}
+if(e.key==='Enter'&&!e.isComposing&&!composing&&e.target&&e.target.id==='textDlgInput'){e.preventDefault();textOk()}});
 async function unwrapKeyBackupPass(pk,pass){const raw=String(pass==null?'':pass),tries=[raw],t=raw.trim();if(t&&t!==raw)tries.push(t);for(const p of tries){try{return await unwrapPrivateKey(pk,p,true)}catch(e){}}return null}
 function passDialogCheck(d){if(!d)return{ok:false,msg:'',field:'keyPass1'};const a=String(d.p1||''),b=String(d.p2||'');
 if(d.mode==='import')return a?{ok:true,msg:''}:{ok:false,msg:'암호를 입력해 주세요.',field:'keyPass1'};
@@ -1146,20 +1235,26 @@ if(id==='keyPass1'||id==='keyPass2'){e.preventDefault();passOk()}});
 // 웹 특성상 완전 자동 발송은 불가능하다(문자 앱에서 사장님이 '보내기'를 한 번 눌러야 실제 전송됨) — 화면 안내 문구로 이 한계를 명시한다.
 // iOS는 'sms:번호&body=' , Android는 'sms:번호?body=' 형식을 쓴다. 데스크톱 등 미지원 환경에서는 조용히 생략하고 토스트만 띄운다.
 function smsAppSupport(){const ua=(navigator.userAgent||'');return{ios:/iPad|iPhone|iPod/.test(ua),android:/Android/.test(ua)}}
-async function maybeSendSms(emp,amount,after){
+// beta.55(B-09): 문자 앱 열기는 두 갈래다.
+//   ① 증표 화면의 진짜 링크 <a href="sms:…">[문자 안내 보내기]</a> — 언제나 남는다. 사장님이 누르는 그 탭이 곧 사용자 활성이라 확실히 열린다.
+//   ② 저장 직후 자동 열기 — **확인창이 없던 저장(손님 요청 금액 그대로)에서만** 시도한다. 확인창을 읽는 사이 브라우저의
+//      사용자 활성(크롬 약 5초)이 끝나면 자동 열기는 조용히 실패한다(beta.50 교훈 — 콘솔에만 "user gesture is required").
+//   링크를 만들 수 없는 기기(데스크톱 등)·번호가 없는 직원이면 빈 문자열.
+async function smsHrefFor(emp,amount,after){
 const fresh=state.data.employees.find(v=>v.id===emp.id)||emp;
-if(!fresh.phoneConsent||!fresh.phone)return;
+if(!fresh.phoneConsent||!fresh.phone)return '';
 const{ios,android}=smsAppSupport();
-if(!ios&&!android){toast('이 기기에서는 문자 앱을 자동으로 열 수 없어 문자 안내를 생략했습니다.');return}
-const phone=await getPhone(fresh);
-if(!phone)return;
+if(!ios&&!android)return '';
+let phone='';try{phone=await getPhone(fresh)}catch(e){console.error('phone decrypt',e);return ''}
+if(!phone)return '';
 const shop=state.data.meta.shopName||APP;
 const body=`${shop} ${fresh.name}님 ${money(amount)} 사용, 잔액 ${money(after)}`;
 const sep=ios?'&body=':'?body=';
-const href='sms:'+phone.replace(/[^0-9+]/g,'')+sep+encodeURIComponent(body);
+return 'sms:'+phone.replace(/[^0-9+]/g,'')+sep+encodeURIComponent(body)}
+function maybeSendSms(href){
+if(!href)return;
 window.__lastSmsHref=href;// 자동화 검증용 훅(문자 앱 오픈 시도 기록) — 네트워크로 전송되지 않음, 이 기기 안에서만 사용
 try{location.href=href}catch(e){console.error('sms nav',e)}
-toast('문자 앱이 열리면 보내기를 눌러 주세요.');
 }
 // ── 금액 대조(reconcile) ──────────────────────────────────────────────────────
 // 예전 대조식은 (선금등록·충전+조정+취소) === (사용 + 잔액합)이었다. 그런데 '잔액합'은 바로 그 거래 목록을
@@ -1626,7 +1721,7 @@ function signInProgress(){if(!signPad)return false;try{if(typeof signPad.drawing
 //   두 조건이 그대로 그 화면을 덮는다 — 금액을 치는 중이면 activeElement가 INPUT(아래), 서명이 그려져
 //   있으면 signInProgress(위). 빈 캔버스 + 포커스 없음일 때만 false이고, 그때는 전체 render가 잃을 것이 없다.
 //   그래도 게이트는 호출부가 지켜야 동작하므로, 마지막 방벽으로 render() 입구의 custComposeGuard가 한 겹 더 있다.
-function renderIsDisruptive(){if(state.modal||state.passDialog||state.choiceDialog)return true;if(signInProgress())return true;const ae=document.activeElement;if(!ae)return false;const tag=str(ae.tagName).toUpperCase();return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||tag==='CANVAS'}
+function renderIsDisruptive(){if(state.modal||state.passDialog||state.choiceDialog||state.textDialog)return true;if(signInProgress())return true;const ae=document.activeElement;if(!ae)return false;const tag=str(ae.tagName).toUpperCase();return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||tag==='CANVAS'}
 // 배지 값은 기기에 저장한다(meta.inboxCountCache — 장부 백업에는 실리지 않는다). 현장 결함(beta.46):
 //   사무실 와이파이에서 배지를 본 태블릿이 가게(오프라인)에서 다시 열리면, 예전에는 확인값을
 //   저장하지 않아 배지가 사라져 보였다(서버에는 신청이 그대로 있는데도). 이제 마지막 확인값을
@@ -1680,8 +1775,8 @@ if(relayRegisterLastError!=='auth_required'&&!relayRegisterToldUser)toast('가�
 async function relayStop(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('자동 등록을 중단할까요? (가게 등록 해제)\n\n· 더는 공공기관에서 새 명단 신청을 받지 않습니다(등록 해제).\n· 이미 등록된 직원 명단·잔액은 그대로 유지됩니다.\n· 서버에 보관된 잠긴 장부 백업은 30일 뒤 삭제돼요(그 안에 다시 등록하면 되찾을 수 있어요).'))return;setBusy('등록을 해제하는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(base+'/api/deregister',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'해제 실패')}state.data.meta.restaurantId='';state.data.meta.relayStoreName='';state.data.meta.relayRegisteredAt=null;state.data.meta.storeRegisterPending=false;state.data.meta.storeAddr='';state.data.meta.districtSyncedAt=null;state.inboxCount=null;state.data.meta.inboxCountCache=null;await repo.apply({meta:{restaurantId:'',relayStoreName:'',relayRegisteredAt:null,storeRegisterPending:false,storeAddr:'',districtSyncedAt:null,inboxCountCache:null}});clearBusy();render();toast('자동 등록을 중단했습니다. (가게 등록 해제)')}catch(e){console.error(e);clearBusy();toast('자동 등록을 중단하지 못했어요. '+relayErrMsg(e))}}
 // 가게 연락처(카톡 오픈채팅/이메일) — 기관 담당자 화면에서 [카톡으로 보내기]·[이메일로 보내기] 버튼을 켜는 선택 항목
 function isKakaoOpenLink(v){return /^https:\/\/open\.kakao\.com\//.test(str(v))}
-async function relayContactSave(opts){opts=opts&&typeof opts==='object'?opts:{};if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 등록하세요.');return}const kakao=typeof opts.kakao==='string'?opts.kakao:str(qs('contactKakao')&&qs('contactKakao').value),email=typeof opts.email==='string'?opts.email:str(qs('contactEmail')&&qs('contactEmail').value);if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}setBusy('연락처를 저장하는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:kakao,email})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'저장 실패');state.data.meta.contactKakaoLink=kakao;state.data.meta.contactEmail=email;await repo.apply({meta:{contactKakaoLink:kakao,contactEmail:email}});render();toast(opts.successToast||'가게 연락처를 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처를 저장하지 못했어요. '+relayErrMsg(e))}}
-async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('등록된 연락처를 지울까요?\n\n담당자 화면에서 카톡·이메일 전달 버튼이 사라집니다.'))return;setBusy('연락처를 지우는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:'',email:''})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'해제 실패');state.data.meta.contactKakaoLink='';state.data.meta.contactEmail='';await repo.apply({meta:{contactKakaoLink:'',contactEmail:''}});render();toast('가게 연락처 등록을 해제했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처를 지우지 못했어요. '+relayErrMsg(e))}}
+async function relayContactSave(opts){opts=opts&&typeof opts==='object'?opts:{};if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 등록하세요.');return}const kakao=typeof opts.kakao==='string'?opts.kakao:str(qs('contactKakao')&&qs('contactKakao').value),email=typeof opts.email==='string'?opts.email:str(qs('contactEmail')&&qs('contactEmail').value);if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}setBusy('연락처를 저장하는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:kakao,email})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'저장 실패');state.data.meta.contactKakaoLink=kakao;state.data.meta.contactEmail=email;await repo.apply({meta:{contactKakaoLink:kakao,contactEmail:email}});dropFormDrafts(['contactKakao','contactEmail']);render();toast(opts.successToast||'가게 연락처를 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처를 저장하지 못했어요. '+relayErrMsg(e))}}
+async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('등록된 연락처를 지울까요?\n\n담당자 화면에서 카톡·이메일 전달 버튼이 사라집니다.'))return;setBusy('연락처를 지우는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:'',email:''})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'해제 실패');state.data.meta.contactKakaoLink='';state.data.meta.contactEmail='';await repo.apply({meta:{contactKakaoLink:'',contactEmail:''}});dropFormDrafts(['contactKakao','contactEmail'],true);render();toast('가게 연락처 등록을 해제했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처를 지우지 못했어요. '+relayErrMsg(e))}}
 // 수신함은 소유증명(챌린지-응답) 뒤에 있다 — restaurant_id는 공개값이라, 예전에는 그것만 알면
 //   누구나 그 가게의 기관·부서·총액·인원과 암호문까지 받아 갈 수 있었다(암호문은 못 열어도
 //   요약 메타 자체가 조직 정보다). 토큰은 헤더(X-Auth-Token)로 보낸다 — 쿼리스트링은 로그에 남는다.
@@ -2343,8 +2438,12 @@ if(delayLeft>0)schedulePinDelayTick();
 const forgotBtn=step==='unlock'?`<div class="pin-reset"><button data-a="pin-forgot">PIN을 잊으셨나요?</button></div>`:'';
 // PIN 화면은 사장님 전용 갈림길이다 — 손님이 잘못 들어왔으면 1탭으로 손님 화면으로 돌아갈 수 있어야 한다.
 //   인계 화면("사장님 확인")에서는 [처음으로] — 누르면 인계 요청까지 함께 버린다(pin-to-cust가 전부 정리한다).
-const backToCust=step==='unlock'?`<div class="cust-foot"><button data-a="pin-to-cust">${ho?'처음으로':'손님 화면으로'}</button></div>`:'';
-return `<div class="pin-screen"><div class="pin-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="pin-title">${titles[step]}</div><div class="pin-sub">${subs[step]}</div>${reqBlock}<div class="pin-dots">${dots}</div><div class="pin-pad">${keys}<button class="pin-key fn" data-a="pin-key" data-key="back"${dis}>←</button><button class="pin-key" data-a="pin-key" data-key="0"${dis}>0</button><button class="pin-key fn" data-a="pin-key" data-key="clear"${dis}>C</button></div><div class="pin-msg">${esc(state.pinMsg)}</div>${delayBox}${forgotBtn}${backToCust}</div>`}
+// beta.55(C8): "사장님 확인" 화면은 60초 무조작이면 처음 화면으로 돌아간다 — 남은 초를 [처음으로] 바로 아래에 보여 준다.
+//   숫자 노드(#handoffLeft)만 1초마다 바꾼다(전체 render는 유휴 시계·포커스를 흔든다). 키를 누르면 시계가 다시 60초부터다.
+const hoLeft=ho?handoffLeftSec():0;if(ho)scheduleHandoffLeftTick();else stopHandoffLeftTick();
+const backToCust=step==='unlock'?`<div class="cust-foot"><button data-a="pin-to-cust">${ho?'처음으로':'손님 화면으로'}</button>${ho?`<div class="pin-ho-left" aria-live="off"><b id="handoffLeft">${hoLeft}</b>초 뒤 자동으로 처음 화면으로 돌아가요</div>`:''}</div>`:'';
+// beta.55(C2): 태블릿 가로에서는 두 칸 — 왼쪽(제목·손님 요청·[처음으로]), 오른쪽(점·숫자판). 세로 화면에서는 묶음이 display:contents라 그대로다.
+return `<div class="pin-screen pin-main"><div class="pin-col pin-col-a"><div class="pin-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="pin-title">${titles[step]}</div><div class="pin-sub">${subs[step]}</div>${reqBlock}</div><div class="pin-col pin-col-b"><div class="pin-dots">${dots}</div><div class="pin-pad">${keys}<button class="pin-key fn" data-a="pin-key" data-key="back"${dis}>←</button><button class="pin-key" data-a="pin-key" data-key="0"${dis}>0</button><button class="pin-key fn" data-a="pin-key" data-key="clear"${dis}>C</button></div><div class="pin-msg">${esc(state.pinMsg)}</div>${delayBox}${forgotBtn}</div>${backToCust}</div>`}
 // 인계 요청 TTL 만료 시점의 1회성 재렌더. 재렌더가 handoffEmp를 다시 태우면 요청이 폐기되고
 //   화면이 평범한 [비밀번호 입력]으로 내려앉는다(그 다음 렌더에서 ho=null → stopHandoffTtl로 자동 종료).
 function stopHandoffTtl(){if(handoffTtlTimer){clearTimeout(handoffTtlTimer);handoffTtlTimer=null}}
@@ -2352,6 +2451,10 @@ function scheduleHandoffTtl(){stopHandoffTtl();
 const left=num(state.pendingCustomerAt)+TIMERS.pendingTtl-now();
 handoffTtlTimer=setTimeout(()=>{handoffTtlTimer=null;
 if(state.loaded&&state.pinLocked&&state.lockView==='pin'&&state.pinContext==='handoff')render()},Math.max(left,0)+50)}
+// beta.55(C8): "사장님 확인" 화면의 남은 초 — 유휴 시계(armIdle)와 같은 기준(마지막 조작 시각 + handoffPinIdle)이다.
+function handoffLeftSec(){const left=num(TIMERS.handoffPinIdle)-(now()-lastInputAt);return left>0?Math.ceil(left/1000):0}
+function stopHandoffLeftTick(){if(handoffLeftTimer){clearInterval(handoffLeftTimer);handoffLeftTimer=null}}
+function scheduleHandoffLeftTick(){if(handoffLeftTimer)return;handoffLeftTimer=setInterval(()=>{const el=qs('handoffLeft');if(!el){stopHandoffLeftTick();return}el.textContent=String(handoffLeftSec())},1000)}
 // 남은 입력 지연(초). 0이면 지연 없음.
 function pinDelayLeft(){const left=num(state.pinDelayUntil)-now();return left>0?Math.ceil(left/1000):0}
 function stopPinDelayTick(){if(pinDelayTimer){clearInterval(pinDelayTimer);pinDelayTimer=null}}
@@ -2387,6 +2490,7 @@ return `<div class="pin-screen"><div class="pin-icon"><svg viewBox="0 0 24 24"><
 
 async function handlePinKey(key){
 if(pinDelayLeft()>0)return;// 5회 실패 후 입력 지연 중 — 어떤 키도 받지 않는다
+if(Date.now()<pinKeyGuardUntil)return;// beta.55(C3): "사장님 확인"에 막 들어온 0.5초 — 손님의 두 번째 탭은 버린다(틀린 횟수도 오르지 않는다)
 if(key==='clear'){state.pinInput='';state.pinMsg='';render();return}
 if(key==='back'){state.pinInput=state.pinInput.slice(0,-1);state.pinMsg='';render();return}
 if(state.pinInput.length>=4)return;
@@ -2463,7 +2567,7 @@ if(!at||now()-at>TIMERS.pendingTtl)return{id:'',expired:true,amount:0,sign:''};
 const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);return emp?{id,expired:false,amount,sign}:{id:'',expired:true,amount:0,sign:''}}
 // 잠금 해제 상태에서 손님 화면(잠금)으로 되돌리기 — 자동 잠금·[손님 셀프 조회] 공용.
 //   pinFails/pinDelayUntil은 사장님이 인증을 마친 뒤에만 여기 오므로 함께 비운다(meta까지 영속).
-function lockToCustomer(){dismissPassDialog();dismissChoiceDialog();state.pinLocked=true;state.lockView='customer';state.pinContext='';state.pinInput='';state.pinSetup1='';state.pinMsg='';leaveRecovery();stopPinDelayTick();state.modal=null;
+function lockToCustomer(){dismissPassDialog();dismissChoiceDialog();dismissTextDialog();state.pinLocked=true;state.lockView='customer';state.pinContext='';state.pinInput='';state.pinSetup1='';state.pinMsg='';leaveRecovery();stopPinDelayTick();state.modal=null;
 clearTimeout(state.toastTimer);state.toast='';// 사장님용 토스트가 손님 화면으로 넘어가지 않게 한다
 resetCustomerState();clearPinGuard();render()}
 // 손님 화면을 띄울 수 있는 조건 — PIN이 없거나(최초 설정) 변경 중이면 절대 띄우지 않는다.
@@ -2601,7 +2705,10 @@ return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-labe
 //   '요청은 휘발성'이라는 약속을 가장 확실하게 지키는 방법이다(지워야 할 사본이 아예 없다).
 if(stage==='compose'){
 const view=custAmountView(sel.balance);
-const quick=[9000,18000,27000].map(v=>`<button data-a="cust-amt-quick" data-amount="${v}">${esc(money(v))}</button>`).join('');
+// beta.55(C7, 사용자 결정 §1-7): 빠른 금액 3개는 이 가게에서 **자주 쓰인 사용 금액**에서 고른다(새 저장 값 없이 장부에서 파생).
+//   잔액보다 큰 버튼은 보여 주지 않는다 — 눌러도 "잔액보다 많아요"만 뜨는 버튼은 고장으로 읽힌다. 칸은 비워 둔 채 자리를 지켜
+//   (visibility:hidden) 나머지 버튼이 움직이지 않게 한다.
+const quick=custQuickAmounts().map(v=>v<=num(sel.balance)?`<button data-a="cust-amt-quick" data-amount="${v}">${esc(money(v))}</button>`:`<span class="cust-quick-gap" aria-hidden="true"></span>`).join('');
 // beta.23: 이름·소속을 한 줄(.cust-who)로 묶고 화면에 'cust-compose'를 달아 폰에서만 세로를 압축한다.
 //   부분 갱신 대상 2조각(#custAmtBal·#custAmtErr)의 id는 그대로다 —
 //   여기 id가 하나라도 바뀌면 custAmountPatch가 false를 돌려 render로 빠지고 서명이 사라진다.
@@ -2613,7 +2720,10 @@ const quick=[9000,18000,27000].map(v=>`<button data-a="cust-amt-quick" data-amou
 //   ⚠️ 링크가 늘어난 만큼 폰 세로는 CSS에서 되돌려 받았다(아래 @media 블록) — "스크롤 없이 한 화면" 계약은
 //     금액칸·서명판 전체·버튼·링크 **전부**에 그대로 걸려 있다(harness/responsive.e2e.mjs).
 // beta.44: 금액 안내는 '잔액 N원이 남아있어요' 한 줄(#custAmtBal)뿐이다 — 큰 숫자 줄(.cust-amt-line)은 없앴다.
-return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-who"><span class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</span><span class="cust-name">${esc(sel.name)}님</span></div><div class="cust-req-bal" id="custAmtBal">${esc(view.bal)}</div><div class="cust-req-err" id="custAmtErr">${esc(view.c.err)}</div><div class="quick cust-req-quick">${quick}</div><div class="cust-req-field"><label for="custAmountInput">직접 넣기 (원)</label><input id="custAmountInput" class="${view.c.err?'err':''}" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="예: 9000" aria-label="사용할 금액을 원 단위로 입력" value="${esc(state.custAmount)}"></div><div class="cust-sign-title">여기에 서명하시고,<br>사장님 확인받기를 클릭해주세요</div><div class="sig-box cust-sig"><canvas id="signCanvas" class="signature"></canvas><div class="sig-hint">여기에 손가락으로 서명해 주세요</div></div><div class="cust-req-err" id="custSignErr"></div><div class="cust-actions cust-req-actions"><button class="btn-primary" data-a="cust-sign-submit">사장님 확인 받기</button><button class="btn-secondary" data-a="cust-sign-clear">지우고 다시</button><button class="btn" data-a="cust-back">처음으로</button></div><div class="cust-links"><button data-a="cust-history">최근 사용<br>내역 보기</button><button data-a="cust-call-owner">금액을 모르겠어요<br>사장님 부르기</button></div></div></div>`,'cust-compose')}
+// beta.55(C2, 사용자 결정 §1-6): 태블릿 가로에서는 두 칸이다 — 왼쪽(이름·잔액·빠른 금액·금액 칸·보조 링크), 오른쪽(서명·버튼).
+//   두 묶음(.cust-col-a/.cust-col-b)은 세로 화면에서 display:contents라 배치·순서가 예전과 한 점도 같다. 노드를 옮기지 않고 CSS만 바뀐다
+//   (캔버스 노드 불변 = 3중 보호·회전 획 보존 그대로).
+return wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-col cust-col-a"><div class="cust-who"><span class="cust-label">${esc(orgDeptLabel(sel)||'부서 없음')}</span><span class="cust-name">${esc(sel.name)}님</span></div><div class="cust-req-bal" id="custAmtBal">${esc(view.bal)}</div><div class="cust-req-err" id="custAmtErr">${esc(view.c.err)}</div><div class="quick cust-req-quick">${quick}</div><div class="cust-req-field"><label for="custAmountInput">직접 넣기 (원)</label><input id="custAmountInput" class="${view.c.err?'err':''}" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="예: 9000" aria-label="사용할 금액을 원 단위로 입력" value="${esc(state.custAmount)}"></div></div><div class="cust-col cust-col-b"><div class="cust-sign-title">여기에 서명하시고,<br>사장님 확인받기를 클릭해주세요</div><div class="sig-box cust-sig"><canvas id="signCanvas" class="signature"></canvas><div class="sig-hint">여기에 손가락으로 서명해 주세요</div></div><div class="cust-req-err" id="custSignErr"></div><div class="cust-actions cust-req-actions"><button class="btn-primary" data-a="cust-sign-submit">사장님 확인 받기</button><button class="btn-secondary" data-a="cust-sign-clear">지우고 다시</button><button class="btn" data-a="cust-back">처음으로</button></div></div><div class="cust-links"><button data-a="cust-history">최근 사용<br>내역 보기</button><button data-a="cust-call-owner">금액을 모르겠어요<br>사장님 부르기</button></div></div></div>`,'cust-compose')}
 // ① 본인 확인 카드 — 남의 잔액을 잘못 보는 일을 막는 마지막 관문.
 const confirmCard=e=>wrap(`<div class="cust-body"><div class="cust-card"><div class="cust-ask">본인이 맞나요?</div><div class="cust-label">${esc(orgDeptLabel(e)||'부서 없음')}</div><div class="cust-name">${esc(e.name)}</div><div class="cust-actions"><button class="btn-primary" data-a="cust-confirm" data-id="${esc(e.id)}">네, 맞아요</button><button class="btn" data-a="cust-cancel">아니요</button></div></div></div>`);
 if(stage==='confirm')return confirmCard(sel);
@@ -2666,6 +2776,18 @@ return true}
 //   "금액 한 글자마다 캔버스를 살려 두는 것". 여기서 render로 빠지는 순간 그린 서명이 통째로 사라진다.
 //   이 함수는 캔버스(#signCanvas)를 **읽지도 쓰지도 않는다** — 손대지 않는 것이 곧 보존이다.
 // 빠른 금액 버튼도 이 경로를 쓴다(입력창의 value만 직접 대입 — 등록 모달의 fill-open과 같은 패턴).
+// ── 손님 빠른 금액 (beta.55, C7) ──────────────────────────────────────────────
+// 최근 사용 기록(취소된 것 제외) 200건에서 가장 자주 나온 금액 3개 → 오름차순. 같은 횟수면 더 최근에 나온 금액이 이긴다.
+//   기록이 모자라 서로 다른 금액이 3개가 안 되면 빈 자리를 예전 기본값(9,000/18,000/27,000) 중 겹치지 않는 것으로 채운다.
+//   저장하지 않는다(새 meta 키 없음) — 장부가 바뀌면 다음 화면에서 저절로 따라온다.
+const CUST_QUICK_FALLBACK=[9000,18000,27000];
+function custQuickAmounts(){const txs=(state.data&&state.data.transactions)||[];
+const voided=new Set(txs.filter(t=>t.type==='void'&&t.targetTransactionId).map(t=>str(t.targetTransactionId)));
+const uses=sortTxAsc(txs.filter(t=>t.type==='use'&&!voided.has(str(t.id))&&num(t.amount)>0)).slice(-200);
+const stat=new Map();uses.forEach((t,i)=>{const a=num(t.amount);const v=stat.get(a)||{n:0,last:-1};v.n+=1;v.last=i;stat.set(a,v)});
+const top=[...stat.entries()].sort((x,y)=>(y[1].n-x[1].n)||(y[1].last-x[1].last)).slice(0,3).map(x=>x[0]);
+for(const f of CUST_QUICK_FALLBACK){if(top.length>=3)break;if(!top.includes(f))top.push(f)}
+return top.slice(0,3).sort((a,b)=>a-b)}
 function custComposeActive(){return !!(lockScreenActive()&&state.lockView==='customer'&&customerViewAllowed()&&state.custStage==='compose')}
 // "손님이 지금 뭔가 적어 두었는가" — 금액(state)이든 서명 획(캔버스)이든 하나라도 있으면 참.
 //   ⚠️ 서명은 state가 아니라 캔버스에만 산다(사본 없음 = '요청은 휘발성'). 그래서 여기서도 캔버스를
@@ -2774,12 +2896,18 @@ return '<div class="setup"><div class="setup-head"><div class="setup-step">2 / 3
 
 // 연락처(선택·권장) — 공공기관 담당자(서무)가 명단 파일을 보낼 곳. 반드시 건너뛰기 허용(스펙 §수정3-2)
 function setupStep3Html(){
-const agreed=!!state.setupTermsAgreed;const dis=agreed?'':' disabled';
+const agreed=!!state.setupTermsAgreed;const dis='';// beta.55(C4): 버튼은 늘 살아 있다 — 동의 전에 누르면 체크 칸 옆에 이유가 뜬다
 return '<div class="setup"><div class="setup-head"><div class="setup-step">3 / 3</div><h1>연락처 (선택·권장)</h1><p>공공기관 담당자(서무)가 명단 파일을 보낼 곳이에요.<br>지금 몰라도 돼요 — 나중에 설정에서 등록할 수 있어요.</p></div><div class="card"><div class="form"><div class="field"><label for="setupContactKakao">카카오톡 오픈채팅 링크</label><input id="setupContactKakao" type="url" placeholder="https://open.kakao.com/o/..." value="'+esc(state.data.meta.contactKakaoLink||'')+'"></div><div class="meta" style="font-size:11px;margin-top:-6px">카카오톡 &gt; 오픈채팅 만들기에서 링크를 복사해 붙여넣으세요. 전화번호가 드러나지 않아요.</div><div class="field"><label for="setupContactEmail">접수 이메일</label><input id="setupContactEmail" type="email" placeholder="예: office@restaurant.com" value="'+esc(state.data.meta.contactEmail||'')+'"></div></div></div>'+termsAgreeBlockHtml('setup-terms-toggle','setupTermsChk',agreed)+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back2" style="flex:1">이전</button><button class="btn" id="setupSkipBtn" data-a="setup-contact-skip" style="flex:1"'+dis+'>나중에 하기</button><button class="btn-primary" id="setupCompleteBtn" data-a="setup-complete" style="flex:1"'+dis+'>완료</button></div></div>'}
 
 // 이용약관·개인정보처리방침 동의 안내 블록 (온보딩·일회성 모달 공용). 링크는 새 탭(rel=noopener), 체크는 기본 미체크.
 function termsAgreeBlockHtml(action,chkId,checked){
-return '<div class="card" style="border-color:var(--primary);background:var(--primary-glow,#eef5fb)"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin:0"><input type="checkbox" id="'+chkId+'" data-a="'+action+'"'+(checked?' checked':'')+' style="width:auto;min-height:auto;margin-top:3px;flex-shrink:0"><span style="font-size:13px;line-height:1.6"><b>이용약관</b> 및 <b>개인정보처리방침</b>에 동의합니다<br><a href="'+TERMS_URL+'" target="_blank" rel="noopener">이용약관 보기</a> · <a href="'+PRIVACY_URL+'" target="_blank" rel="noopener">개인정보처리방침 보기</a></span></label></div>'}
+// beta.55(C4): 예전에는 동의 전 [완료]·[나중에 하기]·[동의하고 계속]이 disabled였는데 겉보기는 살아 있는 버튼이라, 눌러도 아무 일이 없어
+//   "고장"으로 읽혔다. 이제 버튼은 늘 눌리고, 동의 전에 누르면 체크 칸 바로 아래(#<chkId>Why)에 이유가 남고 칸이 강조된다(render 없이 조각만).
+//   체크 줄 전체가 44px 이상 표적이다(글자를 눌러도 체크된다). 약관 링크는 따로 눌리는 표적이다.
+return '<div class="card terms-card" id="'+chkId+'Card" style="border-color:var(--primary);background:var(--primary-glow,#eef5fb)"><label class="terms-row"><input type="checkbox" id="'+chkId+'" data-a="'+action+'"'+(checked?' checked':'')+'><span class="terms-text"><b>이용약관</b> 및 <b>개인정보처리방침</b>에 동의합니다</span></label><div class="terms-links"><a href="'+TERMS_URL+'" target="_blank" rel="noopener">이용약관 보기</a><a href="'+PRIVACY_URL+'" target="_blank" rel="noopener">개인정보처리방침 보기</a></div><div class="terms-why" id="'+chkId+'Why" role="alert" aria-live="assertive"></div></div>'}
+// 동의 없이 버튼을 눌렀을 때 — 이유 한 줄 + 칸 강조 + 그 칸으로 스크롤(조각만 고친다).
+function showTermsNeeded(chkId){const why=qs(chkId+'Why'),card=qs(chkId+'Card');if(why)why.textContent='☝ 위 칸에 체크해 약관에 동의해 주세요. 동의해야 계속할 수 있어요.';if(card){card.classList.add('terms-need');try{card.scrollIntoView({block:'center',behavior:'smooth'})}catch(e){}}}
+function clearTermsNeeded(chkId){const why=qs(chkId+'Why'),card=qs(chkId+'Card');if(why)why.textContent='';if(card)card.classList.remove('terms-need')}
 
 // 최초 설정 완료 안내(스펙 §수정4): PIN 설정 직후 딱 한 번, 두 갈래로 다음 행동을 안내
 function setupGuideHtml(){
@@ -2825,20 +2953,12 @@ try{await repo.apply({meta:{restaurantId:'',relayStoreName:'',storeAddr:''}})}ca
 await markStoreRegisterPending();return false}
 async function markStoreRegisterPending(){state.data.meta.storeRegisterPending=true;try{await repo.apply({meta:{storeRegisterPending:true}})}catch(e){console.error('pending flag',e)}}
 
-// 음성 인식(STT) — 어르신·바쁜 매장을 위한 이름 음성 검색 (Web Speech API)
-function voiceSearch(){
-var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(!SR){toast('이 브라우저는 음성 인식을 지원하지 않습니다.');return}
-try{var rec=new SR();rec.lang='ko-KR';rec.interimResults=false;rec.maxAlternatives=1;toast('🎤 듣고 있어요… 이름을 말씀하세요');
-rec.onresult=function(ev){var t=((ev.results[0]&&ev.results[0][0]&&ev.results[0][0].transcript)||'').replace(/\s+/g,'').replace(/[.,!?]+$/,'');if(!t){toast('다시 말씀해 주세요.');return}
-state.search=t;state.deptFilter='';state.screen='home';render();toast('"'+t+'" 음성 검색')};
-rec.onerror=function(ev){toast('음성 인식 오류'+(ev&&ev.error?': '+ev.error:''))};
-rec.start()}catch(e){console.error(e);toast('음성 인식을 시작할 수 없습니다.')}}
+// beta.55(C11, 사용자 결정 §1-11): 이름 음성 검색(🎤)은 없앴다 — 음성이 브라우저 회사 서버로 갈 수 있는데 고지가 없었다. 초성 검색은 그대로다.
 
 // ── 렌더 (포커스 보존) ──
 // ⚠️ 소속 추천 datalist는 여기(문서 끝)에 **딱 한 번** 붙는다 — 화면·모달이 각자 그리면 id가 겹치고,
 //   브라우저는 앞의 것만 참조한다(뒤에 그려진 모달 입력이 엉뚱한/빈 목록을 보는 사고의 원인).
-function overlaysHtml(){return `${orgDatalistHtml()}${passDialogHtml()}${choiceDialogHtml()}${state.toast?`<div class="toast">${esc(state.toast)}</div>`:''}${state.busy?`<div class="busy"><div>${esc(state.busy)}</div></div>`:''}`}
+function overlaysHtml(){return `${orgDatalistHtml()}${passDialogHtml()}${choiceDialogHtml()}${textDialogHtml()}${state.toast?`<div class="toast">${esc(state.toast)}</div>`:''}${state.busy?`<div class="busy"><div>${esc(state.busy)}</div></div>`:''}`}
 // render()는 그대로 두고 바깥에서 유휴 타이머만 **다시 계산**한다(화면이 바뀌면 시계의 길이가 달라진다 —
 //   예: 조회 30초 ↔ 요청 작성 60초 ↔ 자동 잠금 90초). armIdle은 만료 **시각**을 다시 계산할 뿐
 //   시계를 연장하지 않는다(만료 기준은 lastInputAt = 마지막 사용자 조작 시각).
@@ -2850,7 +2970,7 @@ function overlaysHtml(){return `${orgDatalistHtml()}${passDialogHtml()}${choiceD
 //   ⚠️ DOM 교체 경합(NotFoundError 등 DOMException)은 창 탓이 아니므로 창을 닫지 않는다. 오류는 언제나 콘솔에 남는다(하니스가 잡는다).
 function render(){try{if(!custComposeGuard())renderCore()}catch(e){console.error('render failed',e);
 if(state.modal&&!(typeof DOMException!=='undefined'&&e instanceof DOMException)){state.modal=null;try{renderCore();toast('화면을 그리다 문제가 생겨 창을 닫았어요. 다시 열어 주세요.')}catch(e2){console.error('render failed again',e2)}}}
-armIdle();focusPassDialog();noteAttention()}
+armIdle();focusPassDialog();focusTextDialog();noteAttention()}
 // ── 사용 모달 입력값 흡수 (beta.21 수정) ─────────────────────────────────
 // 사용 모달의 금액·비고는 지금까지 **DOM에만** 있었다. state에 없는 값은 재렌더에서 살아남지 못한다 —
 //   사장님이 손님 요청 9,000원을 25,000원으로 고쳐 놓아도, 그 사이에 render가 한 번 돌면(온/오프라인 이벤트,
@@ -2866,7 +2986,20 @@ const a=qs('useAmount'),n=qs('useNote'),dd=qs('useDate');
 if(a)m.amountDraft=String(a.value==null?'':a.value);
 if(n)m.noteDraft=String(n.value==null?'':n.value);
 if(dd)m.dateDraft=String(dd.value==null?'':dd.value)}
-function renderCore(){captureUsageInputs();if(!state.loaded){qs('app').innerHTML='<div class="app"><div class="card empty">앱을 준비하는 중입니다.</div></div>';return}
+// ── 설정 화면 입력 칸 흡수 (beta.55, C1) ──────────────────────────────────────
+// 설정의 빠른 등록(소속·부서·이름·금액)·가게 이름·연락처·새 부서 칸은 값이 DOM에만 있었다. 칸에서 손을 뗀 상태(키보드 닫힘)에서
+//   안내 토스트가 사라지거나 와이파이가 끊겼다 붙으면 전체 render가 돌아 **적어 둔 글자가 전부 지워졌다**(재현됨).
+//   → 화면을 갈아엎기 직전에 지금 값을 state.formDrafts에 흡수하고, 새로 그린 칸에 되돌려 놓는다(설계 원칙 ①).
+//   흡수값은 휘발성 state에만 산다(저장·백업·서버 어디에도 안 나간다). 설정 화면을 떠나면 버리고, 저장에 성공한 칸은 즉시 비운다
+//   (그대로 두면 다음에 열 때 '그럴듯한 옛 값'이 다시 나타난다 — beta.21 원칙).
+const FORM_DRAFT_IDS=['quickAddOrg','quickAddDept','quickAddName','quickAddOpen','shopNameInput','contactKakao','contactEmail','newDeptInput'];
+function captureFormDrafts(){if(!state.loaded||state.screen!=='settings'||!state.data.meta.setupComplete||state.pinLocked){state.formDrafts={};return}
+const skip=formDraftSkip;formDraftSkip=new Set();FORM_DRAFT_IDS.forEach(id=>{if(skip.has(id))return;const el=qs(id);if(el)state.formDrafts[id]=String(el.value==null?'':el.value)})}
+function restoreFormDrafts(){if(state.screen!=='settings')return;const dr=state.formDrafts||{};
+Object.keys(dr).forEach(id=>{const el=qs(id);if(el&&el.value!==dr[id]){try{el.value=dr[id]}catch(e){}}})}
+// 저장에 성공한 칸은 흡수값과 화면 값을 함께 비운다(저장된 값은 meta가 다시 그려 준다).
+function dropFormDrafts(ids,clearDom){(ids||[]).forEach(id=>{delete state.formDrafts[id];formDraftSkip.add(id);if(clearDom){const el=qs(id);if(el)el.value=''}})}
+function renderCore(){captureUsageInputs();captureFormDrafts();if(!state.loaded){qs('app').innerHTML='<div class="app"><div class="card empty">앱을 준비하는 중입니다.</div></div>';return}
 // 초기 설정 화면
 if(!state.data.meta.setupComplete){const fa=document.activeElement,fid=fa&&fa.tagName==='INPUT'&&fa.id;let ss=null,se=null;try{ss=fa&&fa.selectionStart;se=fa&&fa.selectionEnd}catch(e){}
 qs('app').innerHTML=setupScreenHtml()+overlaysHtml();
@@ -2898,6 +3031,7 @@ const fa=document.activeElement,fid=fa&&fa.id,ss=fa&&fa.selectionStart,se=fa&&fa
 //   → id가 없는 요소라 그룹 키(data-g)로 같은 헤더를 찾아 포커스를 되돌린다.
 const fgKey=(fa&&fa.classList&&fa.classList.contains('group-head')&&fa.dataset)?fa.dataset.g:'';
 const d=derive();qs('app').innerHTML=`<div class="app">${topBar()}<div class="stack">${banners()}${screenHtml(d)}</div>${navHtml()}</div>${modalHtml(d)}${overlaysHtml()}`;
+restoreFormDrafts();
 // 손님이 미리 서명해 온 모달에는 캔버스가 없다(그림을 보여줄 뿐) — 그때는 signPad 참조를 반드시 끊는다.
 if(state.modal&&state.modal.type==='usage'&&!str(state.modal.preSign))initSignPad();else signPad=null;
 if(state.modal&&state.modal.type==='qr-scan')initQrScan();else stopQrScan();
@@ -2914,7 +3048,7 @@ function activateModalA11y(shouldFocus){const back=document.querySelector('.moda
 //   모달이 열리자마자 Enter/Space를 한 번 누르면 손님이 요청한 금액이 9,000원으로 덮여 쓴다(되돌릴 표시도 없다).
 //   → 모달이 스스로 지목한 칸(data-modal-focus, 사용 모달은 금액 입력칸)이 있으면 거기부터 시작한다.
 //   Tab 트랩·복귀 포커스는 그대로다(아래 핸들러는 목록 전체를 다시 계산한다).
-if(shouldFocus){const pref=modal.querySelector('[data-modal-focus]');if(pref&&typeof pref.focus==='function')pref.focus();else if(items.length)items[0].focus();else modal.focus()}if(modalKeydownHandler)document.removeEventListener('keydown',modalKeydownHandler);modalKeydownHandler=function(e){if(e.key==='Escape'){state.modal=null;render();return}if(e.key!=='Tab')return;const list=focusablesIn(modal);if(!list.length)return;const first=list[0],last=list[list.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}};document.addEventListener('keydown',modalKeydownHandler)}
+if(shouldFocus){const pref=modal.querySelector('[data-modal-focus]');if(pref&&typeof pref.focus==='function')pref.focus();else if(items.length)items[0].focus();else modal.focus()}if(modalKeydownHandler)document.removeEventListener('keydown',modalKeydownHandler);modalKeydownHandler=function(e){if(e.key==='Escape'){if(state.modal&&state.modal.type==='receipt'){closeReceiptModal();return}state.modal=null;render();return}if(e.key!=='Tab')return;const list=focusablesIn(modal);if(!list.length)return;const first=list[0],last=list[list.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}};document.addEventListener('keydown',modalKeydownHandler)}
 
 // ── 파생 데이터 ──
 // ── 이름 검색 매칭 (초성 + 공백 무시) ──
@@ -2965,12 +3099,12 @@ const groupOrder=homeGroupIndex(state.data.employees.filter(e=>!e.isDeleted)).or
 // 선택 UI와 상태 불일치 방지(derive와 같은 자기치유) — 지금 없는 그룹 키가 남아 있으면 '전체 소속'으로 되돌린다.
 if(state.deptFilter&&!groupOrder.some(g=>g.key===state.deptFilter))state.deptFilter='';
 // 소속 필터는 공공기관·회사·개인 그룹을 모두 담으므로 문구는 '부서'가 아니라 '소속'이다.
-// 2행 구성: 1행 = 검색창 전폭(폰에서도 300px 이상), 2행 = 소속 필터 + 음성 검색. 자동 포커스는 넣지 않는다(키보드가 목록을 덮지 않게).
+// 2행 구성: 1행 = 검색창 전폭(폰에서도 300px 이상), 2행 = 소속 필터(beta.55: 음성 검색 버튼은 없앴다). 자동 포커스는 넣지 않는다(키보드가 목록을 덮지 않게).
 const deptOpts=['<option value="">전체 소속</option>',...groupOrder.map(g=>`<option value="${esc(g.key)}"${state.deptFilter===g.key?' selected':''}>${esc(g.label)}</option>`)].join('');
 // 검색 초기화(✕)는 지울 것이 있을 때만 검색창 바로 옆에 — 상단바 상시 버튼보다 손과 눈이 가는 자리(beta.29).
 const clearBtn=(state.search.trim()||state.deptFilter)?`<button class="btn" data-a="reset-filter" title="검색어와 소속 필터를 지웁니다" aria-label="검색 초기화" style="min-width:52px;font-size:18px;flex-shrink:0">✕</button>`:'';
-filters=`<div class="home-filters"><div class="filter-row"><input id="searchInput" type="text" placeholder="직원명 검색 (초성도 돼요 · 예: ㄱㅁㅅ)" aria-label="직원명 검색 — 초성 검색 가능" value="${esc(state.search)}">${clearBtn}</div><div class="filter-row"><select id="deptFilterSelect" aria-label="소속으로 거르기">${deptOpts}</select><button class="btn" data-a="voice-search" title="음성으로 이름 검색" aria-label="음성 검색" style="min-width:52px;font-size:20px">🎤</button></div></div>`}else if(state.screen==='history'){filters=historyFilterHtml()}const shop=state.data.meta.shopName;const shopAddr=state.data.meta.shopAddr||'';const shopHtml=shop&&state.screen==='home'?`<div style="font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#1a5276,#2e86c1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px">${esc(shop)}${shopAddr?` <span style="font-size:13px;font-weight:600;letter-spacing:0">(${esc(shopAddr)})</span>`:''}</div>`:'';return `<div class="top">${shopHtml}<div class="title"><div><h1>${APP}</h1><div class="sub">${sub}</div></div><div class="tool">${homeBtn}${btns}</div></div>${filters}</div>`}
-function historyFilterHtml(){const d=derive();const tabStyle='flex:1;min-height:38px;border-radius:10px;font-size:13px;font-weight:700;';const dateOn=state.historyTab==='date';const empOn=state.historyTab==='employee';const empFilter=empOn?`<select id="historyFilter" style="margin-top:8px">${['<option value="">전체 직원</option>',...d.employees.map(e=>`<option value="${esc(e.id)}"${state.historyEmployeeId===e.id?' selected':''}>${esc(e.name)} (${esc(e.deptKey||orgDeptLabel(e)||'부서 없음')})${e.isDeleted?' [숨김]':''}</option>`)].join('')}</select>`:'';return `<div style="display:flex;gap:8px"><button style="${tabStyle}${dateOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="date">일자별</button><button style="${tabStyle}${empOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="employee">직원별</button></div>${empFilter}`}
+filters=`<div class="home-filters"><div class="filter-row"><input id="searchInput" type="text" placeholder="직원명 검색 (초성도 돼요 · 예: ㄱㅁㅅ)" aria-label="직원명 검색 — 초성 검색 가능" value="${esc(state.search)}">${clearBtn}</div><div class="filter-row"><select id="deptFilterSelect" aria-label="소속으로 거르기">${deptOpts}</select></div></div>`}else if(state.screen==='history'){filters=historyFilterHtml()}const shop=state.data.meta.shopName;const shopAddr=state.data.meta.shopAddr||'';const shopHtml=shop&&state.screen==='home'?`<div style="font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#1a5276,#2e86c1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px">${esc(shop)}${shopAddr?` <span style="font-size:13px;font-weight:600;letter-spacing:0">(${esc(shopAddr)})</span>`:''}</div>`:'';return `<div class="top">${shopHtml}<div class="title"><div><h1>${APP}</h1><div class="sub">${sub}</div></div><div class="tool">${homeBtn}${btns}</div></div>${filters}</div>`}
+function historyFilterHtml(){const d=derive();const tabStyle='flex:1;min-height:44px;border-radius:10px;font-size:14px;font-weight:700;';/* beta.55(C13): 44px·14px */const dateOn=state.historyTab==='date';const empOn=state.historyTab==='employee';const empFilter=empOn?`<select id="historyFilter" style="margin-top:8px">${['<option value="">전체 직원</option>',...d.employees.map(e=>`<option value="${esc(e.id)}"${state.historyEmployeeId===e.id?' selected':''}>${esc(e.name)} (${esc(e.deptKey||orgDeptLabel(e)||'부서 없음')})${e.isDeleted?' [숨김]':''}</option>`)].join('')}</select>`:'';return `<div style="display:flex;gap:8px"><button style="${tabStyle}${dateOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="date">일자별</button><button style="${tabStyle}${empOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="employee">직원별</button></div>${empFilter}`}
 function banners(){let h='';if(state.mode!=='IndexedDB')h+='<div class="card banner error"><strong>호환 모드 저장</strong><div class="meta">IndexedDB를 사용할 수 없어 localStorage에 저장합니다.</div></div>';if(state.screen==='home')h+=storeRegisterBanner()+keyBackupBanner()+backupReminderBanner();return h}
 // 온보딩에서 우리 가게 등록을 못 마친 경우에만 뜨는 지속 배너(등록에 성공하면 플래그가 해제돼 사라진다).
 // 가게 등록 마무리 안내 — ✕로 닫으면 이번 실행 동안만 숨김(재시작하면 다시 보인다).
@@ -3050,11 +3184,11 @@ function navHtml(){return `<div class="nav"><button class="${state.screen==='hom
 
 // ── 모달 HTML ──
 function modalHtml(d){if(!state.modal)return '';
-if(state.modal.type==='terms'){return `<div class="modal-back"><div class="modal"><h2>약관 동의</h2><p class="help">서비스를 계속 이용하려면 약관에 동의해 주세요. 한 번만 확인하면 됩니다.</p>${termsAgreeBlockHtml('terms-toggle','termsChk',false)}<div class="modal-actions"><button class="btn-primary" id="termsAgreeBtn" data-a="terms-agree" disabled>동의하고 시작</button></div></div></div>`}
+if(state.modal.type==='terms'){return `<div class="modal-back"><div class="modal"><h2>약관 동의</h2><p class="help">서비스를 계속 이용하려면 약관에 동의해 주세요. 한 번만 확인하면 됩니다.</p>${termsAgreeBlockHtml('terms-toggle','termsChk',false)}<div class="modal-actions"><button class="btn-primary" id="termsAgreeBtn" data-a="terms-agree">동의하고 시작</button></div></div></div>`}
 if(state.modal.type==='employee'){const edit=state.modal.mode==='edit',e=edit?d.empMap.get(state.modal.id):null;return `<div class="modal-back"><div class="modal"><h2>${edit?'직원 정보 수정':'한 명씩 등록'}</h2><p class="help">${edit?'직원 기본 정보만 바뀝니다.':'초기 선입금액은 첫 거래로 등록됩니다.'}</p><div class="form">${orgField('empOrg',e?e.org:'')}${deptField('empDept','부서명',e?e.dept:'','예: 거래처A')}${field('empName','직원명',e?e.name:'','예: 홍길동','text','data-modal-focus')}${!edit?`<div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-open" data-amount="9000">9,000원</button><button data-a="fill-open" data-amount="18000">18,000원</button><button data-a="fill-open" data-amount="27000">27,000원</button></div></div>${field('empOpen','초기 선입금액','','예: 9000','number')}`:''}${field('empNote','메모',e?e.note:'','비고')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-employee">${edit?'수정 저장':'직원 저장'}</button></div></div></div>`}
 if(state.modal.type==='topup'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>추가 충전</h2><p class="help">${esc(e.name)} · 현재 잔액 ${money(e.balance)}</p><div class="form">${field('topupAmount','충전 금액','9000','예: 9000','number')}${field('topupReason','사유','','예: 추가 선입금')}${txDateField('topupDate')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-topup">충전 저장</button></div></div></div>`}
 if(state.modal.type==='adjust'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>잔액 조정</h2><p class="help">현재 잔액은 ${money(e.balance)}입니다.</p><div class="form">${field('adjustBalance','새 잔액',String(e.balance),'예: 27000','number')}${field('adjustReason','조정 사유','','예: 장부 확인 후 정정')}${txDateField('adjustDate')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-warn" data-a="save-adjust">조정 저장</button></div></div></div>`}
-if(state.modal.type==='usage'){const e=d.empMap.get(state.modal.id);if(!e)return '';const smsPhone=state.modal.smsPhone||'';const smsBox=smsPhone?`<div class="field"><label>문자 안내 (선택)</label><div class="meta">${esc(formatPhone(smsPhone))}로 저장 직후 문자 앱이 자동으로 열립니다.<br>문자 앱이 열리면 <b>보내기</b>를 눌러 주세요(자동 발송은 되지 않습니다).</div></div>`:'';
+if(state.modal.type==='usage'){const e=d.empMap.get(state.modal.id);if(!e)return '';const smsPhone=state.modal.smsPhone||'';const smsBox=smsPhone?`<div class="field"><label>문자 안내 (선택)</label><div class="meta">${esc(formatPhone(smsPhone))} — 저장하면 증표 화면에 <b>[문자 안내 보내기]</b>가 나와요.<br>누르면 문자 앱이 열리고, <b>보내기</b>를 눌러 주세요(자동 발송은 되지 않습니다).</div></div>`:'';
 // 손님 요청(B단계)으로 열린 모달은 금액·서명이 미리 채워져 온다. 두 가지를 반드시 지킨다.
 //   ① 출처를 밝힌다 — "손님이 입력한 금액". 사장님이 앱이 정한 금액으로 오해하면 확인이 형식이 된다.
 //   ② 금액은 언제나 손댈 수 있다 — 실제 나간 밥값과 손님이 적은 숫자가 다르면 사장님 쪽이 진실이다.
@@ -3065,6 +3199,13 @@ if(state.modal.type==='usage'){const e=d.empMap.get(state.modal.id);if(!e)return
 //   버튼 묶음의 DOM 순서가 [서명 지우기·취소·서명 다시 받기·저장]인 이유: 폰(≤640px)은 column-reverse라
 //   화면에서는 저장 → 서명 다시 받기 → 취소 순으로 뒤집혀 보인다(문구가 아니라 순서만 CSS가 바꾼다).
 const preAmount=num(state.modal.preAmount),preSign=str(state.modal.preSign);
+// beta.55(사용자 결정 §1-10, 현장 보고): 손님 요청으로 열린 창은 첫 초점을 금액 칸이 아니라 [저장]에 둔다.
+//   금액 칸에 초점이 가면 태블릿 키보드가 저절로 올라와 서명 그림과 [저장]을 가렸다 — 사장님이 이 창에서 하는 일은
+//   읽고 저장하기 하나다. 금액을 고치려면 칸을 직접 누르면 되고, 그때 키보드가 뜬다.
+//   Enter는 초점이 있는 [저장]을 누른다 = 평소 저장 경로(saveUse) 그대로, 금액은 칸에 든 손님 금액이다
+//   (beta.21의 "Enter 한 번에 9,000원으로 덮어씀" 사고는 빠른 금액 버튼이 첫 초점이었을 때의 일이고, 그 버튼은 beta.44에 없어졌다).
+//   사장님이 [사용]으로 직접 연 창(요청 없음)은 예전 그대로 금액 칸이 첫 초점이다.
+const fromReq=preAmount>0;
 // 금액·비고는 사장님이 이미 고쳐 놓았을 수 있다(captureUsageInputs가 재렌더 직전에 흡수해 둔 값).
 //   흡수값이 있으면 그것이 진실이다 — 손님 요청 금액은 아무것도 손대지 않았을 때의 초깃값일 뿐이다.
 const amtVal=(typeof state.modal.amountDraft==='string')?state.modal.amountDraft:(preAmount>0?String(preAmount):'');
@@ -3076,7 +3217,7 @@ const sigField=preSign
 ?`<div class="field"><label>서명 (손님이 미리 했어요)</label><div class="sig-box sig-pre"><img id="usePreSign" src="${esc(preSign)}" alt="손님 서명"></div></div>`
 :`<div class="field"><label>서명</label><div class="sig-box"><canvas id="signCanvas" class="signature"></canvas><div class="sig-hint">여기에 손가락으로 서명해 주세요</div></div></div>`;
 const sigBtn=preSign?'':'<button class="btn" data-a="clear-sign">서명 지우기</button>';
-return `<div class="modal-back"><div class="modal"><h2>사용 등록</h2><p class="help">${preAmount>0?'손님이 보낸 요청이에요. 금액과 서명을 확인한 뒤 저장하세요 (금액을 고치면 서명을 다시 받습니다).':'금액을 입력한 뒤 서명을 받고 저장하세요.'}</p>${resignWarn}<div class="receipt"><div class="receipt-row"><span>직원</span><strong>${esc(e.name)}</strong></div><div class="receipt-row"><span>소속·부서</span><strong>${esc(orgDeptLabel(e)||'부서 없음')}</strong></div><div class="receipt-row"><span>현재 잔액</span><strong style="font-size:24px;color:var(--primary)">${money(e.balance)}</strong></div>${reqNote}</div><div class="form">${field('useAmount','사용 금액',amtVal,'금액을 입력하세요','number','data-modal-focus')}<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px">${field('useNote','비고 (점심 등)',noteVal,'선택 입력')}${field('useDate','날짜 (지난 기록)',str(state.modal.dateDraft)||todayDateStr(),'','date',`max="${todayDateStr()}"`)}</div>${smsBox}${sigField}</div><div class="modal-actions">${sigBtn}<button class="btn" data-a="close-modal">취소</button>${preSign?'<button class="btn" data-a="use-resign">서명 다시 받기</button>':''}<button class="btn-primary" data-a="save-use">저장</button></div></div></div>`}
+return `<div class="modal-back"><div class="modal"><h2>사용 등록</h2><p class="help">${preAmount>0?'손님이 보낸 요청이에요. 금액과 서명을 확인한 뒤 저장하세요 (금액을 고치면 서명을 다시 받습니다).':'금액을 입력한 뒤 서명을 받고 저장하세요.'}</p>${resignWarn}<div class="receipt"><div class="receipt-row"><span>직원</span><strong>${esc(e.name)}</strong></div><div class="receipt-row"><span>소속·부서</span><strong>${esc(orgDeptLabel(e)||'부서 없음')}</strong></div><div class="receipt-row"><span>현재 잔액</span><strong style="font-size:24px;color:var(--primary)">${money(e.balance)}</strong></div>${reqNote}</div><div class="form">${field('useAmount','사용 금액',amtVal,'금액을 입력하세요','number',fromReq?'':'data-modal-focus')}<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px">${field('useNote','비고 (점심 등)',noteVal,'선택 입력')}${field('useDate','날짜 (지난 기록)',str(state.modal.dateDraft)||todayDateStr(),'','date',`max="${todayDateStr()}"`)}</div>${smsBox}${sigField}</div><div class="modal-actions">${sigBtn}<button class="btn" data-a="close-modal">취소</button>${preSign?'<button class="btn" data-a="use-resign">서명 다시 받기</button>':''}<button class="btn-primary" data-a="save-use"${fromReq?' data-modal-focus':''}>저장</button></div></div></div>`}
 if(state.modal.type==='signature'){const t=state.data.transactions.find(v=>v.id===state.modal.id);if(!t)return '';const sigSrc=sigD(t.signatureData);if(!sigSrc)return '';const e=state.data.employees.find(v=>v.id===t.employeeId);return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>서명 확인</h2><p class="help">${esc(e?e.name:'알 수 없음')} · ${dtDisp(t)} · ${money(t.amount)}</p><img src="${esc(sigSrc)}" style="max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff" alt="서명"><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 if(state.modal.type==='store-search'){const results=state.modal.results||[];const emptyMsg=state.modal.regionFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':(state.modal.usedZip?'검색 결과가 없습니다. 가게 이름을 바꿔보세요.':emptySearchMsg('modal',state.modal.region));const list=results.length?results.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">${esc(x.name)}</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.address||'')}</div><div class="store-badge-slot">${storeBadgeHtml('modal',x.restaurant_id)}</div></div><button class="btn-primary small" data-a="relay-pick-store" data-id="${esc(x.restaurant_id)}" data-name="${esc(x.name)}" data-addr="${esc(x.address||'')}" style="flex-shrink:0">이 가게</button></div>`).join(''):(state.modal.searched&&emptyMsg?`<div class="empty">${esc(emptyMsg)}</div>`:'');return `<div class="modal-back"><div class="modal"><h2>우리 가게 찾기</h2><p class="help">가게 이름과 지역(구·군과 동)으로 검색해 우리 가게를 선택하세요. 한 번만 등록하면 됩니다.</p><div class="form"><div class="field"><label for="storeName">가게 이름</label><input id="storeName" placeholder="예: 정식김밥" value="${esc(state.modal.q||'')}"></div><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px"><div class="field"><label for="storeRegion">지역 (구·군과 동)</label><input id="storeRegion" placeholder="예: 광진구 구의동" value="${esc(state.modal.region||'')}"></div><div class="field"><label for="storeZip">우편번호(선택)</label><input id="storeZip" inputmode="numeric" maxlength="5" placeholder="아는 경우만" value="${esc(state.modal.zip||'')}"></div></div><div class="meta" style="line-height:1.5">이름으로 안 나오면 지역(구·군과 동)을 함께 적어 주세요 — 동네 전체에서 자동으로 찾아봐요. 우편번호는 아는 경우에만 넣으면 돼요.</div></div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button><button class="btn-primary" data-a="relay-search-stores">${state.modal.searching?'검색 중…':'검색'}</button></div>${list?`<div style="margin-top:12px">${list}</div>`:''}${dongScanBlockHtml('modal',state.modal.region,state.modal.searched,(state.modal.results||[]).length)}</div></div>`}
 if(state.modal.type==='inbox'){const items=state.modal.items||[];const body=items.length?items.map(it=>{const sentAt=batchSentAt(it,it.summary);
@@ -3103,7 +3244,13 @@ if(state.modal.type==='receipt'){return receiptCardHtml(d)}
 return ''}
 
 // 잔액증표(명함형) — 표시 전용. 잔액은 derive() 결과만 사용(별도 계산 금지).
-function receiptCardHtml(d){const e=d.empMap.get(state.modal.id);if(!e)return '';const shop=state.data.meta.shopName||APP;const od=orgDeptLabel(e);const who=od?`${esc(od)} ${esc(e.name)}님`:`${esc(e.name)}님`;const x=new Date(now());const dateStr=`${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`;const integrityBad=state.modal.integrityOk===false||state.modal.crossOk===false;let balBlock;if(integrityBad){balBlock=`<div class="receipt-warn">장부에 이상이 있어 잔액을 표시할 수 없습니다.<br>설정 → 장부 검사를 확인하세요.</div>`}else{const neg=e.balance<0;balBlock=`<div class="receipt-bal${neg?' neg':''}">${money(e.balance)}${neg?'<div class="receipt-negnote">확인 필요</div>':''}</div>`}return `<div class="modal-back"><div class="modal receipt-modal"><div class="namecard"><div class="namecard-shop">${esc(shop)}</div><div class="namecard-body"><div class="namecard-who">${who}</div>${balBlock}</div><div class="namecard-foot"><div class="namecard-date">${dateStr}</div><div class="namecard-note">${esc(shop)} 전용 · 잔액 확인용 · 양도 불가</div></div></div><div class="receipt-tip">이 화면을 사진으로 찍어 두시면 나중에 잔액을 확인하실 수 있어요.</div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
+function receiptCardHtml(d){const e=d.empMap.get(state.modal.id);if(!e)return '';
+// beta.55(B-09): 방금 사용 저장한 직원이 전화번호·문자 동의가 있으면 **진짜 링크**를 둔다(탭이 곧 사용자 활성 — 확인창 뒤 자동 열기는 조용히 실패한다).
+//   href는 smsHrefFor가 'sms:' + 숫자 + 본문(encodeURIComponent)으로만 만든다 — 그래도 속성에 넣을 때는 esc를 거친다.
+const sh=str(state.modal.smsHref);const smsBlock=/^sms:[0-9+]+[?&]body=/.test(sh)?`<div class="receipt-sms"><a class="btn btn-secondary receipt-sms-link" href="${esc(sh)}">문자 안내 보내기</a><div class="meta">문자 앱이 열리면 [보내기]를 눌러 주세요 (자동으로 보내지지 않아요).</div></div>`:'';
+// beta.55(C6, 사용자 결정 §1-9): 손님 요청으로 시작한 저장의 증표는 닫으면 **손님 화면(잠금)**으로 돌아간다 — 예전에는 사장님 홈이
+//   열린 채 남아 다음 손님에게 전 직원 잔액이 자동 잠금(90초)까지 보였다. 사장님이 [사용]으로 직접 연 저장은 예전처럼 홈으로.
+const fromReq=!!state.modal.fromReq;const shop=state.data.meta.shopName||APP;const od=orgDeptLabel(e);const who=od?`${esc(od)} ${esc(e.name)}님`:`${esc(e.name)}님`;const x=new Date(now());const dateStr=`${x.getFullYear()}.${String(x.getMonth()+1).padStart(2,'0')}.${String(x.getDate()).padStart(2,'0')}`;const integrityBad=state.modal.integrityOk===false||state.modal.crossOk===false;let balBlock;if(integrityBad){balBlock=`<div class="receipt-warn">장부에 이상이 있어 잔액을 표시할 수 없습니다.<br>설정 → 장부 검사를 확인하세요.</div>`}else{const neg=e.balance<0;balBlock=`<div class="receipt-bal${neg?' neg':''}">${money(e.balance)}${neg?'<div class="receipt-negnote">확인 필요</div>':''}</div>`}return `<div class="modal-back"><div class="modal receipt-modal"><div class="namecard"><div class="namecard-shop">${esc(shop)}</div><div class="namecard-body"><div class="namecard-who">${who}</div>${balBlock}</div><div class="namecard-foot"><div class="namecard-date">${dateStr}</div><div class="namecard-note">${esc(shop)} 전용 · 잔액 확인용 · 양도 불가</div></div></div><div class="receipt-tip">이 화면을 사진으로 찍어 두시면 나중에 잔액을 확인하실 수 있어요.</div>${smsBlock}<div class="modal-actions"><button class="${fromReq?'btn-primary':'btn'}" data-a="receipt-close">${fromReq?'닫고 손님 화면으로':'닫기'}</button></div></div></div>`}
 
 // 증표 열기 — 3중 안전장치: ①derive balance만 사용 ②해시체인 재검증 ③시간순 applyTx 누적 교차검증
 // 잔액 표시 전 안전장치 ②③ — 해시체인 재검증 + 시간순 applyTx 누적 교차검증.
@@ -3117,21 +3264,26 @@ try{const chain=await verifyChain();integrityOk=chain.tamperOk!==false}catch(err
 //   두 값은 정의상 언제나 같다(항등식). 진짜 교차검증은 **거래가 적어 둔 전후 잔액**과 대조하는 것이다.
 try{const d=derive();const e=d.empMap.get(id);if(e){const r=reconcileEmployee(id);crossOk=r.ok&&r.stored===num(e.balance)}}catch(err){console.error('balance cross-check',err);crossOk=false}
 return{integrityOk,crossOk}}
-async function openReceipt(id){const{integrityOk,crossOk}=await verifyBalanceFor(id);state.modal={type:'receipt',id,integrityOk,crossOk};render()}
+// beta.55: opts.fromReq = 손님 요청으로 시작한 저장 직후의 증표(닫으면 손님 화면으로), opts.smsHref = 방금 사용 건의 문자 안내 링크.
+async function openReceipt(id,opts){opts=opts||{};const{integrityOk,crossOk}=await verifyBalanceFor(id);state.modal={type:'receipt',id,integrityOk,crossOk,fromReq:!!opts.fromReq,smsHref:str(opts.smsHref)};render()}
+function closeReceiptModal(){const m=state.modal;state.modal=null;if(m&&m.type==='receipt'&&m.fromReq&&state.data.meta.pinHash){lockToCustomer();return}render()}
 // 사용 모달 열기 — 홈의 [사용] 버튼과 손님 인계(A·B)가 같은 경로를 쓴다.
 //   pre = 손님이 넘긴 요청 {amount, sign}. 없으면(홈의 [사용]·A 인계) 예전 그대로 빈 칸으로 연다.
 //   ⚠️ 프리필은 '초안'이다 — 금액은 그대로 수정할 수 있고, 저장은 기존 saveUse(confirm 포함)만 통과한다.
 async function openUsageFor(id,pre){const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){render();return}
 let smsPhone='';if(emp.phoneConsent&&emp.phone){try{smsPhone=await getPhone(emp)}catch(err){console.error('phone decrypt',err)}}
 const preAmount=num(pre&&pre.amount),preSign=str(pre&&pre.sign);
-state.screen='home';state.modal={type:'usage',id,smsPhone,preAmount:preAmount>0?preAmount:0,preSign};render()}
+// beta.55(C6): fromCust = 손님 화면에서 넘어온 창(금액을 적어 보냈든 [사장님 부르기]든) — 저장 뒤 증표를 닫으면 손님 화면으로 돌아간다.
+state.screen='home';state.modal={type:'usage',id,smsPhone,preAmount:preAmount>0?preAmount:0,preSign,fromCust:!!pre};render()}
 
 // ── 유휴 타이머: 자동 잠금(90초) · 손님 화면 자동 복귀(30초) · 모달 방치 상한(10분) ──
 // 두 시계는 서로 배타적이다 — 잠금 해제 상태에서는 손님 복귀 타이머가, 잠금 상태에서는 자동 잠금 타이머가 절대 돌지 않는다.
 // canAutoLockBase = 모달 여부만 뺀 자동 잠금 조건. 모달이 열려 있으면 90초에는 잠그지 않되(서명 중 잠김 방지)
 //   10분 무조작이면 방치로 보고 모달째 잠근다 — 사용 모달(이름·잔액 노출)을 띄운 채 자리를 비우는 경우가 실제로 있다.
 function canAutoLockBase(){return !!(state.loaded&&!state.pinLocked&&state.data.meta.setupComplete&&state.data.meta.pinHash&&!state.setupGuide&&!state.busy)}
-function canAutoLock(){return canAutoLockBase()&&!state.modal&&!state.passDialog&&!state.choiceDialog}
+// beta.55(C6): 손님 요청 저장 뒤의 증표는 작업 중인 창이 아니다(읽기 전용) — 사장님이 닫지 않고 자리를 떠도 평소 자동 잠금(90초)이 걸린다.
+function modalBlocksAutoLock(){return !!(state.modal&&!(state.modal.type==='receipt'&&state.modal.fromReq))}
+function canAutoLock(){return canAutoLockBase()&&!modalBlocksAutoLock()&&!state.passDialog&&!state.choiceDialog&&!state.textDialog}
 // ── beta.23(MEDIUM-2): 유휴 만료는 "마지막 **사용자 조작** 시각"으로 판정한다 ──────────────
 // 예전 구조: armIdle이 불릴 때마다 setTimeout을 처음부터 다시 걸었다. armIdle은 render()의 꼬리에서도
 //   불린다 → **렌더가 시계를 연장했다**. 게이트를 빼먹은 미게이트 경로가 반복해서 render를 부르면
@@ -3158,7 +3310,7 @@ if(!lockScreenActive()||!state.data.meta.pinHash||state.pinMode==='change')retur
 // 복구 화면은 60초 활성화 게이트가 끝나고도 30초를 더 준다 — 게이트를 기다리는 동안 화면이 사라지면 사장님이 복구를 못 한다.
 if(state.pinRecovery){idleAt(recoveryLeft()*1000+TIMERS.custIdle,()=>{if(state.pinLocked&&state.pinRecovery)backToCustomerIdle()});return}
 // ⚠️ PIN 화면(lockView==='pin')에는 **언제나** 시계를 건다. 길이만 두 가지다.
-//   · 손님 흔적이 남아 있는 화면 — "사장님 확인"(handoff)이거나 인계 요청이 살아 있으면 30초(custIdle).
+//   · 손님 흔적이 남아 있는 화면 — "사장님 확인"(handoff)이거나 인계 요청이 살아 있으면 60초(handoffPinIdle, beta.55 — 예전 30초).
 //     방치하면 앞 손님의 요청이 다음 손님에게 남는다(HIGH-3의 본체).
 //   · 사장님이 [사장님용 잠금 해제]로 스스로 연 화면(owner) — 120초(ownerPinIdle).
 //     예전에는 여기에 시계를 아예 걸지 않았다("4자리 고르는 도중 화면이 튀면 안 된다"). 그 대가가 컸다:
@@ -3169,7 +3321,7 @@ if(state.pinRecovery){idleAt(recoveryLeft()*1000+TIMERS.custIdle,()=>{if(state.p
 //     2분이 걸리는 경우는 없고, 어떤 조작이든(키 입력 포함) 시계는 처음부터 다시 돈다.
 //   만료 동작은 한 가지다: 손님 초기 화면 복귀 + 입력 중이던 PIN 폐기 + 손님 상태·인계 요청 폐기.
 if(state.lockView==='pin'){
-const pinIdleMs=(state.pinContext==='handoff'||state.pendingCustomerId)?TIMERS.custIdle:TIMERS.ownerPinIdle;
+const pinIdleMs=(state.pinContext==='handoff'||state.pendingCustomerId)?TIMERS.handoffPinIdle:TIMERS.ownerPinIdle;
 idleAt(pinIdleMs,()=>{if(state.pinLocked&&state.lockView==='pin')backToCustomerIdle()});
 return}
 if(!(state.custQuery||state.custStage!=='search'||state.custSelectedId||state.pendingCustomerId))return;
@@ -3191,9 +3343,9 @@ return}
 if(canAutoLock()){idleAt(TIMERS.autoLock,()=>{if(canAutoLock())lockToCustomer()});return}
 // beta.55(B-10): 열쇠 암호 창·선택창(오버레이)만 떠 있을 때도 같은 10분 상한을 건다 — 예전에는 모달이 아니라서 상한이 걸리지 않아
 //   선택창을 띄운 채 자리를 비우면 영영 잠기지 않았다. 잠글 때 lockToCustomer가 창을 '취소'로 닫는다(저장 없음).
-if(canAutoLockBase()&&(state.modal||state.passDialog||state.choiceDialog)){idleAt(TIMERS.modalIdleCap,()=>{if(canAutoLockBase()&&(state.modal||state.passDialog||state.choiceDialog))lockToCustomer()})}}
+if(canAutoLockBase()&&(state.modal||state.passDialog||state.choiceDialog||state.textDialog)){idleAt(TIMERS.modalIdleCap,()=>{if(canAutoLockBase()&&(state.modal||state.passDialog||state.choiceDialog||state.textDialog))lockToCustomer()})}}
 // PIN 화면 방치 → 손님 초기 화면으로. 잠금은 절대 풀리지 않고, 앞 손님의 흔적(인계 요청 포함)은 전부 사라진다.
-function backToCustomerIdle(){dismissPassDialog();dismissChoiceDialog();state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
+function backToCustomerIdle(){dismissPassDialog();dismissChoiceDialog();dismissTextDialog();state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
 // 조작이 있으면 시계를 다시 시작한다. 캡처 단계라 어떤 핸들러가 이벤트를 막아도 반드시 실행된다.
 ['click','input','change','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,markInput,true));
 
@@ -3215,6 +3367,8 @@ const clickActions={
 'view-sign':(el)=>{state.modal={type:'signature',id:el.dataset.id};render()},
 'receipt':async(el)=>{await openReceipt(el.dataset.id)},
 'close-modal':()=>{state.modal=null;render()},
+// beta.55(C6): 증표 닫기 — 손님 요청에서 온 증표면 손님 화면(잠금)으로, 아니면 홈으로.
+'receipt-close':()=>{closeReceiptModal()},
 // 빠른 금액 — 한 번 눌러 채우고, 그대로 직접 수정할 수 있다('한 명씩 등록' 모달의 초기 선입금액 칸).
 //   사용 등록 모달의 fill-use는 beta.44에서 버튼과 함께 제거했다(손님 요청 금액을 한 번 눌러 덮어쓰는
 //   경로를 없애는 것이 목적이었으므로, 액션 핸들러도 남겨 두지 않는다).
@@ -3242,6 +3396,10 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 'save-rename-group':async()=>{await saveRenameGroup()},
 'undo-batch':async(el)=>{await undoBatch(el.dataset.at)},
 'choice-pick':(el)=>{closeChoiceDialog(el.dataset.val)},
+'text-ok':()=>{textOk()},
+'text-cancel':()=>{closeTextDialog(null)},
+// 사유 예시 칩 — 칸에 글자만 채운다(render 없음). 사장님이 이어서 고칠 수 있다.
+'text-chip':(el)=>{const d=state.textDialog,i=qs('textDlgInput');if(!d||!i)return;d.value=str(el.dataset.v);i.value=d.value;d.err='';const h=qs('textDlgErr');if(h)h.textContent='';try{i.focus()}catch(e){}},
 'restore-emp':async(el)=>{await restoreEmployee(el.dataset.id)},
 'void':async(el)=>{await voidUsage(el.dataset.id)},
 'export':async()=>{await exportBackup()},
@@ -3308,7 +3466,6 @@ try{await navigator.clipboard.writeText(u);toast('네이버 지도 링크를 복
 'toggle-auto-cloud':async(el)=>{const v=!!el.checked;state.data.meta.autoCloudBackup=v;try{await repo.apply({meta:{autoCloudBackup:v}})}catch(e){console.error(e)}render()},
 'cloud-backup-restore':async()=>{await relayRestoreFromCloud()},
 'change-pin':()=>{state.pinMode='change';state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMsg='';clearPinGuard();render()},
-'voice-search':()=>{voiceSearch()},
 // 1/3 → 2/3. 고른 가게(검색·직접입력 공통)를 meta에 확정하고 주소로 담당 공공기관을 앞당겨 골라 둔다.
 'setup-next':async()=>{if(!state.setupSelected){toast('우리 가게를 먼저 고르세요.');return}
 const telEl=qs('setupStoreTel');if(telEl){const t=str(telEl.value);state.setupSelected.tel=t;if(state.setupPickedStore)state.setupPickedStore.tel=t}
@@ -3336,12 +3493,12 @@ state.setupPickedStore=null;state.setupSelected={idx:-1,name:mn,addr:ma,tel:mt,t
 'setup-store-pick':(el)=>{const id=str(el.dataset.id),name=str(el.dataset.name),addr=str(el.dataset.addr),tel=str(el.dataset.tel);if(!window.confirm('우리 가게가 맞나요?\n\n'+name+'\n'+(addr||'(주소 정보 없음)')+'\n\n주소가 우리 가게 주소와 같은지 꼭 확인하세요.'))return;if(!confirmStoreTaken('setup',id))return;state.setupPickedStore={id,name,addr,tel};state.setupSelected={idx:-1,name,addr,tel,type:'검색'};state.setupManualMode=false;render()},
 'setup-add-dept':()=>{var inp=qs('setupNewDept');var v=str(inp&&inp.value);if(!v){toast('부서명을 입력하세요.');return}if(state.setupDepts.indexOf(v)>=0){toast('이미 추가된 부서입니다.');return}state.setupDepts.push(v);render()},
 'setup-remove-dept':(el)=>{var ri=Number(el.dataset.idx);if(ri>=0&&ri<state.setupDepts.length){state.setupDepts.splice(ri,1);render()}},
-'setup-complete':async()=>{const kakao=str(qs('setupContactKakao')&&qs('setupContactKakao').value);const email=str(qs('setupContactEmail')&&qs('setupContactEmail').value);await finishSetup(kakao,email)},
-'setup-contact-skip':async()=>{await finishSetup('','')},
+'setup-complete':async()=>{if(!state.setupTermsAgreed){showTermsNeeded('setupTermsChk');return}const kakao=str(qs('setupContactKakao')&&qs('setupContactKakao').value);const email=str(qs('setupContactEmail')&&qs('setupContactEmail').value);await finishSetup(kakao,email)},
+'setup-contact-skip':async()=>{if(!state.setupTermsAgreed){showTermsNeeded('setupTermsChk');return}await finishSetup('','')},
 // 약관 동의 체크박스: 재렌더 없이 다음/완료 버튼만 토글해 입력값(연락처) 보존
-'setup-terms-toggle':(el)=>{state.setupTermsAgreed=!!el.checked;const done=qs('setupCompleteBtn'),skip=qs('setupSkipBtn');[done,skip].forEach(b=>{if(b)b.disabled=!state.setupTermsAgreed})},
-'terms-toggle':(el)=>{const btn=qs('termsAgreeBtn');if(btn)btn.disabled=!el.checked},
-'terms-agree':async()=>{const chk=qs('termsChk');if(!chk||!chk.checked){toast('약관에 동의해 주세요.');return}const termsAgreedAt=now();state.data.meta.termsAgreedAt=termsAgreedAt;try{await repo.apply({meta:{termsAgreedAt}})}catch(err){console.error('terms save',err)}state.modal=null;render();toast('약관에 동의해 주셔서 감사합니다.')},
+'setup-terms-toggle':(el)=>{state.setupTermsAgreed=!!el.checked;if(state.setupTermsAgreed)clearTermsNeeded('setupTermsChk')},
+'terms-toggle':(el)=>{if(el.checked)clearTermsNeeded('termsChk')},
+'terms-agree':async()=>{const chk=qs('termsChk');if(!chk||!chk.checked){showTermsNeeded('termsChk');return}const termsAgreedAt=now();state.data.meta.termsAgreedAt=termsAgreedAt;try{await repo.apply({meta:{termsAgreedAt}})}catch(err){console.error('terms save',err)}state.modal=null;render();toast('약관에 동의해 주셔서 감사합니다.')},
 'agency-refresh':async()=>{setBusy('공공기관 부서 목록을 새로고침하는 중입니다.');await loadAgencyData(true);clearBusy();render();toast(state.agencyError||'공공기관 부서 목록을 새로 불러왔습니다.')},
 'agency-dept-toggle':async(el)=>{const ctx=el.dataset.ctx||'settings',dept=str(el.dataset.dept);if(ctx==='settings')await saveSelectedAgencyName();const list=deptTarget(ctx).filter(v=>v!==dept);if(el.checked)list.push(dept);await setDeptTarget(ctx,list)},
 'agency-add-all':async(el)=>{const ctx=el.dataset.ctx||'settings',region=selectedRegion(),agency=selectedAgency();if(ctx==='settings')await saveSelectedAgencyName();if(region&&agency)await setDeptTarget(ctx,deptTarget(ctx).concat(resolveAgencyDepts(region.code,agency.id)))},
@@ -3464,6 +3621,8 @@ function handToOwner(id,amount,sign){
 state.pendingCustomerId=id;state.pendingCustomerAt=now();state.pendingAmount=num(amount);state.pendingSign=str(sign);
 state.custQuery='';state.custStage='search';state.custSelectedId='';state.custVerify=null;clearCustCompose();
 state.lockView='pin';state.pinContext='handoff';state.pinInput='';state.pinMsg='';
+// beta.55(C3): 들어온 직후 0.5초는 숫자판을 받지 않는다(손님의 두 번째 탭이 숫자 키에 떨어지는 사고). 입력칸은 위에서 비웠다.
+pinKeyGuardUntil=Date.now()+num(TIMERS.pinKeyGuard);
 // beta.54(현장 결함): 금액 칸에 커서가 남은 채 화면을 갈아끼우면 홈 화면 설치 앱(안드로이드 태블릿)은 키보드를 내리지 않아
 //   "사장님 확인" 화면 아래쪽(비밀번호 판)을 키보드가 가렸다. 입력 노드가 사라지기 **전에** 초점을 거둔다.
 blurActiveInput();render()}
@@ -3482,6 +3641,7 @@ async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;
 if(lockScreenActive()&&!LOCK_ALLOWED.has(el.dataset.a))return;// 잠금 게이트 — 손님 화면에서 원장 쓰기 경로는 구조적으로 도달 불가
 const fn=clickActions[el.dataset.a];if(fn)await fn(el)}
 async function onInput(e){
+if(state.textDialog&&e.target&&e.target.id==='textDlgInput'){if(e.type==='change')return;state.textDialog.value=e.target.value||'';if(state.textDialog.err){state.textDialog.err='';const h=qs('textDlgErr');if(h)h.textContent=''}return}
 if(state.passDialog&&e.target&&(e.target.id==='keyPass1'||e.target.id==='keyPass2')){if(e.type==='change')return;const d=state.passDialog;if(e.target.id==='keyPass1')d.p1=e.target.value||'';else d.p2=e.target.value||'';d.err='';paintPassHint();return}
 // 잠금 중 입력은 손님 검색창 하나만 받는다(사장님 검색 state.search와 완전히 분리된 state.custQuery).
 // 'change'는 받지 않는다 — 검색창이 화면에서 사라질 때 blur와 함께 change가 늦게 날아와
@@ -3497,6 +3657,8 @@ if(lockScreenActive()){
 if(e.target.id==='custSearchInput'&&e.type!=='change'){state.custQuery=e.target.value||'';state.custSelectedId='';state.custStage='search';state.custVerify=null;clearCustCompose();clearPendingRequest();armIdle();if(!custSearchPatch())render()}
 else if(e.target.id==='custAmountInput'&&e.type!=='change'){state.custAmount=e.target.value||'';armIdle();if(!custAmountPatch())render()}
 return}
+// beta.55(C1): 설정 칸은 치는 즉시 흡수한다(render 없음 — 노드·키보드는 그대로). 화면을 갈아엎을 때 이 값이 되돌아온다.
+if(e.target&&FORM_DRAFT_IDS.includes(e.target.id)&&state.screen==='settings'){state.formDrafts[e.target.id]=String(e.target.value==null?'':e.target.value);return}
 // 'change'는 받지 않는다 — 사장님 홈 검색창에서도 손님 검색창과 똑같은 사고가 났다:
 //   화면이 바뀌며 입력창이 제거될 때 blur와 함께 늦은 change가 날아와 innerHTML 교체 도중 render를
 //   재진입시킨다 → "The node to be removed is no longer a child of this node"로 그 렌더가 통째로 실패한다.
@@ -3507,7 +3669,7 @@ if(e.target.id==='setupStoreName'||e.target.id==='setupStoreRegion'||e.target.id
 if(state.modal&&state.modal.type==='store-search'&&(e.target.id==='storeName'||e.target.id==='storeRegion'||e.target.id==='storeZip')){const v=e.target.value||'';if(e.target.id==='storeName')state.modal.q=v;else if(e.target.id==='storeRegion')state.modal.region=v;else state.modal.zip=v;return}
 if(e.target.id==='setupManualName'||e.target.id==='setupManualAddr'||e.target.id==='setupManualTel'){const k=e.target.id==='setupManualName'?'name':(e.target.id==='setupManualAddr'?'addr':'tel');state.setupManualDraft=Object.assign({name:'',addr:'',tel:''},state.setupManualDraft,{[k]:e.target.value||''});return}
 if(e.target.id==='searchInput'&&e.type!=='change'){state.search=e.target.value||'';if(!composing)render()}if(e.target.id==='deptFilterSelect'){state.deptFilter=e.target.value||'';render()}if(e.target.id==='historyFilter'){state.historyEmployeeId=e.target.value||'';render()}if(e.target.id==='regionSelectSetup'||e.target.id==='regionSelectSettings'){const isSettings=e.target.id==='regionSelectSettings';state.regionSelected=e.target.value||'';state.agencySelected='';if(!state.deptCache[state.regionSelected]){setBusy('부서 목록을 불러오는 중입니다.');await ensureDeptsForRegion(state.regionSelected);clearBusy()}if(isSettings){try{await saveSelectedAgencyName()}catch(err){console.error(err)}}render();return}
-if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('공공기관명 저장 오류');return}}render()}}
+if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){state.agencySelected=e.target.value||'';if(e.target.id==='agencySelectSettings'){try{await saveSelectedAgencyName()}catch(err){console.error(err);toast('공공기관명을 저장하지 못했어요. 다시 해 주세요.');return}}render()}}
 
 // ── CRUD ──
 // 동일인 판정 키는 empMatchKey = "소속·부서 표시 라벨|이름"(돈이 어긋나는 유일한 경로 — 절대 좁히지 말 것).
@@ -3515,9 +3677,9 @@ if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){stat
 async function saveEmployee(){return withTxLock(async()=>{const org=str(qs('empOrg')&&qs('empOrg').value),dept=str(qs('empDept')&&qs('empDept').value),name=str(qs('empName')&&qs('empName').value),note=str(qs('empNote')&&qs('empNote').value),t=now();if(!name){toast('직원명을 입력하세요.');return}if(state.modal.mode==='edit'){const old=state.data.employees.find(v=>v.id===state.modal.id);if(!old){toast('직원을 찾을 수 없습니다.');return}const key=empMatchKey({org,dept,name});const dup=state.data.employees.find(v=>v.id!==old.id&&!v.isDeleted&&empMatchKey(v)===key);if(dup){toast('같은 이름과 소속·부서의 활성 직원이 이미 있습니다.');return}const next={...old,org,dept,name,note,updatedAt:t};
 // 소속·부서를 바꾸면 홈 그룹 분류 표식(orgKind)도 따라가야 한다 — 소속을 '개인'으로 바꿨는데 공공기관 부서 그룹에
 //   그대로 남으면 사장님이 옮길 방법이 없다. 소속·부서가 그대로면 표식을 유지한다(자동 등록 이력 보존).
-if(str(old.org)!==org||str(old.dept)!==dept)next.orgKind=orgKindFor(org);setBusy('저장 중입니다.');try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;clearBusy();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);clearBusy();toast('직원 수정 중 오류')}}else{const key=empMatchKey({org,dept,name});
+if(str(old.org)!==org||str(old.dept)!==dept)next.orgKind=orgKindFor(org);setBusy('저장 중입니다.');try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;clearBusy();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);clearBusy();toast('직원 정보를 저장하지 못했어요. 다시 해 주세요.')}}else{const key=empMatchKey({org,dept,name});
 // beta.54: 삭제한(숨긴) 같은 이름은 등록을 막지 않는다 — 예전에는 활성 직원보다 먼저 걸려 "복원하세요"로 막혔다(되돌리기·삭제 뒤 같은 부서를 다시 쓰면 반드시 부딪힌다).
-const dup=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===key);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(wonTooBig(open)){toast(WON_MAX_MSG);return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${orgDeptLabel({org,dept})||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;setBusy('저장 중입니다.');const before=curBal;const tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'한 명씩 등록 추가 충전',note:note||'',createdAt:t});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);clearBusy();toast('충전 중 오류')}return}setBusy('저장 중입니다.');const emp={id:uid(),org,dept,name,note,orgKind:orgKindFor(org),isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;clearBusy();toast('직원을 등록했습니다.')}catch(err){console.error(err);clearBusy();toast('직원 등록 중 오류')}}})}
+const dup=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===key);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(wonTooBig(open)){toast(WON_MAX_MSG);return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${orgDeptLabel({org,dept})||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;setBusy('저장 중입니다.');const before=curBal;const tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'한 명씩 등록 추가 충전',note:note||'',createdAt:t});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);clearBusy();toast('충전을 저장하지 못했어요. 다시 해 주세요.')}return}setBusy('저장 중입니다.');const emp={id:uid(),org,dept,name,note,orgKind:orgKindFor(org),isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;clearBusy();toast('직원을 등록했습니다.')}catch(err){console.error(err);clearBusy();toast('직원을 등록하지 못했어요. 다시 해 주세요.')}}})}
 // ── 날짜(실제 사용일) 입력 — 사용·충전·조정 모달 공용 (beta.42) ─────────────────
 // 수기 대장을 소급 입력할 때 쓴다. 오늘(기본값)이면 ts=0 → 기존 동작과 100% 동일.
 //   과거 날짜는 그 날 **정오** 시각으로 고정한다(자정 경계·시간대 흔들림 방지). createdAt이 아니라
@@ -3527,12 +3689,12 @@ function readTxDate(id){const el=qs(id);const v=str(el&&el.value);if(!v||v===tod
 function txDateNote(kind,d){return d.ts?`${kind==='use'?'실사용일':'실거래일'} ${d.label}`:''}
 function txDateField(id){return field(id,'날짜 (지난 기록이면 바꿔 주세요)',todayDateStr(),'','date',`max="${todayDateStr()}"`)}
 // ⚠️ 입력칸(qs)은 **setBusy보다 먼저** 읽는다 — setBusy는 render()라서 입력 노드가 통째로 교체된다.
-async function saveTopup(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('topupAmount')&&qs('topupAmount').value),reason=str(qs('topupReason')&&qs('topupReason').value)||'추가 선입금';if(isNaN(amount)||amount<=0){toast('충전 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}if(wonTooBig(amount)){toast(WON_MAX_MSG);return}const dsel=readTxDate('topupDate');if(!dsel.ok){toast(dsel.msg);return}setBusy('저장 중입니다.');const before=balanceOf(emp.id),tx=await makeTx({employeeId:emp.id,type:'topup',amount,beforeBalance:before,afterBalance:before+amount,reason,note:txDateNote('topup',dsel),occurredAt:dsel.ts});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast('충전을 저장했습니다.')}catch(err){console.error(err);clearBusy();toast('충전 저장 중 오류')}})}
-async function saveAdjust(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const newBal=parseWon(qs('adjustBalance')&&qs('adjustBalance').value),reason=str(qs('adjustReason')&&qs('adjustReason').value);if(isNaN(newBal)){toast('새 잔액은 정수(원 단위)만 입력할 수 있습니다.');return}if(newBal<0){toast('새 잔액은 0원 이상이어야 합니다.');return}if(wonTooBig(newBal)){toast(WON_MAX_MSG);return}if(!reason){toast('조정 사유를 입력하세요.');return}const before=balanceOf(emp.id),delta=newBal-before;if(delta===0){toast('현재 잔액과 동일합니다.');return}const dsel=readTxDate('adjustDate');if(!dsel.ok){toast(dsel.msg);return}if(!window.confirm(`현재 잔액 ${money(before)} → ${money(newBal)}으로 조정하시겠습니까?${dsel.ts?`\n(실거래일 ${dsel.label})`:''}`))return;setBusy('저장 중입니다.');const tx=await makeTx({employeeId:emp.id,type:'adjust',amount:delta,beforeBalance:before,afterBalance:newBal,reason,note:txDateNote('adjust',dsel),occurredAt:dsel.ts});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast('잔액 조정을 저장했습니다.')}catch(err){console.error(err);clearBusy();toast('잔액 조정 중 오류')}})}
+async function saveTopup(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('topupAmount')&&qs('topupAmount').value),reason=str(qs('topupReason')&&qs('topupReason').value)||'추가 선입금';if(isNaN(amount)||amount<=0){toast('충전 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}if(wonTooBig(amount)){toast(WON_MAX_MSG);return}const dsel=readTxDate('topupDate');if(!dsel.ok){toast(dsel.msg);return}setBusy('저장 중입니다.');const before=balanceOf(emp.id),tx=await makeTx({employeeId:emp.id,type:'topup',amount,beforeBalance:before,afterBalance:before+amount,reason,note:txDateNote('topup',dsel),occurredAt:dsel.ts});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast('충전을 저장했습니다.')}catch(err){console.error(err);clearBusy();toast('충전을 저장하지 못했어요. 다시 해 주세요.')}})}
+async function saveAdjust(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const newBal=parseWon(qs('adjustBalance')&&qs('adjustBalance').value),reason=str(qs('adjustReason')&&qs('adjustReason').value);if(isNaN(newBal)){toast('새 잔액은 정수(원 단위)만 입력할 수 있습니다.');return}if(newBal<0){toast('새 잔액은 0원 이상이어야 합니다.');return}if(wonTooBig(newBal)){toast(WON_MAX_MSG);return}if(!reason){toast('조정 사유를 입력하세요.');return}const before=balanceOf(emp.id),delta=newBal-before;if(delta===0){toast('현재 잔액과 동일합니다.');return}const dsel=readTxDate('adjustDate');if(!dsel.ok){toast(dsel.msg);return}if(!window.confirm(`현재 잔액 ${money(before)} → ${money(newBal)}으로 조정하시겠습니까?${dsel.ts?`\n(실거래일 ${dsel.label})`:''}`))return;setBusy('저장 중입니다.');const tx=await makeTx({employeeId:emp.id,type:'adjust',amount:delta,beforeBalance:before,afterBalance:newBal,reason,note:txDateNote('adjust',dsel),occurredAt:dsel.ts});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast('잔액 조정을 저장했습니다.')}catch(err){console.error(err);clearBusy();toast('잔액 조정을 저장하지 못했어요. 다시 해 주세요.')}})}
 async function saveUse(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('useAmount')&&qs('useAmount').value);if(isNaN(amount)||amount<=0){toast('사용 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}if(wonTooBig(amount)){toast(WON_MAX_MSG);return}const before=balanceOf(emp.id);if(before<amount){toast('잔액이 부족합니다.');return}
 // 서명은 두 곳에서 온다 — 사장님 앞에서 그린 캔버스, 또는 손님이 요청에 담아 보낸 dataURL(B단계).
 //   어느 쪽이든 서명 없이 저장되는 길은 없다(빈 서명은 여기서 걸린다).
-const preSign=str(state.modal.preSign),preAmount=num(state.modal.preAmount);
+const preSign=str(state.modal.preSign),preAmount=num(state.modal.preAmount),fromCust=!!state.modal.fromCust;
 // 손님은 "자기가 적은 금액"에 서명했다. 사장님이 그 금액을 고치면 그 서명은 다른 금액의 증거가 된다 —
 //   나중에 다투면 서명은 사장님 편이 아니라 손님 편에 선다("나는 1,000원에 서명했다").
 //   → 저장 금액이 요청 금액과 다르면 손님 서명을 그 자리에서 무효화하고 다시 받는다. 저장은 이번엔 진행하지 않는다.
@@ -3556,16 +3718,19 @@ const note=[typedNote,preAmount>0?`손님 요청 금액 ${money(preAmount)}`:'',
 //        (금액을 고치면 손님 서명이 무효화되고 새 서명으로 저장된다 — 그 숫자는 손님도 본 적이 없다)
 //     ③ 지난 날짜(실사용일)를 지정한 소급 입력 — 날짜 역시 PIN 화면에 없던 정보다.
 const preConfirmedByOwner=preAmount>0&&amount===preAmount&&!dsel.ts;
-if(!preConfirmedByOwner&&!window.confirm(`▶ 사용 금액\n\n${money(amount)}\n\n${emp.name} · 잔액 ${money(before)} → ${money(before-amount)}${dsel.ts?`\n실사용일 ${dsel.label} (지난 날짜)`:''}\n\n저장하시겠습니까?`))return;setBusy('서명을 저장하는 중입니다.');try{const signatureHash=await hash(signatureData),tx=await makeTx({employeeId:emp.id,type:'use',amount,beforeBalance:before,afterBalance:before-amount,reason:'서명 확인',note,signatureData,signatureHash,occurredAt:dsel.ts});await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();await maybeSendSms(emp,amount,before-amount);
+if(!preConfirmedByOwner&&!window.confirm(`▶ 사용 금액\n\n${money(amount)}\n\n${emp.name} · 잔액 ${money(before)} → ${money(before-amount)}${dsel.ts?`\n실사용일 ${dsel.label} (지난 날짜)`:''}\n\n저장하시겠습니까?`))return;setBusy('서명을 저장하는 중입니다.');try{const signatureHash=await hash(signatureData),tx=await makeTx({employeeId:emp.id,type:'use',amount,beforeBalance:before,afterBalance:before-amount,reason:'서명 확인',note,signatureData,signatureHash,occurredAt:dsel.ts});await repo.apply({transactions:[tx]});upsertTx(tx);const fromReq=fromCust;const smsHref=await smsHrefFor(emp,amount,before-amount);state.modal=null;clearBusy();if(preConfirmedByOwner)maybeSendSms(smsHref);
 // 저장이 끝나면 다음 손님을 위해 검색어를 비운다(소속 필터는 그대로 — 단체 손님이 이어서 오는 경우가 많다).
 // beta.44(사용자 지시): 저장이 끝나면 **증표 화면을 바로 연다**. 예전에는 "✅ 저장 완료 … 증표를
 //   보여줄까요?" 확인창이 한 번 더 떴다 — 그 창이 말하는 이름·사용액·잔액은 곧바로 뜨는 증표에 전부
 //   있으므로 새로 알려 주는 것이 없고, 손님을 앞에 세워 둔 채 사장님이 [확인]을 한 번 더 눌러야 했다.
 //   증표 화면 자체가 저장 완료의 증거다(잔액이 이미 줄어 있다). 닫기 한 번이면 홈으로 돌아온다.
-state.search='';render();await openReceipt(emp.id)}catch(err){console.error(err);clearBusy();toast('사용 등록 중 오류')}})}
+state.search='';render();await openReceipt(emp.id,{fromReq,smsHref})}catch(err){console.error(err);clearBusy();toast('사용 기록을 저장하지 못했어요. 다시 해 주세요.')}})}
 // 직원 목록 관리: 전화번호 등록/수정·삭제 — 이 폰(로컬)에만 저장, 서버/기관 경로로 전송되지 않음(스펙 §수정3)
-async function editEmployeePhone(id){const emp=state.data.employees.find(v=>v.id===id);if(!emp)return;let cur='';if(emp.phone){try{cur=await getPhone(emp)}catch(e){console.error('phone decrypt',e)}}const typed=window.prompt('전화번호는 이 폰에만 저장되며 서버로 전송되지 않아요.\n휴대전화번호를 입력하세요 (예: 01012345678)',cur);if(typed===null)return;const digits=str(typed).replace(/[^0-9]/g,'');if(!/^010\d{7,8}$/.test(digits)){toast('010으로 시작하는 휴대전화번호 형식이 아닙니다.');return}try{await setPhone(id,digits);render();toast('전화번호를 저장했습니다.')}catch(e){console.error(e);toast('전화번호 저장 중 오류')}}
-async function clearEmployeePhone(id){const emp=state.data.employees.find(v=>v.id===id);if(!emp)return;if(!window.confirm(`${emp.name}의 전화번호를 삭제할까요?`))return;try{await setPhone(id,'');render();toast('전화번호를 삭제했습니다.')}catch(e){console.error(e);toast('전화번호 삭제 중 오류')}}
+// beta.55(C12): 전화번호도 앱 안 입력창 — 어느 직원인지 위에 적고, 형식이 틀리면 창 안에서 이유를 말한다(창이 닫히지 않는다).
+async function editEmployeePhone(id){const emp=state.data.employees.find(v=>v.id===id);if(!emp)return;let cur='';if(emp.phone){try{cur=await getPhone(emp)}catch(e){console.error('phone decrypt',e)}}
+const digits=await askText({title:emp.phone?'전화번호 고치기':'전화번호 등록',lines:[`<b>${esc(emp.name)}</b> · ${esc(orgDeptLabel(emp)||'부서 없음')}`,'전화번호는 <b>이 폰에만</b> 저장되고 서버로 보내지 않아요. 문자 안내를 보낼 때만 써요.'],label:'휴대전화번호',value:cur,type:'tel',inputmode:'numeric',placeholder:'예: 01012345678',okLabel:'저장',check:v=>{const d=str(v).replace(/[^0-9]/g,'');return /^010\d{7,8}$/.test(d)?{ok:true,value:d}:{ok:false,msg:'010으로 시작하는 휴대전화번호를 적어 주세요 (예: 01012345678).'}}});
+if(digits===null)return;try{await setPhone(id,digits);render();toast('전화번호를 저장했어요.')}catch(e){console.error(e);toast('전화번호를 저장하지 못했어요. 다시 해 주세요.')}}
+async function clearEmployeePhone(id){const emp=state.data.employees.find(v=>v.id===id);if(!emp)return;if(!window.confirm(`${emp.name}의 전화번호를 삭제할까요?`))return;try{await setPhone(id,'');render();toast('전화번호를 삭제했습니다.')}catch(e){console.error(e);toast('전화번호를 지우지 못했어요. 다시 해 주세요.')}}
 // 직원 목록 관리 하단 인라인 빠른 등록 — 부서 자동 생성 + 직원 생성 + 초기 충전은 기존 충전(open/topup) 트랜잭션 로직을 그대로 재사용한다(스펙 §수정2)
 async function quickAddEmployee(){return withTxLock(async()=>{
 const orgInput=qs('quickAddOrg'),deptInput=qs('quickAddDept'),nameInput=qs('quickAddName'),openInput=qs('quickAddOpen');
@@ -3589,16 +3754,16 @@ if(!window.confirm(`"${name}" (${orgDeptLabel({org,dept})||'부서 없음'})은 
 setBusy('저장 중입니다.');
 const before=curBal,tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'빠른 등록 추가 충전',note:''});
 await repo.apply({transactions:[tx]});upsertTx(tx);
-if(orgInput)orgInput.value='';if(deptInput)deptInput.value='';if(nameInput)nameInput.value='';if(openInput)openInput.value='';
+dropFormDrafts(['quickAddOrg','quickAddDept','quickAddName','quickAddOpen'],true);
 clearBusy();toast(`${name} ${money(open)} 추가 충전 완료`);
 return}
 setBusy('저장 중입니다.');
 const emp={id:uid(),org,dept,name,note:'',orgKind:orgKindFor(org),isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};
 const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];
 await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);
-if(orgInput)orgInput.value='';if(deptInput)deptInput.value='';if(nameInput)nameInput.value='';if(openInput)openInput.value='';
+dropFormDrafts(['quickAddOrg','quickAddDept','quickAddName','quickAddOpen'],true);
 clearBusy();toast('직원을 등록했습니다.')
-}catch(err){console.error(err);clearBusy();toast('등록 중 오류')}})}
+}catch(err){console.error(err);clearBusy();toast('등록하지 못했어요. 다시 해 주세요.')}})}
 // ── beta.54 직원 삭제(현장 요청: "삭제 버튼이 없다") ───────────────────────────────
 // ① 정리 삭제: 잔액이 남았으면 0원으로 맞추는 조정 기록을 남기고 isDeleted=true(=예전 숨김). 홈·손님 화면·목록·잔액표에서 사라지고
 //    [삭제한 직원]에서 복원된다. 잔액을 0으로 정리하는 이유: 숨긴 채 잔액이 남으면 무결성 합계(숨김 포함)와 화면 합계가 어긋난다.
@@ -3606,8 +3771,8 @@ clearBusy();toast('직원을 등록했습니다.')
 //    "존재하지 않는 직원의 거래"로 실패하고 손님과 다툴 때의 증거도 사라진다 — 그래서 돈 기록이 있으면 ①만 보인다(사용자 결정).
 async function deleteEmployeeSoft(id){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}setBusy('삭제하는 중입니다.');try{const t=now();const bal=balanceOf(emp.id);const txs=[];
 if(bal!==0)txs.push(await makeTx({employeeId:emp.id,type:'adjust',amount:-bal,beforeBalance:bal,afterBalance:0,reason:'삭제 시 잔액 정리',note:'',createdAt:t}));
-const next={...emp,isDeleted:true,updatedAt:t};await repo.apply({employees:[next],transactions:txs});upsertEmp(next);txs.forEach(upsertTx);delete state.expandedEmps[emp.id];state.modal=null;clearBusy();toast(`${emp.name} 삭제됨${bal!==0?` · 잔액 ${money(bal)} 정리`:''}`)}catch(err){console.error(err);clearBusy();toast('삭제 중 오류')}})}
-async function deleteEmployeeHard(id){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===id);if(!emp){toast('직원을 찾을 수 없습니다.');return}if(state.data.transactions.some(t=>str(t.employeeId)===str(emp.id))){toast('거래 기록이 있는 직원은 기록까지 지울 수 없어요.');return}setBusy('삭제하는 중입니다.');try{await repo.apply({deleteEmployees:[emp.id]});state.data.employees=state.data.employees.filter(v=>v.id!==emp.id);delete state.expandedEmps[emp.id];state.modal=null;clearBusy();toast(`${emp.name} 완전 삭제됨`)}catch(err){console.error(err);clearBusy();toast('삭제 중 오류')}})}
+const next={...emp,isDeleted:true,updatedAt:t};await repo.apply({employees:[next],transactions:txs});upsertEmp(next);txs.forEach(upsertTx);delete state.expandedEmps[emp.id];state.modal=null;clearBusy();toast(`${emp.name} 삭제됨${bal!==0?` · 잔액 ${money(bal)} 정리`:''}`)}catch(err){console.error(err);clearBusy();toast('삭제하지 못했어요. 다시 해 주세요.')}})}
+async function deleteEmployeeHard(id){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===id);if(!emp){toast('직원을 찾을 수 없습니다.');return}if(state.data.transactions.some(t=>str(t.employeeId)===str(emp.id))){toast('거래 기록이 있는 직원은 기록까지 지울 수 없어요.');return}setBusy('삭제하는 중입니다.');try{await repo.apply({deleteEmployees:[emp.id]});state.data.employees=state.data.employees.filter(v=>v.id!==emp.id);delete state.expandedEmps[emp.id];state.modal=null;clearBusy();toast(`${emp.name} 완전 삭제됨`)}catch(err){console.error(err);clearBusy();toast('삭제하지 못했어요. 다시 해 주세요.')}})}
 // ── beta.54 소속·부서 이름 고치기(부서 단위) — 합치기가 아니다: 글자만 바뀌고 잔액은 한 푼도 움직이지 않는다 ──
 //   고친 이름의 부서에 같은 이름의 활성 직원이 있으면 멈춘다(같은 키가 둘이 되면 어느 쪽이 충전되는지 알 수 없다 — 먼저 한쪽을 삭제).
 //   같은 이름이 없으면 허용하되, 두 묶음이 한 부서로 보이게 된다는 것을 확인창에 적는다.
@@ -3622,7 +3787,7 @@ const others=state.data.employees.filter(e=>!e.isDeleted&&orgDeptLabel(e)===newL
 if(others&&!window.confirm(`'${newLabel}'에 이미 ${others}명이 있어요. 이름을 고치면 한 부서(${group.length+others}명)로 보여요. 잔액은 그대로예요.\n계속할까요?`))return;
 setBusy('저장 중입니다.');try{const patches=relabelGroupPatches(label,org,dept,null);await repo.apply({employees:patches});patches.forEach(upsertEmp);
 if(state.expandedDepts[label]){delete state.expandedDepts[label];state.expandedDepts[newLabel]=true}
-state.modal=null;clearBusy();toast(`'${label}' → '${newLabel}' (${patches.length}명)`)}catch(err){console.error(err);clearBusy();toast('저장 중 오류')}})}
+state.modal=null;clearBusy();toast(`'${label}' → '${newLabel}' (${patches.length}명)`)}catch(err){console.error(err);clearBusy();toast('저장하지 못했어요. 다시 해 주세요.')}})}
 // beta.55(A-10h): 같은 소속·부서에 같은 이름의 활성 직원이 있으면 예전에는 "복원 불가" 토스트 한 줄로 끝났다(막다른 길).
 //   이제 이유를 말하고, 이름 뒤에 ·2(동명이인 표시와 같은 규칙)를 붙여 복원하는 길을 연다. 잔액·거래는 그대로다.
 function freeRestoreName(emp){const base=custDupBase(emp.name);for(let k=2;k<100;k++){const nn=base+'·'+k;if(!state.data.employees.some(v=>v.id!==emp.id&&!v.isDeleted&&empMatchKey(v)===empMatchKey({...emp,name:nn})))return nn}return base+'·'+Date.now().toString(36).slice(-3)}
@@ -3630,8 +3795,15 @@ async function restoreEmployee(id){const emp=state.data.employees.find(v=>v.id==
 if(dup){const nn=freeRestoreName(emp);const v=await askChoice({title:'같은 이름의 직원이 이미 있어요',lines:[`<b>${esc(orgDeptLabel(emp)||'(소속 없음)')} · ${esc(emp.name)}</b> 이름의 직원이 지금 목록에 있어요(잔액 ${money(balanceOf(dup.id))}).`,'같은 소속·부서에 같은 이름은 둘일 수 없어서, 그대로는 복원할 수 없어요.',`이름을 <b>'${esc(nn)}'</b>(으)로 바꿔 복원하면 두 사람이 따로 보여요. 복원할 직원의 잔액은 ${money(bal)}이에요.`,'같은 사람이면 복원하지 말고 지금 있는 직원을 그대로 쓰세요.'],buttons:[{val:'rename',label:`'${nn}'(으)로 이름을 바꿔 복원`,cls:'btn-primary'},{val:'cancel',label:'취소',cls:'btn'}]});
 if(v!=='rename')return;name=nn}
 else if(!window.confirm(`${emp.name} 직원을 복원할까요?\n잔액은 ${money(bal)}이에요.${bal===0?' 필요하면 복원 뒤 [충전]이나 [조정]을 쓰세요.':''}`))return;
-const next={...emp,name,isDeleted:false,updatedAt:now()};try{await repo.apply({employees:[next]});upsertEmp(next);render();toast(name!==emp.name?`'${name}'(으)로 이름을 바꿔 복원했어요.`:'복원됨')}catch(err){console.error(err);toast('오류')}}
-async function voidUsage(id){return withTxLock(async()=>{const tx=state.data.transactions.find(v=>v.id===id&&v.type==='use');if(!tx)return;const already=state.data.transactions.some(v=>v.type==='void'&&v.targetTransactionId===tx.id);if(already){toast('이미 취소됨');return}const reason=window.prompt('취소 사유를 입력하세요.','');if(reason===null)return;if(!str(reason)){toast('취소 사유를 입력하세요.');return}setBusy('저장 중입니다.');const before=balanceOf(tx.employeeId),voidTx=await makeTx({employeeId:tx.employeeId,type:'void',amount:tx.amount,beforeBalance:before,afterBalance:before+tx.amount,reason:str(reason),note:'',targetTransactionId:tx.id});try{await repo.apply({transactions:[voidTx]});upsertTx(voidTx);clearBusy();toast('사용 취소 완료')}catch(err){console.error(err);clearBusy();toast('오류')}})}
+const next={...emp,name,isDeleted:false,updatedAt:now()};try{await repo.apply({employees:[next]});upsertEmp(next);render();toast(name!==emp.name?`'${name}'(으)로 이름을 바꿔 복원했어요.`:'복원됨')}catch(err){console.error(err);toast('복원하지 못했어요. 다시 해 주세요.')}}
+// beta.55(C12): 취소 사유는 앱 안 입력창으로 받는다 — 어느 기록(이름·금액·날짜)을 취소하는지 창 위에 적고, 빈 사유는 창 안에서 거절한다.
+//   물음은 저장 잠금(withTxLock) **밖에서** 한다(창을 띄운 채 잠금을 쥐고 있지 않게). 답을 받은 뒤 잠금 안에서 한 번 더 확인한다.
+async function voidUsage(id){const t0=state.data.transactions.find(v=>v.id===id&&v.type==='use');if(!t0)return;
+if(state.data.transactions.some(v=>v.type==='void'&&v.targetTransactionId===t0.id)){toast('이미 취소된 기록이에요.');return}
+const e0=state.data.employees.find(v=>v.id===t0.employeeId);
+const reasonIn=await askText({title:'사용 기록 취소',lines:[`<b>${esc(e0?e0.name:'알 수 없음')}</b> · <b>${esc(money(t0.amount))}</b> · ${esc(dtDisp(t0))} 사용`,'취소하면 이 금액이 잔액으로 돌아오고, 취소한 기록이 이력에 함께 남아요(지워지지 않아요).'],label:'취소 사유',placeholder:'예: 잘못 눌렀어요',chips:['잘못 눌렀어요','금액이 틀렸어요','손님이 취소했어요'],okLabel:'사용 취소하기',okCls:'btn-danger',check:v=>str(v)?{ok:true,value:str(v)}:{ok:false,msg:'취소 사유를 적어 주세요 (아래 예시를 눌러도 돼요).'}});
+if(reasonIn===null)return;const reason=str(reasonIn);
+return withTxLock(async()=>{const tx=state.data.transactions.find(v=>v.id===id&&v.type==='use');if(!tx)return;const already=state.data.transactions.some(v=>v.type==='void'&&v.targetTransactionId===tx.id);if(already){toast('이미 취소된 기록이에요.');return}setBusy('저장 중입니다.');const before=balanceOf(tx.employeeId),voidTx=await makeTx({employeeId:tx.employeeId,type:'void',amount:tx.amount,beforeBalance:before,afterBalance:before+tx.amount,reason:str(reason),note:'',targetTransactionId:tx.id});try{await repo.apply({transactions:[voidTx]});upsertTx(voidTx);clearBusy();toast('사용을 취소했어요.')}catch(err){console.error(err);clearBusy();toast('취소를 저장하지 못했어요. 다시 해 주세요.')}})}
 
 // ── 백업/복원 ──
 // pinFails/pinDelayUntil은 이 기기의 잠금 상태일 뿐 장부가 아니다 — 백업에 실어 나르면 복원과 함께 남의 지연이 따라온다.
@@ -3916,9 +4088,10 @@ window.alert('✅ 초기화 완료\n\n모든 앱 데이터가 삭제되었습니
 }catch(err){console.error(err);clearBusy();toast('초기화 중 오류가 발생했습니다.')}}
 
 // ── 부서 관리 ──
-async function editOrgName(){const cur=state.data.meta.orgName||DEFAULT_ORG;const v=window.prompt('공공기관명을 입력하세요.',cur);if(v===null||!str(v))return;state.data.meta.orgName=str(v);await repo.apply({meta:{orgName:state.data.meta.orgName}});render();toast('공공기관명 변경됨')}
-async function saveShopName(){const input=qs('shopNameInput');const name=str(input&&input.value);state.data.meta.shopName=name;await repo.apply({meta:{shopName:name}});render();toast(name?`"${name}" 저장됨`:'음식점 이름이 삭제되었습니다')}
-async function addDept(){const input=qs('newDeptInput');const name=str(input&&input.value);if(!name){toast('부서명을 입력하세요.');return}const depts=state.data.meta.departments||[];if(depts.includes(name)){toast('이미 등록된 부서');return}depts.push(name);state.data.meta.departments=depts;await repo.apply({meta:{departments:depts}});render();toast(`${name} 추가됨`)}
+// beta.55(C12): 공공기관명 직접 입력도 앱 안 입력창. 고른 적이 없으면(DEFAULT_ORG) 빈 칸으로 연다 — 빈 상태를 값처럼 미리 채우지 않는다.
+async function editOrgName(){const cur0=str(state.data.meta.orgName);const cur=cur0&&cur0!==DEFAULT_ORG?cur0:'';const v=await askText({title:'공공기관명 직접 입력',lines:['목록에 우리 거래 기관이 없을 때 이름을 직접 적어요.'],label:'공공기관명',value:cur,placeholder:'예: 광진구청',okLabel:'저장',check:x=>str(x)?{ok:true,value:str(x)}:{ok:false,msg:'공공기관명을 적어 주세요.'}});if(v===null||!str(v))return;state.data.meta.orgName=str(v);await repo.apply({meta:{orgName:state.data.meta.orgName}});render();toast('공공기관명 변경됨')}
+async function saveShopName(){const input=qs('shopNameInput');const name=str(input&&input.value);state.data.meta.shopName=name;await repo.apply({meta:{shopName:name}});dropFormDrafts(['shopNameInput']);render();toast(name?`"${name}" 저장됨`:'음식점 이름이 삭제되었습니다')}
+async function addDept(){const input=qs('newDeptInput');const name=str(input&&input.value);if(!name){toast('부서명을 입력하세요.');return}const depts=state.data.meta.departments||[];if(depts.includes(name)){toast('이미 등록된 부서');return}depts.push(name);state.data.meta.departments=depts;await repo.apply({meta:{departments:depts}});dropFormDrafts(['newDeptInput'],true);render();toast(`${name} 추가됨`)}
 async function removeDept(idx){const depts=state.data.meta.departments||[];if(idx<0||idx>=depts.length)return;const name=depts[idx];if(!window.confirm(`"${name}" 부서를 목록에서 제거할까요?\n(기존 직원의 부서명은 변경되지 않습니다)`))return;depts.splice(idx,1);state.data.meta.departments=depts;await repo.apply({meta:{departments:depts}});render();toast(`${name} 제거됨`)}
 
 // ── 헬퍼 ──

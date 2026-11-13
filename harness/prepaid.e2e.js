@@ -82,7 +82,13 @@ async function assert(condition, message) {
 // PIN 키패드 입력. beta.31에서 PIN 저장이 PBKDF2(60만 회)로 바뀌면서 4자리째 입력 뒤 검증이
 //   수백 ms 걸린다 — 그동안 들어온 탭은 앱이 (정상적으로) 무시한다. 하니스가 20타를 10ms 간격으로
 //   때리면 5회 실패 시나리오가 1회로 줄어든다. 그래서 4자리마다 입력칸이 비워질 때까지 기다린다.
+// beta.55(C3): "사장님 확인"에 막 들어온 0.5초는 앱이 숫자 키를 일부러 버린다(손님의 두 번째 탭 방지).
+//   하니스는 그 창이 지날 때까지 기다렸다가 누른다 — 기다리지 않으면 첫 키가 사라져 4자리가 3자리가 된다.
+async function waitPinGuard(page) {
+  await page.waitForFunction(() => { const H = window.__prepaidTestHooks; return !H || !H.lockState || !(H.lockState().pinKeyGuardLeft > 0); }, null, { timeout: 5000 }).catch(() => {});
+}
 async function typePin(page, digits) {
+  await waitPinGuard(page);
   for (let i = 0; i < digits.length; i += 1) {
     await page.locator(`[data-a="pin-key"][data-key="${digits[i]}"]`).click();
     if ((i + 1) % 4 === 0) {
@@ -1925,6 +1931,456 @@ async function runBeta55(browser, url, cors) {
   return { passed, fails };
 }
 
+// ── beta.55 A1b: 음식점 앱 화면(키보드·태블릿·입력 보존·두 번 탭·증표·대기 60초·빠른 금액·약관·음성 제거·앱 안 입력창·문자 링크) ──
+//   각 단언은 수정 전 코드(beta.55 A1a까지)에서 실패함을 확인했다(E2E_ONLY=beta55b E2E_SOFT=1로 단언별 실패 목록을 본다).
+async function runBeta55b(browser, url, cors) {
+  const soft = !!process.env.E2E_SOFT;
+  const fails = [];
+  let passed = 0;
+  const check = async (cond, msg) => {
+    if (cond) { passed += 1; return true; }
+    if (soft) { fails.push(msg); console.log('  ✗ ' + msg); return false; }
+    throw new Error('[beta.55 A1b] ' + msg);
+  };
+  const guard = async (label, fn) => {
+    try { await fn(); } catch (err) { if (!soft) throw err; fails.push(`${label}: ${String(err && err.message || err).slice(0, 240)}`); console.log(`  ✗ ${label}: ${String(err && err.message || err).slice(0, 240)}`); }
+  };
+  const legacyPin = crypto.createHash('sha256').update('1234').digest('hex');
+  const DAY = 86400000;
+  const T0 = Date.now() - 40 * DAY;
+  const emp = (id, o) => Object.assign({ id, org: '광진구청', orgKind: 'public', dept: '세무과', name: id, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: T0, updatedAt: T0 }, o);
+  const tx = (id, employeeId, type, amount, k, extra) => Object.assign({ id, employeeId, type, amount, beforeBalance: 0, afterBalance: 0, reason: type === 'use' ? '서명 확인' : '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', createdAt: T0 + k * 1000 }, extra || {});
+  const seed = async (page, employees, transactions, metaExtra) => {
+    await page.evaluate(({ hash, t, employees, transactions, metaExtra }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const x = db.transaction(['meta', 'employees', 'transactions'], 'readwrite');
+        const ms = x.objectStore('meta');
+        const base = { setupComplete: true, welcomeSeen: true, termsAgreedAt: t, pinHash: hash, shopName: '화면식당', departments: ['세무과'], storeRegisterPending: false };
+        Object.entries(Object.assign(base, metaExtra || {})).forEach(([k, v]) => { if (v === undefined) ms.delete(k); else ms.put({ key: k, value: v }); });
+        employees.forEach(e => x.objectStore('employees').put(e));
+        transactions.forEach(v => x.objectStore('transactions').put(v));
+        x.oncomplete = () => resolve(true);
+        x.onerror = () => reject(x.error);
+      };
+    }), { hash: legacyPin, t: Date.now(), employees, transactions, metaExtra: metaExtra || null });
+    if (transactions.length) await resealChain(page);
+  };
+  const lockSt = page => page.evaluate(() => window.__prepaidTestHooks.lockState());
+  const awaitUnlockedB = page => page.waitForFunction(() => window.__prepaidTestHooks.lockState().locked === false, null, { timeout: 15000 });
+  const setTimers = (page, v) => page.evaluate(o => Object.assign(window.__prepaidTestHooks.TIMERS, o), v);
+  const draw = async (page, sel) => {
+    const b = await page.locator(sel).boundingBox();
+    await page.mouse.move(b.x + 30, b.y + b.height * 0.6); await page.mouse.down();
+    await page.mouse.move(b.x + b.width * 0.45, b.y + b.height * 0.3, { steps: 6 });
+    await page.mouse.move(b.x + b.width * 0.8, b.y + b.height * 0.7, { steps: 6 }); await page.mouse.up();
+  };
+  const activeInfo = page => page.evaluate(() => { const a = document.activeElement; return { tag: a ? a.tagName : '', id: a ? a.id : '', act: a && a.dataset ? (a.dataset.a || '') : '' }; });
+  const newPage = async (opts) => {
+    const ctx = await browser.newContext(Object.assign({ acceptDownloads: true, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+      userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36' }, opts || {}));
+    await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"internal"}' }));
+    await ctx.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }));
+    const page = await ctx.newPage();
+    const dialogs = [];
+    const problems = [];
+    const pa = { v: '' };// 수정 전 코드의 기본 팝업에 줄 답(수정 후에는 팝업이 없어야 한다 — 단언이 센다)
+    page.on('dialog', async d => { dialogs.push({ type: d.type(), message: d.message() }); if (d.type() === 'prompt') await d.accept(pa.v); else await d.accept(); });
+    page.on('pageerror', err => problems.push(err.message));
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForTimeout(200);
+    return { ctx, page, dialogs, problems, pa };
+  };
+  // 손님 화면에서 이름 → 본인 확인 → 금액(빠른 금액 or 직접) → 서명 → [사장님 확인 받기]
+  const composeAndSubmit = async (page, name, amount) => {
+    await page.waitForSelector('#custSearchInput');
+    await page.locator('#custSearchInput').fill(name);
+    await page.waitForSelector('[data-a="cust-confirm"]');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await page.locator('#custAmountInput').fill(String(amount));
+    await draw(page, '.cust-sig #signCanvas');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+  };
+
+  // ═════ ① 손님 요청 → 사장님 확인: 키보드·두 번 탭·대기 60초·Enter 저장·증표 닫기 → 손님 화면 ═════
+  //   하위 단언마다 guard로 나눈다 — 수정 전 코드에서도 한 단언이 무너진 뒤 다음 단언까지 실제로 돌아 "단언별로 실패"를 보인다.
+  {
+    const { ctx, page, dialogs, problems } = await newPage();
+    const closeReceipt = async () => { const b = page.locator('.receipt-modal [data-a="receipt-close"], .receipt-modal [data-a="close-modal"]').first(); if (await b.count()) await b.click(); await page.waitForTimeout(200); };
+    const toHome = async () => { if ((await lockSt(page)).locked) { await unlockPin(page); await awaitUnlockedB(page); } if (!(await page.locator('[data-a="quick-find-emp"]').count())) await page.locator('[data-a="screen"][data-screen="home"]').click(); await page.waitForSelector('[data-a="quick-find-emp"]'); };
+    try {
+      await seed(page, [emp('h-1', { name: '김요청' }), emp('h-2', { name: '이직접' })],
+        [tx('h-t1', 'h-1', 'open', 50000, 1), tx('h-t2', 'h-2', 'open', 50000, 2)]);
+      await page.reload({ waitUntil: 'load' });
+      await guard('C8 timers', async () => {
+        const timers = await page.evaluate(() => Object.assign({}, window.__prepaidTestHooks.TIMERS));
+        await check(timers.handoffPinIdle === 60000, `C8: TIMERS.handoffPinIdle must be 60000 in production (got ${timers.handoffPinIdle})`);
+        await check(timers.custIdle === 30000 && timers.ownerPinIdle === 120000, 'C8: the other idle clocks stay 30s (customer screen) / 120s (owner PIN)');
+      });
+      await composeAndSubmit(page, '김요청', 9000);
+      await guard('C3 double tap', async () => {
+        // 손님이 [사장님 확인 받기]를 두 번 누른 것처럼 — 숫자판이 뜨자마자 같은 자리를 한 번 더 누른다.
+        await page.locator('[data-a="pin-key"][data-key="5"]').click();
+        const afterDouble = await lockSt(page);
+        await check(afterDouble.pinLen === 0 && afterDouble.pinFails === 0, `C3: a tap within 0.5s of the handoff PIN screen must not type a digit (pinLen ${afterDouble.pinLen}, fails ${afterDouble.pinFails})`);
+        const pinActive = await activeInfo(page);
+        await check(pinActive.tag !== 'INPUT' && pinActive.tag !== 'TEXTAREA', `C9: nothing on the 사장님 확인 screen may hold an input focus (got ${pinActive.tag}#${pinActive.id})`);
+      });
+      await guard('C8 countdown', async () => {
+        const leftTxt = await page.locator('.pin-ho-left').innerText({ timeout: 1500 }).catch(() => '');
+        const leftN = Number((leftTxt.match(/(\d+)\s*초/) || [])[1]);
+        await check(leftN >= 55 && leftN <= 60, `C8: the 사장님 확인 screen must show the seconds left (~60) (got ${JSON.stringify(leftTxt)})`);
+        await page.evaluate(() => { const el = document.querySelector('#handoffLeft'); if (el) el.__probe = 'same'; const pad = document.querySelector('.pin-pad'); if (pad) pad.__probe = 'same'; });
+        await page.waitForTimeout(2300);
+        const tick = await page.evaluate(() => { const el = document.querySelector('#handoffLeft'); const pad = document.querySelector('.pin-pad'); return { same: !!el && el.__probe === 'same', padSame: !!pad && pad.__probe === 'same', n: el ? Number(el.textContent) : -1 }; });
+        await check(tick.same && tick.padSame && tick.n > 0 && tick.n < leftN, `C8: the countdown must tick down in place without re-rendering the screen (same=${tick.same}, pad=${tick.padSame}, ${leftN}→${tick.n})`);
+      });
+      // (수정 전 코드에서는 두 번째 탭이 한 자리를 남긴다 — 지우고 진행한다)
+      await page.locator('[data-a="pin-key"][data-key="clear"]').click();
+      await typePin(page, ['1', '2', '3', '4']);
+      await page.waitForSelector('#useAmount', { timeout: 15000 });
+      await page.waitForTimeout(150);
+      await guard('C9 focus', async () => {
+        const modalActive = await activeInfo(page);
+        await check(modalActive.tag !== 'INPUT' && modalActive.tag !== 'TEXTAREA', `C9/§1-10: the usage modal opened from a customer request must not focus an input (got ${modalActive.tag}#${modalActive.id})`);
+        await check(modalActive.act === 'save-use', `C9/§1-10: the first focus must sit on [저장] (got ${modalActive.tag} data-a=${modalActive.act})`);
+        await check((await page.locator('#useAmount').inputValue()) === '9000', 'C9: the requested amount stays in the field');
+      });
+      await guard('C9 Enter', async () => {
+        // Enter → 초점이 있는 [저장] = 평소 저장 경로(손님 금액 그대로, 확인창 없음)
+        const confirmsBefore = dialogs.filter(d => d.type === 'confirm').length;
+        await page.keyboard.press('Enter');
+        const saved = await page.waitForSelector('.receipt-modal', { timeout: 6000 }).then(() => true, () => false);
+        const used = (await readDb(page)).transactions.filter(t => t.employeeId === 'h-1' && t.type === 'use');
+        await check(saved && used.length === 1 && used[0].amount === 9000 && String(used[0].note).includes('손님 요청 금액 9,000원'), `C9: Enter on [저장] must save exactly the customer's amount through the normal path (got ${JSON.stringify(used.map(u => [u.amount, u.note]))})`);
+        await check(dialogs.filter(d => d.type === 'confirm').length === confirmsBefore, 'C9: saving the unchanged request still needs no extra confirm (beta.43)');
+        if (!saved) { await page.locator('[data-a="save-use"]').click(); await page.waitForSelector('.receipt-modal', { timeout: 10000 }); }
+      });
+      await guard('C6 receipt → customer', async () => {
+        const closeBtn = page.locator('.receipt-modal [data-a="receipt-close"]');
+        await check(await closeBtn.count() === 1 && (await closeBtn.innerText()).includes('손님 화면'), 'C6: the receipt after a customer request must say it closes to the customer screen');
+        const rcptActive = await activeInfo(page);
+        await check(rcptActive.tag !== 'INPUT' && rcptActive.tag !== 'TEXTAREA', `C9: the receipt must not focus an input (got ${rcptActive.tag})`);
+        await closeReceipt();
+        const st = await lockSt(page);
+        await check(st.locked === true && st.lockView === 'customer' && await page.locator('.cust-screen #custSearchInput').count() === 1, 'C6/§1-9: closing that receipt must land on the locked customer screen, not the owner home');
+        await check(await page.locator('.app .card.employee, [data-a="quick-find-emp"]').count() === 0, 'C6: no owner home (all balances) may remain visible');
+      });
+      // 사장님이 직접 연 사용 등록 — 예전처럼 금액 칸이 첫 초점, 증표를 닫으면 홈
+      await toHome();
+      await expandHomeGroups(page);
+      await page.locator('[data-a="use"][data-id="h-2"]').click();
+      await page.waitForSelector('#useAmount');
+      await page.waitForTimeout(150);
+      await guard('C9 owner focus', async () => {
+        const ownerActive = await activeInfo(page);
+        await check(ownerActive.tag === 'INPUT' && ownerActive.id === 'useAmount', `C9: an owner-opened usage modal keeps the amount field as first focus (got ${ownerActive.tag}#${ownerActive.id})`);
+      });
+      await page.locator('#useAmount').fill('3000');
+      await draw(page, '#signCanvas');
+      await page.locator('[data-a="save-use"]').click();
+      await page.waitForSelector('.receipt-modal', { timeout: 10000 });
+      await guard('C6 owner receipt', async () => {
+        const ownBtn = page.locator('.receipt-modal [data-a="receipt-close"]');
+        await check(await ownBtn.count() === 1 && (await ownBtn.innerText()).trim() === '닫기', 'C6: an owner-initiated receipt keeps the plain [닫기]');
+        await closeReceipt();
+        await check((await lockSt(page)).locked === false && await page.locator('[data-a="quick-find-emp"]').count() === 1, 'C6: closing an owner-initiated receipt returns to the owner home as before');
+      });
+      await toHome();
+      await guard('C8 scaled idle', async () => {
+        // 사장님 확인 화면은 손님 조회 화면(custIdle)보다 오래 버티고(축척: custIdle 400 / handoffPinIdle 1800), 결국 손님 화면으로 돌아간다.
+        await page.locator('[data-a="hand-to-customer"]').click();
+        await setTimers(page, { custIdle: 400, handoffPinIdle: 1800 });
+        await composeAndSubmit(page, '김요청', 1000);
+        await page.waitForTimeout(1000);
+        await check(await page.locator('.pin-screen [data-a="pin-key"]').count() > 0, 'C8: the 사장님 확인 screen must not fall back at the old 30s (custIdle) mark');
+        await page.waitForTimeout(1600);
+        await check(await page.locator('.cust-screen #custSearchInput').count() === 1 && (await lockSt(page)).pendingCustomerId === '', 'C8: after handoffPinIdle the 사장님 확인 screen returns to the clean customer screen');
+        await setTimers(page, { custIdle: 30000, handoffPinIdle: 60000 });
+      });
+      await check(problems.length === 0, `handoff: no page errors (${JSON.stringify(problems.slice(0, 3))})`);
+    } catch (err) { if (!soft) throw err; fails.push('handoff: ' + String(err && err.message || err).slice(0, 240)); console.log('  ✗ handoff: ' + String(err && err.message || err).slice(0, 240)); }
+    finally { await ctx.close(); }
+  }
+
+  // ═════ ② 빠른 금액 = 이 가게에서 자주 쓴 사용 금액 3개(C7) ═════
+  await guard('quick amounts', async () => {
+    const { ctx, page } = await newPage();
+    try {
+      const txs = [tx('q-o1', 'q-1', 'open', 200000, 1), tx('q-o2', 'q-2', 'open', 9500, 2)];
+      let k = 10;
+      const use = (amt, voidIt) => { const id = 'q-u' + k; txs.push(tx(id, 'q-1', 'use', amt, k++)); if (voidIt) txs.push(tx('q-v' + k, 'q-1', 'void', amt, k++, { targetTransactionId: id, reason: '잘못 누름' })); };
+      [5000, 5000, 5000, 5000, 5000].forEach(a => use(a, true));   // 취소된 사용은 세지 않는다(그대로 세면 1위다)
+      [6500, 6500].forEach(a => use(a));                            // 2번(가장 오래됨)
+      [7000, 7000].forEach(a => use(a));                            // 2번
+      [8000, 8000, 8000].forEach(a => use(a));                      // 3번 → 1위
+      [12000, 12000].forEach(a => use(a));                          // 2번(가장 최근) → 같은 횟수 중 최근이 이긴다
+      await seed(page, [emp('q-1', { name: '김자주' }), emp('q-2', { name: '박적음' })], txs);
+      await page.reload({ waitUntil: 'load' });
+      const quickOf = async name => {
+        await page.waitForSelector('#custSearchInput');
+        await page.locator('#custSearchInput').fill(name);
+        await page.waitForSelector('[data-a="cust-confirm"]');
+        await page.locator('[data-a="cust-confirm"]').click();
+        await page.waitForSelector('.cust-req-quick');
+        const r = await page.evaluate(() => ({ btns: [...document.querySelectorAll('.cust-req-quick [data-a="cust-amt-quick"]')].map(b => Number(b.dataset.amount)), cells: document.querySelector('.cust-req-quick').children.length }));
+        await page.locator('[data-a="cust-back"]').click();
+        return r;
+      };
+      const a = await quickOf('김자주');
+      await check(JSON.stringify(a.btns) === JSON.stringify([7000, 8000, 12000]), `C7: quick amounts must be the 3 most frequent non-voided uses (ties → more recent), ascending (got ${JSON.stringify(a.btns)})`);
+      const b = await quickOf('박적음');
+      await check(JSON.stringify(b.btns) === JSON.stringify([7000, 8000]) && b.cells === 3, `C7: a quick button above the balance (9,500원) must be hidden while its slot stays (got ${JSON.stringify(b)})`);
+    } finally { await ctx.close(); }
+    const fresh = await newPage();
+    try {
+      await seed(fresh.page, [emp('f-1', { name: '최처음' })], [tx('f-o', 'f-1', 'open', 100000, 1), tx('f-u', 'f-1', 'use', 10000, 2)]);
+      await fresh.page.reload({ waitUntil: 'load' });
+      await fresh.page.locator('#custSearchInput').fill('최처음');
+      await fresh.page.waitForSelector('[data-a="cust-confirm"]');
+      await fresh.page.locator('[data-a="cust-confirm"]').click();
+      await fresh.page.waitForSelector('.cust-req-quick');
+      const got = await fresh.page.evaluate(() => [...document.querySelectorAll('.cust-req-quick [data-a="cust-amt-quick"]')].map(b => Number(b.dataset.amount)));
+      await check(JSON.stringify(got) === JSON.stringify([9000, 10000, 18000]), `C7: with fewer than 3 distinct amounts the slots are filled from 9,000/18,000/27,000 (got ${JSON.stringify(got)})`);
+    } finally { await fresh.ctx.close(); }
+  });
+
+  // ═════ ③ 설정 칸 입력 보존(C1) · 음성 검색 제거(C11) · 앱 안 입력창(C12) · 문자 링크(B-09) · 글자·표적(C13) ═════
+  {
+    const { ctx, page, dialogs, problems, pa } = await newPage();
+    const goScreen = async name => { if ((await lockSt(page)).locked) { await unlockPin(page); await awaitUnlockedB(page); } await page.locator(`[data-a="screen"][data-screen="${name}"]`).click(); await page.waitForTimeout(150); };
+    const closeText = async () => { if (await page.locator('.text-modal [data-a="text-cancel"]').count()) await page.locator('.text-modal [data-a="text-cancel"]').click(); await page.waitForTimeout(100); };
+    const openEmpRow = async () => {
+      await openSettingsCard(page, 'employees');
+      const head = page.locator('.mgr-head[data-dept]').first(); await head.waitFor({ timeout: 8000 });
+      if ((await head.locator('.mgr-toggle').innerText()).includes('▶')) { await head.click(); await page.waitForTimeout(150); }
+      await expandEmpRow(page, 's-1');
+    };
+    try {
+      await seed(page, [emp('s-1', { name: '정전화' })], [tx('s-o', 's-1', 'open', 40000, 1), tx('s-u', 's-1', 'use', 6000, 2)]);
+      await page.reload({ waitUntil: 'load' });
+      await unlockPin(page);
+      await page.waitForSelector('[data-a="quick-find-emp"]');
+      await guard('C11', async () => {
+        await check(await page.locator('[data-a="voice-search"]').count() === 0, 'C11: the microphone search button must be gone from home');
+        await check(!(await page.evaluate(() => window.__prepaidTestHooks.clickActionKeys())).includes('voice-search'), 'C11: the voice-search action must be gone');
+        await check(!/SpeechRecognition/.test(await page.evaluate(() => document.documentElement.innerHTML)), 'C11: no SpeechRecognition code may remain');
+      });
+      await guard('C13 home', async () => {
+        const homeSizes = await page.evaluate(() => ({ meta: parseFloat(getComputedStyle(document.querySelector('.group-meta')).fontSize), arrow: parseFloat(getComputedStyle(document.querySelector('.group-toggle')).fontSize),
+          tool: [...document.querySelectorAll('.tool button')].map(b => Math.round(b.getBoundingClientRect().height)) }));
+        await check(homeSizes.meta >= 14 && homeSizes.arrow >= 14, `C13: home group "직원 N명" and its arrow must be ≥14px (got ${homeSizes.meta}/${homeSizes.arrow})`);
+        await check(homeSizes.tool.length > 0 && homeSizes.tool.every(h => h >= 44), `C13: top-bar buttons must be ≥44px tall (got ${JSON.stringify(homeSizes.tool)})`);
+      });
+      await goScreen('history');
+      await guard('C13 history', async () => {
+        await page.waitForSelector('[data-a="history-tab"]');
+        const tabsH = await page.evaluate(() => [...document.querySelectorAll('[data-a="history-tab"]')].map(b => Math.round(b.getBoundingClientRect().height)));
+        await check(tabsH.every(h => h >= 44), `C13: history tabs must be ≥44px (got ${JSON.stringify(tabsH)})`);
+      });
+      const promptsBefore = dialogs.filter(d => d.type === 'prompt').length;
+      await guard('C12 void', async () => {
+        // 사용 취소 사유 — 기본 팝업 없이, 대상 기록이 보이고, 빈 사유는 창 안에서 거절
+        pa.v = '';
+        await page.locator('[data-a="void"]').first().click();
+        const opened = await page.waitForSelector('.text-modal #textDlgInput', { timeout: 3000 }).then(() => true, () => false);
+        await check(opened && dialogs.filter(d => d.type === 'prompt').length === promptsBefore, 'C12: voiding must open the in-app dialog, not window.prompt');
+        if (!opened) return;
+        const vtxt = await page.locator('.text-modal').innerText();
+        await check(vtxt.includes('정전화') && vtxt.includes('6,000원'), `C12: the void dialog must name the record being voided (got ${JSON.stringify(vtxt.slice(0, 200))})`);
+        await check((await activeInfo(page)).id === 'textDlgInput', 'C12: the reason field gets focus when the dialog opens');
+        await page.locator('.text-modal [data-a="text-ok"]').click();
+        await page.waitForTimeout(150);
+        await check(await page.locator('.text-modal').count() === 1 && (await page.locator('#textDlgErr').innerText()).includes('사유'), 'C12: an empty reason is refused inside the dialog (the dialog stays, the reason stays visible)');
+        await page.locator('.text-modal [data-a="text-chip"]').first().click();
+        await page.locator('.text-modal [data-a="text-ok"]').click();
+        for (let i = 0; i < 30 && !(await readDb(page)).transactions.some(t => t.type === 'void'); i += 1) await page.waitForTimeout(150);
+        const vt = (await readDb(page)).transactions.find(t => t.type === 'void');
+        await check(vt && vt.reason === '잘못 눌렀어요' && vt.targetTransactionId === 's-u', `C12: confirming must save the void with the picked reason (got ${JSON.stringify(vt && [vt.reason, vt.targetTransactionId])})`);
+      });
+      await closeText();
+      await goScreen('settings');
+      await guard('C12 phone', async () => {
+        await openEmpRow();
+        pa.v = '';
+        const pBefore = dialogs.filter(d => d.type === 'prompt').length;
+        await page.locator('[data-a="emp-phone-edit"][data-id="s-1"]').click();
+        const opened = await page.waitForSelector('.text-modal #textDlgInput', { timeout: 3000 }).then(() => true, () => false);
+        await check(opened && dialogs.filter(d => d.type === 'prompt').length === pBefore, 'C12: the phone edit must open the in-app dialog, not window.prompt');
+        if (!opened) return;
+        await check((await page.locator('.text-modal').innerText()).includes('정전화'), 'C12: the phone dialog must say whose number it is');
+        await page.locator('#textDlgInput').fill('12345');
+        await page.locator('.text-modal [data-a="text-ok"]').click();
+        await page.waitForTimeout(150);
+        await check(await page.locator('.text-modal').count() === 1 && (await page.locator('#textDlgErr').innerText()).includes('010'), 'C12: a malformed phone number is refused inside the dialog');
+        await page.locator('#textDlgInput').fill('010-2222-3333');
+        await page.keyboard.press('Enter');
+        for (let i = 0; i < 30 && !((await readDb(page)).employees.find(e => e.id === 's-1') || {}).phone; i += 1) await page.waitForTimeout(150);
+        const pe = (await readDb(page)).employees.find(e => e.id === 's-1');
+        await check(pe && pe.phone && pe.phoneConsent === true && !/0102222/.test(JSON.stringify(pe)), 'C12: a valid number is stored (encrypted) through the in-app dialog');
+      });
+      await closeText();
+      // 수정 전 코드(기본 팝업)에서도 아래 문자 링크 단언까지 가도록, 전화가 아직 없으면 옛 팝업 경로로 넣어 둔다.
+      if (!((await readDb(page)).employees.find(e => e.id === 's-1') || {}).phone) {
+        pa.v = '01022223333';
+        await openEmpRow().catch(() => {});
+        await page.locator('[data-a="emp-phone-edit"][data-id="s-1"]').click().catch(() => {});
+        await page.waitForTimeout(400); pa.v = '';
+      }
+      await guard('C12 org', async () => {
+        await openSettingsCard(page, 'depts');
+        const pBefore = dialogs.filter(d => d.type === 'prompt').length;
+        pa.v = '';
+        await page.locator('[data-a="edit-org"]').click();
+        const opened = await page.waitForSelector('.text-modal #textDlgInput', { timeout: 3000 }).then(() => true, () => false);
+        await check(opened && dialogs.filter(d => d.type === 'prompt').length === pBefore, 'C12: the org name must be entered in the in-app dialog, not window.prompt');
+        if (!opened) return;
+        await page.locator('#textDlgInput').fill('화면구청');
+        await page.locator('.text-modal [data-a="text-ok"]').click();
+        await page.waitForTimeout(250);
+        await check((await readDb(page)).meta.some(m => m.key === 'orgName' && m.value === '화면구청'), 'C12: the org name is saved through the in-app dialog');
+        // 창이 열린 채 방치 → 상한에서 잠기고 창은 취소로 닫힌다(저장 없음)
+        await setTimers(page, { modalIdleCap: 900 });
+        await page.locator('[data-a="edit-org"]').click();
+        await page.waitForSelector('.text-modal');
+        await page.waitForTimeout(1800);
+        await check((await lockSt(page)).locked === true && await page.locator('.text-modal').count() === 0, 'C12: an abandoned text dialog must be cancelled by the auto-lock cap');
+      });
+      await setTimers(page, { modalIdleCap: 600000 });
+      await closeText();
+      await goScreen('home');
+      await page.waitForSelector('[data-a="quick-find-emp"]');
+      await guard('B-09 owner path', async () => {
+        // 사장님이 직접 넣은 금액(확인창 있음)은 자동 열기를 하지 않고, 증표에 진짜 링크를 둔다
+        await page.evaluate(() => { window.__lastSmsHref = ''; });
+        await expandHomeGroups(page);
+        await page.locator('[data-a="use"][data-id="s-1"]').click();
+        await page.waitForSelector('#useAmount');
+        await page.locator('#useAmount').fill('2000');
+        await draw(page, '#signCanvas');
+        await page.locator('[data-a="save-use"]').click();
+        await page.waitForSelector('.receipt-modal', { timeout: 10000 });
+        await check(await page.evaluate(() => window.__lastSmsHref || '') === '', 'B-09: after a confirm dialog the app must not try to auto-open the SMS app (it silently fails)');
+        const link = await page.evaluate(() => { const a = document.querySelector('.receipt-modal a[href^="sms:"]'); return a ? { href: a.getAttribute('href'), text: a.innerText.trim() } : null; });
+        await check(link && link.href.startsWith('sms:01022223333?body=') && decodeURIComponent(link.href.split('body=')[1]).includes('2,000원'), `B-09: the receipt must carry a real sms: link with the body (got ${JSON.stringify(link)})`);
+        await check(link && link.text.includes('문자'), 'B-09: the link reads as a 문자 안내 button');
+      });
+      { const b = page.locator('.receipt-modal [data-a="receipt-close"], .receipt-modal [data-a="close-modal"]').first(); if (await b.count()) await b.click(); await page.waitForTimeout(150); }
+      await guard('B-09 request path', async () => {
+        // 손님 요청 그대로 저장(확인창 없음)은 예전처럼 자동 열기를 시도한다
+        await page.locator('[data-a="hand-to-customer"]').click();
+        await composeAndSubmit(page, '정전화', 1000);
+        await typePin(page, ['1', '2', '3', '4']);
+        await page.waitForSelector('#useAmount', { timeout: 15000 });
+        await page.locator('[data-a="save-use"]').click();
+        await page.waitForSelector('.receipt-modal', { timeout: 10000 });
+        await check((await page.evaluate(() => window.__lastSmsHref || '')).startsWith('sms:0102222'), 'B-09: the no-confirm path (unchanged customer request) still auto-opens the SMS app');
+        { const b = page.locator('.receipt-modal [data-a="receipt-close"], .receipt-modal [data-a="close-modal"]').first(); if (await b.count()) await b.click(); await page.waitForTimeout(150); }
+        if (!(await lockSt(page)).locked) await page.locator('[data-a="hand-to-customer"]').click();
+        await page.waitForSelector('.cust-screen');
+        const foot = await page.evaluate(() => { const b = document.querySelector('.cust-foot button'); const r = b.getBoundingClientRect(); return { h: r.height, f: parseFloat(getComputedStyle(b).fontSize) }; });
+        await check(foot.h >= 44 && foot.f >= 14, `C13: [사장님용 잠금 해제] must be a ≥44px target with ≥14px text (got ${Math.round(foot.h)}px/${foot.f}px)`);
+      });
+      await goScreen('settings');
+      await openSettingsCard(page, 'enroll-manual');
+      await guard('C13 settings', async () => {
+        const kick = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.fold-head .section-kicker')).fontSize));
+        await check(kick >= 14, `C13: settings card summaries must be ≥14px (got ${kick}px)`);
+      });
+      await guard('C1 quick add', async () => {
+        // 설정 칸에 적어 둔 글자는 토스트·오프라인/온라인 render에도 남는다
+        await page.locator('#quickAddOrg').fill('보존구청');
+        await page.locator('#quickAddDept').fill('보존과');
+        await page.locator('#quickAddOpen').fill('7000');
+        await page.locator('[data-a="quick-add-employee"]').click();   // 이름이 없어 토스트만 뜬다(초점은 버튼)
+        await page.waitForTimeout(3400);                                // 토스트가 사라질 때의 render까지
+        await ctx.setOffline(true); await page.evaluate(() => window.dispatchEvent(new Event('offline'))); await page.waitForTimeout(200);
+        await ctx.setOffline(false); await page.evaluate(() => window.dispatchEvent(new Event('online'))); await page.waitForTimeout(200);
+        const kept = await page.evaluate(() => ['quickAddOrg', 'quickAddDept', 'quickAddOpen'].map(id => (document.getElementById(id) || {}).value));
+        await check(JSON.stringify(kept) === JSON.stringify(['보존구청', '보존과', '7000']), `C1: quick-add fields must survive a toast and an offline/online render (got ${JSON.stringify(kept)})`);
+        // 칸을 짚고 치는 중에는 노드 자체가 그대로다(키보드가 닫히지 않는다)
+        await page.locator('#quickAddName').fill('보존이');
+        await page.evaluate(() => { document.getElementById('quickAddName').__probe = 'same'; });
+        await page.evaluate(() => { window.dispatchEvent(new Event('offline')); window.dispatchEvent(new Event('online')); });
+        await page.waitForTimeout(200);
+        await check(await page.evaluate(() => { const el = document.getElementById('quickAddName'); return !!el && el.__probe === 'same' && document.activeElement === el; }), 'C1: while typing, the focused field node must survive (no full render)');
+        await page.locator('#quickAddOrg').fill('보존구청'); await page.locator('#quickAddDept').fill('보존과'); await page.locator('#quickAddOpen').fill('7000');
+        await page.locator('[data-a="quick-add-employee"]').click();
+        for (let i = 0; i < 30 && !(await readDb(page)).employees.some(e => e.name === '보존이'); i += 1) await page.waitForTimeout(150);
+        await page.waitForTimeout(200);
+        const added = (await readDb(page)).employees.find(e => e.name === '보존이');
+        await check(added && added.org === '보존구청' && added.dept === '보존과', 'C1: the kept values are the ones saved');
+        const cleared = await page.evaluate(() => ['quickAddOrg', 'quickAddDept', 'quickAddName', 'quickAddOpen'].map(id => (document.getElementById(id) || {}).value));
+        await check(cleared.every(v => v === ''), `C1: after a successful add the fields are empty again (got ${JSON.stringify(cleared)})`);
+      });
+      await guard('C1 shop name', async () => {
+        await openSettingsCard(page, 'basic');
+        await page.locator('#shopNameInput').fill('새이름식당');
+        await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); window.dispatchEvent(new Event('offline')); window.dispatchEvent(new Event('online')); });
+        await page.waitForTimeout(250);
+        await check((await page.locator('#shopNameInput').inputValue()) === '새이름식당', 'C1: the shop name field must survive an async render');
+        await page.locator('[data-a="save-shop"]').click();
+        await page.waitForTimeout(300);
+        await page.evaluate(() => { window.dispatchEvent(new Event('online')); });
+        await page.waitForTimeout(200);
+        await check((await readDb(page)).meta.some(m => m.key === 'shopName' && m.value === '새이름식당') && (await page.locator('#shopNameInput').inputValue()) === '새이름식당', 'C1: saving the shop name keeps the saved value in the field');
+      });
+      await check(problems.length === 0, `settings: no page errors (${JSON.stringify(problems.slice(0, 3))})`);
+    } catch (err) { if (!soft) throw err; fails.push('settings: ' + String(err && err.message || err).slice(0, 240)); console.log('  ✗ settings: ' + String(err && err.message || err).slice(0, 240)); }
+    finally { await ctx.close(); }
+  }
+
+  // ═════ ④ 약관 다시 동의 창(C4) — 버튼은 살아 있고, 동의 없이 누르면 이유가 체크 칸 옆에 남는다 ═════
+  await guard('terms', async () => {
+    const { ctx, page } = await newPage();
+    try {
+      await seed(page, [emp('t-1', { name: '약관이' })], [], { termsAgreedAt: undefined });
+      await page.reload({ waitUntil: 'load' });
+      await unlockPin(page);
+      await page.waitForSelector('#termsAgreeBtn', { timeout: 15000 });
+      await check(!(await page.locator('#termsAgreeBtn').isDisabled()), 'C4: the re-consent button must not be a disabled-but-active-looking button');
+      const rowH = await page.evaluate(() => { const r = document.querySelector('.terms-row') || document.querySelector('#termsChk').closest('label'); return Math.round(r.getBoundingClientRect().height); });
+      await check(rowH >= 44, `C4: the consent row must be a ≥44px tap target (got ${rowH}px)`);
+      const linkH = await page.evaluate(() => [...document.querySelectorAll('.modal a[href*="terms"], .modal a[href*="privacy"]')].map(a => Math.round(a.getBoundingClientRect().height)));
+      await check(linkH.length === 2 && linkH.every(h => h >= 44), `C13: terms links must be ≥44px targets (got ${JSON.stringify(linkH)})`);
+      await page.locator('#termsAgreeBtn').click({ timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(200);
+      const why = await page.locator('#termsChkWhy').innerText({ timeout: 1000 }).catch(() => '');
+      await check(await page.locator('#termsAgreeBtn').count() === 1 && why.includes('동의'), `C4: tapping without consent keeps the dialog and shows the reason next to the checkbox (got ${JSON.stringify(why)})`);
+      await check(await page.evaluate(() => { const c = document.querySelector('.terms-card'); return !!c && c.classList.contains('terms-need'); }), 'C4: the consent box is highlighted');
+      await page.locator('#termsChk').check();
+      await check((await page.locator('#termsChkWhy').innerText({ timeout: 1000 }).catch(() => 'x')) === '' && await page.locator('#termsChk').isChecked(), 'C4: checking the box clears the reason');
+      await page.locator('#termsAgreeBtn').click();
+      await page.waitForTimeout(250);
+      await check(await page.locator('#termsAgreeBtn').count() === 0 && (await readDb(page)).meta.some(m => m.key === 'termsAgreedAt' && m.value > 0), 'C4: after consent the dialog closes and the consent is stored');
+    } finally { await ctx.close(); }
+  });
+
+  // ═════ ⑤ 좁은 폰(360px) 증표 카드(C5) ═════
+  await guard('receipt 360', async () => {
+    const { ctx, page } = await newPage({ viewport: { width: 360, height: 640 } });
+    try {
+      await seed(page, [emp('r-1', { org: '서울특별시 강남구청', dept: '어르신복지과', name: '김수한무거북이와두루미' })], [tx('r-o', 'r-1', 'open', 1234567, 1)]);
+      await page.reload({ waitUntil: 'load' });
+      await unlockPin(page);
+      await page.waitForSelector('[data-a="quick-find-emp"]');
+      await expandHomeGroups(page);
+      await page.locator('[data-a="receipt"][data-id="r-1"]').click();
+      await page.waitForSelector('.namecard');
+      const r = await page.evaluate(() => { const c = document.querySelector('.namecard').getBoundingClientRect(); const m = document.querySelector('.receipt-modal').getBoundingClientRect(); return { l: c.left, r: c.right, ml: m.left, mr: m.right, cw: document.documentElement.clientWidth, sw: document.documentElement.scrollWidth }; });
+      await check(r.l >= r.ml - 1 && r.r <= r.mr + 1 && r.r <= r.cw + 1 && r.sw <= r.cw + 1, `C5: the receipt card must fit inside the modal at 360px (card ${Math.round(r.l)}~${Math.round(r.r)}, modal ${Math.round(r.ml)}~${Math.round(r.mr)}, width ${r.cw})`);
+    } finally { await ctx.close(); }
+  });
+
+  console.log(`beta.55 A1b 검증: ${passed} 통과, ${fails.length} 실패`);
+  if (fails.length) console.log(JSON.stringify(fails, null, 2));
+  return { passed, fails };
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -1934,6 +2390,14 @@ async function main() {
     ...(chromePath ? { executablePath: chromePath } : {})
   });
   // E2E_ONLY=beta55 — beta.55 블록만 돌린다(수정 전 코드에서 단언별 실패를 확인할 때 E2E_SOFT=1과 함께 쓴다).
+  // E2E_ONLY=beta55b — beta.55 A1b(화면) 블록만.
+  if (process.env.E2E_ONLY === 'beta55b') {
+    try {
+      const r = await runBeta55b(browser, url, { 'Access-Control-Allow-Origin': '*' });
+      process.exitCode = r.fails.length ? 1 : 0;
+    } finally { await browser.close(); server.close(); }
+    return;
+  }
   if (process.env.E2E_ONLY === 'beta55') {
     try {
       const r = await runBeta55(browser, url, { 'Access-Control-Allow-Origin': '*' });
@@ -2010,6 +2474,7 @@ async function main() {
     await runSecurityHardening(browser, url, cors);
     await runBeta52(browser, url, cors);
     await runBeta55(browser, url, cors);
+    await runBeta55b(browser, url, cors);
 
     await page.goto(url, { waitUntil: 'load' });
 
@@ -2096,9 +2561,14 @@ async function main() {
     await page.locator('#setupContactKakao').fill('https://open.kakao.com/o/sHarness');
     await page.locator('#setupContactEmail').fill('owner@harness-shop.example');
     // 약관 동의 게이트: 미체크 시 완료 버튼 비활성, 체크 시 활성화되어야 한다
-    await assert(await page.locator('#setupCompleteBtn').isDisabled(), 'complete button must be disabled until terms are agreed');
+    // beta.55(C4): 예전에는 동의 전 [완료]가 disabled였다(살아 보이는데 눌러도 무반응). 이제 버튼은 늘 눌리고,
+    //   동의 없이 누르면 3/3에 그대로 남은 채 체크 칸 옆에 이유가 뜬다. 체크하면 이유가 사라진다.
+    await assert(!(await page.locator('#setupCompleteBtn').isDisabled()), 'complete button must stay enabled (no disabled-but-active-looking button)');
+    await page.locator('#setupCompleteBtn').click();
+    await page.waitForTimeout(150);
+    await assert(await count(page, '#setupCompleteBtn') === 1 && (await page.locator('#setupTermsChkWhy').innerText()).includes('동의'), 'tapping 완료 without consent must stay on 3/3 and say why next to the checkbox');
     await page.locator('#setupTermsChk').check();
-    await assert(!(await page.locator('#setupCompleteBtn').isDisabled()), 'complete button should enable after agreeing to terms');
+    await assert((await page.locator('#setupTermsChkWhy').innerText()) === '', 'agreeing must clear the reason line');
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'onboarding-contact.png') }).catch(() => {});
     await page.locator('[data-a="setup-complete"]').click();
 
@@ -2346,10 +2816,12 @@ async function main() {
     // ③ 직원 목록 관리 행에서 전화번호 등록 + 문자 안내 동의 (이 폰에만 저장)
     await page.locator(`[data-a="toggle-dept"][data-dept="Dept Q"]`).click();
     await expandEmpRow(page, empQ.id);// beta.53: 직원 행은 한 줄로 시작 — 펼쳐야 전화 칸이 보인다
-    promptAnswer = '01099998888';
+    // beta.55(C12): 전화번호는 앱 안 입력창으로 받는다(기본 팝업 없음).
     await page.locator(`[data-a="emp-phone-edit"][data-id="${empQ.id}"]`).click();
-    promptAnswer = '초기화';
-    await page.waitForTimeout(150);
+    await page.waitForSelector('.text-modal #textDlgInput');
+    await page.locator('#textDlgInput').fill('01099998888');
+    await page.locator('.text-modal [data-a="text-ok"]').click();
+    for (let i = 0; i < 30 && !((await readDb(page)).employees.find(e => e.id === empQ.id) || {}).phone; i += 1) await page.waitForTimeout(100);
     const afterPhone = await readDb(page);
     const empQAfterPhone = afterPhone.employees.find(e => e.id === empQ.id);
     await assert(Boolean(empQAfterPhone.phone) && empQAfterPhone.phoneConsent === true, 'registering a phone number should store it locally and default the SMS-consent checkbox on');
@@ -2440,13 +2912,15 @@ async function main() {
     await page.mouse.up();
     await page.locator('[data-a="save-use"]').click();
     await page.waitForTimeout(300);
-    const smsHref = await page.evaluate(() => window.__lastSmsHref || '');
-    await assert(smsHref.startsWith('sms:0109999'), 'saving a deduction for a phone+consent employee should attempt to navigate to an sms: URI');
-    await assert(smsHref.includes('body=') && decodeURIComponent(smsHref.split('body=')[1] || '').includes('5,000원'), 'the sms body should describe the amount used and the resulting balance');
-    // 차감 저장 성공 안내(confirm)를 수락하면 방금 차감된 직원의 잔액증표가 자동으로 열린다(dialog handler가 자동 수락)
+    // beta.55(B-09): 이 저장은 확인창을 거쳤다 — 확인창을 읽는 사이 사용자 활성이 끝나 자동 열기는 조용히 실패한다.
+    //   그래서 자동 열기를 하지 않고, 증표에 진짜 링크(a href="sms:…")를 둔다. 탭이 곧 문자 앱 열기다.
     await page.waitForSelector('.receipt-modal', { timeout: 3000 });
+    await assert((await page.evaluate(() => window.__lastSmsHref || '')) === '', 'after a confirm dialog the app must not try to auto-open the SMS app');
+    const smsHref = await page.evaluate(() => { const a = document.querySelector('.receipt-modal a[href^="sms:"]'); return a ? a.getAttribute('href') : ''; });
+    await assert(smsHref.startsWith('sms:0109999'), 'the receipt must carry a real sms: link for a phone+consent employee');
+    await assert(smsHref.includes('body=') && decodeURIComponent(smsHref.split('body=')[1] || '').includes('5,000원'), 'the sms body should describe the amount used and the resulting balance');
     await assert(!(await page.locator('.receipt-modal').innerText()).includes('장부에 이상'), 'a backdated usage must not break the balance cross-check — the receipt must still show the balance');
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(50);
     await page.locator('#searchInput').fill('');
 
@@ -2553,7 +3027,7 @@ async function main() {
     await assert(autoReceiptText.includes('Dept A User A님'), 'post-save receipt should render "{부서} {이름}님" for the just-deducted employee');
     await assert(autoReceiptText.includes('18,000원'), 'post-save receipt should show the derive() balance (27000-9000)');
     await assert(autoReceiptText.includes('양도 불가'), 'receipt must carry the non-transfer notice');
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(50);
     await page.locator('#searchInput').fill('');
 
@@ -2622,11 +3096,11 @@ async function main() {
       `the owner receipt must tell the customer to photograph the screen (got ${JSON.stringify(receiptTipText)})`);
     await assert(await count(page, '.namecard .receipt-tip') === 0, 'the photo tip must live OUTSIDE the name card (a photographed receipt must stay clean)');
     await assert(await page.locator('.receipt-modal .receipt-tip').evaluate(el => {
-      const btn = el.parentElement.querySelector('[data-a="close-modal"]');
+      const btn = el.parentElement.querySelector('[data-a="receipt-close"]');// beta.55(C6): 증표 닫기는 receipt-close
       return Boolean(btn) && el.compareDocumentPosition(btn) === Node.DOCUMENT_POSITION_FOLLOWING;
     }), 'the photo tip should sit right above the close button (where the customer is already looking)');
     await page.screenshot({ path: path.join(root, 'harness', 'screenshots', 'receipt-card.png') }).catch(() => {});
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(50);
     await page.locator('#searchInput').fill('');
 
@@ -2677,6 +3151,14 @@ async function main() {
     // 월 단위 백업: 파일명 · 활동 게이트 · 월말 배너 · 자동백업 토글 · 조용한 클라우드 트리거
     // ───────────────────────────────────────────────────────────────
     const unlock = async () => { await unlockPin(page); };
+    // beta.55(C6, 사용자 결정 §1-9): 손님 요청으로 시작한 저장의 증표를 닫으면 손님 화면(잠금)으로 간다.
+    //   그 뒤에 사장님 홈이 필요한 기존 시나리오는 여기서 잠금을 풀고 홈으로 돌아온다(착지 단언 포함).
+    const homeAfterReqReceipt = async () => {
+      await page.waitForSelector('.cust-screen #custSearchInput', { timeout: 6000 });
+      await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState().locked)) === true, 'closing a customer-request receipt must land on the locked customer screen (beta.55 C6)');
+      await unlock();
+      await page.waitForSelector('[data-a="quick-find-emp"]', { timeout: 15000 });
+    };
     // (1) 일반 백업 파일명은 월 기준(밥장부백업_YYYY-MM.json), 최종백업은 날짜까지 유지
     await assert(/^밥장부백업_\d{4}-\d{2}\.json$/.test(jsonDownload.name), `monthly backup file name should be 밥장부백업_YYYY-MM.json, got ${jsonDownload.name}`);
     const finalFn = await page.evaluate(() => window.__prepaidTestHooks.backupFileName(true));
@@ -2960,7 +3442,7 @@ async function main() {
     const warnText = await page.locator('.receipt-warn').innerText();
     await assert(warnText.includes('장부에 이상') && warnText.includes('장부 검사'), 'integrity warning should direct the user to 설정 → 장부 검사');
     await assert(await count(page, '.receipt-bal') === 0, 'no balance figure should be shown when integrity fails');
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(50);
 
     // ───────────────────────────────────────────────────────────────
@@ -4086,6 +4568,9 @@ async function main() {
     await assert(prodTimers.recoveryGate === 60000, `TIMERS.recoveryGate must stay 60000 in production (got ${prodTimers.recoveryGate})`);
     await assert(prodTimers.modalIdleCap === 600000, `TIMERS.modalIdleCap must stay 600000 in production (got ${prodTimers.modalIdleCap})`);
     await assert(prodTimers.ownerPinIdle === 120000, `TIMERS.ownerPinIdle must stay 120000 in production (got ${prodTimers.ownerPinIdle})`);
+    // beta.55(C8·C3): "사장님 확인" 화면 60초(예전 custIdle 30초), 진입 직후 숫자판 무시 0.5초
+    await assert(prodTimers.handoffPinIdle === 60000, `TIMERS.handoffPinIdle must stay 60000 in production (got ${prodTimers.handoffPinIdle})`);
+    await assert(prodTimers.pinKeyGuard === 500, `TIMERS.pinKeyGuard must stay 500 in production (got ${prodTimers.pinKeyGuard})`);
     await page.locator('[data-a="lock-to-pin"]').click();
     await page.waitForSelector('[data-a="pin-key"]');
     for (let i = 0; i < 5; i += 1) await typePin(page, ['9', '9', '9', '9']);
@@ -4760,7 +5245,7 @@ async function main() {
     await page.mouse.up();
     await page.locator('[data-a="save-use"]').click();
     await page.waitForSelector('.receipt-modal', { timeout: 5000 });
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(150);
     await assert((await page.locator('#searchInput').inputValue()) === '', 'saving a deduction must clear the search box for the next customer');
     await assert((await page.locator('#deptFilterSelect').inputValue()) === keptFilter, 'saving a deduction must keep the 소속 filter (the group usually keeps coming)');
@@ -5182,8 +5667,9 @@ async function main() {
     await page.mouse.up();
     await page.locator('[data-a="save-use"]').click();
     await page.waitForSelector('.receipt-modal', { timeout: 6000 });
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(150);
+    await homeAfterReqReceipt();
     const handoverDb = await readDb(page);
     await assert(handoverDb.transactions.length === txBeforeHandover + 1, 'the handover flow must record exactly one new transaction');
     await assert(balanceOfId(handoverDb, 'cx-3') === 29000, `the handover deduction must land on the right employee (30,500 - 1,500 = 29,000, got ${balanceOfId(handoverDb, 'cx-3')})`);
@@ -5259,7 +5745,7 @@ async function main() {
     await assert(await count(page, '.cust-screen') === 1 && await count(page, '.modal-back') === 0, 'the capped auto-lock must close the modal and show the customer screen');
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
-    await setTimers({ custIdle: 30000, custComposeIdle: 60000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000 });
+    await setTimers({ custIdle: 30000, custComposeIdle: 60000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000, handoffPinIdle: 60000, pinKeyGuard: 500 });
 
     // ═══════════════════════════════════════════════════════════════════════
     // (8-B) B단계 — 손님이 금액·서명까지 미리 작성하는 '요청' (beta.21 → beta.22 한 화면)
@@ -5791,8 +6277,9 @@ async function main() {
     //   열리고, 그 화면에 이름·잔액이 다 있으므로 확인창이 새로 알려 주는 것이 없었다(탭만 한 번 더 들었다).
     const postSaveDialogs = dialogs.slice(dialogsBeforeSave);
     await assert(!postSaveDialogs.some(d => d.message.includes('증표') || d.message.includes('저장 완료')), `the receipt must open by itself, with no confirm in front of it (got ${JSON.stringify(postSaveDialogs.map(d => d.message))})`);
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(150);
+    await homeAfterReqReceipt();
 
     const happyDb = await readDb(page);
     await assert(happyDb.transactions.length === txBeforeReq + 1, `the B flow must record exactly one transaction (got ${happyDb.transactions.length - txBeforeReq})`);
@@ -5828,7 +6315,7 @@ async function main() {
     await page.waitForSelector('.receipt-modal');
     await assert((await page.locator('.receipt-modal').innerText()).includes('21,000원'), 'the balance receipt must show the post-request balance');
     await assert(await count(page, '.receipt-warn') === 0, 'a request-driven deduction must leave the ledger verifiable (no integrity warning on the receipt)');
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(120);
 
     // ── (B-b) 사장님이 금액을 고치면 손님 서명은 그 자리에서 무효가 된다 ──
@@ -5867,8 +6354,9 @@ async function main() {
     await drawOn('#signCanvas');
     await page.locator('[data-a="save-use"]').click();
     await page.waitForSelector('.receipt-modal', { timeout: 6000 });
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(150);
+    await homeAfterReqReceipt();
     const editedDb = await readDb(page);
     await assert(editedDb.transactions.length === beforeEditCount + 1, 'editing the prefilled amount must still record exactly one row');
     await assert(balanceOfId(editedDb, 'br-1') === 21000 - 12345, `the owner's edited amount must be what lands in the ledger (got ${balanceOfId(editedDb, 'br-1')})`);
@@ -6083,6 +6571,7 @@ async function main() {
       const t0 = Date.now();
       await page.locator('[data-a="cust-sign-submit"]').click();
       await page.waitForSelector('.pin-screen [data-a="pin-key"]');
+      await waitPinGuard(page);// beta.55(C3): 진입 직후 0.5초 숫자판 무시 — 지난 뒤에 누른다(TTL 경계 계산은 t0 기준이라 그대로다)
       for (const k of ['1', '2', '3']) await page.locator(`[data-a="pin-key"][data-key="${k}"]`).click();
       const wait = ageMs - (Date.now() - t0) - 40;
       if (wait > 0) await page.waitForTimeout(wait);
@@ -6193,10 +6682,11 @@ async function main() {
       await assert((await page.locator('#useAmount').inputValue()) === amt, `request #${amt} must prefill its own amount`);
       await page.locator('[data-a="save-use"]').click();
       await page.waitForSelector('.receipt-modal', { timeout: 6000 });
-      await page.locator('.receipt-modal [data-a="close-modal"]').click();
+      await page.locator('.receipt-modal [data-a="receipt-close"]').click();
       await page.waitForTimeout(150);
-      await page.locator('[data-a="hand-to-customer"]').click();
+      // beta.55(C6): 손님 요청 증표를 닫으면 곧바로 손님 화면이다 — [손님 셀프 조회]를 다시 누를 필요가 없다.
       await page.waitForSelector('.cust-screen');
+      await assert((await page.evaluate(() => window.__prepaidTestHooks.lockState().locked)) === true, 'the receipt of a customer request must close straight onto the locked customer screen');
     }
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
@@ -6229,7 +6719,7 @@ async function main() {
     const afterAutoLock = await readDb(page);
     await assert(JSON.stringify(afterAutoLock.transactions) === JSON.stringify(beforeAutoLock.transactions), 'auto-locking over a prefilled modal must never save anything');
     await assert((await lockSt2()).pendingAmount === 0, 'auto-locking must leave no request behind');
-    await setTimers({ custIdle: 30000, custComposeIdle: 60000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000 });
+    await setTimers({ custIdle: 30000, custComposeIdle: 60000, autoLock: 90000, pendingTtl: 120000, pinDelay: 60000, recoveryGate: 60000, modalIdleCap: 600000, ownerPinIdle: 120000, handoffPinIdle: 60000, pinKeyGuard: 500 });
     await unlock();
     await page.waitForSelector('[data-a="quick-find-emp"]');
 
@@ -6248,8 +6738,10 @@ async function main() {
     };
     const closePrefilled = async () => {
       if (await count(page, '.receipt-modal')) {
-        await page.locator('.receipt-modal [data-a="close-modal"]').click();
+        await page.locator('.receipt-modal [data-a="receipt-close"]').click();
         await page.waitForTimeout(150);
+        // beta.55(C6): 손님 요청 증표는 손님 화면(잠금)으로 닫힌다 — 다음 단계를 위해 잠금을 푼다.
+        if (await page.evaluate(() => window.__prepaidTestHooks.lockState().locked)) await unlock();
       }
       if (await count(page, '.modal-back')) {
         await page.locator('.modal-actions [data-a="close-modal"]').first().click();
@@ -6368,12 +6860,11 @@ async function main() {
       return { id: ae ? ae.id : '', tag: ae ? ae.tagName : '', a: ae && ae.dataset ? (ae.dataset.a || '') : '' };
     });
     await assert(modalFocus.a !== 'fill-use', `the modal must never open with a quick-amount button focused (got ${JSON.stringify(modalFocus)})`);
-    await assert(modalFocus.id === 'useAmount', `the modal must open with the amount field focused (got ${JSON.stringify(modalFocus)})`);
-    for (const key of ['Enter', 'Space']) {
-      await page.keyboard.press(key);
-      await page.waitForTimeout(150);
-      await assert((await page.locator('#useAmount').inputValue()) === '1000', `pressing ${key} right after the modal opens must not touch the requested amount`);
-    }
+    // beta.55(사용자 결정 §1-10, 현장 보고): 손님 요청으로 열린 창의 첫 초점은 금액 칸이 아니라 [저장]이다 — 금액 칸에 초점이 가면
+    //   태블릿 키보드가 저절로 올라와 서명과 [저장]을 가렸다. Enter는 [저장] = 평소 저장 경로(손님 금액 그대로)이며
+    //   그 계약은 runBeta55b(C9 Enter)가 원장까지 확인한다. 여기서는 초점 위치와 금액 보존만 본다.
+    await assert(modalFocus.a === 'save-use' && modalFocus.tag !== 'INPUT', `a request-opened modal must focus [저장], not an input (got ${JSON.stringify(modalFocus)})`);
+    await assert((await page.locator('#useAmount').inputValue()) === '1000', 'the requested amount must sit untouched in the field');
     // 포커스 트랩은 그대로다 — Tab이 모달 밖으로 새지 않는다.
     for (let i = 0; i < 12; i += 1) await page.keyboard.press('Tab');
     const trapped = await page.evaluate(() => !!(document.activeElement && document.activeElement.closest('.modal')));
@@ -6644,8 +7135,9 @@ async function main() {
     // (12) "사장님 확인" 화면 방치(HIGH-3) — 손님이 넘긴 PIN 화면에서도 30초 유휴 시계가 돈다.
     //   예전에는 PIN 화면에 들어선 순간 시계가 꺼져 앞 손님의 조회 상태·인계 요청이 무기한 살아남았다.
     //   beta.19: 시계는 손님 흔적이 남는 handoff 맥락에만 건다(owner 맥락은 12-a2에서 반대로 못 박는다).
+    //   beta.55(C8, 사용자 결정 §1-8): 이 화면의 시계는 custIdle(30초)이 아니라 handoffPinIdle(60초)이다 — 축척도 그쪽으로 건다.
     // ═══════════════════════════════════════════════════════════════════════
-    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 700 }));
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 700, handoffPinIdle: 700 }));
     await page.locator('#custSearchInput').fill('김철수');
     await page.waitForSelector('.cust-ask');
     await page.locator('[data-a="cust-confirm"]').click();
@@ -6664,6 +7156,7 @@ async function main() {
     await assert(afterPinIdle.pendingCustomerId === '' && afterPinIdle.custStage === 'search', 'the PIN-screen idle fallback must discard the handover request too');
     await assert(afterPinIdle.pinContext === '', 'the idle fallback must clear the PIN context');
     await assert((await page.locator('#custSearchInput').inputValue()) === '', 'the PIN-screen idle fallback must land on the empty customer search');
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { handoffPinIdle: 60000 }));// beta.55: 축척한 "사장님 확인" 시계를 되돌린다
 
     const lockSt = () => page.evaluate(() => window.__prepaidTestHooks.lockState());
     // (12-a2) owner 맥락 PIN 화면의 **두 시계 눈금** — 무한 체류가 아니라 120초(ownerPinIdle)다.
@@ -6764,7 +7257,8 @@ async function main() {
 
     // (12-a3) 타이머 교차 ① — "사장님 확인" 화면에서 PIN 5회 실패(60초 지연)로 카운트다운이 도는 중에도
     //   30초 유휴 복귀가 살아 있어야 하고, 되돌아가더라도 **지연 자체는 사라지면 안 된다**(브루트포스 우회 금지).
-    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { pinDelay: 3000 }));
+    // beta.55(C8): "사장님 확인" 화면의 유휴 시계는 handoffPinIdle이다 — custIdle과 같은 축척(700ms)을 건다.
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { pinDelay: 3000, handoffPinIdle: 700 }));
     await page.locator('#custSearchInput').fill('김철수');
     await page.waitForSelector('.cust-ask');
     await page.locator('[data-a="cust-confirm"]').click();
@@ -6804,7 +7298,7 @@ async function main() {
     const afterRecoveryIdle = await page.evaluate(() => window.__prepaidTestHooks.lockState());
     await assert(afterRecoveryIdle.pinRecovery === false && afterRecoveryIdle.pendingCustomerId === '' && afterRecoveryIdle.pinContext === '', 'the recovery idle fallback must clear recovery, the handover request and the PIN context');
     await assert((await bt()).locked === true, 'the recovery idle fallback must never unlock the app');
-    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 30000, recoveryGate: 60000 }));
+    await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { custIdle: 30000, recoveryGate: 60000, handoffPinIdle: 60000 }));
 
     // (12-b) 앞 손님의 인계 요청이 뒷 손님에게 붙으면 안 된다(P3) — [처음으로]가 요청을 즉시 버리고,
     //   그 뒤 새 손님이 넘긴 요청만 살아남아야 한다(결과 1건이면 [cust-pick] 없이 확인 카드로 바로 넘어간다).
@@ -6919,7 +7413,7 @@ async function main() {
     await page.waitForSelector('.receipt-modal', { timeout: 5000 });
     await assert(await count(page, '.receipt-warn') === 0, 'after 20 batch imports the receipt must still show a balance, not an integrity warning');
     await assert((await page.locator('.namecard').innerText()).includes(detExpected.toLocaleString('en-US')), 'the receipt must show the accumulated balance');
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.waitForTimeout(50);
     await page.locator('#searchInput').fill('');
 
@@ -7131,7 +7625,7 @@ async function main() {
     await page.waitForSelector('.receipt-modal', { timeout: 5000 });
     await assert(await count(page, '.receipt-warn') === 0, 'a restored legacy ledger must show the balance on the receipt, not a warning');
     await assert((await page.locator('.namecard').innerText()).includes('34,100원'), 'the legacy receipt must show the recomputed balance');
-    await page.locator('.receipt-modal [data-a="close-modal"]').click();
+    await page.locator('.receipt-modal [data-a="receipt-close"]').click();
     await page.locator('#searchInput').fill('');
 
     // ── (e) 거래 순서는 이력·잔액·검증에서 동일해야 한다 ──

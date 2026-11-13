@@ -367,7 +367,8 @@ async function runViewport(context, url, w, h) {
   }
 
   // ── 홈 상단바 2행 구조(beta.17 → beta.29 개편) ──
-  //   1행: 검색창 전폭(폰에서도 300px 이상, 지울 것이 있으면 ✕가 옆에 붙음) / 2행: 소속 필터 + 음성 검색
+  //   1행: 검색창 전폭(폰에서도 300px 이상, 지울 것이 있으면 ✕가 옆에 붙음) / 2행: 소속 필터
+  //   beta.55(C11, 사용자 결정 §1-11): 음성 검색(🎤)은 없앴다 — 2행은 소속 필터 하나, 상단 버튼은 44px 이상(C13).
   //   상단바는 sticky를 유지하고, [장부 저장] 상시 버튼은 폐지 → [직원 목록 관리] 바로가기가 자리를 잇는다.
   const readBar = () => page.evaluate(() => {
     const top = document.querySelector('.top');
@@ -395,22 +396,22 @@ async function runViewport(context, url, w, h) {
   });
   const bar = await readBar();
   check(bar.sticky === 'sticky', `${w}px 상단바: .top은 sticky를 유지해야 한다 (got ${bar.sticky})`);
-  check(bar.rows === 2, `${w}px 상단바: 홈 필터는 2행(검색창 / 소속 필터+음성)이어야 한다 (${bar.rows}행)`);
+  check(bar.rows === 2, `${w}px 상단바: 홈 필터는 2행(검색창 / 소속 필터)이어야 한다 (${bar.rows}행)`);
   check(bar.row1.join(',') === 'searchInput', `${w}px 상단바: 지울 것이 없으면 첫 행에는 검색창만 있어야 한다 ${JSON.stringify(bar.row1)}`);
-  check(bar.row2.join(',') === 'deptFilterSelect,voice-search', `${w}px 상단바: 둘째 행은 소속 필터 + 음성 검색이어야 한다 ${JSON.stringify(bar.row2)}`);
+  check(bar.row2.join(',') === 'deptFilterSelect', `${w}px 상단바: 둘째 행은 소속 필터 하나여야 한다(음성 검색 제거, beta.55) ${JSON.stringify(bar.row2)}`);
+  check(bar.mic === null, `${w}px 상단바: 음성 검색 버튼은 없어야 한다(beta.55 C11)`);
   check(Boolean(bar.search) && bar.search.width >= 300, `${w}px 상단바: 검색창이 전폭(300px 이상)이어야 한다 (${bar.search && Math.round(bar.search.width)}px)`);
   check(Boolean(bar.select) && bar.search.bottom <= bar.select.top + 1, `${w}px 상단바: 소속 필터는 검색창 아래(둘째 행)로 내려가야 한다`);
   check(bar.firstOption === '전체 소속', `${w}px 상단바: 필터 첫 옵션은 '전체 소속'이어야 한다 (got "${bar.firstOption}")`);
   check(bar.saveBtnCount === 0, `${w}px 상단바: [장부 저장] 상시 버튼은 폐지되었어야 한다(beta.29 — 30일 리마인더 배너로 대체)`);
   check(bar.topReset === 0, `${w}px 상단바: [검색 초기화]는 상단바를 떠나 검색창 옆 ✕가 되었어야 한다(beta.29)`);
   check(bar.clear === null, `${w}px 상단바: 지울 것이 없으면 ✕(검색 초기화)는 렌더되지 않아야 한다`);
-  [['검색창', bar.search], ['소속 필터', bar.select], ['음성 검색', bar.mic], ['직원 목록 관리', bar.goEmp]].forEach(([label, b]) => {
+  [['검색창', bar.search], ['소속 필터', bar.select], ['직원 목록 관리', bar.goEmp]].forEach(([label, b]) => {
     check(Boolean(b), `${w}px 상단바: ${label}이(가) 렌더되지 않았다`);
     if (b) check(b.right <= clientW + 1 && b.left >= -1, `${w}px 상단바: ${label}이(가) 화면 밖으로 나갔다 (${Math.round(b.left)}~${Math.round(b.right)} / ${clientW})`);
   });
   check(Boolean(bar.goEmp) && bar.goEmp.text.includes('직원 목록 관리'), `${w}px 상단바: 홈에는 [직원 목록 관리] 바로가기가 있어야 한다 (got "${bar.goEmp && bar.goEmp.text}")`);
-  check(Boolean(bar.goEmp) && bar.goEmp.height >= 36, `${w}px 상단바: [직원 목록 관리] 버튼 터치 타겟이 너무 작다 (${bar.goEmp && Math.round(bar.goEmp.height)}px)`);
-  check(Boolean(bar.mic) && bar.mic.height >= 44, `${w}px 상단바: 음성 검색 버튼 터치 타겟이 너무 작다 (${bar.mic && Math.round(bar.mic.height)}px)`);
+  check(Boolean(bar.goEmp) && bar.goEmp.height >= 44, `${w}px 상단바: [직원 목록 관리] 버튼 터치 타겟이 44px 미만이다 (${bar.goEmp && Math.round(bar.goEmp.height)}px — beta.55 C13)`);
   check(await page.locator('.banner [data-a="monthly-backup-now"]').count() === 0, `${w}px 홈: 월말 백업 배너는 더 이상 렌더되지 않아야 한다`);
   // 검색어를 넣으면 ✕가 검색창 옆(같은 행)에 나타나고, 검색창과 함께 화면 안에 들어와야 한다.
   await page.locator('#searchInput').fill('직');
@@ -1140,6 +1141,8 @@ async function runViewport(context, url, w, h) {
   //    저장이 **서명 그림 바로 아래 첫 버튼**이어야 한다. [서명 다시 받기]는 예외 경로라 그 아래,
   //    [취소]가 맨 아래다. DOM 순서(취소·서명 다시 받기·저장)를 CSS column-reverse가 뒤집는 구조라
   //    여기서 재는 것은 **실제 화면 좌표**다 — 순서가 뒤집히는 사고는 CSS 한 줄로 일어난다.
+  // beta.55(C3): "사장님 확인" 진입 직후 0.5초는 숫자판을 받지 않는다 — 지난 뒤에 누른다.
+  await page.waitForFunction(() => !(window.__prepaidTestHooks.lockState().pinKeyGuardLeft > 0), null, { timeout: 5000 }).catch(() => {});
   for (const key of ['1', '2', '3', '4']) await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
   await page.waitForSelector('#useAmount', { timeout: 8000 });
   await noHorizontalOverflow(page, '손님 요청 사용 모달', w);
@@ -1675,6 +1678,105 @@ async function runTypingProfile(browser, url, label, contextOpts) {
   }
 }
 
+// ── beta.55(C2, 사용자 결정 §1-6): 태블릿 가로·세로 — 손님 요청 화면·사장님 확인·사용 등록 창·증표가 스크롤 없이 ──
+//   현장 캡처: 1024×768 가로 태블릿에서 [사장님 확인 받기]가 화면 밖이었다. 가로에서는 두 칸(왼쪽 금액·오른쪽 서명)이다.
+//   세로 태블릿(768×1024·800×1280)은 예전 한 줄 배치 그대로다. 회전(가로↔세로)으로 배치가 바뀌어도 캔버스 노드와 획은 그대로여야 한다.
+const TABLET_PROFILES = [
+  { w: 1024, h: 768 }, { w: 1280, h: 800 }, { w: 1180, h: 820 }, { w: 960, h: 600 },
+  { w: 800, h: 1280 }, { w: 768, h: 1024 }
+];
+async function runTabletProfile(browser, url, w, h) {
+  const tag = `${w}×${h}`;
+  const landscape = w > h;
+  const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2, isMobile: false, hasTouch: true });
+  await context.route('**/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '[]' }));
+  const page = await context.newPage();
+  page.on('dialog', d => d.accept());
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await seed(page);
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('#custSearchInput');
+    await page.locator('#custSearchInput').fill('김수');
+    await page.waitForSelector('[data-a="cust-confirm"]');
+    await page.locator('[data-a="cust-confirm"]').click();
+    await page.waitForSelector('.cust-sig #signCanvas');
+    await page.waitForTimeout(250);
+    await noHorizontalOverflow(page, `태블릿 ${tag} 손님 요청 화면`, w);
+    await fitsInFirstViewport(page, `태블릿 ${tag}`);
+    const lay = await page.evaluate(() => {
+      const r = s => document.querySelector(s).getBoundingClientRect();
+      const inp = r('#custAmountInput'), cv = r('.cust-sig #signCanvas'), sub = r('[data-a="cust-sign-submit"]');
+      return { inpRight: inp.right, inpBottom: inp.bottom, cvLeft: cv.left, cvTop: cv.top, cvBottom: cv.bottom, cvH: cv.height, cvW: cv.width, subTop: sub.top };
+    });
+    if (landscape) {
+      check(lay.cvLeft >= lay.inpRight - 1, `태블릿 ${tag} 가로: 서명판은 금액 칸 오른쪽 칸에 와야 한다 (금액 칸 오른쪽 ${Math.round(lay.inpRight)} / 서명판 왼쪽 ${Math.round(lay.cvLeft)})`);
+      check(lay.cvH >= 150, `태블릿 ${tag} 가로: 서명판 높이가 너무 낮다 (${Math.round(lay.cvH)}px)`);
+    } else {
+      check(lay.inpBottom <= lay.cvTop + 1, `태블릿 ${tag} 세로: 서명판은 금액 칸 아래에 와야 한다`);
+      check(lay.cvH >= 200, `태블릿 ${tag} 세로: 서명판은 태블릿 크기(200px 이상)여야 한다 (${Math.round(lay.cvH)}px)`);
+    }
+    check(lay.cvW >= 300, `태블릿 ${tag}: 서명판 폭이 너무 좁다 (${Math.round(lay.cvW)}px)`);
+    check(lay.cvBottom <= lay.subTop + 1, `태블릿 ${tag}: [사장님 확인 받기]는 서명판 아래에 와야 한다`);
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-tablet-compose-${w}x${h}.png`) }).catch(() => {});
+    // 회전 — 가로↔세로로 배치가 바뀌어도 캔버스 노드·획이 그대로이고 백킹 스토어가 새 크기로 다시 잡힌다.
+    await drawSignature(page, false);
+    await page.waitForTimeout(80);
+    const r0 = await page.evaluate(() => { const c = document.querySelector('#signCanvas'); c.__bapRot = 'alive'; return window.__prepaidTestHooks.lockState().signPadStrokes; });
+    await page.setViewportSize({ width: h, height: w });
+    await page.waitForTimeout(450);
+    const r1 = await page.evaluate(() => { const c = document.querySelector('#signCanvas'); const r = c.getBoundingClientRect(); const st = window.__prepaidTestHooks.lockState(); return { same: c.__bapRot === 'alive', strokes: st.signPadStrokes, empty: st.signPadEmpty, backW: c.width, backH: c.height, cssW: r.width, cssH: r.height }; });
+    check(r1.same && !r1.empty && r1.strokes === r0 && r0 >= 1, `태블릿 ${tag} 회전: 캔버스 노드와 그려 둔 서명이 그대로여야 한다 (same=${r1.same} strokes ${r0}→${r1.strokes})`);
+    check(Math.abs(r1.backW - r1.cssW * 2) <= 2 && Math.abs(r1.backH - r1.cssH * 2) <= 2, `태블릿 ${tag} 회전: 백킹 스토어가 새 CSS 크기×DPR로 다시 잡혀야 한다 (${r1.backW}×${r1.backH} vs ${Math.round(r1.cssW * 2)}×${Math.round(r1.cssH * 2)})`);
+    await fitsInFirstViewport(page, `태블릿 ${tag}→회전 ${h}×${w}`);
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(450);
+    // 사장님 확인 화면 — 요청 금액·서명·숫자판 12키·[처음으로]·남은 초가 스크롤 없이
+    await page.locator('#custAmountInput').fill('18000');
+    await page.locator('[data-a="cust-sign-submit"]').click();
+    await page.waitForSelector('.pin-req-amt');
+    await page.waitForTimeout(200);
+    await noHorizontalOverflow(page, `태블릿 ${tag} 사장님 확인 화면`, w);
+    const pin = await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      const b = el => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
+      return { vh: innerHeight, vw: document.documentElement.clientWidth, keys: [...document.querySelectorAll('.pin-key')].map(b), amt: b(document.querySelector('.pin-req-amt')),
+        sign: b(document.querySelector('.pin-req-sign img')), back: b(document.querySelector('[data-a="pin-to-cust"]')), left: document.querySelector('.pin-ho-left') ? b(document.querySelector('.pin-ho-left')) : null };
+    });
+    const inV = r => r && r.top >= -1 && r.bottom <= pin.vh + 1 && r.left >= -1 && r.right <= pin.vw + 1;
+    check(pin.keys.length === 12 && pin.keys.every(inV), `태블릿 ${tag} 사장님 확인 화면: 숫자판 12키가 스크롤 없이 보여야 한다 (마지막 키 아래 ${Math.round(Math.max(...pin.keys.map(k => k.bottom)))} / vh ${pin.vh})`);
+    check(inV(pin.amt) && inV(pin.sign), `태블릿 ${tag} 사장님 확인 화면: 손님 금액과 서명이 스크롤 없이 보여야 한다`);
+    check(inV(pin.back) && inV(pin.left), `태블릿 ${tag} 사장님 확인 화면: [처음으로]와 남은 초가 스크롤 없이 보여야 한다 (${pin.back && Math.round(pin.back.bottom)} / vh ${pin.vh})`);
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-tablet-pin-${w}x${h}.png`) }).catch(() => {});
+    await page.waitForFunction(() => !(window.__prepaidTestHooks.lockState().pinKeyGuardLeft > 0), null, { timeout: 5000 }).catch(() => {});
+    for (const key of ['1', '2', '3', '4']) await page.locator(`[data-a="pin-key"][data-key="${key}"]`).click();
+    await page.waitForSelector('#useAmount', { timeout: 15000 });
+    await page.waitForTimeout(200);
+    await noHorizontalOverflow(page, `태블릿 ${tag} 사용 등록 창`, w);
+    const mod = await page.evaluate(() => { const s = document.querySelector('[data-a="save-use"]').getBoundingClientRect(); const sg = document.querySelector('.sig-pre').getBoundingClientRect(); const a = document.activeElement;
+      return { vh: innerHeight, save: { top: s.top, bottom: s.bottom }, sig: { top: sg.top, bottom: sg.bottom }, active: a ? (a.dataset.a || a.id || a.tagName) : '' }; });
+    check(mod.save.top >= -1 && mod.save.bottom <= mod.vh + 1, `태블릿 ${tag} 사용 등록 창: [저장]이 스크롤 없이 보여야 한다 (${Math.round(mod.save.bottom)} / vh ${mod.vh})`);
+    check(mod.sig.top >= -1 && mod.sig.bottom <= mod.vh + 1, `태블릿 ${tag} 사용 등록 창: 손님 서명이 스크롤 없이 보여야 한다`);
+    check(mod.active === 'save-use', `태블릿 ${tag} 사용 등록 창: 손님 요청에서 열리면 첫 초점은 [저장]이다 (got ${mod.active})`);
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-tablet-modal-${w}x${h}.png`) }).catch(() => {});
+    await page.locator('[data-a="save-use"]').click();
+    await page.waitForSelector('.receipt-modal .namecard', { timeout: 10000 });
+    await page.waitForTimeout(200);
+    await noHorizontalOverflow(page, `태블릿 ${tag} 증표`, w);
+    const rc = await page.evaluate(() => { const c = document.querySelector('.namecard').getBoundingClientRect(); const b = (document.querySelector('.receipt-modal [data-a="receipt-close"]') || document.querySelector('.receipt-modal [data-a="close-modal"]')).getBoundingClientRect();
+      return { vh: innerHeight, vw: document.documentElement.clientWidth, card: { top: c.top, bottom: c.bottom, left: c.left, right: c.right }, btn: { top: b.top, bottom: b.bottom } }; });
+    check(rc.card.left >= -1 && rc.card.right <= rc.vw + 1 && rc.card.top >= -1 && rc.card.bottom <= rc.vh + 1, `태블릿 ${tag} 증표: 카드가 화면 안에 다 보여야 한다`);
+    check(rc.btn.top >= -1 && rc.btn.bottom <= rc.vh + 1, `태블릿 ${tag} 증표: [닫고 손님 화면으로]가 스크롤 없이 보여야 한다 (${Math.round(rc.btn.bottom)} / vh ${rc.vh})`);
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-tablet-receipt-${w}x${h}.png`) }).catch(() => {});
+    check(errors.length === 0, `태블릿 ${tag}: 페이지 오류가 없어야 한다 (${JSON.stringify(errors.slice(0, 3))})`);
+  } finally {
+    await page.close();
+    await context.close();
+  }
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -1696,6 +1798,10 @@ async function main() {
         await context.close();
       }
     }
+    // beta.55(C2): 태블릿 가로·세로 프로필
+    for (const { w, h } of TABLET_PROFILES) {
+      try { await runTabletProfile(browser, url, w, h); } catch (err) { check(false, `태블릿 ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
+    }
     // 손님 검색 타이핑 회귀(beta.20) — 실제 디바이스 프로파일(터치·모바일 UA)과 데스크톱을 함께 돌린다.
     for (const [label, opts] of [
       ['Pixel 7', devices['Pixel 7']],
@@ -1714,7 +1820,7 @@ async function main() {
     failures.forEach(f => console.error('  · ' + f));
     process.exit(1);
   }
-  console.log(`✅ 반응형 검증 ${checks} 통과 (${VIEWPORTS.map(v => `${v.w}×${v.h}`).join(' / ')})`);
+  console.log(`✅ 반응형 검증 ${checks} 통과 (${VIEWPORTS.map(v => `${v.w}×${v.h}`).join(' / ')} + 태블릿 ${TABLET_PROFILES.map(v => `${v.w}×${v.h}`).join(' / ')})`);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
