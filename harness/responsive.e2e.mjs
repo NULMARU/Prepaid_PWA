@@ -583,6 +583,9 @@ async function runViewport(context, url, w, h) {
   const quick = await page.evaluate(() => document.querySelectorAll('[data-a="fill-use"]').length);
   check(quick === 0, `${w}px 모달: 사용 등록 모달에는 빠른 금액 버튼이 없어야 한다 (${quick}개)`);
   check(!(await page.locator('.modal').innerText()).includes('빠른 금액'), `${w}px 모달: '빠른 금액' 라벨도 남아 있으면 안 된다`);
+  // beta.55(A3): 비고·날짜 2열에서 날짜 칸이 자기 칸(그리고 모달 안쪽)을 넘지 않는다 — 크로미움 날짜 칸의 기본 최소 폭(약 154px) 때문에 360px에서 14px 넘쳤다.
+  const dateBox = await page.evaluate(() => { const d = document.querySelector('#useDate'); const f = d && d.closest('.field'); const m = document.querySelector('.modal'); if (!d || !f || !m) return null; const dr = d.getBoundingClientRect(), fr = f.getBoundingClientRect(), mr = m.getBoundingClientRect(); return { dr: dr.right, fr: fr.right, inner: mr.right - parseFloat(getComputedStyle(m).paddingRight) }; });
+  check(Boolean(dateBox) && dateBox.dr <= dateBox.fr + 1 && dateBox.dr <= dateBox.inner + 1, `${w}px 모달: 날짜 칸이 자기 칸·모달 안쪽을 넘친다 (날짜 오른쪽 ${dateBox && Math.round(dateBox.dr)} / 칸 ${dateBox && Math.round(dateBox.fr)} / 모달 안쪽 ${dateBox && Math.round(dateBox.inner)})`);
   const btns = await page.evaluate(() => [...document.querySelectorAll('.modal-actions button')].map(b => {
     const r = b.getBoundingClientRect();
     return { text: b.innerText.trim(), left: r.left, right: r.right, top: r.top, width: r.width };

@@ -346,7 +346,11 @@ async function runSearchOnboarding(browser, url, cors) {
       `the welcome screen must carry the "the app never handles money" reassurance in payment-neutral wording (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
     await assert(!/통장|은행 계좌/.test(welcomeText), `the welcome screen must not name the bank account as the only way money arrives (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
     await assert(/무료/.test(welcomeText), 'the welcome screen must say the service is free');
-    await assert(await count(page, '.setup-welcome button') === 1, 'the welcome screen must offer exactly one button ([시작하기])');
+    // beta.55(A3): "진한 버튼 하나 + 글씨 링크 하나" — 진한 버튼은 여전히 [시작하기] 하나뿐이고, 새 태블릿에서 예전 장부를 되찾는
+    //   길은 그 아래 글씨 링크 한 줄이다(누르면 곧바로 파일 고르기). 링크까지 진한 버튼이 되면 인사가 아니라 관문이 된다.
+    await assert(await count(page, '.setup-welcome .btn-primary') === 1 && await count(page, '.setup-welcome .btn-primary[data-a="setup-welcome-start"]') === 1, 'the welcome screen must keep exactly one primary button ([시작하기])');
+    await assert(await count(page, '.setup-welcome button') === 2 && await count(page, '.setup-welcome .link-btn[data-a="welcome-restore"]') === 1, 'the welcome screen must offer exactly one more control: the text link to restore an old ledger from a backup file');
+    await assert((await page.locator('[data-a="welcome-restore"]').innerText()).includes('백업 파일로 되찾기'), 'the restore link must say it restores from a backup file');
     await page.locator('[data-a="setup-welcome-start"]').click();
     await page.waitForSelector('#setupStoreName');
     await assert(await count(page, '[data-a="setup-welcome-start"]') === 0, '[시작하기] must lead straight into 1/3');
@@ -2429,7 +2433,7 @@ async function runBeta55b(browser, url, cors) {
 //   예전 형식 파일은 수정 전 앱(beta.54 + A1a·A1b)의 실제 UI로 만든 harness/fixtures/beta54-*.json을 쓴다.
 //   E2E_ONLY=beta55c 로 이 블록만, E2E_SOFT=1 로 단언별 실패 목록을 본다. B55_SHOTS_DIR=<폴더> 면 화면 캡처를 남긴다.
 function makeBackupRelay(cors) {
-  const st = { reg: new Map(), tokens: new Set(), head: new Map(), segs: new Map(), log: [], mode: 'v2', fail: '', challenges: 0, reused: 0, violations: [], rate429: 0 };
+  const st = { reg: new Map(), tokens: new Set(), head: new Map(), segs: new Map(), log: [], mode: 'v2', fail: '', challenges: 0, reused: 0, violations: [], rate429: 0, failHead: false, segBudget: null };
   const GEN_RE = /^[A-Za-z0-9_-]{8,40}$/;
   const segsOf = rid => { if (!st.segs.has(rid)) st.segs.set(rid, new Map()); return st.segs.get(rid); };
   async function handle(route) {
@@ -2461,6 +2465,8 @@ function makeBackupRelay(cors) {
       if (!Number.isInteger(b.seg_no) || b.seg_no < 0 || b.seg_no > 999) { st.violations.push('seg_no ' + b.seg_no); return reply(400, { error: 'invalid_seg_no' }); }
       if (typeof b.blob !== 'string' || !b.blob || b.blob.length > 400000) { st.violations.push('seg blob size'); return reply(400, { error: 'blob 크기 초과' }); }
       if (!auth()) return reply(401, { error: 'auth_required' });
+      // A3: segBudget(숫자)면 그만큼만 받고 그다음 조각부터 500 — '새 세대를 올리다 끊김'을 흉내 낸다.
+      if (typeof st.segBudget === 'number') { if (st.segBudget <= 0) { st.log.push({ t: 'segfail', gen: b.gen, n: b.seg_no }); return reply(500, { error: 'internal' }); } st.segBudget -= 1; }
       const m = segsOf(rid); if (!m.has(b.gen)) m.set(b.gen, new Map());
       const at = Date.now(); m.get(b.gen).set(b.seg_no, { blob: b.blob, blob_hash: b.blob_hash || null, updated_at: at });
       st.log.push({ t: 'seg', gen: b.gen, n: b.seg_no, size: b.blob.length });
@@ -2477,6 +2483,7 @@ function makeBackupRelay(cors) {
       if (typeof b.blob !== 'string' || !b.blob || b.blob.length > 1000000) { st.violations.push('head blob size'); return reply(400, { error: 'blob 크기 초과(1MB)' }); }
       if (b.gen != null && !GEN_RE.test(String(b.gen))) { st.violations.push('head gen'); return reply(400, { error: 'invalid_gen' }); }
       if (!auth()) return reply(401, { error: 'auth_required' });
+      if (st.failHead) { st.log.push({ t: 'headfail', gen: b.gen || null }); return reply(500, { error: 'internal' }); }
       const at = Date.now();
       st.head.set(rid, { blob: b.blob, blob_hash: b.blob_hash || '', updated_at: at, gen: b.gen || null });
       if (b.gen) { const m = segsOf(rid); [...m.keys()].filter(g => g !== b.gen).forEach(g => m.delete(g)); }
@@ -2953,6 +2960,76 @@ async function runBeta55c(browser, url, cors) {
       await fsp.unlink(tmp).catch(() => {});
     });
 
+    // ═════ beta.55 A3(적대 검증)에서 찾아 고친 것 — 각 단언은 수정 전 코드에서 실패함을 확인했다 ═════
+    const runCloud = () => page.evaluate(() => window.__prepaidTestHooks.cloudBackupRun({}).then(x => ({ ok: true, ...x }), e => ({ err: String(e && (e.code || e.message)) })));
+    let a3Size = 3;
+    // ── A3-1 같은 세대의 '열린' 마지막 조각을 다시 올린 뒤 머리 저장이 끊기면, 예전에는 서버 백업 전체가 '손상'으로 거절됐다(다음 성공까지 최대 1주).
+    //    이제 머리가 말하는 건수만큼 앞부분을 잘라 확인값이 맞으면 **직전 백업(일관된 예전 장부)**을 그대로 되찾는다.
+    await guard('a3-head-fail-keeps-old', async () => {
+      const n0 = (await readDb(page)).transactions.length;
+      a3Size = [3, 4, 5, 7].find(k => n0 % k !== 0);
+      await page.evaluate(k => { window.__cloudSegSize = k; window.__cloudRetryWaitMs = 20; }, a3Size);
+      const r0 = await runCloud();
+      await check(r0.ok, `A3-1 baseline backup must succeed (got ${JSON.stringify(r0)})`);
+      const db0 = await readDb(page); const last = Math.max(...db0.transactions.map(t => t.createdAt));
+      await putAll(page, { transactions: [tx('a3-t1', db0.employees.find(e => !e.isDeleted).id, 'topup', 1000, 0, { createdAt: last + 1000 })] });
+      await resealChain(page); await reloadUnlock(page);
+      await page.evaluate(k => { window.__cloudSegSize = k; window.__cloudRetryWaitMs = 20; }, a3Size);
+      relay.st.failHead = true; relay.st.log.length = 0;
+      const r1 = await runCloud();
+      relay.st.failHead = false;
+      await check(!!r1.err && relay.st.log.some(e => e.t === 'seg') && relay.st.log.some(e => e.t === 'headfail'), `A3-1 setup: the open segment must be re-uploaded and then the head must fail (got ${JSON.stringify({ r1, log: relay.st.log.map(e => e.t) })})`);
+      await goGuard(page); await page.locator('[data-a="guard-restore"]').click(); await choiceTitle(page); await pick(page, 'cloud');
+      const t = await choiceTitle(page); const txt = await choiceText(page);
+      await check(!/되찾지 못했어요/.test(t) && txt.includes(`백업 ${n0}건`), `A3-1 an interrupted incremental backup must leave the previous server backup restorable (${n0}건), never refuse it as corrupt (got ${JSON.stringify(t + ' / ' + txt.replace(/\s+/g, ' ').slice(0, 160))})`);
+      await pick(page, /되찾지 못했어요/.test(t) ? 'ok' : 'cancel');
+    });
+    // ── A3-2 새 세대를 올리다 끊기면 다음 시도는 **같은 세대 번호**로 다시 올린다 — 예전엔 시도마다 새 세대라 고아 조각이 쌓여 가게당 1,000행 상한에 닿으면 영영 못 올렸다 ──
+    await guard('a3-pending-gen', async () => {
+      await page.evaluate(k => { window.__cloudSegSize = k; }, a3Size + 1);
+      relay.st.log.length = 0;
+      relay.st.segBudget = 1; const f1 = await runCloud();
+      relay.st.segBudget = 1; const f2 = await runCloud();
+      relay.st.segBudget = null;
+      const gens = [...new Set(relay.st.log.filter(e => e.t === 'seg' || e.t === 'segfail').map(e => e.gen))];
+      await check(!!f1.err && !!f2.err && gens.length === 1, `A3-2 two interrupted fresh uploads must reuse ONE pending gen (got ${JSON.stringify({ f1, f2, gens })})`);
+      const ok = await runCloud();
+      const head = relay.st.log.filter(e => e.t === 'head').pop();
+      await check(ok.ok && head && head.gen === gens[0] && !(await page.evaluate(() => window.__prepaidTestHooks.cloudState())).pendingGen, `A3-2 the next successful run must finish that same gen and forget it (got ${JSON.stringify({ ok, head })})`);
+    });
+    // ── A3-3 등록된 가게인데 암호 건 내 보관 백업(열쇠 포함)을 한 번도 안 했으면 서버 백업이 '오늘'이어도 ✓가 아니다 — 상자·접힌 요약·홈 배너가 같은 문장 ──
+    await guard('a3-key-honesty', async () => {
+      const keep = (await metaOf(page)).myKeyBackedUpAt;
+      await putAll(page, { meta: { myKeyBackedUpAt: null } }); await reloadUnlock(page);
+      const gs = await page.evaluate(() => window.__prepaidTestHooks.guardStatus());
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+      await page.waitForSelector('.guard-banner', { timeout: 8000 });
+      const bHead = (await page.locator('.guard-banner strong').innerText()).trim();
+      await goGuard(page);
+      const kicker = (await page.locator('.fold-head[data-card="ledger"] .section-kicker').innerText()).trim();
+      const boxHead = (await page.locator('#guardState > b').innerText()).trim();
+      await check(gs.cloudAt > 0 && /가게 열쇠가 이 기기에만/.test(boxHead) && !boxHead.includes('✓') && kicker === boxHead && bHead === boxHead,
+        `A3-3 server-only + key never saved: box, folded summary and home banner must say the same key warning (box ${JSON.stringify(boxHead)}, kicker ${JSON.stringify(kicker)}, banner ${JSON.stringify(bHead)})`);
+      await putAll(page, { meta: { myKeyBackedUpAt: keep || Date.now() } }); await reloadUnlock(page);
+    });
+    // ── A3-4 서버 자동 백업이 켜져 있는데 8일 넘게 못 올라갔으면(오프라인이라 실패 기록조차 없어도) ✓가 아니다 ──
+    await guard('a3-cloud-stale', async () => {
+      const cur = await metaOf(page); const fp = await page.evaluate(() => window.__prepaidTestHooks.ledgerFp()); const old = Date.now() - 25 * DAY;
+      await putAll(page, { meta: { cloudBackupState: Object.assign({}, cur.cloudBackupState || {}, { lastOkAt: old, fp, failSince: 0, lastTryAt: 0 }), lastCloudBackupAt: old } });
+      relay.st.log.length = 0; await reloadUnlock(page); await page.waitForTimeout(600);
+      const gs = await page.evaluate(() => window.__prepaidTestHooks.guardStatus());
+      await check(relay.st.log.length === 0 && gs.level === 'warn' && /서버 백업이 25일째 안 되고 있어요/.test(gs.head) && gs.banner && gs.banner.head === gs.head,
+        `A3-4 a server backup 25 days old with newer transactions must be a warning (box = banner), not ✓ (got ${JSON.stringify({ head: gs.head, banner: gs.banner, log: relay.st.log.length })})`);
+    });
+    // ── A3-5 기기 시계가 미래로 갔다 온 기록(마지막 서버 백업 = 200일 뒤)은 믿지 않는다 — 예전엔 "오늘"로 보이고 주 1회 자동 백업이 그날까지 멈췄다 ──
+    await guard('a3-clock-skew', async () => {
+      const cur = await metaOf(page); const fut = Date.now() + 200 * DAY;
+      await putAll(page, { meta: { cloudBackupState: Object.assign({}, cur.cloudBackupState || {}, { lastOkAt: fut, fp: 'stale', failSince: 0, lastTryAt: 0 }), lastCloudBackupAt: fut } });
+      relay.st.log.length = 0; await reloadUnlock(page);
+      await page.waitForFunction(() => { const s = window.__prepaidTestHooks.cloudState(); return s && s.lastOkAt > Date.now() - 60000 && s.lastOkAt < Date.now() + 60000; }, null, { timeout: 20000 }).catch(() => {});
+      await check(relay.st.log.some(e => e.t === 'head'), `A3-5 a "last backup" stamped 200 days in the future must not stop the weekly automatic backup (log ${JSON.stringify(relay.st.log.map(e => e.t))})`);
+    });
+
     await check(A.dialogs.filter(d => d.type === 'confirm' || d.type === 'prompt').length === 0, `no native confirm/prompt may appear in the backup/restore flows (got ${JSON.stringify(A.dialogs)})`);
     await check(relay.st.reused === 0 && relay.st.violations.length === 0, `the app must respect the relay contract (reused tokens ${relay.st.reused}, violations ${JSON.stringify(relay.st.violations)})`);
 
@@ -2976,9 +3053,13 @@ async function runBeta55c(browser, url, cors) {
     try {
       await B.page.goto(url, { waitUntil: 'load' });
       await B.page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
-      // (환영 화면은 버튼 하나 원칙(beta.27) — 새 태블릿 되찾기 입구를 따로 두지 않았다. 여기서는 숨은 파일 입력으로 같은 경로를 탄다.)
+      // beta.55(A3): 새 태블릿의 입구 — 환영 화면 [시작하기] 아래 글씨 링크 "예전 장부가 있어요 — 백업 파일로 되찾기"가 곧바로 파일 고르기를 연다.
       const pubB0 = (await metaOf(B.page)).pubKey;
-      await B.page.locator('#restoreFile').setInputFiles({ name: passFileName1.replace(/\.json$/, '.txt'), mimeType: 'text/plain', buffer: Buffer.from(JSON.stringify(passFile1), 'utf8') });
+      const tmpB = path.join(os.tmpdir(), 'b55c-fresh-' + Date.now() + '.txt');
+      await fsp.writeFile(tmpB, JSON.stringify(passFile1));
+      const [chooserB] = await Promise.all([B.page.waitForEvent('filechooser', { timeout: 8000 }), B.page.locator('.setup-welcome [data-a="welcome-restore"]').click()]);
+      await chooserB.setFiles(tmpB);
+      await fsp.unlink(tmpB).catch(() => {});
       await B.page.waitForSelector('#keyPass1', { timeout: 8000 });
       await B.page.locator('#keyPass1').fill('nope-nope-1');
       await B.page.locator('[data-a="pass-ok"]').click();
@@ -2990,6 +3071,7 @@ async function runBeta55c(browser, url, cors) {
       await pick(B.page, 'go');
       const t2 = await choiceTitle(B.page);
       await check(t2 === '되찾기를 마쳤어요' && (await choiceText(B.page)).includes('가게 열쇠도 함께 가져왔어요') && B.downloads.length === 0, 'a fresh tablet has nothing to snapshot and must report the imported key');
+      await check((await choiceText(B.page)).includes('숫자 비밀번호 4자리'), 'after restoring on a fresh tablet the result must say the next step is setting a new 4-digit screen PIN');
       await pick(B.page, 'ok');
       await B.page.waitForSelector('[data-a="pin-key"]', { timeout: 8000 });
       await typePin(B.page, ['1', '2', '3', '4', '1', '2', '3', '4']);
@@ -3010,6 +3092,76 @@ async function runBeta55c(browser, url, cors) {
       await pick(B.page, 'cancel');
       await check(B.dialogs.filter(d => d.type !== 'beforeunload').length === 0, `no native dialogs on the new tablet (got ${JSON.stringify(B.dialogs)})`);
     } finally { await B.ctx.close(); }
+  });
+
+  // ═════ A3: PIN 분실 복구 화면(비밀번호를 모르는 사람도 60초 뒤 닿는다)에서 '남의' 암호 건 파일을 고르면,
+  //   예전에는 지금 장부 + 이 가게 열쇠가 **그 사람의 암호**로 잠긴 사본으로 다운로드됐다(다른 기기에서 그 암호로 열림 — 실증).
+  //   이제 그 경로의 안전 사본은 이 기기 열쇠로 잠근 파일(prepaid-locked-backup)이다(사장님 백업 암호와 같을 때만 암호 건 사본). ═════
+  await guard('a3-forgotpin-foreign-file', async () => {
+    const zlib = require('zlib');
+    const kp = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const pubKey = kp.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    const pkcs8 = kp.privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64');
+    const core = JSON.parse(fs.readFileSync(path.join(FIX, 'beta54-plain.json'), 'utf8'));
+    const pass = 'foreign-pass-9';
+    const salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
+    const k = crypto.pbkdf2Sync(pass, salt, 600000, 32, 'sha256');
+    const plain = zlib.gzipSync(Buffer.from(JSON.stringify({ core, key: { pubKey, pkcs8 } }), 'utf8'));
+    const c = crypto.createCipheriv('aes-256-gcm', k, iv); const ct = Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
+    const file = { type: 'prepaid-pass-backup', v: 1, appName: '선입금대장', appVersion: 'harness', exportedAt: Date.now(), z: 1, kdf: { name: 'PBKDF2', hash: 'SHA-256', it: 600000, salt: salt.toString('base64') }, iv: iv.toString('base64'), ct: ct.toString('base64') };
+    const D = await newCtx(); const p = D.page;
+    const tmp = path.join(os.tmpdir(), 'b55c-foreign-' + Date.now() + '.txt');
+    try {
+      await p.goto(url, { waitUntil: 'load' }); await p.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 }); await p.waitForTimeout(200);
+      const now = Date.now();
+      await putAll(p, { meta: { setupComplete: true, welcomeSeen: true, termsAgreedAt: now, pinHash: legacyPin, shopName: '피해식당', departments: ['총무과'] },
+        employees: [emp('v-e1', '정피해', '총무과')], transactions: [tx('v-t1', 'v-e1', 'open', 30000, 1), tx('v-t2', 'v-e1', 'use', 9000, 2, { signatureData: SIG })] });
+      await resealChain(p);
+      await p.reload({ waitUntil: 'load' });
+      await p.waitForSelector('[data-a="lock-to-pin"]', { timeout: 15000 }); await p.locator('[data-a="lock-to-pin"]').click();
+      await p.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { recoveryGate: 500 }));
+      await p.locator('[data-a="pin-forgot"]').click(); await p.waitForTimeout(900);
+      await fsp.writeFile(tmp, JSON.stringify(file));
+      const [chooser] = await Promise.all([p.waitForEvent('filechooser'), p.locator('[data-a="pin-forgot-restore"]').click()]);
+      await chooser.setFiles(tmp);
+      await p.waitForSelector('#keyPass1', { timeout: 8000 }); await p.locator('#keyPass1').fill(pass); await p.locator('[data-a="pass-ok"]').click();
+      let t = await choiceTitle(p);
+      if (/다른 가게 열쇠/.test(t)) { await pick(p, 'replace'); t = await choiceTitle(p); }
+      const n0 = D.downloads.length; await pick(p, 'go'); await choiceTitle(p);
+      const d = await waitDl(D.downloads, n0 + 1, 10000);
+      const snap = d ? await dlJson(d) : null;
+      await check(!!snap && snap.type === 'prepaid-locked-backup' && !/정피해/.test(JSON.stringify(snap)),
+        `A3 forgot-PIN restore of a foreign pass file must NOT hand the current ledger + shop key over in a file locked with the file's password (got ${JSON.stringify(snap && { type: snap.type, name: d.suggestedFilename() })})`);
+      await pick(p, 'ok');
+    } finally { await fsp.unlink(tmp).catch(() => {}); await D.ctx.close(); }
+  });
+
+  // ═════ A3: 새 태블릿(미등록)에서 **열쇠 없는** 파일(등록된 가게의 평문 백업)로 되찾으면 등록 정보는 파일에서 오지만 열쇠는 이 기기 것이다.
+  //   그 파일의 '서버 백업 시각'·'열쇠 보관 시각'은 다른 열쇠의 기록 — 들여오면 상태가 "✓ 서버 1일 전"이고 자동 백업(=열쇠가 다르다는 걸
+  //   화면에 올려 줄 유일한 시도)도 한 주 동안 멈췄다. 이제 이 기기 값으로 두고, 잠금을 풀면 곧바로 시도해 실패를 상자에 올린다. ═════
+  await guard('a3-plain-file-other-key', async () => {
+    const plainFx = JSON.parse(fs.readFileSync(path.join(FIX, 'beta54-plain.json'), 'utf8'));
+    const day1 = Date.now() - DAY;
+    plainFx.payload.meta.lastCloudBackupAt = day1; plainFx.payload.meta.myKeyBackedUpAt = day1; plainFx.payload.meta.lastBackupAt = day1; delete plainFx.checksum;
+    const E = await newCtx(); const p = E.page;
+    const tmp = path.join(os.tmpdir(), 'b55c-plainkey-' + Date.now() + '.json');
+    try {
+      await p.goto(url, { waitUntil: 'load' }); await p.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 }); await p.waitForTimeout(200);
+      await fsp.writeFile(tmp, JSON.stringify(plainFx));
+      const [chooser] = await Promise.all([p.waitForEvent('filechooser'), p.locator('[data-a="welcome-restore"]').click()]);
+      await chooser.setFiles(tmp);
+      await choiceTitle(p); await pick(p, 'go');
+      const txt = await choiceText(p);
+      await check(txt.includes('이 파일에는 가게 열쇠가 없어요'), `A3 the result must tell the owner this file carries no shop key (got ${JSON.stringify(txt.replace(/\s+/g, ' ').slice(0, 200))})`);
+      await pick(p, 'ok');
+      await p.waitForSelector('[data-a="pin-key"]', { timeout: 8000 });
+      relay.st.log.length = 0;
+      await typePin(p, ['1', '2', '3', '4', '1', '2', '3', '4']); await awaitUnlocked(p);
+      await p.waitForFunction(() => { const s = window.__prepaidTestHooks.cloudState(); return s && s.failSince > 0; }, null, { timeout: 15000 }).catch(() => {});
+      const m = await metaOf(p); const gs = await p.evaluate(() => window.__prepaidTestHooks.guardStatus());
+      await check(m.restaurantId === 'rid-fix54' && m.lastCloudBackupAt !== day1 && m.myKeyBackedUpAt !== day1 && gs.level === 'warn' && !gs.head.includes('✓'),
+        `A3 another key's backup stamps must not be imported, and the status must not claim safety (got ${JSON.stringify({ lastCloud: m.lastCloudBackupAt, myKey: m.myKeyBackedUpAt, head: gs.head })})`);
+    } finally { await fsp.unlink(tmp).catch(() => {}); await E.ctx.close(); }
   });
 
   // ═════════════════════ 기기 C: 미등록 가게 + 예전 형식 파일(수정 전 앱이 만든 픽스처) ═════════════════════

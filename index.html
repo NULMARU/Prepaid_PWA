@@ -220,6 +220,8 @@
 .modal[style*="text-align:center"] h2::after{margin-left:auto;margin-right:auto}
 .help{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.6}
 .field{display:grid;gap:4px}
+/* beta.55(A3): 날짜 칸은 크로미움 기본 최소 폭(약 154px)이 있어 폰(360px) 사용 등록 창의 2열(비고·날짜)에서 오른쪽으로 14px 넘쳤다 */
+.field{min-width:0}.field input[type=date]{min-width:0;max-width:100%}
 .field label{font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
 .form{display:grid;gap:12px}
 .quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
@@ -290,6 +292,7 @@
 .guard-three button{min-height:48px;padding:4px 6px;font-size:14.5px;font-weight:700;white-space:normal;line-height:1.25}
 .guard-note{font-size:12.5px;line-height:1.6}
 .guard-links{text-align:center;color:var(--muted);font-size:14px}
+.setup-welcome-restore{text-align:center;margin-top:12px;line-height:1.5}.setup-welcome-restore .link-btn{color:var(--primary);font-size:15px}.setup-welcome-restore .meta{margin-top:2px}
 .link-btn{background:none;border:none;box-shadow:none;color:var(--muted);text-decoration:underline;font-size:14px;font-weight:600;min-height:44px;padding:0 6px;border-radius:8px}
 .sig-missing{margin-top:6px;font-size:12.5px;color:var(--muted);line-height:1.5}
 .pass-plain{align-items:flex-start;line-height:1.5}.pass-plain-warn{color:var(--danger)}
@@ -2201,6 +2204,7 @@ no_key:'이 기기에 가게 열쇠가 없어요. 설정 > 장부 지키기 > [�
 backup_too_big:'장부가 너무 커서 서버에 올리지 못했어요. [지금 백업하기]로 내 보관용 파일을 꼭 남겨 주세요.',
 backup_corrupt:'서버 백업 내용이 손상됐어요(확인값이 맞지 않아요). 내 보관 백업 파일로 되찾아 주세요.',
 backup_incomplete:'서버 백업 일부가 비어 있어요. 내 보관 백업 파일로 되찾아 주세요.',
+backup_key_mismatch:'서버 백업을 이 기기의 가게 열쇠로 열 수 없어요(다른 열쇠로 잠긴 백업이에요). 내 보관 백업 파일로 되찾아 주세요.',
 too_many_segments:'서버 백업 자리가 가득 찼어요. 잠시 뒤 다시 해 주세요(계속되면 contact@bapjangbu.com으로 알려 주세요).',
 no_gzip:'이 브라우저는 압축된 백업을 풀 수 없어요. 크롬을 최신 버전으로 바꾼 뒤 다시 해 주세요.',
 invalid_gen:'서버 백업 형식이 맞지 않아요. 앱을 새로 고친 뒤 다시 해 주세요.',
@@ -2267,13 +2271,17 @@ async function hybridDecryptBytes(blob){const priv=await getPrivateKey();if(!pri
 // 봉인한 문자열(서버에 올리는 blob) = base64(JSON{v,z,encKey,iv,ct}) — v1 blob과 같은 모양에 v·z만 더했다.
 async function sealForCloud(obj,v){const p=await packBytes(obj);const enc=await hybridEncryptBytes(p.bytes);const blob=btoa(JSON.stringify({v,z:p.z,...enc}));return{blob,blob_hash:await hash(blob),ph:p.ph}}
 async function openFromCloud(blobB64){let env;try{env=JSON.parse(atob(String(blobB64||'')))}catch(e){throw relayCodeErr('backup_corrupt')}if(!env||typeof env!=='object'||!env.encKey||!env.iv||!env.ct)throw relayCodeErr('backup_corrupt');
-const bytes=await hybridDecryptBytes(env);return unpackBytes(bytes,num(env.z)===1)}
+// 복호화 실패를 '명단' 문구(decrypt_failed)로 말하지 않는다 — 서버 백업을 이 기기 열쇠로 열 수 없다는 뜻이다(A3).
+let bytes;try{bytes=await hybridDecryptBytes(env)}catch(e){throw relayErrCode(e)==='decrypt_failed'?relayCodeErr('backup_key_mismatch'):e}return unpackBytes(bytes,num(env.z)===1)}
 // 기기 상태(기기 전용 — 장부 백업에 실리지 않고, 복원·초기화 때 비운다).
 function cloudState(){const s=state.data.meta.cloudBackupState;return(s&&typeof s==='object'&&!Array.isArray(s))?s:{}}
 async function saveCloudState(next){const v={...next};state.data.meta.cloudBackupState=v;try{await repo.apply({meta:{cloudBackupState:v}})}catch(e){console.error('relay cloud state save',e)}}
 // '바뀐 것이 있나' 판정용 지문(동기·가벼움): 거래 수·마지막 고리·직원 수·직원 최종 수정 시각·가게 이름.
 function ledgerFp(){const es=state.data.employees;let mx=0;es.forEach(e=>{const u=num(e.updatedAt);if(u>mx)mx=u});return [state.data.transactions.length,chainTip(),es.length,es.filter(e=>e.isDeleted).length,mx,str(state.data.meta.shopName)].join('|')}
-function cloudLastOkAt(){return Math.max(num(cloudState().lastOkAt),num(state.data.meta.lastCloudBackupAt))}
+// 기기 시계가 잘못 앞으로 갔다가 돌아온 경우(태블릿 시계 오류) 미래 시각의 기록을 믿으면 "오늘 백업함"으로 보이고
+//   주 1회 자동 백업이 그 미래 날짜까지 멈춘다(A3 실증). 하루 넘게 미래인 기록은 없는 것으로 본다.
+function pastTs(v){const n=num(v);return n>0&&n<=now()+DAY_MS?n:0}
+function cloudLastOkAt(){return Math.max(pastTs(cloudState().lastOkAt),pastTs(state.data.meta.lastCloudBackupAt))}
 function cloudChanged(){const s=cloudState();return !s.fp||s.fp!==ledgerFp()}
 function newCloudGen(){return 'g'+Date.now().toString(36)+bufToB64(randBytes(9)).replace(/[^A-Za-z0-9]/g,'').slice(0,10)}
 function sleepMs(ms){return new Promise(r=>setTimeout(r,ms))}
@@ -2307,7 +2315,10 @@ for(const s of segs){s.plain={v:2,seg_no:s.n,transactions:s.list};s.ph=await sha
 const prevPh=(st.segs&&typeof st.segs==='object')?st.segs:{},prevCnt=(st.counts&&typeof st.counts==='object')?st.counts:{},prevBh=(st.bh&&typeof st.bh==='object')?st.bh:{};
 // 새 세대(gen)가 필요한 경우: 처음 / 거래 수가 줄었다(복원 등) / 이미 꽉 찬(닫힌) 조각의 내용이 바뀌었다.
 let fresh=!str(st.gen)||num(st.txCount)>txs.length||Object.keys(prevPh).some(k=>num(prevCnt[k])>=size&&(!segs[num(k)]||segs[num(k)].ph!==prevPh[k]))||num(st.segSize)!==size;
-const gen=fresh?newCloudGen():str(st.gen);
+// beta.55(A3): 새 세대를 올리다 끊기면(머리 전) 그 조각들은 머리가 오기 전까지 서버에 남는다. 다시 할 때마다 또 새 세대를 만들면
+//   남은 조각이 쌓여 가게당 상한(1,000)에 닿고, 그 뒤로는 조각부터 거절돼 머리를 영영 못 올린다(서버에 고아 조각 정리가 없다).
+//   → 끊긴 새 세대는 기억했다가(pendingGen) 다음 시도에서 **같은 세대 번호로** 다시 올린다(같은 자리 덮어쓰기라 행이 늘지 않는다).
+let gen=str(st.gen);if(fresh){const pg=str(st.pendingGen);gen=(pg&&pg!==str(st.gen)&&num(st.pendingSegSize)===size)?pg:newCloudGen();if(gen!==pg){await saveCloudState({...st,pendingGen:gen,pendingSegSize:size})}}
 const onServer=new Map();(Array.isArray(lj.segments)?lj.segments:[]).forEach(x=>{if(x&&str(x.gen)===gen)onServer.set(num(x.seg_no),str(x.blob_hash))});
 const todo=segs.filter(s=>fresh||prevPh[s.n]!==s.ph||!onServer.has(s.n)||(prevBh[s.n]&&onServer.get(s.n)&&onServer.get(s.n)!==prevBh[s.n]));
 const bh={};if(!fresh)segs.forEach(s=>{if(prevBh[s.n])bh[s.n]=prevBh[s.n]});
@@ -2348,7 +2359,7 @@ finally{if(cloudRunning===p)cloudRunning=null}}
 function cloudAutoDue(){const m=state.data.meta;if(m.autoCloudBackup===false||!relayRegistered()||!str(m.pubKey))return false;
 if(!state.data.transactions.length&&!state.data.employees.length)return false;
 const last=cloudLastOkAt();if(last&&now()-last<CLOUD_WEEK_MS)return false;if(!cloudChanged())return false;
-const st=cloudState();if(num(st.lastTryAt)&&num(st.failSince)&&now()-num(st.lastTryAt)<CLOUD_RETRY_GAP_MS)return false;return true}
+const st=cloudState();if(pastTs(st.lastTryAt)&&num(st.failSince)&&now()-pastTs(st.lastTryAt)<CLOUD_RETRY_GAP_MS)return false;return true}
 async function maybeAutoCloudBackup(){try{if(lockScreenActive()||!navigator.onLine||cloudRunning)return false;if(!cloudAutoDue())return false;return await relayBackupSilent()}catch(e){console.error('silent cloud backup',e);return false}}
 // 명단을 받은 직후 — 예전의 "백업을 갱신할까요?" 확인창 대신 조용히 시도한다(자동 백업을 끈 가게는 건드리지 않는다).
 function cloudBackupAfterRoster(){if(state.data.meta.autoCloudBackup===false)return;relayBackupSilent().catch(()=>{})}
@@ -2360,8 +2371,15 @@ const r=await cloudCall('/api/ledger-backup/seg/get',{gen:str(head.gen),seg_nos:
 const got=new Map((Array.isArray(j.segments)?j.segments:[]).map(s=>[num(s&&s.seg_no),s]));
 for(const m of part){const s=got.get(num(m.n));if(!s||typeof s.blob!=='string')throw relayCodeErr('backup_incomplete');
 if(s.blob_hash&&(await hash(s.blob))!==str(s.blob_hash))throw relayCodeErr('backup_corrupt');
-const u=await openFromCloud(s.blob);if(u.ph!==str(m.ph))throw relayCodeErr('backup_corrupt');
-const list=u.obj&&Array.isArray(u.obj.transactions)?u.obj.transactions:null;if(!list||num(u.obj.seg_no)!==num(m.n)||list.length!==num(m.count))throw relayCodeErr('backup_corrupt');
+const u=await openFromCloud(s.blob);let list=u.obj&&Array.isArray(u.obj.transactions)?u.obj.transactions:null;
+if(!list||num(u.obj.seg_no)!==num(m.n))throw relayCodeErr('backup_corrupt');
+// beta.55(A3): 같은 세대의 '열린'(덜 찬) 마지막 조각은 다음 백업 때 **제자리에서 다시 올라간다**. 그 뒤 머리(head)를 올리기 전에
+//   끊기면(인터넷 끊김·앱 닫힘·401) 서버의 머리는 예전 건수·확인값을 가리키는데 조각은 거래가 더 붙은 새 내용이다.
+//   예전에는 이 상태의 서버 백업 전체를 '손상'으로 거절했다 — 다음 성공까지(최대 1주) 서버에서 되찾을 수 없었다.
+//   거래는 원장 순서로 뒤에만 붙으므로, 머리가 말하는 건수만큼 앞부분을 잘라 확인값이 맞으면 그 예전 백업을 그대로 되찾는다.
+if(u.ph!==str(m.ph)){if(list.length<=num(m.count))throw relayCodeErr('backup_corrupt');
+const cut=list.slice(0,num(m.count));if(await sha256Hex(new TextEncoder().encode(JSON.stringify({v:2,seg_no:num(m.n),transactions:cut})))!==str(m.ph))throw relayCodeErr('backup_corrupt');list=cut}
+else if(list.length!==num(m.count))throw relayCodeErr('backup_corrupt');
 out.push(...list)}}
 if(out.length!==num(head.txCount))throw relayCodeErr('backup_incomplete');
 if(str(head.chainTip)&&chainTipOf(out)!==str(head.chainTip))throw relayCodeErr('backup_corrupt');
@@ -2495,26 +2513,36 @@ if(v==='file'){const inp=qs('restoreFile');inp.value='';inp.click()}}
 // 빈 상태를 값처럼 보여주지 않는다: 한 번도 안 했으면 "아직 없음", 등록 전이면 서버 줄 대신 이유 한 줄.
 function guardStatus(){const m=state.data.meta,reg=relayRegistered(),autoOn=m.autoCloudBackup!==false,txs=state.data.transactions;
 const hasData=!!(txs.length||state.data.employees.length),st=cloudState();
-const cloudAt=cloudLastOkAt(),ownAt=num(m.lastBackupAt),failing=reg&&autoOn&&num(st.failSince)>0;
+const cloudAt=cloudLastOkAt(),ownAt=pastTs(m.lastBackupAt),failing=reg&&autoOn&&num(st.failSince)>0;
 let newest=0,oldest=Infinity;for(const t of txs){const c=num(t.createdAt);if(c>newest)newest=c;if(c<oldest)oldest=c}
 const days=ts=>Math.max(0,Math.floor((now()-ts)/DAY_MS));
 const ownStale=!!txs.length&&newest>ownAt&&now()-(ownAt||oldest)>OWN_STALE_MS;
 const keyMissing=keyBackupUrgent();
+// beta.55(A3): 서버 자동 백업이 켜져 있는데 마지막 성공 뒤 8일이 넘도록 새 거래가 서버에 못 올라갔다 — 실패 기록이 없어도 그렇다
+//   (와이파이 없는 가게는 시도조차 못 하므로 실패도 남지 않는다). 예전에는 이때도 "✓ 안전하게 보관"이라고 말했다.
+const cloudStale=reg&&autoOn&&cloudAt>0&&newest>cloudAt&&now()-cloudAt>=CLOUD_WEEK_MS+DAY_MS;
 const bothStale=(()=>{if(!txs.length)return false;const last=Math.max(ownAt,cloudAt);if(newest<=last)return false;return now()-(last>0?last:oldest)>OWN_STALE_MS})();
 const cloudText=!reg?'':(!autoOn?'꺼져 있어요':(cloudAt?daysAgoText(cloudAt):'아직 없음'));
 const ownText=ownAt?daysAgoText(ownAt):'아직 없음';
-let level='ok',head='✓ 장부가 안전하게 보관돼 있어요',sub='';
-if(failing){const since=cloudAt||num(st.failSince),n=days(since);level='warn';head=n>=1?`⚠ 서버 백업이 ${n}일째 안 되고 있어요`:'⚠ 서버 백업이 안 됐어요';sub=esc(relayErrMsg({code:str(st.lastError)},'잠시 뒤 다시 해 주세요.'))+' — 인터넷을 연결하고 [지금 백업하기]를 눌러 주세요.'}
+// 상태는 하나의 문장으로 정한다 — 상자 제목·접힌 요약·홈 배너가 **같은 문장**을 쓴다(A3: 예전에는 배너만 다른 말을 했다).
+//   우선순위: 서버 실패 → 서버 멈춤 → 열쇠가 이 기기에만 → 백업 없음 → 내 보관 오래됨 → 서버 자동 꺼짐+내 보관 없음.
+let level='ok',head='✓ 장부가 안전하게 보관돼 있어요',sub='',why='';
+if(failing){const since=cloudAt||num(st.failSince),n=days(since);level='warn';why='cloud';head=n>=1?`⚠ 서버 백업이 ${n}일째 안 되고 있어요`:'⚠ 서버 백업이 안 됐어요';sub=esc(relayErrMsg({code:str(st.lastError)},'잠시 뒤 다시 해 주세요.'))+' — 인터넷을 연결하고 [지금 백업하기]를 눌러 주세요.'}
+else if(cloudStale){level='warn';why='cloud';head=`⚠ 서버 백업이 ${days(cloudAt)}일째 안 되고 있어요`;sub='인터넷(와이파이)을 연결하고 [지금 백업하기]를 눌러 주세요.'}
+// 등록된 가게의 서버 백업은 **이 기기의 가게 열쇠**로만 열린다. 암호 건 내 보관 백업(열쇠가 함께 들어감)을 한 번도 안 했으면
+//   폰을 잃어버리는 순간 서버 백업도 열 수 없다 — 서버 백업이 '오늘'이어도 안전하다고 말하지 않는다.
+else if(keyMissing){level='warn';why='key';head=cloudAt?'⚠ 서버 백업을 열 가게 열쇠가 이 기기에만 있어요':'⚠ 가게 열쇠가 이 기기에만 있어요';sub='[지금 백업하기]로 암호 건 내 보관 파일을 남겨 주세요. 폰을 잃어버려도 그 파일과 백업 암호가 있으면 새 폰에서 장부와 가게 열쇠를 되찾아요.'}
 else if(!cloudAt&&!ownAt){level=hasData?'warn':'none';head='아직 백업이 없어요';sub=hasData?'[지금 백업하기]를 눌러 장부를 보관해 주세요.':'직원·거래가 생기면 백업할 수 있어요.'}
-else if(ownStale){level='warn';head=ownAt?`⚠ 내 보관 백업을 한 지 ${days(ownAt)}일 됐어요`:'⚠ 내 보관 백업을 아직 안 했어요';sub='[지금 백업하기]에서 카톡·메일로 보내거나 이 기기에 저장해 주세요.'}
-else if(keyMissing){level='warn';head='⚠ 암호 건 내 보관 백업을 아직 안 했어요';sub='가게 열쇠는 암호 건 백업 파일에 함께 들어가요. 폰을 잃어버려도 새 폰에서 명단을 계속 받으려면 꼭 남겨 주세요.'}
+else if(ownStale){level='warn';why=bothStale?'stale':'';head=bothStale?`⚠ 장부를 백업한 지 오래됐어요 (마지막 ${daysAgoText(Math.max(ownAt,cloudAt)||oldest)})`:(ownAt?`⚠ 내 보관 백업을 한 지 ${days(ownAt)}일 됐어요`:'⚠ 내 보관 백업을 아직 안 했어요');sub='[지금 백업하기]에서 카톡·메일로 보내거나 이 기기에 저장해 주세요.'}
+else if(reg&&!autoOn&&!ownAt&&hasData){level='warn';head='⚠ 서버 자동 백업이 꺼져 있고 내 보관 백업도 없어요';sub='[지금 백업하기]로 내 보관 파일을 남기거나, 아래 [서버 자동 백업 켜기]를 눌러 주세요.'}
 const rows=[];if(reg)rows.push(['서버 자동 백업 (매주)',cloudText]);rows.push(['내 보관 백업',ownText]);
 const summary=level==='warn'?head:(reg?`서버 ${cloudText} · 내 보관 ${ownText}`:`내 보관 ${ownText} · 가게를 등록하면 서버에도 보관돼요`);
+// 홈 배너: 제목은 상자와 같은 문장. 서버 문제는 마지막 성공이 8일 넘었을 때(또는 열쇠도 없을 때), 열쇠는 언제나, 오래됨은 둘 다 오래됐을 때.
 let banner=null;
-if(failing&&(!cloudAt||now()-cloudAt>=CLOUD_WEEK_MS+DAY_MS))banner={head,sub:'인터넷(와이파이)을 연결한 뒤 여기를 눌러 지금 백업해 주세요.'};
-else if(keyMissing)banner={head:'🔑 가게 열쇠를 아직 보관하지 않았어요',sub:'폰을 잃어버리면 열쇠 없이는 명단을 받을 수도, 등록을 해제할 수도 없어요. 눌러서 암호 건 백업 남기기'};
-else if(bothStale){const last=Math.max(ownAt,cloudAt);banner={head:'💾 장부를 백업한 지 오래됐어요',sub:`마지막 백업: ${last>0?daysAgoText(last):'없음'} — 눌러서 지금 백업하기`}}
-return{reg,autoOn,level,head,sub,rows,summary,banner,cloudAt,ownAt,failing,keyMissing}}
+if(why==='cloud'&&(!cloudAt||now()-cloudAt>=CLOUD_WEEK_MS+DAY_MS||keyMissing))banner={head,sub:'인터넷(와이파이)을 연결한 뒤 여기를 눌러 지금 백업해 주세요.'};
+else if(why==='key')banner={head,sub:'여기를 눌러 암호 건 내 보관 백업을 남겨 주세요.'};
+else if(why==='stale')banner={head,sub:'여기를 눌러 지금 백업해 주세요.'};
+return{reg,autoOn,level,head,sub,rows,summary,banner,cloudAt,ownAt,failing,keyMissing,cloudStale}}
 function guardBanner(){const s=guardStatus();if(!s.banner||state.guardBannerDismissed)return '';
 return `<div class="card banner warn guard-banner" data-a="backup-now" style="cursor:pointer;position:relative"><button class="banner-x" data-a="dismiss-guard-banner" aria-label="이 안내 닫기">✕</button><strong>${esc(s.banner.head)}</strong><div class="meta">${esc(s.banner.sub)}</div></div>`}
 function guardCardHtml(){const s=guardStatus();
@@ -3164,6 +3192,10 @@ return '<div class="setup"><div class="setup-welcome">'
 +'<div class="setup-welcome-free">완전 무료예요 · 광고도 없어요</div>'
 +'</div>'
 +'<button class="btn-primary" data-a="setup-welcome-start" style="width:100%;min-height:60px;font-size:18px;font-weight:800;margin-top:18px">시작하기</button>'
+// beta.55(A3): 새 태블릿에서 예전 장부를 되찾는 길 — 진한 버튼은 [시작하기] 하나로 두고, 되찾기는 글씨 링크 한 줄이다.
+//   누르면 곧바로 파일 고르기(확인창을 앞에 두지 않는다 — 파일 고르기는 탭 직후에만 열린다). 고른 파일은 설정 > [되찾기]와 같은 길(onRestoreFile)을 지난다.
++'<div class="setup-welcome-restore"><button class="link-btn" data-a="welcome-restore">예전 장부가 있어요 — 백업 파일로 되찾기</button>'
++'<div class="meta">예전 폰에서 만든 <b>암호 건 백업 파일</b>을 고르면 장부와 가게 열쇠를 함께 되찾아요.</div></div>'
 +'</div></div>'}
 
 // 1/3 우리 가게 찾기 — 공공데이터(중계 서버 프록시)에서 검색해 고르면 가게명·주소·전화가 한 번에 채워진다.
@@ -3760,6 +3792,7 @@ try{await navigator.clipboard.writeText(u);toast('네이버 지도 링크를 복
 //   돌아가는 것이 이 기능의 목적이다(설정 화면을 열 때마다 7화면짜리 벽이 서지 않게).
 'toggle-settings-card':(el)=>{const k=str(el.dataset.card);if(!k)return;state.settingsOpen[k]=!state.settingsOpen[k];render()},
 // 환영 화면(0단계) → 1/3. 본 것을 기록해 다시 띄우지 않는다(앱을 껐다 켜도 유지).
+'welcome-restore':()=>{const inp=qs('restoreFile');inp.value='';inp.click()},
 'setup-welcome-start':async()=>{state.data.meta.welcomeSeen=true;try{await repo.apply({meta:{welcomeSeen:true}})}catch(e){console.error('welcome flag',e)}state.setupStep=1;render()},
 'pin-key':async(el)=>{await handlePinKey(el.dataset.key)},
 'pin-reset':async()=>{await pinReset()},// pinReset() 안에서 복구 화면 60초 게이트를 다시 확인한다
@@ -4229,6 +4262,11 @@ if(keepDeviceReg)REG_META_KEYS.forEach(k=>{if(curMeta[k]!==undefined)data.meta[k
 if(keyPlan){Object.assign(data.meta,keyPlan);data.meta.myKeyBackedUpAt=num(opts.when)||now()}
 // 마지막 백업 시각은 이 기기 기록과 백업 기록 중 늦은 쪽 — 옛 백업을 되돌려도 "백업한 적 없음"으로 돌아가지 않는다.
 ['lastBackupAt','lastCloudBackupAt'].forEach(k=>{const v=Math.max(num(curMeta[k]),num(data.meta[k]));data.meta[k]=v>0?v:null});
+// beta.55(A3): 등록 정보는 파일에서 왔는데(이 기기는 미등록) 이 기기 열쇠가 그 파일을 만든 기기의 열쇠와 다르면, 파일의 '서버 백업 시각'·'열쇠 보관 시각'은
+//   **다른 열쇠**의 기록이다. 그대로 들여오면 이 기기는 서버에 소유 증명도 못 하는데 상태 상자는 "✓ 서버 백업 1일 전"이라고 말하고
+//   주 1회 자동 백업도 한 주 동안 시도조차 않는다(그 시도가 '열쇠가 달라요'를 화면에 올려 줄 유일한 길이다). → 이 기기 값으로 둔다.
+const filePub=str(((parsedBackup.data&&parsedBackup.data.meta)||{}).pubKey);
+if(!keyPlan&&!keepDeviceReg&&str(data.meta.restaurantId)&&filePub&&filePub!==str(data.meta.pubKey)){data.meta.lastCloudBackupAt=num(curMeta.lastCloudBackupAt)||null;data.meta.myKeyBackedUpAt=num(curMeta.myKeyBackedUpAt)||null}
 data.meta.cloudBackupState=null;data.meta.inboxCountCache=null;
 if(opts.pass&&!data.meta.backupPassCheck){try{data.meta.backupPassCheck=await passVerifierMake(opts.pass)}catch(e){console.error('relay pass check',e)}}
 // ── 같은 기기의 전화번호·문자 동의 유지(백업에 없을 때만) ──
@@ -4253,7 +4291,12 @@ const choice=await askChoice({title:fewer?'⚠ 지금 장부보다 거래가 적
 if(choice!=='go'){toast('되돌리지 않았어요. 장부는 그대로예요.');return false}
 // ── 안전 사본(덮어쓰기 직전) ──
 let snap='skipped';
-if(hasCur){setBusy('지금 장부의 안전 사본을 만드는 중이에요.');snap=await restoreSafetySnapshot({pass:(keyPlan&&str(curMeta.pubKey))?opts.pass:'',forgotPin:!!opts.forgotPin});clearBusy();
+// ⚠️ beta.55(A3): 암호 건 사본(파일 암호로 잠금)은 **비밀번호를 아는 사람의 경로에서만** 만든다. PIN 분실 복구 화면(forgotPin)은
+//   PIN을 모르는 사람도 60초를 기다리면 닿는다 — 거기서 자기 암호 파일을 고르면, 지금 장부와 **이 가게의 열쇠**가 그 사람의 암호로
+//   잠긴 파일이 다운로드 폴더에 떨어졌다(실증: 다른 기기에서 그 암호로 열림). 복구 화면에서는 이 기기에 정해 둔 백업 암호와
+//   같을 때만(=사장님 본인) 암호 건 사본을 만들고, 아니면 이 기기 열쇠로 잠근 사본으로 간다.
+let snapPass='';if(keyPlan&&str(curMeta.pubKey)&&opts.pass){snapPass=opts.pass;if(opts.forgotPin){let mine=null;try{mine=await passVerifierMatch(opts.pass,curMeta.backupPassCheck)}catch(e){mine=null}if(mine==null)snapPass=''}}
+if(hasCur){setBusy('지금 장부의 안전 사본을 만드는 중이에요.');snap=await restoreSafetySnapshot({pass:snapPass,forgotPin:!!opts.forgotPin});clearBusy();
 if(!snap){const v=await askChoice({title:'안전 사본을 만들지 못했어요',lines:['지금 장부를 파일로 남기지 못했어요. 그래도 백업으로 되돌릴까요?'],buttons:[{val:'cancel',label:'취소',cls:'btn-primary'},{val:'go',label:'그래도 되돌리기',cls:'btn-danger'}]});if(v!=='go'){toast('되돌리지 않았어요. 장부는 그대로예요.');return false}}}
 const safety={employees:[...state.data.employees],transactions:[...state.data.transactions],meta:{...state.data.meta}};
 setBusy('되돌리는 중이에요.');
@@ -4265,12 +4308,13 @@ stopPinDelayTick();clearPinGuard();try{await ensureKeyPair()}catch(ke){console.e
 state.inboxCount=null;refreshInboxCount();
 clearBusy();render();
 const done=[`직원 <b>${ec}명</b> · 거래 <b>${tc}건</b>으로 되돌렸어요.`];
-if(snap==='locked'||snap==='pass')done.push(`되돌리기 전 장부는 <b>${snap==='pass'?'암호 건':'잠긴'} 안전 사본 파일</b>로 내려받았어요(다운로드 폴더).`);
+if(snap==='locked'||snap==='pass')done.push(`되돌리기 전 장부는 <b>${snap==='pass'?'암호 건':'잠긴'} 안전 사본 파일</b>로 내려받았어요(다운로드 폴더).`+(snap==='locked'&&keyPlan?' 이 사본은 <b>바꾸기 전의 가게 열쇠</b>로 잠겨 있어 그 열쇠가 든 백업 파일이 있어야 열려요.':''));
 else if(snap==='plain')done.push('되돌리기 전 장부는 <b>안전 사본 파일(암호 없음)</b>로 내려받았어요 — 이 기기에 가게 열쇠가 없어 잠그지 못했어요. 다운로드 폴더의 파일을 잘 보관해 주세요.');
 if(opts.noSig)done.push('서명 그림은 이 백업에 없어요. 이력에는 "서명 기록은 확인됨"으로 보여요.');
 if(phoneKept)done.push(`이 기기에 있던 직원 전화번호 ${phoneKept}건은 그대로 두었어요.`);
 if(keyNote==='import')done.push('가게 열쇠도 함께 가져왔어요.');
-else if(!keyPlan&&!keepDeviceReg&&str(data.meta.restaurantId))done.push('이 파일에는 가게 열쇠가 없어요. 명단 받기·서버 되찾기를 쓰려면 예전 폰에서 만든 <b>암호 건 백업 파일</b>(또는 예전 \'내 열쇠 백업\' 파일)도 [되찾기]로 가져와 주세요.');
+else if(!keyPlan&&!keepDeviceReg&&str(data.meta.restaurantId))done.push((keyNote==='kept'?'파일의 가게 열쇠는 가져오지 않았어요(이 기기 열쇠를 그대로 두었어요).':keyNote==='bad'?'파일 안의 가게 열쇠는 짝이 맞지 않아 가져오지 않았어요.':'이 파일에는 가게 열쇠가 없어요.')+' 명단 받기·서버 되찾기를 쓰려면 예전 폰에서 만든 <b>암호 건 백업 파일</b>(또는 예전 \'내 열쇠 백업\' 파일)도 [되찾기]로 가져와 주세요.');
+if(!str(data.meta.pinHash))done.push('[확인]을 누르면 화면을 여는 <b>숫자 비밀번호 4자리</b>를 새로 정해요.');
 await askChoice({title:'되찾기를 마쳤어요',lines:done,buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});
 return true}catch(re){console.error('relay restore apply',re);try{await repo.replaceAll(safety);state.data=safety}catch(e2){console.error('롤백 실패:',e2)}clearBusy();render();toast('되돌리지 못했어요. 장부는 이전 상태 그대로예요.');return false}}
 function restoreFromParsed(parsed,opts){return restoreLedger(parsed,opts)}
@@ -4287,12 +4331,12 @@ setBusy('백업 파일을 읽는 중이에요.');try{const text=await file.text(
 // 암호 건 백업(prepaid-pass-backup) — 백업 암호로 열고(틀리면 같은 창에서 다시) 장부(+가게 열쇠)를 되돌린다.
 async function restorePassBackup(parsed,opts){clearBusy();let opened=null,err='';
 for(;;){const r=await askBackupPass({mode:'bopen',err});if(!r){toast('되찾기를 취소했어요. 장부는 그대로예요.');return false}
-setBusy('파일을 여는 중이에요.');opened=await openPassBackup(parsed,r.pass);if(opened)break;clearBusy();err='암호가 맞지 않아요. 이 파일을 만들 때 정한 백업 암호를 다시 넣어 주세요.'}
+setBusy('파일을 여는 중이에요.');opened=await openPassBackup(parsed,r.pass);if(opened)break;clearBusy();err='암호가 맞지 않아요. 이 파일을 만들 때 정한 백업 암호를 다시 넣어 주세요. (계속 안 열리면 파일이 손상됐을 수 있어요 — 다른 백업 파일을 골라 주세요)'}
 const inner=opened.inner||{};if(!inner.core){clearBusy();throw relayCodeErr('bad_file')}
 const key=(inner.key&&typeof inner.key==='object')?{pubKey:str(inner.key.pubKey),pkcs8:str(inner.key.pkcs8)}:null;
 return restoreLedger(inner.core,{...(opts||{}),key,pass:opened.pass,when:num(parsed.exportedAt)})}
 // 잠긴 백업(prepaid-locked-backup) 복원 — 이 기기의 개인키로 열어 평소 복원 경로에 그대로 태운다.
-const LOCKED_BACKUP_HELP="이 파일은 잠긴 백업이에요. 이 파일을 만든 가게의 열쇠가 있어야 열려요. 예전 폰에서 만든 '암호 건 백업 파일'(또는 '내 열쇠 백업' 파일)을 먼저 [되찾기]로 가져온 뒤 다시 골라 주세요.";
+const LOCKED_BACKUP_HELP="이 파일은 잠긴 백업이에요. 이 파일을 만든 가게의 열쇠가 있어야 열려요. 예전 폰에서 만든 '암호 건 백업 파일'(또는 '내 열쇠 백업' 파일)로 먼저 되찾은 뒤 이 파일을 다시 골라 주세요.";
 async function lockedHelp(){clearBusy();await askChoice({title:'이 기기의 열쇠로는 열 수 없는 파일이에요',lines:[esc(LOCKED_BACKUP_HELP)],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return false}
 async function restoreLockedBackup(parsed,opts){
 const blob=parsed&&parsed.blob;
