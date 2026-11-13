@@ -37,11 +37,14 @@ function findChrome() {
   return candidates.find(p => fs.existsSync(p));
 }
 
+// beta.55(A-7): 서비스워커의 "HTML 3.5초 시한"을 검증하려고 HTML 응답을 붙잡아 둘 수 있다(기본 꺼짐 — 다른 시나리오 무영향).
+const serverCtl = { hangHtml: false, held: [] };
 function startServer() {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
       const name = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname);
+      if (serverCtl.hangHtml && name.endsWith('.html')) { serverCtl.held.push(res); return; }
       const file = path.resolve(root, '.' + name);
       if (!file.startsWith(root)) {
         res.writeHead(403);
@@ -194,6 +197,50 @@ async function openSettingsCard(page, key) {
   }
   await assert((await page.locator(`.fold-head[data-card="${key}"]`).getAttribute('aria-expanded')) === 'true',
     `settings card "${key}" should be expanded after tapping its header`);
+}
+
+// ── beta.55(A-1): 새 서명 = 폭 320px 1비트 흑백 PNG ────────────────────────────────────────
+//   ① 헤더(IHDR)가 진짜 1비트 흑백(비트 깊이 1·색 유형 0)이고 폭이 320인지, ② node(zlib)로 직접 푼 픽셀과
+//   크로미움이 그림으로 디코드한 픽셀이 **한 점도 다르지 않은지**, ③ 먹 픽셀이 실제로 있는지(빈 그림 아님)를 본다.
+const SIG_PNG_LENGTHS = [];
+async function checkSigPng(page, dataUrl, label) {
+  const zlib = require('zlib');
+  await assert(typeof dataUrl === 'string' && dataUrl.startsWith('data:image/png;base64,'), `${label}: a new signature must be stored as a PNG dataURL (got ${JSON.stringify(String(dataUrl).slice(0, 30))})`);
+  await assert(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl), `${label}: the signature must still match SIG_DATAURL_RE`);
+  const buf = Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64');
+  await assert(buf.slice(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), `${label}: PNG signature bytes`);
+  let off = 8; const idat = []; let w = 0, h = 0, depth = -1, ctype = -1;
+  while (off < buf.length) {
+    const len = buf.readUInt32BE(off), type = buf.slice(off + 4, off + 8).toString('latin1'), data = buf.slice(off + 8, off + 8 + len);
+    if (type === 'IHDR') { w = data.readUInt32BE(0); h = data.readUInt32BE(4); depth = data[8]; ctype = data[9]; }
+    if (type === 'IDAT') idat.push(data);
+    off += 12 + len;
+  }
+  await assert(w === 320 && h > 20 && h < 400, `${label}: the signature must be 320px wide with a proportional height (got ${w}x${h})`);
+  await assert(depth === 1 && ctype === 0, `${label}: IHDR must say 1-bit grayscale (depth ${depth}, colour type ${ctype})`);
+  const raw = zlib.inflateSync(Buffer.concat(idat)); const rowBytes = Math.ceil(w / 8);
+  await assert(raw.length === (rowBytes + 1) * h, `${label}: decompressed scanlines must be exactly (1+${rowBytes})x${h} bytes (got ${raw.length})`);
+  const nodeInk = [];
+  for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) nodeInk.push(((raw[y * (rowBytes + 1) + 1 + (x >> 3)] >> (7 - (x & 7))) & 1) ? 0 : 1);
+  const browserInk = await page.evaluate(src => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+      const d = x.getImageData(0, 0, c.width, c.height).data; const out = [];
+      for (let i = 0; i < d.length; i += 4) out.push(d[i] < 128 ? 1 : 0);
+      resolve({ w: c.width, h: c.height, ink: out });
+    };
+    img.onerror = () => reject(new Error('chromium could not decode the signature PNG'));
+    img.src = src;
+  }), dataUrl);
+  await assert(browserInk.w === w && browserInk.h === h, `${label}: chromium must decode the same size`);
+  let diff = 0, inked = 0;
+  for (let i = 0; i < nodeInk.length; i += 1) { if (nodeInk[i] !== browserInk.ink[i]) diff += 1; inked += nodeInk[i]; }
+  await assert(diff === 0, `${label}: chromium-decoded pixels must equal the encoded bits exactly (${diff} differ)`);
+  await assert(inked > 40, `${label}: the signature image must actually carry the strokes (${inked} ink pixels)`);
+  SIG_PNG_LENGTHS.push({ label, chars: dataUrl.length, w, h, inked });
+  return dataUrl.length;
 }
 
 async function readDb(page) {
@@ -1291,6 +1338,593 @@ async function runBeta52(browser, url, cors) {
   }
 }
 
+// ── beta.55 (A1a — 음식점 앱 안전) : 독립 컨텍스트 ─────────────────────────────────────────
+//   명단 형식 검사(B-01·B-13)·직접 전달 도메인(B-03)·같은 직원 두 줄(A-10c)·되돌린 입금(B-14)·비슷한 부서(B-07)·
+//   선택창 자동 잠금(B-10)·복원 막다른 길(A-10h)·금액 상한(A-10d)·저장 실패 앵커(A-4)·durability(A-10f)·persist(A-6)·
+//   CSV 수식 주입(A-10e)·중계 시한(B-04)·쉬운 오류 말(B-12)·깨진 수신함(B-15)·열쇠 짝·덮어쓰기(B-05)·
+//   한 창만(A-3, Web Locks와 대비책)·서비스워커 HTML 시한(A-7).
+//   E2E_SOFT=1이면 첫 실패에서 멈추지 않고 실패 목록을 모은다 — "수정 전 코드에서 실패하는가"를 단언별로 확인하는 용도.
+async function runBeta55(browser, url, cors) {
+  const soft = !!process.env.E2E_SOFT;
+  const fails = [];
+  let passed = 0;
+  const check = async (cond, msg) => {
+    if (cond) { passed += 1; return true; }
+    if (soft) { fails.push(msg); console.log('  ✗ ' + msg); return false; }
+    throw new Error('[beta.55] ' + msg);
+  };
+  // E2E_SKIP="B-04 inbox timeout,B-04 approve timeout" — 수정 전 코드에서 영원히 멈추는 구간을 건너뛰어 뒤 구간을 따로 확인할 때만 쓴다.
+  const skip = String(process.env.E2E_SKIP || '').split(',').map(x => x.trim()).filter(Boolean);
+  const guard = async (label, fn) => {
+    if (skip.includes(label)) { console.log('  (건너뜀) ' + label); return; }
+    try { await fn(); } catch (err) { if (!soft) throw err; fails.push(`${label}: ${String(err && err.message || err).slice(0, 200)}`); console.log(`  ✗ ${label}: ${String(err && err.message || err).slice(0, 200)}`); }
+  };
+  const legacyPin = crypto.createHash('sha256').update('1234').digest('hex');
+  const DAY = 86400000;
+  const OLD_AT = Date.now() - 30 * DAY;
+  const md = ts => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; };
+  const emp = (id, o) => Object.assign({ id, org: '', orgKind: '', dept: '총무과', name: id, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: OLD_AT, updatedAt: OLD_AT }, o);
+  const seed = async (page, rid, employees, transactions) => {
+    await page.evaluate(({ hash, t, rid, employees, transactions }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta', 'employees', 'transactions'], 'readwrite');
+        const ms = tx.objectStore('meta');
+        [['setupComplete', true], ['welcomeSeen', true], ['termsAgreedAt', t], ['pinHash', hash], ['shopName', '베타식당'], ['departments', ['세무과', '총무과']],
+          ['storeRegisterPending', false], ['restaurantId', rid], ['relayStoreName', '베타식당'], ['relayRegisteredAt', t], ['districtSyncedAt', t], ['myKeyBackedUpAt', t]]
+          .forEach(([k, v]) => ms.put({ key: k, value: v }));
+        employees.forEach(e => tx.objectStore('employees').put(e));
+        transactions.forEach(x => tx.objectStore('transactions').put(x));
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { hash: legacyPin, t: Date.now(), rid, employees, transactions });
+    if (transactions.length) await resealChain(page);
+  };
+  const metaOf = async page => (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+  // 설정 > 직원 목록 관리의 소속·부서 묶음은 접혀 있다 — 펼친 뒤 직원 행을 연다.
+  const openMgrGroup = async (page, dept) => {
+    const head = page.locator(`.mgr-head[data-dept="${dept}"]`).first();
+    await head.waitFor({ timeout: 8000 });
+    if ((await head.locator('.mgr-toggle').innerText()).includes('▶')) { await head.click(); await page.waitForTimeout(120); }
+  };
+  const awaitUnlocked = page => page.waitForFunction(() => { const H = window.__prepaidTestHooks; return !!H && H.lockState && H.lockState().locked === false; }, null, { timeout: 15000 });
+  const toastText = async page => (await page.locator('.toast').count()) ? (await page.locator('.toast').innerText()) : '';
+  const waitToast = async (page, re, ms = 8000) => { try { await page.waitForFunction(src => { const t = document.querySelector('.toast'); return !!t && new RegExp(src).test(t.innerText); }, re.source, { timeout: ms }); return true; } catch (e) { return false; } };
+  // 페이지 안에서 직접 전달 파일·수신함 암호문을 실제 계약대로 만든다(가게 공개키로 봉함).
+  const installMaker = async (page, rid) => {
+    await page.evaluate(({ rid }) => {
+      const enc = new TextEncoder();
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const h = async t => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(String(t))))).map(x => x.toString(16).padStart(2, '0')).join('');
+      window.__b55u2b = u2b; window.__b55b2u = b2u;
+      window.__b55seal = async (items, pubB64) => {
+        const aesRaw = crypto.getRandomValues(new Uint8Array(32));
+        const aesKey = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt']);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(JSON.stringify({ items })));
+        const pub = await crypto.subtle.importKey('spki', b2u(pubB64 || window.__b55pub).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+        return { alg: 'RSA-OAEP+AES-GCM', encKey: u2b(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, aesRaw)), iv: u2b(iv), ct: u2b(ct) };
+      };
+      window.__b55mk = async (items, o) => {
+        o = o || {};
+        const batch_hash = await h(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'));
+        const total = items.reduce((a, i) => a + Number(i.amount), 0);
+        return JSON.stringify({
+          v: 1, type: 'direct-transfer', restaurant_id: rid, restaurant_name: '베타식당',
+          institution: o.institution || '강남구청', department: o.department || '세무과', year_month: '2026-11',
+          summary: Object.assign({ total_amount: total, member_count: items.length, batch_hash }, o.summaryExtra || {}),
+          ciphertext: await window.__b55seal(items)
+        });
+      };
+      // 다른 가게의 열쇠 한 쌍 + 그 개인키로 만든 '내 열쇠 백업' 파일(앱과 같은 형식: PBKDF2 120k + AES-GCM).
+      window.__b55foreignKey = async pass => {
+        const kp = await crypto.subtle.generateKey({ name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['encrypt', 'decrypt']);
+        const pub = u2b(await crypto.subtle.exportKey('spki', kp.publicKey));
+        const pkcs8 = u2b(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
+        const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+        const base = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+        const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+        const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(pkcs8));
+        return { pub, pkBackup: JSON.stringify({ v: 1, salt: u2b(salt), iv: u2b(iv), ct: u2b(ct) }) };
+      };
+    }, { rid });
+    const m = await metaOf(page);
+    await page.evaluate(pub => { window.__b55pub = pub; }, m.pubKey);
+    return m;
+  };
+
+  // ───────────────────────── 본 컨텍스트: 등록된 가게 + 직원 ─────────────────────────
+  const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const dialogs = [];
+  page.on('dialog', async d => {
+    dialogs.push({ type: d.type(), message: d.message() });
+    if (d.type() === 'confirm' && d.message().includes('장부 되찾기용 백업')) await d.dismiss(); else await d.accept();
+  });
+  await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"internal"}' }));
+  await context.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }));
+  const RID = 'rid-b55';
+  const waitDialog = async (pred, from, ms = 12000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) { const d = dialogs.slice(from).find(pred); if (d) return d; await page.waitForTimeout(100); }
+    return null;
+  };
+  const openTransfer = async json => page.locator('#directTransferFile').setInputFiles({ name: 'transfer.json', mimeType: 'application/json', buffer: Buffer.from(json, 'utf8') });
+  const doneOrBlocked = d => d.type === 'alert' && (d.message.includes('등록 완료') || d.message.includes('명단 형식') || d.message.includes('차단'));
+  const e1Bal = async () => { const db = await readDb(page); return db.transactions.filter(t => t.employeeId === 'b55-e1').reduce((s, t) => s + (t.type === 'use' ? -Number(t.amount) : Number(t.amount)), 0); };
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForTimeout(300);
+    await seed(page, RID, [
+      emp('b55-e1', { org: '강남구청', orgKind: 'public', dept: '세무과', name: '홍길동' }),
+      emp('b55-d1', { dept: '총무과', name: '박복원', isDeleted: true }),
+      emp('b55-d2', { dept: '총무과', name: '박복원' }),
+      emp('b55-f1', { dept: '총무과', name: '=1+2' })
+    ], [
+      { id: 'b55-t0', employeeId: 'b55-e1', type: 'open', amount: 5000, beforeBalance: 0, afterBalance: 5000, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', createdAt: OLD_AT }
+    ]);
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await awaitUnlocked(page);
+    await installMaker(page, RID);
+
+    // A-6: 저장소 보존 요청은 한 번 한다(결과는 묻지 않는다)
+    await guard('A-6', async () => {
+      await check(await page.evaluate(() => window.__persistRequested === true), 'A-6: the app must ask navigator.storage.persist() once after load');
+    });
+
+    // B-03: 직접 전달 파일에 적힌 agency_domain은 "인증 도메인"이 아니다
+    let r1TxId = '';
+    await guard('B-03', async () => {
+      const from = dialogs.length;
+      await openTransfer(await page.evaluate(() => window.__b55mk([{ name: '홍길동', dept: '세무과', amount: 1000 }], { summaryExtra: { agency_domain: 'gangnam.go.kr', sent_at: Date.UTC(2026, 10, 1, 1, 2, 0) } })));
+      await waitDialog(doneOrBlocked, from);
+      const review = dialogs.slice(from).find(d => d.type === 'confirm' && d.message.includes('받으실 금액'));
+      await check(review && review.message.includes('인증 도메인: 확인 불가(직접 전달)'), `B-03: a direct transfer must always say 인증 도메인: 확인 불가(직접 전달) (got ${JSON.stringify(review && review.message.slice(0, 400))})`);
+      await check(review && !review.message.includes('gangnam.go.kr'), 'B-03: a domain written inside the file must never be shown as authenticated');
+      await check(review && review.message.includes('파일에 적힌 작성 시각'), 'B-03: the time in a direct-transfer file must be labelled as written-in-file');
+      const db = await readDb(page);
+      const t1 = db.transactions.find(t => t.employeeId === 'b55-e1' && t.type === 'topup');
+      r1TxId = t1 ? t1.id : '';
+      await check(t1 && t1.beforeBalance === 5000 && t1.afterBalance === 6000, 'B-03 setup: the first roster must top up 5,000 → 6,000');
+    });
+
+    // B-14: 되돌리기 창이 "고친 부서 이름은 되돌아가지 않는다"고 말한다
+    await guard('B-14 undo note', async () => {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator('[data-a="undo-batch"]').first().click();
+      await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="ok"]', { timeout: 5000 });
+      const txt = await page.locator('.choice-modal').innerText();
+      await check(txt.includes('고친 부서 이름은 되돌아가지 않아요'), `B-14: the undo dialog must say a renamed department is not reverted (got ${JSON.stringify(txt.slice(0, 300))})`);
+      await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
+      for (let i = 0; i < 40 && !(await readDb(page)).transactions.some(t => t.reason === '명단 등록 되돌리기'); i += 1) await page.waitForTimeout(150);
+      await check(await e1Bal() === 5000, 'B-14 setup: undoing the first roster must bring 홍길동 back to 5,000');
+    });
+
+    // B-14 + A-10c: 되돌린 입금은 "최근 등록"이 아니고, 같은 직원 두 줄은 잔액을 이어 간다
+    await guard('A-10c/B-14', async () => {
+      const from = dialogs.length;
+      await openTransfer(await page.evaluate(() => window.__b55mk([{ name: '홍길동', dept: '세무과', amount: 1000 }, { name: '홍길동', dept: '세무과', org: '강남구청', amount: 2000 }])));
+      await waitDialog(doneOrBlocked, from);
+      const review = dialogs.slice(from).find(d => d.type === 'confirm' && d.message.includes('받으실 금액'));
+      const msg = review ? review.message : '';
+      await check(!msg.includes('최근 14일'), `B-14: a deposit that was already undone must not trigger the 14-day warning (got ${JSON.stringify(msg.slice(0, 500))})`);
+      await check(msg.includes(`(${md(OLD_AT)} 등록)`), `B-14: the last deposit shown must skip the undone one and fall back to ${md(OLD_AT)} (got ${JSON.stringify(msg.slice(0, 500))})`);
+      await check(msg.includes('5,000원 → 6,000원') && msg.includes('6,000원 → 8,000원'), `A-10c: the review must chain the two rows (5,000→6,000→8,000) (got ${JSON.stringify(msg.slice(0, 500))})`);
+      const db = await readDb(page);
+      const tops = db.transactions.filter(t => t.employeeId === 'b55-e1' && t.type === 'topup' && t.id !== r1TxId).sort((a, b) => a.createdAt - b.createdAt);
+      await check(tops.length === 2 && tops[0].beforeBalance === 5000 && tops[0].afterBalance === 6000 && tops[1].beforeBalance === 6000 && tops[1].afterBalance === 8000,
+        `A-10c: two rows for one employee must carry a running balance (got ${JSON.stringify(tops.map(t => [t.beforeBalance, t.afterBalance]))})`);
+      await check((await page.evaluate(() => window.__prepaidTestHooks.reconcileLedger())).ok === true, 'A-10c: the ledger must reconcile after a two-row roster');
+    });
+
+    // B-14: 1분 안에 받은 명단 둘은 되돌리기 창에서 따로 보이고, 이미 되돌린 거래는 다시 빼지 않는다
+    await guard('B-14 two batches', async () => {
+      await page.waitForTimeout(1200);// 사람 손으로 받는 두 번째 명단은 적어도 몇 초 뒤다
+      const from = dialogs.length;
+      await openTransfer(await page.evaluate(() => window.__b55mk([{ name: '홍길동', dept: '세무과', amount: 500 }])));
+      await waitDialog(doneOrBlocked, from);
+      await check(await e1Bal() === 8500, 'B-14 setup: the third roster must top up to 8,500');
+      if (await count(page, '.modal-back')) await page.locator('.modal-actions [data-a="close-modal"]').first().click().catch(() => {});
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator('[data-a="undo-batch"]').first().click();
+      await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="ok"]', { timeout: 5000 });
+      const txt = await page.locator('.choice-modal').innerText();
+      await check(/명단 2개가 함께/.test(txt) && txt.includes('명단 1:') && txt.includes('명단 2:') && txt.includes('3,000원') && txt.includes('500원'),
+        `B-14: rosters merged by the 60-second rule must be listed with their own totals (got ${JSON.stringify(txt.slice(0, 400))})`);
+      await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
+      for (let i = 0; i < 40 && (await readDb(page)).transactions.filter(t => t.reason === '명단 등록 되돌리기').length < 4; i += 1) await page.waitForTimeout(150);
+      const db = await readDb(page);
+      await check(db.transactions.filter(t => t.reason === '명단 등록 되돌리기' && t.targetTransactionId === r1TxId).length === 1, 'B-14: an already-undone deposit must never be undone a second time');
+      await check(await e1Bal() === 5000, `B-14: undoing the merged group must land exactly on 5,000 (got ${await e1Bal()})`);
+    });
+
+    // B-01·B-13: 형식이 틀린 명단은 장부에 닿기 전에 막는다
+    await guard('B-01', async () => {
+      const empsBefore = (await readDb(page)).employees.length;
+      const from = dialogs.length;
+      await openTransfer(await page.evaluate(() => window.__b55mk([{ name: '가짜갑', dept: '세무과', amount: 1000000 }, { name: '가짜을', dept: '세무과', amount: -990000 }])));
+      const d = await waitDialog(doneOrBlocked, from);
+      await check(d && d.message.includes('명단 형식'), `B-01: a roster with a negative amount must be refused as 명단 형식 오류 (got ${JSON.stringify(d && d.message.slice(0, 200))})`);
+      await check(!dialogs.slice(from).some(x => x.type === 'confirm' && x.message.includes('받으실 금액')), 'B-01: a malformed roster must not even reach the money confirm');
+      await check((await readDb(page)).employees.length === empsBefore, 'B-01: a malformed roster must not add anyone');
+    });
+    await guard('B-13 bidi', async () => {
+      let from = dialogs.length;
+      await openTransfer(await page.evaluate(() => window.__b55mk([{ name: '‮⁦', dept: '세무과', amount: 1000 }])));
+      let d = await waitDialog(doneOrBlocked, from);
+      await check(d && d.message.includes('명단 형식') && d.message.includes('이름이 비어'), `B-13: a name made only of direction marks must be refused (got ${JSON.stringify(d && d.message.slice(0, 200))})`);
+      from = dialogs.length;
+      await openTransfer(await page.evaluate(() => window.__b55mk([{ name: '‮홍길순', dept: '세무과', amount: 1000 }])));
+      d = await waitDialog(doneOrBlocked, from);
+      const db = await readDb(page);
+      await check(db.employees.some(e => e.name === '홍길순') && !db.employees.some(e => /[‪-‮⁦-⁩]/.test(e.name)), 'B-13: direction marks must be stripped before the name is stored');
+    });
+
+    // B-07 + B-10: 이름이 하나도 안 겹치면 진한 버튼은 [새 부서로 따로 등록] — 그 선택창을 띄운 채 두면 10분 상한으로 잠긴다
+    await guard('B-07/B-10', async () => {
+      await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { modalIdleCap: 2500 }));
+      const empsBefore = (await readDb(page)).employees.length;
+      await openTransfer(await page.evaluate(() => window.__b55mk([{ name: '김철수', dept: '세무과', amount: 3000 }], { institution: '강북구청' })));
+      await page.waitForSelector('.choice-modal', { timeout: 8000 });
+      const txt = await page.locator('.choice-modal').innerText();
+      await check(txt.includes('이름이 하나도 겹치지 않아요'), `B-07: a dept-name-only match must say no names overlap (got ${JSON.stringify(txt.slice(0, 300))})`);
+      const primary = await page.locator('.choice-modal .btn-primary').getAttribute('data-val').catch(() => '');
+      await check(primary === 'separate', `B-07: with no overlapping names the primary button must be [새 부서로 따로 등록] (got ${JSON.stringify(primary)})`);
+      await page.waitForTimeout(3600);
+      const ls = await page.evaluate(() => window.__prepaidTestHooks.lockState());
+      await check(ls.locked === true && await count(page, '.choice-modal') === 0, `B-10: an open choice dialog alone must still hit the idle cap and lock (locked=${ls.locked})`);
+      await check((await readDb(page)).employees.length === empsBefore, 'B-10: locking must cancel the pending choice (nothing written)');
+      await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { modalIdleCap: 600000 }));
+      if (ls.locked) { await unlockPin(page); await awaitUnlocked(page); }
+      else if (await count(page, '.choice-modal')) await page.locator('.choice-modal [data-a="choice-pick"][data-val="cancel"]').click();
+    });
+    await guard('B-10 pass', async () => {
+      await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { modalIdleCap: 2500 }));
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator('[data-a="export-key"]').first().click();
+      await page.waitForSelector('#keyPass1', { timeout: 5000 });
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.waitForTimeout(3600);
+      const ls = await page.evaluate(() => window.__prepaidTestHooks.lockState());
+      await check(ls.locked === true && await count(page, '#keyPass1') === 0, `B-10: an open key-passphrase box alone must still hit the idle cap and lock (locked=${ls.locked})`);
+      await page.evaluate(() => Object.assign(window.__prepaidTestHooks.TIMERS, { modalIdleCap: 600000 }));
+      if (ls.locked) { await unlockPin(page); await awaitUnlocked(page); }
+      else if (await count(page, '#keyPass1')) await page.locator('[data-a="pass-cancel"]').click();
+    });
+
+    // A-10h: 같은 이름의 활성 직원이 있어도 복원 길이 있다
+    await guard('A-10h', async () => {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'employees');
+      await openMgrGroup(page, '__hidden__');
+      await page.locator('[data-a="restore-emp"][data-id="b55-d1"]').click();
+      await page.waitForSelector('.choice-modal [data-a="choice-pick"][data-val="rename"]', { timeout: 5000 });
+      const txt = await page.locator('.choice-modal').innerText();
+      await check(txt.includes('같은 이름의 직원이 이미 있어요') && txt.includes('박복원·2'), `A-10h: the restore dead end must explain and offer a renamed restore (got ${JSON.stringify(txt.slice(0, 300))})`);
+      await page.locator('.choice-modal [data-a="choice-pick"][data-val="rename"]').click();
+      await page.waitForTimeout(400);
+      const d1 = (await readDb(page)).employees.find(e => e.id === 'b55-d1');
+      await check(d1 && d1.isDeleted === false && d1.name === '박복원·2', `A-10h: the renamed restore must bring the employee back as 박복원·2 (got ${JSON.stringify(d1 && [d1.name, d1.isDeleted])})`);
+    });
+
+    const openTopup = async () => {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'employees');
+      await openMgrGroup(page, '강남구청 세무과');
+      await expandEmpRow(page, 'b55-e1');
+      await page.locator('[data-a="topup"][data-id="b55-e1"]').first().click();
+      await page.waitForSelector('#topupAmount', { timeout: 5000 });
+    };
+    // A-10d: 1억 원을 넘는 금액은 저장하지 않는다
+    await guard('A-10d', async () => {
+      const txBefore = (await readDb(page)).transactions.length;
+      await openTopup();
+      await page.locator('#topupAmount').fill('100000001');
+      await page.locator('[data-a="save-topup"]').click();
+      await check(await waitToast(page, /1억 원/), `A-10d: an amount above 100,000,000 must be refused with a clear message (toast ${JSON.stringify(await toastText(page))})`);
+      await check((await readDb(page)).transactions.length === txBefore, 'A-10d: a refused amount must not be saved');
+      if (await count(page, '.modal-back')) await page.locator('.modal-actions [data-a="close-modal"]').first().click().catch(() => {});
+    });
+
+    // A-4: 저장이 실패하면 메모리의 꼬리 앵커도 그대로다(오경보 없음) / A-10f: 쓰기는 durability strict
+    await guard('A-4/A-10f', async () => {
+      await page.evaluate(() => {
+        window.__b55dur = [];
+        const origTx = IDBDatabase.prototype.transaction;
+        IDBDatabase.prototype.transaction = function (stores, mode, opts) { if (mode === 'readwrite') window.__b55dur.push(opts && opts.durability || ''); return origTx.apply(this, arguments); };
+        window.__b55failOnce = true;
+        const origPut = IDBObjectStore.prototype.put;
+        IDBObjectStore.prototype.put = function () {
+          if (window.__b55failOnce && this.name === 'transactions') { window.__b55failOnce = false; try { this.transaction.abort(); } catch (e) { } throw new DOMException('harness forced write failure', 'AbortError'); }
+          return origPut.apply(this, arguments);
+        };
+      });
+      const txBefore = (await readDb(page)).transactions.length;
+      await openTopup();
+      await page.locator('#topupAmount').fill('700');
+      await page.locator('[data-a="save-topup"]').click();
+      await page.waitForTimeout(600);
+      await check((await readDb(page)).transactions.length === txBefore, 'A-4 setup: the injected failure must leave the store unchanged');
+      const vc = await page.evaluate(async () => { const c = await window.__prepaidTestHooks.verifyChain(); return { ok: c.tamperOk, broken: (c.broken || []).map(b => b.reason) }; });
+      await check(vc.ok === true, `A-4: a failed write must not leave a false "거래 건수 불일치" alarm (got ${JSON.stringify(vc.broken)})`);
+      // 실패 뒤 다시 저장하면 정상 저장되고 장부가 맞는다
+      if (!(await count(page, '#topupAmount'))) await openTopup();
+      await page.locator('#topupAmount').fill('700');
+      await page.locator('[data-a="save-topup"]').click();
+      for (let i = 0; i < 30 && (await readDb(page)).transactions.length === txBefore; i += 1) await page.waitForTimeout(100);
+      const vc2 = await page.evaluate(async () => { const c = await window.__prepaidTestHooks.verifyChain(); return c.tamperOk; });
+      await check(vc2 === true && (await readDb(page)).transactions.length === txBefore + 1, 'A-4: the retried save must land and keep the chain sound');
+      const dur = await page.evaluate(() => window.__b55dur);
+      await check(dur.length > 0 && dur.every(x => x === 'strict'), `A-10f: every readwrite transaction must ask for durability "strict" (got ${JSON.stringify(dur.slice(0, 5))})`);
+    });
+
+    // A-10e: CSV 내보내기 수식 주입 방지
+    await guard('A-10e', async () => {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'ledger');
+      const downloads = [];
+      const onDl = d => downloads.push(d);
+      page.on('download', onDl);
+      await page.locator('[data-a="export-safe"]').first().click();
+      for (let i = 0; i < 40 && downloads.length < 2; i += 1) await page.waitForTimeout(100);
+      page.off('download', onDl);
+      const csvDl = downloads.find(d => /\.csv$/i.test(d.suggestedFilename()));
+      const csv = csvDl ? await fsp.readFile(await csvDl.path(), 'utf8') : '';
+      await check(csv.includes("'=1+2") && !/(^|,)=1\+2/m.test(csv), `A-10e: a text cell starting with "=" must be exported as '=… (got ${JSON.stringify((csv.match(/.{0,20}=1\+2.{0,5}/) || [''])[0])})`);
+      await check(/,8,?000|,7,?400|5,?700|,5700/.test(csv) || /홍길동,\d/.test(csv), 'A-10e: numeric balance cells must stay numeric (no prefix)');
+    });
+
+    // B-12·B-15·B-04: 수신함 — 쉬운 말 오류, 깨진 항목 건너뛰기, 시한
+    await page.evaluate(() => {
+      window.__b55inbox = []; window.__b55inboxStatus = 200; window.__b55chal = 'ok'; window.__b55approveHang = false;
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        const s = String(u);
+        const json = (body, status) => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status: status || 200, headers: { 'Content-Type': 'application/json' } });
+        if (s.includes('/api/challenge')) {
+          if (window.__b55chal === 'hang') return new Promise(() => {});
+          if (window.__b55chal === 'busy') return json({ error: 'too_many_challenges' }, 429);
+          const pub = await crypto.subtle.importKey('spki', window.__b55b2u(window.__b55pub).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+          return json({ challenge_ct: window.__b55u2b(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, new TextEncoder().encode('B55TOKEN'))) });
+        }
+        if (s.includes('/api/inbox?')) return json(window.__b55inboxStatus === 200 ? window.__b55inbox : { error: 'not_found' }, window.__b55inboxStatus);
+        if (s.includes('/api/approve')) { if (window.__b55approveHang) return new Promise(() => {}); return json('{"ok":true}'); }
+        if (s.includes('/api/ledger-backup')) return json('{"ok":true}');
+        return orig(u, o);
+      };
+    });
+    const openInbox = async () => {
+      if (await count(page, '.modal-back')) await page.locator('.modal-actions [data-a="close-modal"]').first().click().catch(() => {});
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'enroll-auto');
+      await page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 }).catch(() => {});
+      await page.locator('[data-a="relay-inbox"]').first().click();
+    };
+    await guard('B-12 challenge', async () => {
+      await page.evaluate(() => { window.__b55chal = 'busy'; });
+      await openInbox();
+      await check(await waitToast(page, /가게 확인 요청이 잠깐 몰렸어요/), `B-12: too_many_challenges must read as plain Korean (toast ${JSON.stringify(await toastText(page))})`);
+      await check(!/too_many|오류: [a-z]/.test(await toastText(page)), 'B-12: no raw English error code may reach the screen');
+    });
+    await guard('B-12 404', async () => {
+      await page.evaluate(() => { window.__b55chal = 'ok'; window.__b55inboxStatus = 404; });
+      await openInbox();
+      await check(await waitToast(page, /우리 가게 등록을 찾지 못했어요/), `B-12: a 404 from the inbox must say the store is not registered on the server (toast ${JSON.stringify(await toastText(page))})`);
+    });
+    await guard('B-15/B-12 decrypt', async () => {
+      await page.evaluate(async () => {
+        window.__b55inboxStatus = 200;
+        const other = await window.__b55foreignKey('unused-pass-1');
+        window.__b55inbox = [null, { summary_id: 5, summary: {} }, { summary_id: 'b55-sid-x', summary: { institution: '강남구청', department: '세무과', total_amount: 1000, member_count: 1, year_month: '2026-11' }, ciphertext: await window.__b55seal([{ name: '홍길동', dept: '세무과', amount: 1000 }], other.pub), status: 'PENDING' }];
+      });
+      await openInbox();
+      await page.waitForSelector('[data-a="relay-approve"]', { timeout: 8000 }).catch(() => {});
+      await check(await count(page, '[data-a="relay-approve"]') === 1, `B-15: malformed inbox items must be skipped and the valid one still shown (got ${await count(page, '[data-a="relay-approve"]')} approve buttons)`);
+      await check(/형식이 맞지 않는 신청 2건/.test(await toastText(page)), `B-15: skipped items must be counted for the owner (toast ${JSON.stringify(await toastText(page))})`);
+      await page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 9000 }).catch(() => {});
+      if (await count(page, '[data-a="relay-approve"]')) await page.locator('[data-a="relay-approve"]').first().click();
+      await check(await waitToast(page, /이 명단은 지금 열쇠로 열 수 없어요/), `B-12: a roster sealed for another key must say so in plain Korean (toast ${JSON.stringify(await toastText(page))})`);
+    });
+    await guard('B-04 inbox timeout', async () => {
+      await page.evaluate(() => { window.__relayTimeoutMs = 1500; window.__b55chal = 'hang'; });
+      await openInbox();
+      await page.waitForTimeout(2600);
+      await check(await count(page, '.busy') === 0, 'B-04: a relay request that never answers must not leave the busy overlay up');
+      await check(/서버 응답이 너무 늦어요/.test(await toastText(page)), `B-04: a timeout must be explained in plain Korean (toast ${JSON.stringify(await toastText(page))})`);
+    });
+    await guard('B-04 approve timeout', async () => {
+      await page.evaluate(async () => {
+        window.__b55chal = 'ok'; window.__b55approveHang = true;
+        window.__b55inbox = [{ summary_id: 'b55-sid-ok', summary: { institution: '강남구청', department: '세무과', total_amount: 4000, member_count: 1, year_month: '2026-11' }, ciphertext: await window.__b55seal([{ name: '홍길동', dept: '세무과', amount: 4000 }]), status: 'PENDING' }];
+      });
+      const balBefore = await e1Bal();
+      await openInbox();
+      await page.waitForSelector('[data-a="relay-approve"]', { timeout: 8000 });
+      const from = dialogs.length;
+      await page.locator('[data-a="relay-approve"]').first().click();
+      const d = await waitDialog(x => x.type === 'alert' && x.message.includes('등록 완료'), from, 15000);
+      await check(d && d.message.includes('아직 알리지 못했어요'), `B-04: a hanging approve notice must time out into the outbox message (got ${JSON.stringify(d && d.message.slice(0, 200))})`);
+      await page.waitForTimeout(300);
+      await check(await count(page, '.busy') === 0, 'B-04: the busy overlay must be gone after the approve notice times out');
+      const m = await metaOf(page);
+      await check(Array.isArray(m.pendingNotify) && m.pendingNotify.some(x => x.sid === 'b55-sid-ok'), 'B-04: the timed-out notice must wait in pendingNotify (outbox semantics unchanged)');
+      await check(await e1Bal() === balBefore + 4000, 'B-04: the roster itself must be in the ledger exactly once');
+      await page.evaluate(() => { window.__b55approveHang = false; window.__relayTimeoutMs = 0; });
+      // txLock가 풀렸는가 — 바로 다음 저장이 된다
+      const txBefore = (await readDb(page)).transactions.length;
+      if (await count(page, '.modal-back')) await page.locator('.modal-actions [data-a="close-modal"]').first().click().catch(() => {});
+      await openTopup();
+      await page.locator('#topupAmount').fill('100');
+      await page.locator('[data-a="save-topup"]').click();
+      for (let i = 0; i < 30 && (await readDb(page)).transactions.length === txBefore; i += 1) await page.waitForTimeout(100);
+      await check((await readDb(page)).transactions.length === txBefore + 1, 'B-04: the save lock must be free again after a timed-out approve');
+    });
+
+    // B-13: 3,000명 상한
+    await guard('B-13 count', async () => {
+      const empsBefore = (await readDb(page)).employees.length;
+      const from = dialogs.length;
+      await openTransfer(await page.evaluate(() => window.__b55mk(Array.from({ length: 3001 }, (_, i) => ({ name: '대량' + i, dept: '세무과', amount: 1 })))));
+      const d = await waitDialog(doneOrBlocked, from, 20000);
+      await check(d && d.message.includes('명단 형식') && d.message.includes('3,000명'), `B-13: a roster over 3,000 rows must be refused (got ${JSON.stringify(d && d.message.slice(0, 200))})`);
+      await check((await readDb(page)).employees.length === empsBefore, 'B-13: an oversized roster must not add anyone');
+    });
+
+    // B-05: 열쇠 백업 — 짝 확인 + 다른 열쇠 덮어쓰기 확인
+    await guard('B-05', async () => {
+      const before = await metaOf(page);
+      const pass = 'b55-key-pass-01';
+      const foreign = await page.evaluate(p => window.__b55foreignKey(p), pass);
+      const restoreKey = async file => {
+        await page.locator('#restoreFile').setInputFiles({ name: 'key.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file), 'utf8') });
+        await page.waitForSelector('#keyPass1', { timeout: 8000 });
+        await page.locator('#keyPass1').fill(pass);
+        await page.locator('[data-a="pass-ok"]').click();
+      };
+      // ① 짝이 안 맞는 파일(공개키는 이 기기 것, 개인키는 남의 것)
+      await restoreKey({ type: 'prepaid-key-backup', v: 1, pubKey: before.pubKey, pkBackup: foreign.pkBackup });
+      await page.waitForSelector('.choice-modal', { timeout: 15000 }).catch(() => {});
+      const t1 = await count(page, '.choice-modal') ? await page.locator('.choice-modal').innerText() : '';
+      await check(t1.includes('짝이 맞지 않아요'), `B-05: a key backup whose two halves do not match must be refused (got ${JSON.stringify(t1.slice(0, 200))})`);
+      if (await count(page, '.choice-modal')) await page.locator('.choice-modal [data-a="choice-pick"]').first().click();
+      await page.waitForTimeout(300);
+      const after1 = await metaOf(page);
+      await check(after1.privKeyWrapped === before.privKeyWrapped && after1.pubKey === before.pubKey, 'B-05: a mismatched key backup must leave the device key untouched');
+      // ② 다른 가게의 정상 열쇠 → 먼저 묻는다. [바꾸지 않기]면 그대로.
+      await restoreKey({ type: 'prepaid-key-backup', v: 1, pubKey: foreign.pub, pkBackup: foreign.pkBackup });
+      await page.waitForSelector('.choice-modal', { timeout: 15000 }).catch(() => {});
+      const t2 = await count(page, '.choice-modal') ? await page.locator('.choice-modal').innerText() : '';
+      await check(t2.includes('이미 다른 열쇠가 있어요'), `B-05: importing a different key must ask before overwriting (got ${JSON.stringify(t2.slice(0, 200))})`);
+      if (await count(page, '.choice-modal [data-val="keep"]')) await page.locator('.choice-modal [data-a="choice-pick"][data-val="keep"]').click();
+      await page.waitForTimeout(400);
+      await check((await metaOf(page)).pubKey === before.pubKey, 'B-05: choosing 바꾸지 않기 must keep the current key');
+      // ③ [가져온 열쇠로 바꾸기]면 바뀐다
+      await restoreKey({ type: 'prepaid-key-backup', v: 1, pubKey: foreign.pub, pkBackup: foreign.pkBackup });
+      await page.waitForSelector('.choice-modal [data-val="replace"]', { timeout: 15000 }).catch(() => {});
+      if (await count(page, '.choice-modal [data-val="replace"]')) await page.locator('.choice-modal [data-a="choice-pick"][data-val="replace"]').click();
+      for (let i = 0; i < 30 && (await metaOf(page)).pubKey !== foreign.pub; i += 1) await page.waitForTimeout(100);
+      await check((await metaOf(page)).pubKey === foreign.pub, 'B-05: confirming the replacement must install the imported key');
+    });
+  } finally {
+    await context.close();
+  }
+
+  // ───────────────────────── A-3: 한 번에 한 창 ─────────────────────────
+  const seedOne = async (page, rid) => {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForTimeout(300);
+    await seed(page, rid, [emp('w-e1', { org: '강남구청', orgKind: 'public', dept: '세무과', name: '창하나' })],
+      [{ id: 'w-t0', employeeId: 'w-e1', type: 'open', amount: 5000, beforeBalance: 0, afterBalance: 5000, reason: '초기 선입금 등록', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', createdAt: OLD_AT }]);
+  };
+  const topupIn = async (page, amount) => {
+    if (!(await count(page, '#topupAmount'))) {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'employees');
+      await openMgrGroup(page, '강남구청 세무과');
+      await expandEmpRow(page, 'w-e1');
+      await page.locator('[data-a="topup"][data-id="w-e1"]').first().click(); await page.waitForSelector('#topupAmount', { timeout: 5000 });
+    }
+    await page.locator('#topupAmount').fill(String(amount));
+    await page.locator('[data-a="save-topup"]').click();
+    await page.waitForTimeout(700);
+  };
+  await guard('A-3 web locks', async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"internal"}' }));
+    try {
+      const p1 = await ctx.newPage();
+      p1.on('dialog', d => d.accept());
+      await seedOne(p1, 'rid-w1');
+      await p1.reload({ waitUntil: 'load' });
+      await unlockPin(p1);
+      await awaitUnlocked(p1);
+      await check(await p1.evaluate(() => { const H = window.__prepaidTestHooks; return H.instanceMode ? H.instanceMode() : ''; }) === 'held', 'A-3: the first window must hold the one-window Web Lock');
+      const snapBefore = JSON.stringify(await readDb(p1));
+      const p2 = await ctx.newPage();
+      p2.on('dialog', d => d.accept());
+      await p2.goto(url, { waitUntil: 'load' });
+      await p2.waitForTimeout(2600);
+      const msg = (await p2.locator('#instanceBlockedMsg').count()) ? await p2.locator('#instanceBlockedMsg').innerText() : '';
+      await check(msg.includes('다른 창에서 이미 열려 있어요') && msg.includes('그 창을 쓰거나 닫아 주세요'), `A-3: a second window must show the in-app "already open" notice (got ${JSON.stringify(msg)})`);
+      await check(await p2.locator('[data-a="pin-key"], .cust-screen, .nav').count() === 0, 'A-3: the second window must not open the ledger UI');
+      await check(JSON.stringify(await readDb(p1)) === snapBefore, 'A-3: the blocked second window must not write anything');
+      await topupIn(p1, 1000);
+      const db1 = await readDb(p1);
+      await check(db1.transactions.length === 2 && db1.transactions.some(t => t.type === 'topup' && t.afterBalance === 6000), 'A-3: the first window must keep working normally');
+      await check(await p2.locator('#instanceBlockedMsg').count() === 1, 'A-3: the second window stays blocked while the first is open');
+      await p1.close();
+      await p2.waitForSelector('[data-a="pin-key"], .cust-screen', { timeout: 8000 }).catch(() => {});
+      await check(await p2.locator('#instanceBlockedMsg').count() === 0 && await p2.locator('[data-a="pin-key"], .cust-screen').count() > 0, 'A-3: closing the first window must let the waiting window open the ledger by itself');
+    } finally { await ctx.close(); }
+  });
+  await guard('A-3 fallback', async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await ctx.addInitScript(() => { try { Object.defineProperty(Navigator.prototype, 'locks', { get() { return undefined; }, configurable: true }); } catch (e) { } });
+    await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"internal"}' }));
+    try {
+      const p1 = await ctx.newPage();
+      p1.on('dialog', d => d.accept());
+      await seedOne(p1, 'rid-w2');
+      await p1.reload({ waitUntil: 'load' });
+      await unlockPin(p1);
+      await awaitUnlocked(p1);
+      const p2 = await ctx.newPage();
+      p2.on('dialog', d => d.accept());
+      await p2.goto(url, { waitUntil: 'load' });
+      await unlockPin(p2);
+      await awaitUnlocked(p2);
+      await check(await p2.evaluate(() => { const H = window.__prepaidTestHooks; return !navigator.locks && (H.instanceMode ? H.instanceMode() : '') === 'unsupported'; }), 'A-3 fallback setup: Web Locks must be hidden and the app must know it');
+      await topupIn(p1, 1000);
+      // p2는 아직 5,000원이라고 믿고 있다 → 저장 직전 대조에서 멈추고 새로 읽어야 한다
+      await topupIn(p2, 1000);
+      let db = await readDb(p2);
+      const tops = () => db.transactions.filter(t => t.type === 'topup').sort((a, b) => a.createdAt - b.createdAt);
+      await check(tops().length === 1, `A-3 fallback: a stale second window must not write on top of the first (got ${tops().length} top-ups: ${JSON.stringify(tops().map(t => [t.beforeBalance, t.afterBalance]))})`);
+      await check(/다른 창에서 장부가 바뀌어/.test((await p2.locator('.toast').count()) ? await p2.locator('.toast').innerText() : ''), 'A-3 fallback: the stale window must tell the owner it re-read the ledger');
+      await topupIn(p2, 1000);
+      db = await readDb(p2);
+      await check(tops().length === 2 && tops()[1].beforeBalance === 6000 && tops()[1].afterBalance === 7000, `A-3 fallback: the retried save must use the fresh balance (got ${JSON.stringify(tops().map(t => [t.beforeBalance, t.afterBalance]))})`);
+      await check((await p2.evaluate(() => window.__prepaidTestHooks.reconcileLedger())).ok === true, 'A-3 fallback: the ledger must reconcile after two windows');
+    } finally { await ctx.close(); }
+  });
+
+  // ───────────────────────── A-7: 서비스워커 HTML 시한 ─────────────────────────
+  await guard('A-7', async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"internal"}' }));
+    try {
+      const p = await ctx.newPage();
+      await p.goto(url, { waitUntil: 'load' });
+      await p.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+      await p.reload({ waitUntil: 'load' });
+      await p.waitForFunction(async () => !!navigator.serviceWorker.controller && !!(await caches.match('./index.html')), null, { timeout: 15000, polling: 200 });
+      serverCtl.hangHtml = true;
+      const t0 = Date.now();
+      let ok = true;
+      try { await p.reload({ waitUntil: 'domcontentloaded', timeout: 12000 }); } catch (e) { ok = false; }
+      const took = Date.now() - t0;
+      await check(ok && took < 9000, `A-7: with the network hanging, the cached app must appear after the ~3.5s limit (took ${took}ms, loaded=${ok})`);
+      if (ok) await check(await p.locator('#app').count() === 1, 'A-7: the cached shell must be the app page');
+    } finally {
+      serverCtl.hangHtml = false;
+      serverCtl.held.splice(0).forEach(res => { try { res.writeHead(503); res.end(); } catch (e) { } });
+      await ctx.close();
+    }
+  });
+
+  console.log(`beta.55 A1a 검증: ${passed} 통과, ${fails.length} 실패`);
+  if (fails.length) console.log(JSON.stringify(fails, null, 2));
+  return { passed, fails };
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -1299,6 +1933,14 @@ async function main() {
     headless: true,
     ...(chromePath ? { executablePath: chromePath } : {})
   });
+  // E2E_ONLY=beta55 — beta.55 블록만 돌린다(수정 전 코드에서 단언별 실패를 확인할 때 E2E_SOFT=1과 함께 쓴다).
+  if (process.env.E2E_ONLY === 'beta55') {
+    try {
+      const r = await runBeta55(browser, url, { 'Access-Control-Allow-Origin': '*' });
+      process.exitCode = r.fails.length ? 1 : 0;
+    } finally { await browser.close(); server.close(); }
+    return;
+  }
   const context = await browser.newContext({
     acceptDownloads: true,
     viewport: { width: 390, height: 844 },
@@ -1367,6 +2009,7 @@ async function main() {
     await runWipeDeregister(browser, url, cors);
     await runSecurityHardening(browser, url, cors);
     await runBeta52(browser, url, cors);
+    await runBeta55(browser, url, cors);
 
     await page.goto(url, { waitUntil: 'load' });
 
@@ -1920,6 +2563,7 @@ async function main() {
     await assert(data.transactions.filter(tx => tx.employeeId === empA.id).map(tx => tx.type).join(',') === 'open,use', 'User A should carry an open + use transaction');
     await assert(balanceOf(empA.id) === 18000, 'User A balance should be 18000 after one use');
     await assert(Boolean(data.transactions.find(tx => tx.employeeId === empA.id && tx.type === 'use').signatureData), 'use transaction should contain signature data');
+    await checkSigPng(page, data.transactions.find(tx => tx.employeeId === empA.id && tx.type === 'use').signatureData, 'owner usage-modal signature');
     await assert(data.transactions.filter(tx => tx.employeeId === empQ.id).map(tx => tx.type).join(',') === 'open,use', 'User Q should carry an open (quick add) + use (sms deduction) transaction');
     await assert(balanceOf(empQ.id) === 7000, 'User Q balance should be 7000 after the 5000 use');
     // 다자간 확장(beta.7): tx 무결성 체인 + 키페어
@@ -2781,9 +3425,9 @@ async function main() {
     await assert(dtReview.message.includes('결제자·입금자명: 김서무'), 'the review confirm must show the payer name from the roster (결제 대조 기준)');
     await assert(dtReview.message.includes('30,000') && dtReview.message.includes('공공직원'), 'the review confirm must itemize names and the total to verify against the payment record');
     // 직접 전달은 서버 인증을 거치지 않으므로 도메인은 "확인 불가"여야 한다(F-04).
-    await assert(dtReview.message.includes('인증 도메인: 확인 불가(직접 전달 등)'),
+    await assert(dtReview.message.includes('인증 도메인: 확인 불가(직접 전달)'),
       `a direct transfer carries no authenticated domain, so the review must say 확인 불가 (got ${JSON.stringify(dtReview.message)})`);
-    await assert(dtReview.message.includes('기관명은 담당자가 직접 적는 값이라'), 'the review must warn that the institution name is self-declared and must be read together with the authenticated domain');
+    await assert(dtReview.message.includes('기관명은 담당자가 직접 적는 값'), 'the review must warn that the institution name is self-declared');
     // 결제구분(payMethod)이 없는 명단이므로 모든 수단의 확인처를 병기해야 한다.
     await assert(dtReview.message.includes('실제로 받으셨는지 확인하셨으면') && dtReview.message.includes('(카드결제면 매출전표·POS 정산 내역, 계좌이체·제로페이면 통장 입금 내역)'),
       `without 결제구분 the confirm sentence must name both payment records (got ${JSON.stringify(dtReview.message)})`);
@@ -4372,7 +5016,10 @@ async function main() {
       //   원래부터 되는 경로였고(pin-forgot-restore → 열쇠 파일), 예전에는 암호를 기기 기본 팝업으로 받아 게이트 밖이었다.
       //   앱 안 입력창으로 옮기면서 이 셋이 게이트 안으로 들어왔다 — 빼면 복구 화면의 열쇠 복원이 막힌다.
       //   셋 다 '이미 열린 입력창'이 없으면 아무 일도 하지 않고, 입력창은 허용된 경로로만 열린다(아래 8-e2 전 액션 스윕이 봉인).
-      'pass-ok', 'pass-cancel', 'pass-toggle'].sort();
+      'pass-ok', 'pass-cancel', 'pass-toggle',
+      // beta.55: 앱 안 선택창의 버튼. 복구 화면의 열쇠 복원이 "다른 열쇠로 바꿀까요?"·"짝이 안 맞아요"를 선택창으로 묻는다.
+      //   열린 선택창이 없으면 무동작이고, 잠금 전환 때 열린 창은 취소로 닫힌다(아래 8-e2 전 액션 스윕이 봉인).
+      'choice-pick'].sort();
     await assert(!lockAllowed.includes('cust-compose-back'), 'the removed [뒤로] action (cust-compose-back) must not linger in the lock allowlist');
     await assert(!lockAllowed.includes('cust-amt-next'), 'the removed intermediate step (cust-amt-next) must not linger in the lock allowlist');
     await assert(JSON.stringify(lockAllowed) === JSON.stringify(expectedAllowed), `the lock allowlist must stay exactly the PIN/customer actions (got ${JSON.stringify(lockAllowed)})`);
@@ -5153,6 +5800,7 @@ async function main() {
     const savedTx = happyDb.transactions.find(t => t.employeeId === 'br-1' && t.type === 'use');
     await assert(savedTx.amount === 9000 && savedTx.beforeBalance === 30000 && savedTx.afterBalance === 21000, 'the recorded row must carry the exact amount and both balances');
     await assert(savedTx.signatureData === custSignSrc, 'the stored signature must be the very image the customer drew (customer → owner → ledger, unchanged)');
+    await checkSigPng(page, savedTx.signatureData, 'customer compose signature');
     // 요청 금액과 저장 금액이 **같을 때도** 요청 금액을 이력에 남긴다 — "달랐을 때만" 남기면
     //   흔적이 있는 행과 없는 행을 구분할 수 없어 대조 자체가 성립하지 않는다.
     await assert(String(savedTx.note || '').includes('손님 요청 금액 9,000원'), `a request-driven row must record the requested amount even when it matches (got note=${JSON.stringify(savedTx.note)})`);
@@ -6635,6 +7283,7 @@ async function main() {
         pinGuardPersisted: true,
         ledgerChainDeterminism: true
       },
+      sigPngLengths: SIG_PNG_LENGTHS,
       consoleProblems
     }, null, 2));
   } finally {

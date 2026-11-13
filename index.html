@@ -667,6 +667,8 @@ init();
 // 네트워크·복호화에 닿는 훅은 E2E_HOOKS(로컬호스트 또는 ?e2e=1)일 때만 붙는다 — 배포본에는 없다.
 const E2E_HOOKS=(function(){try{return /(?:^|[?&])e2e=1(?:&|$)/.test(location.search)||['localhost','127.0.0.1','::1','[::1]'].includes(location.hostname)}catch(e){return false}})();
 window.__prepaidTestHooks={TIMERS,clickActionKeys:()=>Object.keys(clickActions),lockAllowed:()=>[...LOCK_ALLOWED],
+// beta.55(A-3): 한 창 잠금 상태(읽기 전용) — 'held' | 'unsupported' | ''
+instanceMode:()=>instanceLockMode||'',
 // 읽기 전용 잠금 상태 스냅샷(자동화 검증용) — 쓰기 경로는 없다.
 // 체인 결정성 회귀용(읽기 전용) — 전부 순수 계산 함수다(저장·전송 경로 없음).
 verifyChain,verifyBalanceFor,chainTip,txClock:()=>num(__txClock),txOrder:list=>sortTxAsc(list||state.data.transactions).map(t=>t.id),
@@ -704,6 +706,10 @@ function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
 //   사장님·손님이 화면에서 읽은 글자와 전혀 다른 금액이다(0x10을 "10원"으로 읽는다). 돈에서는 그 관용이 곧 사고다.
 //   허용은 지금까지와 같다: 쉼표·공백·'원' 제거, 앞 부호(+/-)까지. 그 밖의 표기는 전부 NaN → 각 호출부의 기존 오류 안내로 간다.
 function parseWon(v){const s=String(v==null?'':v).replace(/,/g,'').replace(/원/g,'').replace(/\s/g,'').trim();if(!s)return NaN;if(!/^[+-]?[0-9]+$/.test(s))return NaN;const n=Number(s);if(!Number.isFinite(n))return NaN;if(!Number.isInteger(n))return NaN;return n}
+// beta.55(A-10d): 손으로 넣는 금액(충전·조정·사용·초기 선입금·CSV)의 상한. 0을 하나 더 친 실수(9,000 → 90,000,000)가
+//   확인창 없이 그대로 저장되던 길을 막는다. 상한 1억 원 = 명단 수신(validateRosterItems)과 같은 값.
+function wonTooBig(n){return typeof n==='number'&&!isNaN(n)&&(!Number.isSafeInteger(n)||Math.abs(n)>100000000)}
+var WON_MAX_MSG='한 번에 1억 원(100,000,000원)을 넘는 금액은 넣을 수 없어요. 숫자(0의 개수)를 다시 확인해 주세요.';
 function numTime(v){const n=Number(v);return Number.isFinite(n)&&n>0?n:now()}
 function str(v){return typeof v==='string'?v.trim():''}
 // 서명 이미지(dataURL) 정규화 — **전체 일치 화이트리스트**다.
@@ -830,8 +836,11 @@ function norm(d){const __n={employees:(Array.isArray(d.employees)?d.employees:[]
 async function makeRepo(){try{const db=await openDb();return makeIdbRepo(db)}catch(e){console.error('IndexedDB 오류:',e);return null}}
 function openDb(){return new Promise((res,rej)=>{if(!window.indexedDB){rej(new Error('IndexedDB 미지원'));return}const r=indexedDB.open(DB,VER);r.onerror=()=>rej(r.error);r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains('employees'))db.createObjectStore('employees',{keyPath:'id'});if(!db.objectStoreNames.contains('transactions'))db.createObjectStore('transactions',{keyPath:'id'});if(!db.objectStoreNames.contains('meta'))db.createObjectStore('meta',{keyPath:'key'})};r.onsuccess=()=>res(r.result)})}
 function getAll(db,s){return new Promise((res,rej)=>{const tx=db.transaction(s,'readonly'),q=tx.objectStore(s).getAll();q.onerror=()=>rej(q.error);q.onsuccess=()=>res(q.result||[])})}
-function makeIdbRepo(db){return{modeLabel:'IndexedDB',async loadAll(){const[e,t,m]=await Promise.all([getAll(db,'employees'),getAll(db,'transactions'),getAll(db,'meta')]);return{employees:e,transactions:t,meta:m.reduce((a,r)=>(a[r.key]=r.value,a),{})}},async apply(c){await new Promise((res,rej)=>{const tx=db.transaction(['employees','transactions','meta'],'readwrite');tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error);const es=tx.objectStore('employees'),ts=tx.objectStore('transactions'),ms=tx.objectStore('meta');(c.deleteEmployees||[]).forEach(id=>es.delete(String(id)));(c.employees||[]).forEach(v=>es.put(v));(c.transactions||[]).forEach(v=>ts.put(v));if(c.meta)Object.entries(c.meta).forEach(([k,v])=>ms.put({key:k,value:v}))})},async replaceAll(d){await new Promise((res,rej)=>{const tx=db.transaction(['employees','transactions','meta'],'readwrite');tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.objectStore('employees').clear();tx.objectStore('transactions').clear();tx.objectStore('meta').clear();d.employees.forEach(v=>tx.objectStore('employees').put(v));d.transactions.forEach(v=>tx.objectStore('transactions').put(v));if(d.meta)Object.entries(d.meta).forEach(([k,v])=>tx.objectStore('meta').put({key:k,value:v}))})}}}
-function makeLocalRepo(){function load(){try{return JSON.parse(localStorage.getItem(LOCAL)||'{}')}catch{return{}}}function save(d){localStorage.setItem(LOCAL,JSON.stringify(d))}return{modeLabel:'localStorage (호환 모드)',async loadAll(){return load()},async apply(c){const d=load();if(Array.isArray(c.deleteEmployees)&&c.deleteEmployees.length){const del=new Set(c.deleteEmployees.map(String));d.employees=(d.employees||[]).filter(x=>!del.has(String(x.id)))}if(c.employees)c.employees.forEach(v=>{d.employees=d.employees||[];const i=d.employees.findIndex(x=>x.id===v.id);if(i>=0)d.employees[i]=v;else d.employees.push(v)});if(c.transactions)c.transactions.forEach(v=>{d.transactions=d.transactions||[];const i=d.transactions.findIndex(x=>x.id===v.id);if(i>=0)d.transactions[i]=v;else d.transactions.push(v)});if(c.meta){d.meta=d.meta||{};Object.assign(d.meta,c.meta)}save(d)},async replaceAll(d){save(d)}}}
+// beta.55(A-10f): 쓰기 트랜잭션은 durability:'strict'로 연다 — 크롬 기본값(relaxed)은 '완료'를 알린 뒤 디스크에 늦게 쓴다.
+//   갑자기 전원이 꺼지는 계산대 태블릿에서 "저장했어요" 직후의 거래가 사라지는 창을 닫는다. 지원 안 하는 브라우저는 예전과 같다.
+function rwTx(db,stores){try{if(typeof IDBTransaction!=='undefined'&&IDBTransaction.prototype&&'durability' in IDBTransaction.prototype)return db.transaction(stores,'readwrite',{durability:'strict'})}catch(e){}return db.transaction(stores,'readwrite')}
+function makeIdbRepo(db){return{modeLabel:'IndexedDB',async loadMeta(){const m=await getAll(db,'meta');return m.reduce((a,r)=>(a[r.key]=r.value,a),{})},async loadAll(){const[e,t,m]=await Promise.all([getAll(db,'employees'),getAll(db,'transactions'),getAll(db,'meta')]);return{employees:e,transactions:t,meta:m.reduce((a,r)=>(a[r.key]=r.value,a),{})}},async apply(c){await new Promise((res,rej)=>{const tx=rwTx(db,['employees','transactions','meta']);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error);const es=tx.objectStore('employees'),ts=tx.objectStore('transactions'),ms=tx.objectStore('meta');(c.deleteEmployees||[]).forEach(id=>es.delete(String(id)));(c.employees||[]).forEach(v=>es.put(v));(c.transactions||[]).forEach(v=>ts.put(v));if(c.meta)Object.entries(c.meta).forEach(([k,v])=>ms.put({key:k,value:v}))})},async replaceAll(d){await new Promise((res,rej)=>{const tx=rwTx(db,['employees','transactions','meta']);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.objectStore('employees').clear();tx.objectStore('transactions').clear();tx.objectStore('meta').clear();d.employees.forEach(v=>tx.objectStore('employees').put(v));d.transactions.forEach(v=>tx.objectStore('transactions').put(v));if(d.meta)Object.entries(d.meta).forEach(([k,v])=>tx.objectStore('meta').put({key:k,value:v}))})}}}
+function makeLocalRepo(){function load(){try{return JSON.parse(localStorage.getItem(LOCAL)||'{}')}catch{return{}}}function save(d){localStorage.setItem(LOCAL,JSON.stringify(d))}return{modeLabel:'localStorage (호환 모드)',async loadMeta(){return load().meta||{}},async loadAll(){return load()},async apply(c){const d=load();if(Array.isArray(c.deleteEmployees)&&c.deleteEmployees.length){const del=new Set(c.deleteEmployees.map(String));d.employees=(d.employees||[]).filter(x=>!del.has(String(x.id)))}if(c.employees)c.employees.forEach(v=>{d.employees=d.employees||[];const i=d.employees.findIndex(x=>x.id===v.id);if(i>=0)d.employees[i]=v;else d.employees.push(v)});if(c.transactions)c.transactions.forEach(v=>{d.transactions=d.transactions||[];const i=d.transactions.findIndex(x=>x.id===v.id);if(i>=0)d.transactions[i]=v;else d.transactions.push(v)});if(c.meta){d.meta=d.meta||{};Object.assign(d.meta,c.meta)}save(d)},async replaceAll(d){save(d)}}}
 
 // ── 잔액 ──
 function applyTx(b,t){return t.type==='use'?b-num(t.amount):b+num(t.amount)}
@@ -954,13 +963,16 @@ return{checked,broken,legacy:legacy.length,legacyIds:legacy.slice(0,5),anchor,ta
 //   repo를 감싸서 apply/replaceAll 안에서 자동으로 계산한다(withChainAnchor).
 function mergeTxList(base,incoming){const out=[...(base||[])];(incoming||[]).forEach(t=>{const i=out.findIndex(v=>v&&str(v.id)===str(t.id));if(i>=0)out[i]=t;else out.push(t)});return out}
 function withChainAnchor(r){if(!r)return r;const rawApply=r.apply.bind(r),rawReplace=r.replaceAll.bind(r);
-return{modeLabel:r.modeLabel,loadAll:r.loadAll.bind(r),
+return{modeLabel:r.modeLabel,loadAll:r.loadAll.bind(r),loadMeta:typeof r.loadMeta==='function'?r.loadMeta.bind(r):null,
 async apply(c){const ch=(c&&typeof c==='object')?{...c}:{};
 if(Array.isArray(ch.transactions)&&ch.transactions.length&&state.data&&Array.isArray(state.data.transactions)){
 const merged=mergeTxList(state.data.transactions,ch.transactions);
 const chainTip=chainTipOf(merged),txCount=merged.length;
 ch.meta={...(ch.meta||{}),chainTip,txCount};
-state.data.meta.chainTip=chainTip;state.data.meta.txCount=txCount}
+// beta.55(A-4): 메모리의 앵커는 **저장이 끝난 뒤에만** 옮긴다. 예전에는 저장 전에 바꿔서, 저장이 실패하면
+//   (디스크 가득·IndexedDB 중단) 장부는 그대로인데 메모리 앵커만 한 칸 앞서 "거래 건수 불일치" 오경보가 떴다.
+await rawApply(ch);
+state.data.meta.chainTip=chainTip;state.data.meta.txCount=txCount;return}
 return rawApply(ch)},
 // ⚠️ 호출자가 넘긴 객체를 **그대로** 고친다(사본이 아니다) — 복원·초기화는 이 객체를 곧바로
 //   state.data로 삼기 때문에, 사본에만 앵커를 넣으면 저장소와 화면의 값이 갈라진다.
@@ -1053,7 +1065,20 @@ function maybeWarnKeyMissing(){if(state.data.meta.pubKey&&!state.data.meta.myKey
 async function importKeyBackup(parsed){if(!parsed||parsed.type!=='prepaid-key-backup'||!parsed.pkBackup){throw new Error('내 열쇠 백업 형식이 아닙니다.')}
 // 암호 창이 '바쁨' 가림막(.busy) 밑에 깔리지 않게 먼저 걷는다 — 호출부(onRestoreFile)가 파일을 읽는 동안 걸어 둔 것이다.
 // 암호가 틀리면 파일을 다시 고르게 하지 않고 같은 창에서 다시 묻는다(취소하면 그대로 끝).
-clearBusy();let priv=null,err='';for(;;){const pass=await askKeyPass('import',err);if(pass==null)return false;setBusy('내 열쇠를 확인하는 중입니다.');priv=await unwrapKeyBackupPass(parsed.pkBackup,pass);if(priv)break;clearBusy();err='암호가 맞지 않아요. 내 열쇠 백업을 만들 때 정한 암호를 다시 입력해 주세요.'}let secret=state.data.meta.deviceSecret;if(!secret){secret=bufToB64(randBytes(32))}const privKeyWrapped=await wrapPrivateKey(priv,secret),pubKey=str(parsed.pubKey)||state.data.meta.pubKey,keyCreatedAt=now();await repo.apply({meta:{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt}});Object.assign(state.data.meta,{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt});refreshKeyFingerprint();return true}
+clearBusy();let priv=null,err='';for(;;){const pass=await askKeyPass('import',err);if(pass==null)return false;setBusy('내 열쇠를 확인하는 중입니다.');priv=await unwrapKeyBackupPass(parsed.pkBackup,pass);if(priv)break;clearBusy();err='암호가 맞지 않아요. 내 열쇠 백업을 만들 때 정한 암호를 다시 입력해 주세요.'}
+// beta.55(B-05) ① 짝 확인 — 파일 안의 개인키로 파일 안의 공개키를 실제로 풀 수 있는지(암호화→복호화) 본다.
+//   짝이 안 맞는 파일(손상·조작)을 받아들이면 그 뒤 모든 명단·소유 증명이 조용히 실패하고, 원래 열쇠는 이미 덮어쓴 뒤다.
+const pubKey=str(parsed.pubKey)||str(state.data.meta.pubKey);
+if(!(await keyPairMatches(priv,pubKey))){clearBusy();await askChoice({title:'열쇠 백업 파일의 짝이 맞지 않아요',lines:['이 파일 안의 열쇠 두 개(잠금·열림)가 서로 맞지 않아요. 파일이 손상됐거나 다른 파일이 섞였을 수 있어요.','이 기기의 열쇠는 <b>바꾸지 않았어요</b>. 처음 저장한 [내 열쇠 백업] 파일을 다시 골라 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return false}
+// ② 덮어쓰기 확인 — 이 기기에 이미 **다른** 열쇠가 있으면 묻고 나서 바꾼다(예전에는 말없이 덮어썼다).
+//   PIN 분실 복구 화면에서도 열쇠 복원은 되는 길이라(beta.52) 그대로 두고, 이 확인만 더한다(choice-pick은 잠금 허용 목록에 있다).
+const curPub=str(state.data.meta.pubKey);
+if(curPub&&curPub!==pubKey){clearBusy();const fpCur=await keyFingerprint(curPub),fpNew=await keyFingerprint(pubKey);
+const v=await askChoice({title:'이 기기에는 이미 다른 열쇠가 있어요',lines:[`지금 열쇠 지문: <b>${esc(fpCur)}</b> → 가져온 열쇠 지문: <b>${esc(fpNew)}</b>`,relayRegistered()?'이 기기는 지금 열쇠로 가게가 등록되어 있을 수 있어요. 바꾸면 명단 받기·장부 되찾기가 가져온 열쇠 기준으로 바뀌어요.':'바꾸면 지금 열쇠로 잠근 백업·명단은 이 기기에서 열 수 없게 돼요.','바꾸기 전에 지금 열쇠도 [내 열쇠 백업]으로 따로 보관해 두면 안전해요.'],buttons:[{val:'keep',label:'바꾸지 않기',cls:'btn-primary'},{val:'replace',label:'가져온 열쇠로 바꾸기',cls:'btn-danger'}]});
+if(v!=='replace')return false;setBusy('내 열쇠를 저장하는 중입니다.')}
+let secret=state.data.meta.deviceSecret;if(!secret){secret=bufToB64(randBytes(32))}const privKeyWrapped=await wrapPrivateKey(priv,secret),keyCreatedAt=now();await repo.apply({meta:{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt}});Object.assign(state.data.meta,{deviceSecret:secret,pubKey,privKeyWrapped,keyCreatedAt});refreshKeyFingerprint();return true}
+// 개인키·공개키가 한 쌍인지 실제로 암호화→복호화해 본다(beta.55, B-05). 실패·예외는 '짝 아님'.
+async function keyPairMatches(priv,pubB64){try{if(!priv||!str(pubB64))return false;const pub=await crypto.subtle.importKey('spki',b64ToBuf(str(pubB64)),{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);const probe=randBytes(32);const ct=await crypto.subtle.encrypt({name:'RSA-OAEP'},pub,probe);const back=new Uint8Array(await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,ct));if(back.length!==probe.length)return false;for(let i=0;i<probe.length;i++)if(back[i]!==probe[i])return false;return true}catch(e){return false}}
 // ── 내 열쇠 백업 암호 입력창 (beta.52 현장 결함 수정) ─────────────────────────────
 // 예전에는 기기 기본 팝업(window.prompt)으로 암호를 받았다. 그 팝업에는 '8자 이상' 조건이 보이지 않고,
 //   짧은 암호는 3초짜리 토스트 한 줄로만 거절돼 사장님은 "입력해도 반영이 안 된다"고 느꼈다(설정 카드·
@@ -1195,7 +1220,10 @@ if(!pt||homeGroupKey(pt)!==target)return;
 if(doneIds)doneIds.add(e.id);
 out.push(pt)});
 return out}
-async function decryptBlob(blob){const priv=await getPrivateKey();if(!priv)throw new Error('가게 열쇠가 없습니다');const raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(blob.encKey));const aesKey=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['decrypt']);const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(b64ToBuf(blob.iv))},aesKey,b64ToBuf(blob.ct));return JSON.parse(new TextDecoder().decode(pt))}
+async function decryptBlob(blob){const priv=await getPrivateKey();if(!priv)throw relayCodeErr('no_key','가게 열쇠가 없습니다');
+// beta.55(B-12): 열쇠가 안 맞거나 암호문이 깨졌으면 'decrypt_failed'로 알린다 — 화면에는 "이 명단은 지금 열쇠로 열 수 없어요…".
+let pt;try{if(!blob||typeof blob!=='object')throw new Error('blob');const raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(blob.encKey));const aesKey=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['decrypt']);pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(b64ToBuf(blob.iv))},aesKey,b64ToBuf(blob.ct))}catch(e){throw relayCodeErr('decrypt_failed')}
+try{return JSON.parse(new TextDecoder().decode(pt))}catch(e){throw relayCodeErr('decrypt_failed')}}
 async function batchHashOf(items){return hash(items.map(i=>i.name+'|'+i.dept+'|'+num(i.amount)).sort().join('\n'))}
 // ── 복호화한 명단 ↔ 사장님이 보고 승인한 요약 대조 (F-07) ─────────────────────
 // 서버 응답에서 batch_hash가 사라졌다(§4.9 오라클 차단 — 서버가 가진 확인값을 그대로 돌려주면
@@ -1204,9 +1232,39 @@ async function batchHashOf(items){return hash(items.map(i=>i.name+'|'+i.dept+'|'
 // ③ 총액·인원 대조는 **언제나** 한다. 승인 확인창에 뜬 "받으실 금액 N원 · M명"은 사장님이 결제 내역과 맞춰 본
 //   바로 그 숫자다 — 그 숫자와 실제 암호문 내용이 어긋나면 등록을 막아야 한다(서버가 요약만
 //   바꿔치기해 사장님을 속이는 경로를 여기서 끊는다).
+// ── 명단 항목 형식 검사(beta.55, B-01·B-13) ───────────────────────────────────────────
+// 예전에는 "합계 = 안내 총액"만 봤다. 그래서 [{A,+1,000,000},{B,-990,000}]처럼 합계만 맞춘 명단이 통과했고,
+//   반영 단계는 양수만 넣으므로 장부에는 A에게 100만 원이 들어갔다(악의적 제출자 또는 위조 직접 전달 파일).
+// 이제 **장부에 쓰기 전에** 모든 항목을 본다: 이름(제어·방향 문자를 뺀 뒤 비어 있지 않음, 40자 이하),
+//   금액(1원 이상 1억 원 이하의 안전한 정수), 부서·소속(60자 이하), 항목 수(1~3,000).
+// ⚠️ batch_hash는 **원래 항목 그대로**(지금과 같은 방식) 계산한다 — 이 검사는 해시와 따로 돈다.
+//   정상 명단에는 제어·방향 문자가 없으므로 정리(cleanRosterItems)는 정상 명단에서 아무것도 바꾸지 않는다.
+var ROSTER_MAX_ITEMS=3000,ROSTER_MAX_NAME=40,ROSTER_MAX_LABEL=60,WON_MAX=100000000;
+// C0·C1 제어 문자, 폭 없는 문자·방향 표시(U+200B–200F), 방향 덮어쓰기·격리(U+202A–202E, U+2066–2069), BOM.
+function cleanRosterText(v){return String(v==null?'':v).replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g,'').trim()}
+function rosterAmountOk(v){const n=typeof v==='number'?v:(typeof v==='string'&&/^\s*\d+\s*$/.test(v)?Number(v):NaN);return Number.isSafeInteger(n)&&n>=1&&n<=WON_MAX}
+function validateRosterItems(items){if(!Array.isArray(items))return{ok:false,detail:'명단 형식 오류: 명단 목록이 없어요'};
+if(!items.length)return{ok:false,detail:'명단 형식 오류: 명단이 비어 있어요'};
+if(items.length>ROSTER_MAX_ITEMS)return{ok:false,detail:`명단 형식 오류: 한 번에 ${ROSTER_MAX_ITEMS.toLocaleString('ko-KR')}명까지만 받을 수 있어요(${items.length.toLocaleString('ko-KR')}명)`};
+for(let i=0;i<items.length;i++){const it=items[i],at=`${i+1}번째 줄`;
+if(!it||typeof it!=='object'||Array.isArray(it))return{ok:false,detail:`명단 형식 오류: ${at}이 비어 있어요`};
+if(typeof it.name!=='string'||!cleanRosterText(it.name))return{ok:false,detail:`명단 형식 오류: ${at}의 이름이 비어 있어요`};
+if(cleanRosterText(it.name).length>ROSTER_MAX_NAME)return{ok:false,detail:`명단 형식 오류: ${at}의 이름이 너무 길어요(${ROSTER_MAX_NAME}자까지)`};
+if(it.dept!=null&&typeof it.dept!=='string')return{ok:false,detail:`명단 형식 오류: ${at}의 부서가 글자가 아니에요`};
+if(it.org!=null&&typeof it.org!=='string')return{ok:false,detail:`명단 형식 오류: ${at}의 소속이 글자가 아니에요`};
+if(cleanRosterText(it.dept).length>ROSTER_MAX_LABEL||cleanRosterText(it.org).length>ROSTER_MAX_LABEL)return{ok:false,detail:`명단 형식 오류: ${at}의 부서·소속 이름이 너무 길어요(${ROSTER_MAX_LABEL}자까지)`};
+if(!rosterAmountOk(it.amount))return{ok:false,detail:`명단 형식 오류: ${at}(${cleanRosterText(it.name).slice(0,20)})의 금액이 올바르지 않아요 — 1원 이상 1억 원 이하만 받을 수 있어요`}}
+return{ok:true,detail:''}}
+// 검사를 통과한 명단의 글자 칸에서 제어·방향 문자를 걷는다(해시 계산 **뒤**에만 부른다). 정상 명단에서는 아무것도 바뀌지 않는다.
+function cleanRosterItems(items){(items||[]).forEach(it=>{if(!it||typeof it!=='object')return;['name','dept','org','payer'].forEach(k=>{if(typeof it[k]==='string'){const c=cleanRosterText(it[k]);if(c!==it[k].trim())it[k]=c}})});return items}
+// 명단 형식 오류 안내(앱 안 alert 문구) — 해시·총액 불일치와 구분해 말한다.
+function rosterRejectText(chk){return chk&&chk.kind==='format'
+?'⚠️ 명단 형식이 올바르지 않아 등록을 막았어요.\n('+chk.detail+')\n장부에는 아무것도 들어가지 않았어요.\n공공기관 담당자(서무)에게 명단을 확인해 다시 보내 달라고 요청하세요.'
+:'⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+(chk&&chk.detail||'')+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.'}
 async function verifyBatchAgainstSummary(plain,summary,outerHash,requireHash){
 const items=(plain&&Array.isArray(plain.items))?plain.items:null;
-if(!items)return{ok:false,detail:'명단 형식 오류'};
+if(!items)return{ok:false,kind:'format',detail:'명단 형식 오류: 명단 목록이 없어요'};
+const fmt=validateRosterItems(items);if(!fmt.ok)return{ok:false,kind:'format',detail:fmt.detail};
 const expectHash=str(plain&&plain.batch_hash)||str(outerHash);
 if(requireHash&&!expectHash)return{ok:false,detail:'명단 확인값(batch_hash)이 없습니다.'};
 if(expectHash){const re=await batchHashOf(items);if(!timingSafeEq(re,expectHash))return{ok:false,detail:'명단 확인값이 다릅니다.'}}
@@ -1281,7 +1339,8 @@ function takeoverReportTarget(){const b=storeBlocked();return b?{name:str(b.name
 // 호출부(설정 relayPickStore·온보딩 finishSetup)가 실패 후속 안내를 실패 종류에 맞게 고르도록 남기는 표지.
 //   auth_required일 때 "인터넷 확인" 토스트가 겹쳐 뜨면 위 안내를 도로 덮는 오답이 된다.
 let relayRegisterLastError='';
-async function relayRegister(addrHint){relayRegisterLastError='';if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 선택하세요.');return}if(!state.data.meta.pubKey){await ensureKeyPair()}setBusy('우리 가게를 등록하는 중입니다.');try{const payload={restaurant_id:rid,restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey};
+var relayRegisterToldUser=false;// beta.55: relayRegister가 실패 이유를 이미 화면에 말했는가(호출부가 일반 문구로 덮지 않게)
+async function relayRegister(addrHint){relayRegisterLastError='';relayRegisterToldUser=false;if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 선택하세요.');return}if(!state.data.meta.pubKey){await ensureKeyPair()}setBusy('우리 가게를 등록하는 중입니다.');try{const payload={restaurant_id:rid,restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey};
 // 기관 목록이 아직 안 실려 있으면 district가 통째로 비어 버린다(첫 실행에서 실제로 일어난다) — 한 번 더 시도한다.
 if(!state.agencyData){try{await loadAgencyData(false)}catch(e0){console.error('relay agency data for district',e0)}}
 const district=relayDistrict(addrHint);if(district)payload.district=district;
@@ -1291,7 +1350,7 @@ const district=relayDistrict(addrHint);if(district)payload.district=district;
 //   보내고, 401이면 기존 안내(REGISTER_TAKEN_MSG)로 간다 — 막다른 길을 만들지 않는다.
 //   (처음 등록하는 기기는 서버에 열쇠가 없어 챌린지를 받을 수 없다 — 그래서 relayRegisteredAt이 선 뒤에만 시도한다.)
 if(relayRegistered()&&num(state.data.meta.relayRegisteredAt)>0){try{payload.auth_token=await relayAuthToken()}catch(e1){console.error('relay register auth',e1)}}
-const r=await fetch(base+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const j=await r.json();clearBusy();if(!r.ok)throw new Error(j.error||'등록 실패');state.data.meta.relayRegisteredAt=now();state.data.meta.storeRegisterPending=false;
+const r=await relayFetch(base+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok){const err=relayCodeErr(str(j&&j.error)||(r.status===429?'rate_limited':'register_failed'));err.lockedUntil=j&&j.locked_until;throw err}state.data.meta.relayRegisteredAt=now();state.data.meta.storeRegisterPending=false;
 // 지역을 실어 보냈으면 자동 치유(relayDistrictSyncSilent)는 더 돌 필요가 없다.
 state.data.meta.storeRegisterBlocked=null;
 const metaPatch={relayRegisteredAt:state.data.meta.relayRegisteredAt,storeRegisterPending:false,storeRegisterBlocked:null};
@@ -1302,7 +1361,7 @@ const savedKakao=str(state.data.meta.contactKakaoLink),savedEmail=str(state.data
 if(savedKakao||savedEmail){try{await relayContactSave({kakao:savedKakao,email:savedEmail,successToast:'우리 가게를 등록했습니다. 연락처도 함께 등록했어요.'})}catch(e2){console.error('auto contact save',e2);toast('우리 가게를 등록했습니다. 이제 공공기관 신청을 받을 수 있어요.')}}
 else{toast('우리 가게를 등록했습니다. 이제 공공기관 신청을 받을 수 있어요.')}
 // 서버 원문(영문 코드 등)은 콘솔에만 남기고 사용자에게는 사람 말로 안내한다(A5).
-}catch(e){console.error('register-key:',e);clearBusy();relayRegisterLastError=str(e&&e.message)||'error';
+}catch(e){console.error('register-key:',e);clearBusy();relayRegisterLastError=str(e&&e.code)||str(e&&e.message)||'error';
 if(relayRegisterLastError==='auth_required'){
 // beta.49: 이 사실을 기억해 둔다 — 홈 칩·배너·자동 등록 카드가 "등록 안 됨"이 아니라 **"다른 기기에 등록됨"**을
 //   말해야 하기 때문이다(현장: 실패했는데도 가게 이름이 크게 떠 "등록된 것처럼" 읽혔다).
@@ -1314,7 +1373,16 @@ const blocked={id:rid,name:str(state.data.meta.relayStoreName||state.data.meta.s
 state.data.meta.storeRegisterBlocked=blocked;
 try{await repo.apply({meta:{storeRegisterBlocked:blocked}})}catch(e3){console.error('blocked flag save',e3)}}
 window.alert(REGISTER_TAKEN_MSG);takeoverReportHref(takeoverReportTarget().name,takeoverReportTarget().rid);return}
+// beta.55(B-12): 서버가 이유를 알려 준 실패는 그 이유를 사장님 말로 말한다(뒤따르는 "인터넷 확인" 토스트로 덮지 않는다).
+if(relayRegisterLastError==='takeover_locked'){relayRegisterToldUser=true;await askChoice({title:'지금은 이 가게를 등록할 수 없어요',lines:[`운영자가 최근 정리한 가게라 <b>${esc(lockedUntilText(e&&e.lockedUntil))}</b> 다시 등록할 수 있어요.`,'우리 가게가 맞는데 급하시면 contact@bapjangbu.com으로 가게 이름과 함께 알려 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return}
+const known=REGISTER_ERR_KO[relayRegisterLastError]||(['timeout','network','rate_limited','too_many_attempts'].includes(relayRegisterLastError)?RELAY_ERR_KO[relayRegisterLastError]:'');
+if(known){relayRegisterToldUser=true;toast('가게 등록에 실패했어요. '+known,6000);return}
 toast('가게 등록에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.')}}
+var REGISTER_ERR_KO={invalid_public_key:'이 기기의 가게 열쇠가 올바르지 않아요. 앱을 새로 고친 뒤 다시 해 보고, 계속 안 되면 contact@bapjangbu.com으로 알려 주세요.',
+store_not_found:'공공데이터에서 이 가게를 찾지 못했어요. 가게 이름·주소로 다시 검색해서 골라 주세요.'};
+// 서버의 locked_until(초·ms·ISO 문자열 무엇이든)을 "11월 20일 이후" 같은 말로. 읽지 못하면 "며칠 뒤에".
+function lockedUntilText(v){let t=0;if(typeof v==='number'&&v>0)t=v<1e11?v*1000:v;else if(typeof v==='string'&&v){const n=Number(v);t=Number.isFinite(n)&&n>0?(n<1e11?n*1000:n):Date.parse(v)}
+if(!Number.isFinite(t)||t<=0)return '며칠 뒤에';const d=new Date(t);return `${d.getMonth()+1}월 ${d.getDate()}일 이후에`}
 // ── 기존 등록분 자동 치유(beta.26) ─────────────────────────────────────────────
 // beta.25까지는 공식 주소를 저장하지 않아 register-key 페이로드에서 district가 통째로 빠졌다
 // (라이브 D1에 district가 채워진 행이 0건이었다 → 담당자 웹의 '관할 음식점' 목록이 항상 비어 있었다).
@@ -1330,7 +1398,7 @@ if(state.data.meta.districtSyncedAt)return false;// 1회만
 if(!state.data.meta.pubKey)return false;
 if(!state.agencyData){try{await loadAgencyData(false)}catch(e0){console.error('relay agency data for district',e0)}}
 const district=relayDistrict();if(!district)return false;
-const r=await fetch(relayBase()+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:str(state.data.meta.restaurantId),restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey,district})});
+const r=await relayFetch(relayBase()+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:str(state.data.meta.restaurantId),restaurant_name:state.data.meta.relayStoreName||state.data.meta.shopName||'',public_key:state.data.meta.pubKey,district})});
 if(!r.ok)return false;
 const at=now();state.data.meta.districtSyncedAt=at;await repo.apply({meta:{districtSyncedAt:at}});
 return true}catch(e){console.error('relay district sync',e);return false}}
@@ -1339,7 +1407,7 @@ return true}catch(e){console.error('relay district sync',e);return false}}
 // 검색 본체(모달·온보딩 공용) — 서버 응답을 지역 토큰으로 좁혀 {ok,error,results,regionFilteredOut}을 돌려준다.
 // 우편번호(zip)는 5자리 숫자일 때만 조건으로 붙인다 — 공공데이터 API가 한글 조건값에 0건을 돌려주는 기간에도(2026-08) 우편번호는 ASCII라 정상 동작한다.
 // 이름(q)만 있는 호출도 그대로 유지(상대 서비스가 복구되면 자동으로 다시 먹힌다). q가 비어도 zip만으로 검색 가능.
-async function searchStoresRaw(q,regionText,zip){const z=str(zip).replace(/\D/g,'');const qq=str(q);const usedZip=z.length===5;const params=[];if(qq)params.push('q='+encodeURIComponent(qq));if(usedZip)params.push('zip='+z);const r=await fetch(relayBase()+'/api/restaurants'+(params.length?'?'+params.join('&'):''));const list=await r.json();const ok=Array.isArray(list);const all=ok?list:[];const tokens=str(regionText).split(/\s+/).map(str).filter(Boolean);const filtered=tokens.length?all.filter(x=>tokens.every(t=>str(x.address).includes(t))):all;return{ok:ok&&r.ok,status:r.status,error:(ok&&r.ok)?'':((list&&list.error)||'검색 오류'),results:filtered,regionFilteredOut:tokens.length>0&&all.length>0&&filtered.length===0,usedZip}}
+async function searchStoresRaw(q,regionText,zip){const z=str(zip).replace(/\D/g,'');const qq=str(q);const usedZip=z.length===5;const params=[];if(qq)params.push('q='+encodeURIComponent(qq));if(usedZip)params.push('zip='+z);const r=await relayFetch(relayBase()+'/api/restaurants'+(params.length?'?'+params.join('&'):''));const list=await r.json();const ok=Array.isArray(list);const all=ok?list:[];const tokens=str(regionText).split(/\s+/).map(str).filter(Boolean);const filtered=tokens.length?all.filter(x=>tokens.every(t=>str(x.address).includes(t))):all;return{ok:ok&&r.ok,status:r.status,error:(ok&&r.ok)?'':((list&&list.error)||'검색 오류'),results:filtered,regionFilteredOut:tokens.length>0&&all.length>0&&filtered.length===0,usedZip}}
 // ── 검색 결과 "다른 기기에서 이미 등록됨" 배지(beta.49) ──────────────────────────
 // 왜: 예전에는 이미 남이(또는 내 예전 폰이) 등록한 가게를 고른 뒤에야 401로 막혔다 — 고르기 전에 말해 준다.
 // 원천은 담당자 웹이 쓰는 공개 엔드포인트 GET /api/registered?ids=… (등록된 id 배열). 실패·오프라인·타임아웃은
@@ -1363,7 +1431,7 @@ try{
 if(!navigator.onLine)return;
 const ids=(results||[]).map(x=>str(x&&x.restaurant_id)).filter(id=>id&&!/^__diag_/.test(id)).slice(0,REGISTERED_IDS_MAX);
 if(!ids.length)return;
-const r=await fetch(relayBase()+'/api/registered?ids='+encodeURIComponent(ids.join(',')));
+const r=await relayFetch(relayBase()+'/api/registered?ids='+encodeURIComponent(ids.join(',')));
 if(!r.ok)return;
 const list=await r.json();
 if(!Array.isArray(list))return;
@@ -1527,7 +1595,7 @@ state.modal.q=q;state.modal.region=regionText;state.modal.zip=zip;if(!q&&str(zip
 // beta.52: 이름 검색이 실패해도 지역이 있으면 동네 순회로 넘어간다(온보딩과 같은 규칙).
 const canDong=!!(!res.usedZip&&q&&dongTokenOf(regionText));
 if(!res.ok&&!canDong)toast(searchErrMsg(res));
-else if((!res.ok||!res.results.length)&&canDong)await runDongScan('modal','','',false)}catch(e){console.error(e);state.modal.searching=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
+else if((!res.ok||!res.results.length)&&canDong)await runDongScan('modal','','',false)}catch(e){console.error(e);state.modal.searching=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;render();toast('검색 실패: '+relayErrMsg(e))}}
 // 온보딩 1/3 전용 검색(모달이 없는 화면이라 state에 직접 보관). 서버로 보내는 것은 검색어뿐이며 아무것도 저장되지 않는다.
 function blurSearchInput(){try{const a=document.activeElement;if(a&&a.tagName==='INPUT'&&typeof a.blur==='function')a.blur()}catch(e){}}
 // 입력 칸(INPUT·TEXTAREA)에 남은 초점을 거둔다 — 소프트키보드를 닫는 유일하게 믿을 수 있는 방법이다(beta.54).
@@ -1543,7 +1611,7 @@ if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');state.se
 // beta.52: 이름 검색이 실패해도(서버 분당 한도·공공API 장애) 지역이 있으면 동네 순회로 넘어간다 — 순회가 재시도·대기를 맡는다.
 const canDong=!!(!res.usedZip&&q&&dongTokenOf(regionText));
 if(!res.ok&&!canDong)toast(searchErrMsg(res));
-else if((!res.ok||!res.results.length)&&canDong)await runDongScan('setup','','',false)}catch(e){console.error(e);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;render();toast('검색 실패: '+(e.message||''))}}
+else if((!res.ok||!res.results.length)&&canDong)await runDongScan('setup','','',false)}catch(e){console.error(e);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;render();toast('검색 실패: '+relayErrMsg(e))}}
 // 새 명단 신청 개수 — 등록·온라인일 때만 조회. 실패·404(구서버)는 조용히 무시하고 폴링 타이머는 만들지 않는다.
 let lastInboxCountAt=0;
 // 비동기 렌더가 입력을 날리지 않도록(S8) 모달이 열려 있거나 입력/서명 조작 중이면 카운트만 갱신하고 다음 자연 렌더에 맡긴다.
@@ -1567,7 +1635,7 @@ function setInboxCount(n){state.inboxCount=n;const v=(n==null?null:num(n));if(st
 let inboxRetryTimer=null;
 // 조회 실패는 배지를 지우지 않는다(마지막 확인값 유지). 일시 장애(5xx·네트워크 오류)는 5초→15초 2회 재시도.
 // 404(구서버 호환)·4xx·429는 예전처럼 조용히 무시하고 재시도하지 않는다(서버 보호).
-async function refreshInboxCount(retriesLeft=2){try{if(!relayRegistered()||!navigator.onLine)return;lastInboxCountAt=now();const rid=str(state.data.meta.restaurantId);const r=await fetch(relayBase()+'/api/inbox-count?restaurant_id='+encodeURIComponent(rid));if(!r.ok){if(r.status>=400&&r.status<500)return;throw new Error('inbox-count '+r.status)}const j=await r.json().catch(()=>null);if(!j||typeof j.count!=='number')throw new Error('inbox-count 형식');if(inboxRetryTimer){clearTimeout(inboxRetryTimer);inboxRetryTimer=null}setInboxCount(j.count);announceInbox();if(state.loaded&&!renderIsDisruptive())render()}catch(e){const left=num(retriesLeft);if(left>0&&navigator.onLine&&!inboxRetryTimer){inboxRetryTimer=setTimeout(()=>{inboxRetryTimer=null;refreshInboxCount(left-1)},left===2?5000:15000)}}}
+async function refreshInboxCount(retriesLeft=2){try{if(!relayRegistered()||!navigator.onLine)return;lastInboxCountAt=now();const rid=str(state.data.meta.restaurantId);const r=await relayFetch(relayBase()+'/api/inbox-count?restaurant_id='+encodeURIComponent(rid));if(!r.ok){if(r.status>=400&&r.status<500)return;throw new Error('inbox-count '+r.status)}const j=await r.json().catch(()=>null);if(!j||typeof j.count!=='number')throw new Error('inbox-count 형식');if(inboxRetryTimer){clearTimeout(inboxRetryTimer);inboxRetryTimer=null}setInboxCount(j.count);announceInbox();if(state.loaded&&!renderIsDisruptive())render()}catch(e){const left=num(retriesLeft);if(left>0&&navigator.onLine&&!inboxRetryTimer){inboxRetryTimer=setTimeout(()=>{inboxRetryTimer=null;refreshInboxCount(left-1)},left===2?5000:15000)}}}
 // 앱으로 돌아왔을 때 stale 배지 보완(S10) — 마지막 조회 후 60초가 지난 경우에만 다시 조회한다.
 document.addEventListener('visibilitychange',function(){if(document.visibilityState!=='visible')return;if(!state.loaded)return;if(now()-lastInboxCountAt<60000)return;refreshInboxCount()});
 // ── 사장님이 화면을 '보기 시작하는' 순간에 바로 확인 (beta.52 현장 결함) ─────────────────────────
@@ -1608,27 +1676,39 @@ try{await repo.apply({meta:{restaurantId:prevId,relayStoreName:prevName,storeAdd
 if(!prevId)await markStoreRegisterPending();
 render();
 // auth_required는 relayRegister가 이미 해결 방법 alert를 띄웠다 — "인터넷 확인" 토스트로 덮지 않는다.
-if(relayRegisterLastError!=='auth_required')toast('가게 등록에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.')}
-async function relayStop(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('자동 등록을 중단할까요? (가게 등록 해제)\n\n· 더는 공공기관에서 새 명단 신청을 받지 않습니다(등록 해제).\n· 이미 등록된 직원 명단·잔액은 그대로 유지됩니다.\n· 서버에 보관된 잠긴 장부 백업은 30일 뒤 삭제돼요(그 안에 다시 등록하면 되찾을 수 있어요).'))return;setBusy('등록을 해제하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/deregister',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'해제 실패')}state.data.meta.restaurantId='';state.data.meta.relayStoreName='';state.data.meta.relayRegisteredAt=null;state.data.meta.storeRegisterPending=false;state.data.meta.storeAddr='';state.data.meta.districtSyncedAt=null;state.inboxCount=null;state.data.meta.inboxCountCache=null;await repo.apply({meta:{restaurantId:'',relayStoreName:'',relayRegisteredAt:null,storeRegisterPending:false,storeAddr:'',districtSyncedAt:null,inboxCountCache:null}});clearBusy();render();toast('자동 등록을 중단했습니다. (가게 등록 해제)')}catch(e){console.error(e);clearBusy();toast('중단 처리 오류: '+(e.message||''))}}
+if(relayRegisterLastError!=='auth_required'&&!relayRegisterToldUser)toast('가게 등록에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.')}
+async function relayStop(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('자동 등록을 중단할까요? (가게 등록 해제)\n\n· 더는 공공기관에서 새 명단 신청을 받지 않습니다(등록 해제).\n· 이미 등록된 직원 명단·잔액은 그대로 유지됩니다.\n· 서버에 보관된 잠긴 장부 백업은 30일 뒤 삭제돼요(그 안에 다시 등록하면 되찾을 수 있어요).'))return;setBusy('등록을 해제하는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(base+'/api/deregister',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'해제 실패')}state.data.meta.restaurantId='';state.data.meta.relayStoreName='';state.data.meta.relayRegisteredAt=null;state.data.meta.storeRegisterPending=false;state.data.meta.storeAddr='';state.data.meta.districtSyncedAt=null;state.inboxCount=null;state.data.meta.inboxCountCache=null;await repo.apply({meta:{restaurantId:'',relayStoreName:'',relayRegisteredAt:null,storeRegisterPending:false,storeAddr:'',districtSyncedAt:null,inboxCountCache:null}});clearBusy();render();toast('자동 등록을 중단했습니다. (가게 등록 해제)')}catch(e){console.error(e);clearBusy();toast('자동 등록을 중단하지 못했어요. '+relayErrMsg(e))}}
 // 가게 연락처(카톡 오픈채팅/이메일) — 기관 담당자 화면에서 [카톡으로 보내기]·[이메일로 보내기] 버튼을 켜는 선택 항목
 function isKakaoOpenLink(v){return /^https:\/\/open\.kakao\.com\//.test(str(v))}
-async function relayContactSave(opts){opts=opts&&typeof opts==='object'?opts:{};if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 등록하세요.');return}const kakao=typeof opts.kakao==='string'?opts.kakao:str(qs('contactKakao')&&qs('contactKakao').value),email=typeof opts.email==='string'?opts.email:str(qs('contactEmail')&&qs('contactEmail').value);if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}setBusy('연락처를 저장하는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:kakao,email})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'저장 실패');state.data.meta.contactKakaoLink=kakao;state.data.meta.contactEmail=email;await repo.apply({meta:{contactKakaoLink:kakao,contactEmail:email}});render();toast(opts.successToast||'가게 연락처를 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처 저장 오류: '+(e.message||''))}}
-async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('등록된 연락처를 지울까요?\n\n담당자 화면에서 카톡·이메일 전달 버튼이 사라집니다.'))return;setBusy('연락처를 지우는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:'',email:''})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'해제 실패');state.data.meta.contactKakaoLink='';state.data.meta.contactEmail='';await repo.apply({meta:{contactKakaoLink:'',contactEmail:''}});render();toast('가게 연락처 등록을 해제했습니다.')}catch(e){console.error(e);clearBusy();toast('등록 해제 오류: '+(e.message||''))}}
+async function relayContactSave(opts){opts=opts&&typeof opts==='object'?opts:{};if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('먼저 우리 가게를 등록하세요.');return}const kakao=typeof opts.kakao==='string'?opts.kakao:str(qs('contactKakao')&&qs('contactKakao').value),email=typeof opts.email==='string'?opts.email:str(qs('contactEmail')&&qs('contactEmail').value);if(kakao&&!isKakaoOpenLink(kakao)){toast("카카오톡 '오픈채팅' 링크만 등록할 수 있어요");return}if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('이메일 형식을 확인해 주세요.');return}setBusy('연락처를 저장하는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:kakao,email})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'저장 실패');state.data.meta.contactKakaoLink=kakao;state.data.meta.contactEmail=email;await repo.apply({meta:{contactKakaoLink:kakao,contactEmail:email}});render();toast(opts.successToast||'가게 연락처를 저장했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처를 저장하지 못했어요. '+relayErrMsg(e))}}
+async function relayContactClear(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const rid=str(state.data.meta.restaurantId);if(!rid){toast('등록된 가게가 없습니다.');return}if(!window.confirm('등록된 연락처를 지울까요?\n\n담당자 화면에서 카톡·이메일 전달 버튼이 사라집니다.'))return;setBusy('연락처를 지우는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,kakao_link:'',email:''})});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok)throw new Error(j.error||'해제 실패');state.data.meta.contactKakaoLink='';state.data.meta.contactEmail='';await repo.apply({meta:{contactKakaoLink:'',contactEmail:''}});render();toast('가게 연락처 등록을 해제했습니다.')}catch(e){console.error(e);clearBusy();toast('연락처를 지우지 못했어요. '+relayErrMsg(e))}}
 // 수신함은 소유증명(챌린지-응답) 뒤에 있다 — restaurant_id는 공개값이라, 예전에는 그것만 알면
 //   누구나 그 가게의 기관·부서·총액·인원과 암호문까지 받아 갈 수 있었다(암호문은 못 열어도
 //   요약 메타 자체가 조직 정보다). 토큰은 헤더(X-Auth-Token)로 보낸다 — 쿼리스트링은 로그에 남는다.
 async function relayOpenInbox(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base||!rid){toast('서버 주소와 음식점 ID를 입력하세요.');return}
 // 목록을 받기 전에 밀린 통보부터 비운다 — 그래야 이미 처리한 신청이 PENDING으로 다시 올라오지 않는다.
 await flushPendingNotify();
-setBusy('신청을 불러오는 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid),{headers:{'X-Auth-Token':authToken}});const items=await r.json();clearBusy();if(r.status===401){toast('가게 확인에 실패했어요. 설정에서 우리 가게 등록 상태를 확인해 주세요.');return}if(!Array.isArray(items))throw new Error(items.error||'수신 오류');setInboxCount(items.length);state.inboxNotified=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error(e);clearBusy();toast('수신함 오류: '+(e.message||''))}}
+setBusy('신청을 불러오는 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(base+'/api/inbox?restaurant_id='+encodeURIComponent(rid),{headers:{'X-Auth-Token':authToken}});const raw=await r.json().catch(()=>null);clearBusy();if(r.status===401){toast('가게 확인에 실패했어요. 설정에서 우리 가게 등록 상태를 확인해 주세요.');return}
+if(r.status===404){toast(RELAY_ERR_KO.store_not_registered);return}
+if(!Array.isArray(raw))throw relayCodeErr(str(raw&&raw.error)||'bad_reply');
+// beta.55(B-15): 서버가 준 항목 하나가 깨져 있어도(형태 검증 없음) 수신함 전체·이후 모든 화면이 깨지지 않게 걸러 낸다.
+const items=raw.filter(inboxItemOk),skipped=raw.length-items.length;if(skipped)console.error('relay inbox skipped malformed items',skipped);
+setInboxCount(items.length);state.inboxNotified=items.length;state.modal={type:'inbox',items};render();refreshInboxCount();
+if(skipped)toast(`형식이 맞지 않는 신청 ${skipped}건은 건너뛰었어요. 담당자에게 다시 보내 달라고 해 주세요.`,6000);
+else if(!items.length)toast('대기 중인 신청이 없습니다.')}catch(e){console.error('relay inbox',e);clearBusy();toast('신청을 불러오지 못했어요. '+relayErrMsg(e))}}
+// 수신함 항목 최소 형태 — summary_id(글자)와 summary(객체)가 있어야 화면에 그릴 수 있다. 숫자 칸은 그릴 때 num()으로 읽는다.
+function inboxItemOk(it){if(!it||typeof it!=='object'||Array.isArray(it))return false;if(typeof it.summary_id!=='string'||!it.summary_id.trim()||it.summary_id.length>200)return false;
+const sm=it.summary;if(!sm||typeof sm!=='object'||Array.isArray(sm))return false;
+for(const k of ['institution','department','year_month','agency_domain','batch_hash'])if(sm[k]!=null&&typeof sm[k]!=='string')return false;
+if(it.ciphertext!=null&&(typeof it.ciphertext!=='object'||Array.isArray(it.ciphertext)))return false;return true}
 // 처리 도중 뒤로가기(popstate)로 모달이 닫혀도 TypeError 없이 끝나도록 진입 시 모달을 지역 변수로 캡처한다(A6).
 async function relayReject(sid){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;// 이미 장부에 반영한 신청은 거절할 수 없다(버튼 자체가 없지만, 오래된 모달 데이터로 도달할 수 있다).
 if(approvedSummaryHas(sid)){await relayNotifyOnly(sid,modal);return}
-if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)} 신청을 거절할까요? (열어보지 않고 폐기)`))return;setBusy('처리 중입니다.');try{const authToken=await relayAuthToken();const r=await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'REJECTED',restaurant_id:rid,auth_token:authToken})});
+if(!window.confirm(`${combinedDeptLabel(item.summary.institution,item.summary.department)} 신청을 거절할까요? (열어보지 않고 폐기)`))return;setBusy('처리 중입니다.');try{const authToken=await relayAuthToken();const r=await relayFetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:sid,status:'REJECTED',restaurant_id:rid,auth_token:authToken})});
 // beta.48: 예전에는 응답을 보지도 않고 항목을 지웠다 — 서버가 못 받았는데 화면에서는 사라지니
 //   사장님은 처리됐다고 믿고, 그 신청은 다음 조회에서 PENDING으로 되살아난다.
 if(!(r.ok||r.status===409||r.status===404)){clearBusy();render();toast('거절을 서버에 알리지 못했어요 — 다시 시도해 주세요.');return}
-if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);setInboxCount(modal.items.length)}clearBusy();render();refreshInboxCount();toast('거절했습니다.')}catch(e){console.error(e);clearBusy();toast('처리 오류: '+(e.message||''))}}
+if(modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);setInboxCount(modal.items.length)}clearBusy();render();refreshInboxCount();toast('거절했습니다.')}catch(e){console.error(e);clearBusy();toast('거절을 처리하지 못했어요. '+relayErrMsg(e))}}
 // ── 승인 아웃박스 (beta.48) ────────────────────────────────────────────────────
 // 현장 결함: 승인은 ①명단을 장부에 넣고 ②서버에 "처리 완료"를 알리는 두 걸음인데, ②가 실패해도(끊긴 와이파이,
 //   서버 5xx) 앱은 그 항목을 수신함에서 지우고 넘어갔다. 다음 수신함 조회에서 그 신청이 PENDING으로 다시
@@ -1648,7 +1728,7 @@ try{
 const base=relayBase(),rid=str(state.data.meta.restaurantId);
 if(!base||!rid||!navigator.onLine)return false;
 const authToken=await relayAuthToken();
-const r=await fetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:str(sid),status:'APPROVED',restaurant_id:rid,auth_token:authToken})});
+const r=await relayFetch(base+'/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary_id:str(sid),status:'APPROVED',restaurant_id:rid,auth_token:authToken})});
 if(!(r.ok||r.status===409||r.status===404))return false;
 await clearPendingNotify(sid);
 return true}
@@ -1674,7 +1754,9 @@ if(!navigator.onLine||!relayRegistered())return;
 const list=pendingNotifyList();
 if(!list.length)return;
 let changed=false;
-for(const row of list.slice(0,10)){const sid=str(row&&row.sid);if(!sid)continue;if(await notifyApproved(sid))changed=true}
+// beta.55(B-12): 통보마다 소유 증명(챌린지)이 하나씩 필요하다 — 서버는 가게당 챌린지 수에 상한이 있어, 실패가 이어지는 상황
+//   (끊긴 와이파이·서버 장애)에서 10건을 내리 시도하면 상한만 채우고 다른 작업(수신함 열기)까지 막았다. 첫 실패에서 멈춘다.
+for(const row of list.slice(0,10)){const sid=str(row&&row.sid);if(!sid)continue;if(await notifyApproved(sid))changed=true;else break}
 if(changed&&state.loaded&&!renderIsDisruptive())render()}
 catch(e){console.error('relay notify flush',e)}}
 // beta.33: 확인창을 "결제 대조" 중심으로 재편(사용자 원칙 — 최종 방어선은 사장님이 확인한 결제 내역).
@@ -1688,7 +1770,7 @@ const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!base)return;
 const modal=state.modal;const item=(modal&&modal.items||[]).find(x=>x.summary_id===sid);if(!item)return;
 // 이미 장부에 반영한 신청은 **다시 열지 않는다** — 통보만 재시도한다(같은 명단이 두 번 들어가는 유일한 길을 막는다).
 if(approvedSummaryHas(sid)){await relayNotifyOnly(sid,modal);return}
-if(!item.ciphertext){toast('암호문이 없습니다.');return}setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const chk=await verifyBatchAgainstSummary(plain,item.summary,item.summary&&item.summary.batch_hash,false);if(!chk.ok){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+chk.detail+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}assignDuplicateSuffix(plain.items);
+if(!item.ciphertext){toast('암호문이 없습니다.');return}setBusy('열어보는 중입니다.');try{const plain=await decryptBlob(item.ciphertext);if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');const chk=await verifyBatchAgainstSummary(plain,item.summary,item.summary&&item.summary.batch_hash,false);if(!chk.ok){clearBusy();window.alert(rosterRejectText(chk));return}cleanRosterItems(plain.items);assignDuplicateSuffix(plain.items);
 const bh=str(chk.hash)||await batchHashOf(plain.items);
 const groupDept=combinedDeptLabel(item.summary.institution,item.summary.department);
 // beta.54: 정확히 같은 부서는 없는데 비슷한 부서가 있으면 받기 전에 멈춰 묻는다(askNearDuplicate). 선택창은 busy 오버레이 아래에 묻히므로 먼저 걷는다.
@@ -1699,15 +1781,15 @@ if(labels.size===1&&plain.items.length){clearBusy();const nd=await askNearDuplic
 if(nd.choice==='cancel'){render();return}
 if(nd.choice==='rename'){const r0=recOf(plain.items[0]);renamePatches=relabelGroupPatches(nd.group.label,r0.org,r0.dept,'public');renameFrom=nd.group.label}}
 const activeByKey=activeEmployeeIndex(renamePatches);
-const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));const ld=exist?lastDepositOf(exist.id):null;return{it,rec,amt:num(it.amount),exist,before:exist?balanceOf(exist.id):0,lastAt:ld?num(ld.createdAt):0}});
+const planBal=runningBalance();const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));const ld=exist?lastDepositOf(exist.id):null;return{it,rec,amt:num(it.amount),exist,before:exist?planBal.take(exist.id,num(it.amount)):0,lastAt:ld?num(ld.createdAt):0}});
 clearBusy();
 if(!window.confirm(batchReviewText({label:groupDept,renameFrom,renameTo:plain.items.length?orgDeptLabel(recOf(plain.items[0])):'',ym:str(item.summary.year_month),direct:false,payers:batchPayers(plain.items),payMethod:batchPayMethod(plain.items),domain:item.summary.agency_domain,sentAt:batchSentAt(item,item.summary),total:num(item.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(bh)}))){render();return}
 setBusy('장부에 올리는 중입니다.');
-const t=now(),ym=str(item.summary.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);let topupCount=0;const patchedIds=new Set();
+const t=now(),ym=str(item.summary.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);let topupCount=0;const patchedIds=new Set();const writeBal=runningBalance();
 for(const p of plan){/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
 const txNote=noteLabel+(str(p.it.payer)?' · 결제 '+str(p.it.payer):'');
 publicOrgPatchesForLabel(p.rec,patchedIds).forEach(pt=>patches.push(pt));
-if(p.exist){topupCount++;if(p.amt>0){const before=balanceOf(p.exist.id);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'공공기관 신청 승인 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
+if(p.exist){topupCount++;if(p.amt>0){const before=writeBal.take(p.exist.id,p.amt);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'공공기관 신청 승인 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
 const eid=uid();emps.push({id:eid,org:p.rec.org,orgKind:'public',dept:p.rec.dept,name:p.rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
 if(p.amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:p.amt,beforeBalance:0,afterBalance:p.amt,reason:'공공기관 신청 승인',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}
 // 장부(직원·거래)와 "받았다·반영했다·아직 못 알렸다" 기록을 **한 번의 apply**로 커밋한다.
@@ -1725,7 +1807,7 @@ if(notified&&modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x
 clearBusy();render();refreshInboxCount();
 const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);
 window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`+(notified?'':'\n\n⚠️ 서버에 처리 완료를 아직 알리지 못했어요.\n장부에는 이미 들어갔어요 — 인터넷이 되면 자동으로 다시 알려요.'));
-if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인 오류: '+(e.message||''))}})}
+if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()}catch(e){console.error(e);clearBusy();toast('승인하지 못했어요. '+relayErrMsg(e))}})}
 // ── 직접 전달(파일·QR) 수신 — 서버를 거치지 않고 기관이 건넨 암호문을 그 자리에서 열어 장부에 등록 ──
 // 계약(고정): {v:1, type:'direct-transfer', restaurant_id, restaurant_name, institution, department, year_month, summary:{total_amount, member_count, batch_hash}, ciphertext:{alg,encKey,iv,ct}}
 function directTransferBatchHashes(){return Array.isArray(state.data.meta.receivedBatchHashes)?state.data.meta.receivedBatchHashes:[]}
@@ -1804,11 +1886,26 @@ out.push({...e,org,dept,orgKind:kind,updatedAt:t})});return out}
 // 받기 전 갈림길(앱 안 선택창). 반환 {choice:'none'|'rename'|'separate'|'cancel', group}
 async function askNearDuplicate(rec,names,count){const g=nearDuplicateGroup(rec,names);if(!g)return{choice:'none',group:null};
 const incoming=orgDeptLabel(rec);
-const lines=[`받는 명단: <b>${esc(incoming)}</b> ${num(count)}명`,`기존 부서: <b>${esc(g.label)}</b> ${g.count}명${g.overlap?` · 이름 ${g.overlap}명 겹침`:''}`,'이대로 받으면 같은 사람이 두 부서에 따로 생겨요.','[이름을 고치고 받기]는 기존 부서의 소속·부서 글자만 바꿔요. 잔액은 그대로이고, 같은 이름은 이 명단 금액이 잔액에 더해져요.'];
-const v=await askChoice({title:'비슷한 부서가 이미 있어요',lines,buttons:[{val:'rename',label:`기존 부서 이름을 '${incoming}'으로 고치고 받기`,cls:'btn-primary'},{val:'separate',label:'새 부서로 따로 등록',cls:'btn'},{val:'cancel',label:'취소 — 담당자가 이름을 잘못 적었다면',cls:'btn'}]});
+// beta.55(B-07): 부서 이름만 같고 **겹치는 직원 이름이 하나도 없으면** 다른 기관의 같은 이름 부서일 가능성이 크다
+//   (예: 'OO구청 총무과'와 'OO보건소 총무과'). 그때 진한 버튼이 [이름 고치고 받기]면 무관한 부서 이름이 한 번에 바뀐다.
+//   → 진한 버튼을 [새 부서로 따로 등록]으로 바꾸고, 겹치는 이름이 없다는 사실을 먼저 말한다.
+const noOverlap=!g.overlap;
+const lines=noOverlap
+?[`받는 명단: <b>${esc(incoming)}</b> ${num(count)}명`,`기존 부서: <b>${esc(g.label)}</b> ${g.count}명`,'부서 이름은 같지만 <b>이름이 하나도 겹치지 않아요.</b> 다른 기관의 같은 이름 부서일 수 있어요.','같은 기관이 맞을 때만 [이름을 고치고 받기]를 고르세요 — 기존 부서의 소속·부서 글자가 바뀌어요(잔액은 그대로).']
+:[`받는 명단: <b>${esc(incoming)}</b> ${num(count)}명`,`기존 부서: <b>${esc(g.label)}</b> ${g.count}명 · 이름 ${g.overlap}명 겹침`,'이대로 받으면 같은 사람이 두 부서에 따로 생겨요.','[이름을 고치고 받기]는 기존 부서의 소속·부서 글자만 바꿔요. 잔액은 그대로이고, 같은 이름은 이 명단 금액이 잔액에 더해져요.'];
+const renameBtn={val:'rename',label:`기존 부서 이름을 '${incoming}'으로 고치고 받기`,cls:noOverlap?'btn':'btn-primary'},sepBtn={val:'separate',label:'새 부서로 따로 등록',cls:noOverlap?'btn-primary':'btn'};
+const v=await askChoice({title:'비슷한 부서가 이미 있어요',lines,buttons:[...(noOverlap?[sepBtn,renameBtn]:[renameBtn,sepBtn]),{val:'cancel',label:'취소 — 담당자가 이름을 잘못 적었다면',cls:'btn'}]});
 return{choice:v||'cancel',group:g}}
+// beta.55(A-10c): 한 명단에 같은 직원이 두 줄로 오면(소속 칸 유무 등으로 같은 사람에 닿는 경우) 두 번째 충전의 '이전 잔액'이
+//   첫 번째 충전을 몰라 틀렸다 → 잔액 대조 오경보. 같은 묶음 안에서는 앞 줄 금액을 더한 잔액에서 이어 간다.
+function runningBalance(){const run=new Map();return{take(id,amt){const k=str(id);const b=run.has(k)?run.get(k):balanceOf(id);run.set(k,b+(num(amt)>0?num(amt):0));return b}}}
 // 직원의 마지막 선금 등록(open·topup) 거래 — 승인 확인창의 "최근 등록" 경고용(수기로 먼저 넣은 이번 달 돈을 명단으로 또 받는 사고 방어).
-function lastDepositOf(id){let best=null;state.data.transactions.forEach(t=>{if(str(t.employeeId)!==str(id))return;if(t.type!=='open'&&t.type!=='topup')return;if(!best||num(t.createdAt)>num(best.createdAt))best=t});return best}
+// beta.55(B-14): 이미 [이 명단 되돌리기]로 되돌린 입금은 "최근 등록"이 아니다 — 되돌린 뒤 다시 받는 정상 흐름에 거짓 경고가 떴다.
+var __undoneDepCache={key:'',set:null};
+function undoneDepositIds(){const txs=state.data.transactions,last=txs.length?str(txs[txs.length-1].id):'',key=txs.length+'|'+last;
+if(__undoneDepCache.key===key&&__undoneDepCache.set)return __undoneDepCache.set;
+const set=new Set(txs.filter(t=>t.type==='adjust'&&str(t.reason)===BATCH_UNDO_REASON&&t.targetTransactionId).map(t=>str(t.targetTransactionId)));__undoneDepCache={key,set};return set}
+function lastDepositOf(id){let best=null;const undone=undoneDepositIds();state.data.transactions.forEach(t=>{if(str(t.employeeId)!==str(id))return;if(t.type!=='open'&&t.type!=='topup')return;if(undone.has(str(t.id)))return;if(!best||num(t.createdAt)>num(best.createdAt))best=t});return best}
 const RECENT_DEPOSIT_MS=14*24*3600*1000;
 // ── beta.54: 받은 명단 묶음과 되돌리기 ─────────────────────────────────────────
 // 승인·직접 전달 거래를 (사유 종류, 메모의 기관·부서 라벨, 60초 안 연속) 기준으로 한 묶음으로 본다 — 한 명단의 거래는
@@ -1833,12 +1930,20 @@ function receivedBatchesHtml(){const list=receivedBatches().slice(0,5);if(!list.
 return `<div class="batch-list"><div class="meta" style="font-weight:700">최근 받은 명단</div>${list.map(b=>`<div class="batch-row"><div class="batch-main"><b>${esc(b.label)}</b> · ${esc(md(b.at))} · ${b.count}명 · ${money(b.total)}${b.undone?' <span class="chip">되돌림</span>':''}</div>${b.canUndo?`<button class="small" data-a="undo-batch" data-at="${b.at}">이 명단 되돌리기</button>`:(b.undone?'':`<div class="meta">그 뒤 기록 ${b.laterCount}건이 있어 되돌릴 수 없어요</div>`)}</div>`).join('')}<div class="meta" style="margin-top:6px">잘못 받은 명단은 직원들이 아직 쓰기 전에만 되돌릴 수 있어요. 되돌린 기록은 이력에 남아요.</div></div>`}
 async function undoBatch(at){return withTxLock(async()=>{const b=receivedBatches().find(x=>x.at===num(at));if(!b){toast('명단을 찾을 수 없어요.');return}
 if(!b.canUndo){toast(b.undone?'이미 되돌린 명단이에요.':'그 뒤에 사용·충전 기록이 있어 되돌릴 수 없어요.');return}
-const names=[];b.txs.forEach(t=>{const e=state.data.employees.find(v=>v.id===t.employeeId);if(e)names.push(e.name)});
-const newN=b.txs.filter(t=>t.type==='open').length,topN=b.txs.length-newN;
-const v=await askChoice({title:'이 명단 등록을 되돌릴까요?',lines:[`<b>${esc(b.label)}</b> · ${esc(md(b.at))} 받음 · ${b.count}명 · ${money(b.total)}`,`${newN?`새로 만들어진 직원 ${newN}명은 잔액을 0원으로 정리하고 삭제돼요(복원 가능). `:''}${topN?`충전된 직원 ${topN}명은 그 금액만큼 빼요.`:''}`,`${esc(names.slice(0,6).join(', '))}${names.length>6?` 외 ${names.length-6}명`:''}`,'되돌린 기록은 이력에 남아요. 이 명단의 돈을 실제로 받았다면 되돌리지 마세요.'],buttons:[{val:'ok',label:'되돌리기',cls:'btn-danger'},{val:'cancel',label:'취소',cls:'btn'}]});
+// beta.55: 60초 묶음 안에 **이미 되돌린** 명단의 거래가 섞여 있으면(되돌린 뒤 1분 안에 같은 부서 명단을 다시 받음) 그 거래는 다시 빼지 않는다
+//   — 예전에는 같은 금액을 두 번 빼서 잔액이 실제보다 줄었다. 묶는 규칙(60초)은 그대로다.
+const undoneSet=undoneDepositIds(),live=b.txs.filter(t=>!undoneSet.has(str(t.id))),liveTotal=live.reduce((a,t)=>a+num(t.amount),0);
+const names=[];live.forEach(t=>{const e=state.data.employees.find(v=>v.id===t.employeeId);if(e)names.push(e.name)});
+const newN=live.filter(t=>t.type==='open').length,topN=live.length-newN;
+// beta.55(B-14): 60초 묶음 규칙은 그대로 두되, 그 안에 명단이 둘 이상 섞였으면(같은 부서 명단을 1분 안에 연달아 받음)
+//   각 명단의 시각·인원·총액을 따로 보여 준다 — 되돌리면 **함께** 되돌아간다는 것을 미리 알게 한다.
+// 한 명단의 거래는 시각이 1ms씩 이어진다(nextTxTime) — 그보다 벌어지면 다른 명단이다.
+const subs=[];sortTxAsc(live).forEach(t=>{const last=subs[subs.length-1];if(last&&num(t.createdAt)-last.lastAt<=1){last.txs.push(t);last.lastAt=num(t.createdAt)}else subs.push({at:num(t.createdAt),lastAt:num(t.createdAt),txs:[t]})});
+const subLines=subs.length>1?[`⚠️ 이 묶음에는 1분 안에 받은 명단 ${subs.length}개가 함께 들어 있어요. 되돌리면 모두 함께 되돌아가요.`,...subs.map((x,i)=>`· 명단 ${i+1}: ${esc(mdhm(x.at))} · ${x.txs.length}명 · ${money(x.txs.reduce((a,t)=>a+num(t.amount),0))}`)]:[];
+const v=await askChoice({title:'이 명단 등록을 되돌릴까요?',lines:[`<b>${esc(b.label)}</b> · ${esc(md(b.at))} 받음 · ${live.length}명 · 모두 ${money(liveTotal)}`,...subLines,`${newN?`새로 만들어진 직원 ${newN}명은 잔액을 0원으로 정리하고 삭제돼요(복원 가능). `:''}${topN?`충전된 직원 ${topN}명은 그 금액만큼 빼요.`:''}`,`${esc(names.slice(0,6).join(', '))}${names.length>6?` 외 ${names.length-6}명`:''}`,'되돌린 기록은 이력에 남아요. 이 명단의 돈을 실제로 받았다면 되돌리지 마세요.','받을 때 기존 부서 이름을 고쳤다면, 고친 부서 이름은 되돌아가지 않아요 — 필요하면 부서 [이름 고치기]로 다시 고쳐 주세요.'],buttons:[{val:'ok',label:'되돌리기',cls:'btn-danger'},{val:'cancel',label:'취소',cls:'btn'}]});
 if(v!=='ok')return;
 setBusy('되돌리는 중입니다.');try{const t=now();let tip=chainTip();const txs=[],patches=[];const done=new Set();
-for(const bt of b.txs){const e=state.data.employees.find(x=>x.id===bt.employeeId);if(!e)continue;const before=balanceOf(e.id)+txs.filter(x=>x.employeeId===e.id).reduce((s,x)=>s+num(x.amount),0);const delta=-num(bt.amount);
+for(const bt of live){const e=state.data.employees.find(x=>x.id===bt.employeeId);if(!e)continue;const before=balanceOf(e.id)+txs.filter(x=>x.employeeId===e.id).reduce((s,x)=>s+num(x.amount),0);const delta=-num(bt.amount);
 const tx=await makeTx({employeeId:e.id,type:'adjust',amount:delta,beforeBalance:before,afterBalance:before+delta,reason:BATCH_UNDO_REASON,note:b.label+' · '+md(b.at),targetTransactionId:bt.id,createdAt:t},tip);tip=tx.txHash;txs.push(tx);
 if(bt.type==='open'&&!e.isDeleted&&!done.has(e.id)){done.add(e.id);patches.push({...e,isDeleted:true,updatedAt:t})}}
 await repo.apply({employees:patches,transactions:txs});txs.forEach(upsertTx);patches.forEach(upsertEmp);clearBusy();render();toast('명단 등록을 되돌렸어요.')}catch(err){console.error(err);clearBusy();toast('되돌리기 오류')}})}
@@ -1850,9 +1955,15 @@ L.push(`기관·부서: ${o.label}${o.ym?` (${o.ym})`:''}${o.direct?' · 직접 
 if(o.renameFrom)L.push(`기존 부서 '${o.renameFrom}'의 이름을 '${o.renameTo||o.label}'로 고쳐서 받아요(잔액 변동 없음).`);
 const payerHint=pm==='카드'?'(카드결제)':pm==='계좌이체'?'(계좌이체)':pm==='제로페이'?'(제로페이)':'(계좌이체 시)';
 L.push(`결제자·입금자명: ${o.payers.length?o.payers.slice(0,3).join(', ')+(o.payers.length>3?` 외 ${o.payers.length-3}명`:''):'(명단에 없음 — 카드결제면 비어 있을 수 있어요)'} ${payerHint}`);
-L.push(domainLine(o.domain));
+// beta.55(B-03): 직접 전달 파일의 summary는 **파일을 만든 쪽이 적은 값**이라, 거기 적힌 agency_domain을 "인증 도메인"으로
+//   보여 주면 위조 파일이 인증된 기관처럼 보인다(정상 파일에는 그 칸이 아예 없다). 직접 전달은 언제나 "확인 불가"다.
+//   시각도 서버가 찍은 값이 아니라 파일에 적힌 값이므로 그렇게 이름 붙인다.
+if(o.direct){L.push('인증 도메인: 확인 불가(직접 전달)');
+L.push('직접 전달은 서버 인증을 거치지 않아요. 기관명은 담당자가 직접 적는 값이니, 파일을 준 담당자를 직접 아는 경우에만 받으세요.');
+L.push(`파일에 적힌 작성 시각: ${o.sentAt?dt(o.sentAt):'없음'} (파일 내용이라 확인 불가)`)}
+else{L.push(domainLine(o.domain));
 L.push('기관명은 담당자가 직접 적는 값이라, 인증된 이메일 도메인과 함께 보고 판단하세요.');
-L.push(`명단 전송 시각: ${o.sentAt?dt(o.sentAt):'확인 불가'}`);
+L.push(`명단 전송 시각: ${o.sentAt?dt(o.sentAt):'확인 불가'}`)}
 if(pm)L.push(`결제 방식: ${pm==='카드'?'카드결제':pm==='제로페이'?'제로페이':'계좌이체'} (명단에 표기됨)`);
 const tops=o.plan.filter(p=>p.exist),news=o.plan.filter(p=>!p.exist);
 if(tops.length){L.push('');L.push(`이미 있는 직원 충전 ${tops.length}명 — 잔액에 더해져요`);tops.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.before)} → ${money(p.before+p.amt)}${p.lastAt?` (${md(p.lastAt)} 등록)`:''}`));if(tops.length>8)L.push(`· 외 ${tops.length-8}명`);
@@ -1887,7 +1998,7 @@ try{
 const plain=await decryptBlob(parsed.ciphertext);
 if(!plain||!Array.isArray(plain.items))throw new Error('명단 형식 오류');
 const chk=await verifyBatchAgainstSummary(plain,parsed.summary,batchHash,true);
-if(!chk.ok){clearBusy();window.alert('⚠️ 명단 확인값이 일치하지 않아 등록을 차단했습니다.\n('+chk.detail+')\n전송 중 자료가 손상되었거나 변조되었을 수 있습니다.\n공공기관 담당자(서무)에게 다시 보내달라고 요청하세요.');return}
+if(!chk.ok){clearBusy();window.alert(rosterRejectText(chk));return}cleanRosterItems(plain.items);
 assignDuplicateSuffix(plain.items);
 const groupDept=combinedDeptLabel(parsed.institution,parsed.department);
 // 승인(relayApprove)과 같은 규칙: 이미 있는 활성 직원은 새 카드 대신 충전한다(다음 달 재전달 시 동명 카드 누적 방지).
@@ -1899,19 +2010,19 @@ if(labels.size===1&&plain.items.length){clearBusy();const nd=await askNearDuplic
 if(nd.choice==='cancel'){render();return}
 if(nd.choice==='rename'){const r0=recOf(plain.items[0]);renamePatches=relabelGroupPatches(nd.group.label,r0.org,r0.dept,'public');renameFrom=nd.group.label}}
 const activeByKey=activeEmployeeIndex(renamePatches);
-const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(parsed.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));const ld=exist?lastDepositOf(exist.id):null;return{it,rec,amt:num(it.amount),exist,before:exist?balanceOf(exist.id):0,lastAt:ld?num(ld.createdAt):0}});
+const planBal=runningBalance();const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(parsed.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));const ld=exist?lastDepositOf(exist.id):null;return{it,rec,amt:num(it.amount),exist,before:exist?planBal.take(exist.id,num(it.amount)):0,lastAt:ld?num(ld.createdAt):0}});
 clearBusy();
-if(!window.confirm(batchReviewText({label:groupDept,renameFrom,renameTo:plain.items.length?orgDeptLabel(recOf(plain.items[0])):'',ym:str(parsed.year_month),direct:true,payers:batchPayers(plain.items),payMethod:batchPayMethod(plain.items),domain:parsed.summary.agency_domain,sentAt:batchSentAt(parsed,parsed.summary),total:num(parsed.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(batchHash)}))){render();return}
+if(!window.confirm(batchReviewText({label:groupDept,renameFrom,renameTo:plain.items.length?orgDeptLabel(recOf(plain.items[0])):'',ym:str(parsed.year_month),direct:true,payers:batchPayers(plain.items),payMethod:batchPayMethod(plain.items),domain:'',sentAt:batchSentAt(parsed,parsed.summary),total:num(parsed.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(batchHash)}))){render();return}
 setBusy('장부에 올리는 중입니다.');
 const t=now(),ym=str(parsed.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];
 const noteLabel=str(parsed.institution)+' '+str(parsed.department);
-let topupCount=0;const patchedIds=new Set();
+let topupCount=0;const patchedIds=new Set();const writeBal=runningBalance();
 for(const p of plan){
 /* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
 const txNote=noteLabel+(str(p.it.payer)?' · 결제 '+str(p.it.payer):'');
 // 승인과 동일: 같은 결합 라벨을 쓰는 활성 직원 전체를 함께 백필한다(명단에 빠진 동료가 다른 그룹으로 갈라지지 않게).
 publicOrgPatchesForLabel(p.rec,patchedIds).forEach(pt=>patches.push(pt));
-if(p.exist){topupCount++;if(p.amt>0){const before=balanceOf(p.exist.id);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'직접 전달 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
+if(p.exist){topupCount++;if(p.amt>0){const before=writeBal.take(p.exist.id,p.amt);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'직접 전달 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
 const eid=uid();
 emps.push({id:eid,org:p.rec.org,orgKind:'public',dept:p.rec.dept,name:p.rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
 if(p.amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:p.amt,beforeBalance:0,afterBalance:p.amt,reason:'직접 전달 등록',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}
@@ -1926,10 +2037,10 @@ clearBusy();render();
 const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);
 window.alert(`✅ 등록 완료 (직접 전달)\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);
 if(state.data.meta.pubKey&&window.confirm('장부 되찾기용 백업을 갱신할까요?\n(서버는 내용을 볼 수 없어요 — 잠금)'))await relayBackupNow()
-}catch(e){console.error(e);clearBusy();toast('등록 오류: '+(e.message||''))}
+}catch(e){console.error(e);clearBusy();toast('명단을 등록하지 못했어요. '+relayErrMsg(e))}
 })}
 async function onDirectTransferFile(e){const file=e.target.files&&e.target.files[0];if(!file)return;if(lockScreenActive()){qs('directTransferFile').value='';return}// 잠금 중 파일 경로 차단(2중 안전장치)
-try{const text=await file.text();const parsed=JSON.parse(text);await processDirectTransfer(parsed)}catch(err){console.error(err);toast('파일을 읽을 수 없습니다: '+(err&&err.message||''))}finally{qs('directTransferFile').value=''}}
+try{const text=await file.text();const parsed=JSON.parse(text);await processDirectTransfer(parsed)}catch(err){console.error(err);toast('파일을 읽을 수 없어요. '+relayErrMsg(err,'담당자가 보낸 명단 파일이 맞는지 확인해 주세요.'))}finally{qs('directTransferFile').value=''}}
 // QR 스캔 — BarcodeDetector(qr_code) 지원 기기에서만 노출. 읽힌 텍스트는 파일 열기와 동일한 processDirectTransfer 경로를 공유
 async function detectQrSupport(){try{if(!('BarcodeDetector' in window)){state.qrAvailable=false;return}const formats=await BarcodeDetector.getSupportedFormats();state.qrAvailable=Array.isArray(formats)&&formats.includes('qr_code')}catch(e){state.qrAvailable=false}if(state.loaded&&!renderIsDisruptive())render()}
 function stopQrScan(){qrLoopActive=false;if(qrStream){try{qrStream.getTracks().forEach(tr=>tr.stop())}catch(e){}qrStream=null}const video=qs('qrVideo');if(video)video.dataset.ready=''}
@@ -1938,20 +2049,81 @@ async function initQrScan(){const video=qs('qrVideo');if(!video||video.dataset.r
 async function handleQrText(text){let parsed;try{parsed=JSON.parse(text)}catch(e){toast('QR 내용을 읽을 수 없습니다. 담당자에게 파일로 받아 주세요.');return}await processDirectTransfer(parsed)}
 
 // 챌린지 인증(스펙 §서버 계약): /api/challenge 로 받은 RSA-OAEP 암호문을 내 개인키로 복호화해 auth_token 문자열 획득
-async function relayAuthToken(){const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid)throw new Error('가게가 등록되지 않았습니다.');const r=await fetch(base+'/api/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid})});const j=await r.json().catch(()=>({}));if(!r.ok||!j.challenge_ct)throw new Error(j.error||'인증 챌린지 오류');const priv=await getPrivateKey();if(!priv)throw new Error('가게 열쇠가 없습니다');const raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(j.challenge_ct));return new TextDecoder().decode(raw)}
+// ── 중계 서버 호출 공통(beta.55, B-04) ───────────────────────────────────────────────
+// 예전에는 fetch에 시한이 없었다. 반쯤 끊긴 가게 와이파이(연결은 됐는데 응답이 안 오는 상태)에서 요청 하나가
+//   끝나지 않으면 '처리 중' 가림막과 저장 잠금(txLock)이 영영 풀리지 않았고, 그 사이 자동 잠금도 멈췄다.
+// relayFetch는 **본문까지 다 받은 뒤** 돌려준다(헤더만 오고 본문이 멈추는 경우도 시한 안에 끊는다).
+//   돌려주는 값은 평소 Response와 같다(ok·status·json()·text()) — 호출부의 상태 코드 처리(500/throw/409/404)는 그대로다.
+//   시한을 넘기면 code='timeout'인 오류를 던진다 → 각 호출부의 기존 catch가 가림막을 걷고, relayErrMsg가 쉬운 말로 바꾼다.
+// 하니스만 시한을 줄일 수 있다(localhost·?e2e=1 전용 — 배포본에서는 무시된다).
+function relayFetch(url,opts,ms){let limit=Number(ms)>0?Number(ms):(String(url).indexOf('/api/ledger-backup')>=0?60000:20000);if(E2E_HOOKS&&typeof window.__relayTimeoutMs==='number'&&window.__relayTimeoutMs>0)limit=window.__relayTimeoutMs;
+let ctl=null;try{ctl=typeof AbortController==='function'?new AbortController():null}catch(e){ctl=null}
+const o=Object.assign({},opts||{});if(ctl)o.signal=ctl.signal;
+let timer=null;
+const timeout=new Promise((_,rej)=>{timer=setTimeout(()=>{try{if(ctl)ctl.abort()}catch(e){}const err=new Error('timeout');err.code='timeout';rej(err)},limit)});
+const run=(async()=>{const r=await fetch(url,o);if(!r||typeof r.text!=='function')return r;const body=await r.text();
+const nullBody=r.status===204||r.status===205||r.status===304;
+try{return new Response(nullBody?null:body,{status:r.status,statusText:r.statusText,headers:r.headers})}
+catch(e){return{ok:r.ok,status:r.status,statusText:r.statusText,headers:r.headers,text:async()=>body,json:async()=>JSON.parse(body)}}})();
+run.catch(()=>{});// 시한이 먼저 끝난 뒤 늦게 오는 AbortError가 처리되지 않은 거부로 남지 않게
+return Promise.race([run,timeout]).finally(()=>clearTimeout(timer))}
+// 중계·복호화·파일 읽기 오류를 사장님 말로(beta.55, B-12). 영문 코드·e.message 원문은 콘솔에만 남긴다.
+var RELAY_ERR_KO={
+timeout:'서버 응답이 너무 늦어요. 인터넷(와이파이) 연결을 확인하고 잠시 뒤 다시 해 주세요.',
+network:'서버에 연결하지 못했어요. 인터넷(와이파이) 연결을 확인해 주세요.',
+too_many_challenges:'가게 확인 요청이 잠깐 몰렸어요. 1분쯤 뒤 다시 해 주세요.',
+rate_limited:'요청이 너무 잦아요. 1분쯤 뒤 다시 해 주세요.',
+too_many_attempts:'요청이 너무 잦아요. 잠시 뒤 다시 해 주세요.',
+not_found:'서버에서 우리 가게 등록을 찾지 못했어요. 설정 > 자동 등록에서 등록 상태를 확인해 주세요.',
+store_not_registered:'서버에서 우리 가게 등록을 찾지 못했어요. 설정 > 자동 등록에서 등록 상태를 확인해 주세요.',
+deregistered:'우리 가게 등록이 해제된 상태예요. 설정 > 자동 등록에서 다시 등록해 주세요.',
+auth_required:'가게 확인에 실패했어요. 설정 > 자동 등록에서 우리 가게 등록 상태를 확인해 주세요.',
+unauthorized:'가게 확인에 실패했어요. 설정 > 자동 등록에서 우리 가게 등록 상태를 확인해 주세요.',
+auth_key_mismatch:'가게 확인에 실패했어요. 이 기기의 열쇠가 서버에 등록된 열쇠와 달라요 — 설정 > 자동 등록에서 등록 상태를 확인해 주세요.',
+no_key:'이 기기에 가게 열쇠가 없어요. 설정 > 자동 등록에서 [내 열쇠 백업]을 가져오거나 다시 등록해 주세요.',
+no_store:'먼저 우리 가게를 등록해 주세요.',
+restaurant_mismatch:'다른 가게 앞으로 온 신청이에요. 담당자에게 확인해 주세요.',
+already_processed:'이미 처리된 신청이에요.',
+invalid_kakao_link:"카카오톡 '오픈채팅' 링크만 등록할 수 있어요.",
+invalid_contact:'연락처 형식을 확인해 주세요.',
+invalid_email:'이메일 형식을 확인해 주세요.',
+no_personal_info:'개인정보(전화번호 등)는 보낼 수 없어요.',
+decrypt_failed:'이 명단은 지금 열쇠로 열 수 없어요. 이 기기 열쇠가 바뀌었거나(다른 기기로 등록) 자료가 손상됐을 수 있어요 — 담당자(서무)에게 다시 보내 달라고 해 주세요.',
+bad_file:'파일 내용을 읽을 수 없어요(형식이 맞지 않아요). 받은 파일이 맞는지 확인해 주세요.',
+bad_reply:'서버 답을 읽지 못했어요. 잠시 뒤 다시 해 주세요.',
+internal:'서버에 잠깐 문제가 있어요. 잠시 뒤 다시 해 주세요.',
+invalid_public_key:'이 기기의 가게 열쇠가 올바르지 않아요. 계속 안 되면 contact@bapjangbu.com으로 알려 주세요.',
+takeover_locked:'운영자가 최근 정리한 가게라 며칠 뒤에 다시 등록할 수 있어요. 급하시면 contact@bapjangbu.com으로 알려 주세요.'};
+function relayErrCode(e){if(!e)return '';const c=str(e.code)||'';if(c)return c;const n=str(e.name),m=str(e.message);
+if(n==='AbortError'||m==='timeout')return 'timeout';
+if(n==='TypeError'&&/fetch|network|load/i.test(m))return 'network';
+if(n==='OperationError')return 'decrypt_failed';
+if(n==='SyntaxError')return 'bad_file';
+if(/^[a-z][a-z0-9_]+$/.test(m))return m;
+return ''}
+function relayErrMsg(e,fallback){const code=relayErrCode(e);if(code&&RELAY_ERR_KO[code])return RELAY_ERR_KO[code];
+const m=str(e&&e.message);if(m&&/[가-힣]/.test(m)&&!/[A-Za-z]{4,}/.test(m))return m;
+return fallback||'잠시 뒤 다시 해 주세요. 계속 안 되면 인터넷 연결을 확인해 주세요.'}
+function relayCodeErr(code,msg){const e=new Error(msg||code);e.code=code;return e}
+async function relayAuthToken(){const base=relayBase(),rid=str(state.data.meta.restaurantId);if(!rid)throw relayCodeErr('no_store','가게가 등록되지 않았습니다.');const r=await relayFetch(base+'/api/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid})});const j=await r.json().catch(()=>({}));
+// beta.55(B-12): 실패를 영문 코드 그대로 올리지 않는다 — 코드(e.code)로 싣고 화면 문구는 relayErrMsg가 고른다. 404=서버에 우리 가게가 없음.
+if(!r.ok||!j||!j.challenge_ct){const code=str(j&&j.error)||(r.status===404?'not_found':(r.status===429?'rate_limited':'internal'));throw relayCodeErr(code==='not_found'?'store_not_registered':code)}
+const priv=await getPrivateKey();if(!priv)throw relayCodeErr('no_key','가게 열쇠가 없습니다');
+let raw;try{raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(j.challenge_ct))}catch(e){console.error('relay challenge decrypt',e);throw relayCodeErr('auth_key_mismatch')}
+return new TextDecoder().decode(raw)}
 // 클라우드 원장 백업(암호화, 선택) — 기관 신청 blob과 동일한 하이브리드 구조(AES-256-GCM + RSA-OAEP 래핑), 서버는 평문을 볼 수 없음
 // 전화번호는 이 기기(로컬)에만 저장 — 클라우드 백업(서버 전송 경로)에는 절대 포함하지 않는다. 로컬 JSON "장부 안전 저장" 파일에는 그대로 남지만, 그 파일은 기기 밖으로 나가지 않는 한 서버로 전송되지 않는다.
 function stripPhonesForCloud(core){return{...core,payload:{...core.payload,employees:core.payload.employees.map(({phone,phoneConsent,...rest})=>rest)}}}
 async function buildCloudBackupBlob(){if(!state.data.meta.pubKey)throw new Error('키가 없습니다.');const core=stripPhonesForCloud(backupCore());const plaintext=JSON.stringify(core);const aesRaw=randBytes(32);const aesKey=await crypto.subtle.importKey('raw',aesRaw,{name:'AES-GCM'},false,['encrypt']);const iv=randBytes(12);const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},aesKey,new TextEncoder().encode(plaintext));const pub=await crypto.subtle.importKey('spki',b64ToBuf(state.data.meta.pubKey),{name:'RSA-OAEP',hash:'SHA-256'},true,['encrypt']);const encKey=await crypto.subtle.encrypt({name:'RSA-OAEP'},pub,aesRaw);return{encKey:bufToB64(encKey),iv:bufToB64(iv),ct:bufToB64(ct)}}
-async function relayBackupNow(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록하세요.');return}setBusy('장부 되찾기용 백업을 만드는 중입니다.');try{const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000){clearBusy();toast('장부 용량이 커서 백업을 만들 수 없어요.');return}const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'백업 실패');const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});clearBusy();render();toast('장부를 안전하게 저장했어요.')}catch(e){console.error('relay backup',e);clearBusy();toast('백업 오류: '+(e.message||''))}}
+async function relayBackupNow(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록하세요.');return}setBusy('장부 되찾기용 백업을 만드는 중입니다.');try{const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000){clearBusy();toast('장부 용량이 커서 백업을 만들 수 없어요.');return}const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'백업 실패');const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});clearBusy();render();toast('장부를 안전하게 저장했어요.')}catch(e){console.error('relay backup',e);clearBusy();toast('백업 오류: '+(e.message||''))}}
 // 조용한 클라우드 백업 — buildCloudBackupBlob/relayAuthToken/relayBase를 그대로 재사용(새 서버 계약 없음). busy/toast 없이 성공 여부만 반환. 실패는 조용히 false.
 // ⚠️ 잠금(손님) 화면에서는 절대 돌지 않는다 — 이 경로는 개인키를 풀어 챌린지를 복호화하고
 //   장부 전체를 암호화해 업로드한다. PIN을 넣기 전에 그 일이 벌어질 이유가 없다.
-async function relayBackupSilent(){try{if(lockScreenActive())return false;if(!navigator.onLine||!relayRegistered()||!state.data.meta.pubKey)return false;const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000)return false;const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});if(!r.ok)return false;const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});return true}catch(e){console.error('silent cloud backup',e);return false}}
+async function relayBackupSilent(){try{if(lockScreenActive())return false;if(!navigator.onLine||!relayRegistered()||!state.data.meta.pubKey)return false;const blob=await buildCloudBackupBlob();const blobB64=btoa(JSON.stringify(blob));if(blobB64.length>1000000)return false;const blobHash=await hash(blobB64);const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/ledger-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken,blob:blobB64,blob_hash:blobHash})});if(!r.ok)return false;const at=now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});return true}catch(e){console.error('silent cloud backup',e);return false}}
 // 월말 자동 클라우드 백업 트리거(앱 로드 시 1회). 활동 게이트·등록·토글을 모두 통과할 때만 서버를 호출한다. 실패해도 조용히 넘기고 배너로 유도.
 // 잠금 중에는 미룬다(개인키 사용 금지) — 잠금 해제 직후 다시 호출된다.
 async function maybeMonthlyAutoBackup(){try{if(lockScreenActive())return;if(state.data.meta.autoCloudBackup===false)return;if(!relayRegistered())return;if(!navigator.onLine)return;const due=monthlyBackupDue();if(!due)return;/*활동0·이미백업·월말아님이면 여기서 종료 → 서버 호출 없음*/const ok=await relayBackupSilent();if(ok){state.data.meta.lastMonthlyBackup=due;await repo.apply({meta:{lastMonthlyBackup:due}});render();toast('이번 달 장부를 안전하게 백업했어요.')}}catch(e){console.error('monthly auto backup',e)}}
-async function relayRestoreFromCloud(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록하세요.');return}if(!window.confirm('보관된 내용으로 복원할까요?\n\n현재 기기의 장부가 백업 시점 내용으로 바뀌어요.'))return;setBusy('보관된 내용을 불러오는 중입니다.');try{const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/ledger-backup/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(r.status===404){clearBusy();toast('보관된 내용이 없어요.');return}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'복원 실패');if(j.blob_hash){const calc=await hash(j.blob);if(calc!==j.blob_hash){clearBusy();toast('백업 무결성 확인에 실패했습니다.');return}}const blob=JSON.parse(atob(j.blob));const core=await decryptBlob(blob);clearBusy();const ok=await restoreFromParsed(core);if(ok){const at=j.updated_at?(new Date(j.updated_at).getTime()||now()):now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});render()}}catch(e){console.error(e);clearBusy();toast('복원 오류: '+(e.message||''))}}
+async function relayRestoreFromCloud(){if(!navigator.onLine){toast('인터넷 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록하세요.');return}if(!window.confirm('보관된 내용으로 복원할까요?\n\n현재 기기의 장부가 백업 시점 내용으로 바뀌어요.'))return;setBusy('보관된 내용을 불러오는 중입니다.');try{const rid=str(state.data.meta.restaurantId);const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/ledger-backup/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,auth_token:authToken})});if(r.status===404){clearBusy();toast('보관된 내용이 없어요.');return}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'복원 실패');if(j.blob_hash){const calc=await hash(j.blob);if(calc!==j.blob_hash){clearBusy();toast('백업 무결성 확인에 실패했습니다.');return}}const blob=JSON.parse(atob(j.blob));const core=await decryptBlob(blob);clearBusy();const ok=await restoreFromParsed(core);if(ok){const at=j.updated_at?(new Date(j.updated_at).getTime()||now()):now();state.data.meta.lastCloudBackupAt=at;await repo.apply({meta:{lastCloudBackupAt:at}});render()}}catch(e){console.error(e);clearBusy();toast('복원 오류: '+(e.message||''))}}
 
 // ── UI ──
 // 토스트는 사장님용 문구다 — 잠금(손님) 화면에서는 표시하지 않고 그냥 버린다(큐잉하지 않는다).
@@ -1972,7 +2144,32 @@ function toast(msg,ms){clearTimeout(state.toastTimer);if(lockScreenActive()){sta
 // 규칙: 잠금은 **첫 await 앞에서 동기적으로** 건다. 한 틱 안에 두 번 불려도 두 번째는 그 자리에서 돌아선다.
 //   (setBusy 오버레이는 사람 눈을 막는 2차 방어일 뿐, 구조적 보장은 이 잠금이다.)
 let txLock=false;
-async function withTxLock(fn){if(txLock)return;txLock=true;try{return await fn()}finally{txLock=false}}
+// ── 한 번에 한 창만 장부를 연다(beta.55, A-3) ────────────────────────────────────────────
+// 현장 위험: 홈 화면 설치 앱과 브라우저 탭(또는 탭 두 개)이 같은 장부를 동시에 열면, 각 창은 자기 메모리의 잔액으로
+//   거래를 만든다 → 음수 잔액·해시 사슬 갈래(재현됨). txLock은 창 하나 안에서만 막는다.
+// 그래서 Web Locks로 **앱 전체 수명 동안** 잠금 하나를 쥔다. 두 번째 창은 잠금을 기다리는 동안 저장소조차 열지 않는다
+//   (=어떤 쓰기도 하지 않는다). 첫 창이 닫히면 그때 잠금을 받아 장부를 **새로** 읽고 평소처럼 시작한다.
+// Web Locks가 없는 브라우저는 withTxLock 안에서 "저장된 거래 수·마지막 고리가 내 메모리와 같은가"를 먼저 보고,
+//   다르면 장부를 다시 읽고 이번 저장은 멈춘다(다시 누르면 새 잔액으로 저장된다).
+// ⚠️ init()이 스크립트 중간에서 불리므로 여기 변수는 var(호이스팅)다 — let/const면 첫 동기 구간에서 TDZ 오류가 난다.
+// ⚠️ 초기값을 쓰지 않는다(var x; 만) — init()의 동기 구간이 'unsupported'를 먼저 넣는데, `var x='';`로 쓰면 스크립트가 이 줄에
+//   닿는 순간 그 값을 지워 버린다(실제로 걸렸다: Web Locks 없는 브라우저에서 대비책이 꺼져 있었다).
+var instanceLockMode;// undefined | 'held' | 'unsupported'
+var instanceBlockedShown;
+function instanceBlockedHtml(){return '<div class="pin-screen instance-blocked"><div class="pin-icon" style="background:linear-gradient(135deg,#f0a500,#e67e22)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><rect x="3" y="4" width="13" height="10" rx="1"/><rect x="8" y="10" width="13" height="10" rx="1"/></svg></div><div class="pin-title" id="instanceBlockedMsg">다른 창에서 이미 열려 있어요 — 그 창을 쓰거나 닫아 주세요</div><div class="pin-sub">같은 장부를 두 창에서 함께 쓰면 잔액이 어긋날 수 있어요.<br>그래서 이 창은 아무것도 저장하지 않고 기다려요.<br><br>다른 창(또는 홈 화면의 밥장부 앱)을 닫으면<br>이 창이 저절로 열려요.</div></div>'}
+function showInstanceBlocked(){instanceBlockedShown=true;try{const app=document.getElementById('app');if(app)app.innerHTML=instanceBlockedHtml()}catch(e){console.error('instance blocked screen',e)}}
+function acquireInstanceLock(){return new Promise(resolve=>{let locks=null;try{locks=navigator.locks}catch(e){locks=null}
+if(!locks||typeof locks.request!=='function'){instanceLockMode='unsupported';resolve();return}
+let granted=false;const t=setTimeout(()=>{if(!granted)showInstanceBlocked()},1500);
+const fail=e=>{console.error('instance lock',e);if(granted)return;clearTimeout(t);instanceLockMode='unsupported';resolve()};
+try{locks.request('prepaid-ledger-db:one-window',{mode:'exclusive'},()=>{granted=true;clearTimeout(t);instanceLockMode='held';instanceBlockedShown=false;resolve();return new Promise(()=>{})}).catch(fail)}catch(e){fail(e)}})}
+// Web Locks가 없을 때의 대비책 — 저장 직전에 저장소의 꼬리 앵커(거래 수·마지막 고리)를 메모리와 대조한다.
+async function instanceFreshBeforeWrite(){if(instanceLockMode!=='unsupported'||!repo||typeof repo.loadMeta!=='function'||!state.loaded)return true;
+try{const m=await repo.loadMeta()||{};if(str(m.chainTip)===str(state.data.meta.chainTip)&&num(m.txCount)===num(state.data.meta.txCount))return true;
+state.data=norm(await repo.loadAll());if(!renderIsDisruptive())render();
+toast('다른 창에서 장부가 바뀌어 새로 읽었어요. 다시 한 번 누르면 바뀐 잔액으로 저장돼요.',6000);return false}
+catch(e){console.error('instance fresh check',e);return true}}
+async function withTxLock(fn){if(txLock)return;txLock=true;try{if(!(await instanceFreshBeforeWrite()))return;return await fn()}finally{txLock=false}}
 function setBusy(msg){state.busy=msg;render()}
 // ⚠️ clearBusy는 반드시 render까지 한다 — 예전에는 상태만 지워서, 뒤에 render()가 없는 경로(복원 취소 등)에서
 //   "저장 중" 오버레이가 화면에 남고 자동 잠금 타이머도 다시 무장되지 않았다. 이중 렌더는 무해하다(innerHTML 재구성).
@@ -2648,7 +2845,12 @@ function overlaysHtml(){return `${orgDatalistHtml()}${passDialogHtml()}${choiceD
 //   ⚠️ beta.23 이전에는 armIdle이 곧 "리셋"이었다 → 반복 호출되는 렌더 하나가 유휴 복귀를 영원히 밀어냈다.
 // ⚠️ beta.22: 서명 획이 살아 있는 손님 통합 요청 화면에서는 renderCore를 아예 부르지 않는다
 //   (custComposeGuard가 부분 갱신으로 대신 처리한다).
-function render(){if(!custComposeGuard())renderCore();armIdle();focusPassDialog();noteAttention()}
+// beta.55(B-15): 화면 그리기 한 번이 예외로 죽어도 앱 전체가 굳지 않게 감싼다. 상태(state)는 그대로 남으므로, 깨진 자료가
+//   든 창(모달) 때문이면 그 뒤의 **모든** render가 같은 자리에서 죽는다 → 창을 닫고 한 번 더 그린다(장부·저장은 건드리지 않는다).
+//   ⚠️ DOM 교체 경합(NotFoundError 등 DOMException)은 창 탓이 아니므로 창을 닫지 않는다. 오류는 언제나 콘솔에 남는다(하니스가 잡는다).
+function render(){try{if(!custComposeGuard())renderCore()}catch(e){console.error('render failed',e);
+if(state.modal&&!(typeof DOMException!=='undefined'&&e instanceof DOMException)){state.modal=null;try{renderCore();toast('화면을 그리다 문제가 생겨 창을 닫았어요. 다시 열어 주세요.')}catch(e2){console.error('render failed again',e2)}}}
+armIdle();focusPassDialog();noteAttention()}
 // ── 사용 모달 입력값 흡수 (beta.21 수정) ─────────────────────────────────
 // 사용 모달의 금액·비고는 지금까지 **DOM에만** 있었다. state에 없는 값은 재렌더에서 살아남지 못한다 —
 //   사장님이 손님 요청 9,000원을 25,000원으로 고쳐 놓아도, 그 사이에 render가 한 번 돌면(온/오프라인 이벤트,
@@ -2987,7 +3189,9 @@ idleAt(custIdleMs,()=>{resetCustomerState();render()});
 return}
 // 자동 잠금 — 모달(서명 캔버스 포함)·저장 중·설정/안내 화면에서는 걸지 않는다(작업 중에 잠기면 안 된다).
 if(canAutoLock()){idleAt(TIMERS.autoLock,()=>{if(canAutoLock())lockToCustomer()});return}
-if(canAutoLockBase()&&state.modal){idleAt(TIMERS.modalIdleCap,()=>{if(canAutoLockBase()&&state.modal)lockToCustomer()})}}
+// beta.55(B-10): 열쇠 암호 창·선택창(오버레이)만 떠 있을 때도 같은 10분 상한을 건다 — 예전에는 모달이 아니라서 상한이 걸리지 않아
+//   선택창을 띄운 채 자리를 비우면 영영 잠기지 않았다. 잠글 때 lockToCustomer가 창을 '취소'로 닫는다(저장 없음).
+if(canAutoLockBase()&&(state.modal||state.passDialog||state.choiceDialog)){idleAt(TIMERS.modalIdleCap,()=>{if(canAutoLockBase()&&(state.modal||state.passDialog||state.choiceDialog))lockToCustomer()})}}
 // PIN 화면 방치 → 손님 초기 화면으로. 잠금은 절대 풀리지 않고, 앞 손님의 흔적(인계 요청 포함)은 전부 사라진다.
 function backToCustomerIdle(){dismissPassDialog();dismissChoiceDialog();state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
 // 조작이 있으면 시계를 다시 시작한다. 캡처 단계라 어떤 핸들러가 이벤트를 막아도 반드시 실행된다.
@@ -3234,7 +3438,7 @@ if(!custAmountPatch())render();else armIdle()},
 //   이유는 그 칸 바로 아래 한 줄로 말한다(손님 화면에서는 toast가 뜨지 않는다 — toast()가 스스로 조용해진다).
 //   ⚠️ 오류를 띄울 때 render를 부르면 안 된다 — 이미 그려 둔 서명이 그 자리에서 사라진다.
 //     (그래도 custComposeGuard가 한 겹 더 막지만, 애초에 부르지 않는 것이 옳다.)
-'cust-sign-submit':()=>{const sel=state.custSelectedId?derive().active.find(e=>e.id===state.custSelectedId):null;
+'cust-sign-submit':async()=>{if(custSignEncoding)return;const sel=state.custSelectedId?derive().active.find(e=>e.id===state.custSelectedId):null;
 if(!sel){resetCustomerState();render();return}
 const c=custAmountCheck(sel.balance);
 // beta.48(사용자 지시): 금액 오류는 **두 곳**에서 말한다 — 금액 칸 위(작게 살던 줄)와 버튼 바로 위.
@@ -3243,7 +3447,10 @@ const c=custAmountCheck(sel.balance);
 if(!c.ok){const ae=qs('custAmtErr');const msg=c.err||'금액을 넣어 주세요.';
 if(ae){ae.textContent=msg;custSignErrShowAmount(msg);const inp=qs('custAmountInput');if(inp)inp.classList.add('err');armIdle()}else render();return}
 if(!signPad||signPad.isEmpty()){const err=qs('custSignErr');if(err){err.textContent='서명을 해주세요.';err.dataset.amt='';armIdle()}else render();return}
-const sig=signPad.toDataUrl();
+// beta.55(A-1): 서명 굽기는 비동기다. 획 사본은 toDataUrl을 부르는 순간 동기로 떠지고, 굽는 몇 ms 사이의 연타는 무시한다.
+//   그 사이 화면이 바뀌었으면(유휴 복귀·[처음으로]) 넘기지 않는다 — 앞 손님의 서명이 뒤늦게 사장님 화면으로 가면 안 된다.
+let sig='';custSignEncoding=true;try{sig=await signPad.toDataUrl()}catch(e){console.error('sign encode',e);sig=''}finally{custSignEncoding=false}
+if(!state.pinLocked||state.custSelectedId!==sel.id||state.custStage!=='compose')return;
 if(!sig){const err=qs('custSignErr');if(err){err.textContent='서명을 다시 해주세요.';err.dataset.amt='';armIdle()}else render();return}
 handToOwner(sel.id,c.amount,sig)}
 // [처음으로] — 요청 작성 화면에서 나가는 길은 이제 하나다(cust-back). 검색·선택·작성 상태를 전부 버린다.
@@ -3267,7 +3474,10 @@ blurActiveInput();render()}
 //   전부 휘발성 state만 건드린다 — repo.apply/makeTx에 닿는 줄이 단 하나도 없다.
 //   beta.22에서 cust-amt-next는 사라졌다(금액·서명이 한 화면이 되어 '다음' 단계 자체가 없다).
 //   beta.24에서 cust-compose-back이 사라지고(→ cust-back) cust-history가 들어왔다(선택적 상세 화면).
-const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit','pass-ok','pass-cancel','pass-toggle']);
+// beta.55: choice-pick(앱 안 선택창의 버튼)을 더했다 — PIN 분실 복구 화면의 열쇠 복원(pin-forgot-restore → 열쇠 파일)이 이제
+//   "다른 열쇠로 바꿀까요?"·"짝이 안 맞아요"를 선택창으로 묻는다. 빼면 그 창이 눌리지 않아 복구가 막힌다.
+//   choice-pick은 '이미 열린 선택창'이 없으면 아무 일도 하지 않고, 잠금으로 넘어갈 때(lockToCustomer·손님 화면 복귀) 열린 창은 취소로 닫힌다.
+const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit','pass-ok','pass-cancel','pass-toggle','choice-pick']);
 async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;
 if(lockScreenActive()&&!LOCK_ALLOWED.has(el.dataset.a))return;// 잠금 게이트 — 손님 화면에서 원장 쓰기 경로는 구조적으로 도달 불가
 const fn=clickActions[el.dataset.a];if(fn)await fn(el)}
@@ -3307,7 +3517,7 @@ async function saveEmployee(){return withTxLock(async()=>{const org=str(qs('empO
 //   그대로 남으면 사장님이 옮길 방법이 없다. 소속·부서가 그대로면 표식을 유지한다(자동 등록 이력 보존).
 if(str(old.org)!==org||str(old.dept)!==dept)next.orgKind=orgKindFor(org);setBusy('저장 중입니다.');try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;clearBusy();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);clearBusy();toast('직원 수정 중 오류')}}else{const key=empMatchKey({org,dept,name});
 // beta.54: 삭제한(숨긴) 같은 이름은 등록을 막지 않는다 — 예전에는 활성 직원보다 먼저 걸려 "복원하세요"로 막혔다(되돌리기·삭제 뒤 같은 부서를 다시 쓰면 반드시 부딪힌다).
-const dup=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===key);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${orgDeptLabel({org,dept})||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;setBusy('저장 중입니다.');const before=curBal;const tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'한 명씩 등록 추가 충전',note:note||'',createdAt:t});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);clearBusy();toast('충전 중 오류')}return}setBusy('저장 중입니다.');const emp={id:uid(),org,dept,name,note,orgKind:orgKindFor(org),isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;clearBusy();toast('직원을 등록했습니다.')}catch(err){console.error(err);clearBusy();toast('직원 등록 중 오류')}}})}
+const dup=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===key);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(wonTooBig(open)){toast(WON_MAX_MSG);return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${orgDeptLabel({org,dept})||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;setBusy('저장 중입니다.');const before=curBal;const tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'한 명씩 등록 추가 충전',note:note||'',createdAt:t});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);clearBusy();toast('충전 중 오류')}return}setBusy('저장 중입니다.');const emp={id:uid(),org,dept,name,note,orgKind:orgKindFor(org),isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;clearBusy();toast('직원을 등록했습니다.')}catch(err){console.error(err);clearBusy();toast('직원 등록 중 오류')}}})}
 // ── 날짜(실제 사용일) 입력 — 사용·충전·조정 모달 공용 (beta.42) ─────────────────
 // 수기 대장을 소급 입력할 때 쓴다. 오늘(기본값)이면 ts=0 → 기존 동작과 100% 동일.
 //   과거 날짜는 그 날 **정오** 시각으로 고정한다(자정 경계·시간대 흔들림 방지). createdAt이 아니라
@@ -3317,9 +3527,9 @@ function readTxDate(id){const el=qs(id);const v=str(el&&el.value);if(!v||v===tod
 function txDateNote(kind,d){return d.ts?`${kind==='use'?'실사용일':'실거래일'} ${d.label}`:''}
 function txDateField(id){return field(id,'날짜 (지난 기록이면 바꿔 주세요)',todayDateStr(),'','date',`max="${todayDateStr()}"`)}
 // ⚠️ 입력칸(qs)은 **setBusy보다 먼저** 읽는다 — setBusy는 render()라서 입력 노드가 통째로 교체된다.
-async function saveTopup(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('topupAmount')&&qs('topupAmount').value),reason=str(qs('topupReason')&&qs('topupReason').value)||'추가 선입금';if(isNaN(amount)||amount<=0){toast('충전 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}const dsel=readTxDate('topupDate');if(!dsel.ok){toast(dsel.msg);return}setBusy('저장 중입니다.');const before=balanceOf(emp.id),tx=await makeTx({employeeId:emp.id,type:'topup',amount,beforeBalance:before,afterBalance:before+amount,reason,note:txDateNote('topup',dsel),occurredAt:dsel.ts});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast('충전을 저장했습니다.')}catch(err){console.error(err);clearBusy();toast('충전 저장 중 오류')}})}
-async function saveAdjust(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const newBal=parseWon(qs('adjustBalance')&&qs('adjustBalance').value),reason=str(qs('adjustReason')&&qs('adjustReason').value);if(isNaN(newBal)){toast('새 잔액은 정수(원 단위)만 입력할 수 있습니다.');return}if(newBal<0){toast('새 잔액은 0원 이상이어야 합니다.');return}if(!reason){toast('조정 사유를 입력하세요.');return}const before=balanceOf(emp.id),delta=newBal-before;if(delta===0){toast('현재 잔액과 동일합니다.');return}const dsel=readTxDate('adjustDate');if(!dsel.ok){toast(dsel.msg);return}if(!window.confirm(`현재 잔액 ${money(before)} → ${money(newBal)}으로 조정하시겠습니까?${dsel.ts?`\n(실거래일 ${dsel.label})`:''}`))return;setBusy('저장 중입니다.');const tx=await makeTx({employeeId:emp.id,type:'adjust',amount:delta,beforeBalance:before,afterBalance:newBal,reason,note:txDateNote('adjust',dsel),occurredAt:dsel.ts});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast('잔액 조정을 저장했습니다.')}catch(err){console.error(err);clearBusy();toast('잔액 조정 중 오류')}})}
-async function saveUse(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('useAmount')&&qs('useAmount').value);if(isNaN(amount)||amount<=0){toast('사용 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}const before=balanceOf(emp.id);if(before<amount){toast('잔액이 부족합니다.');return}
+async function saveTopup(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('topupAmount')&&qs('topupAmount').value),reason=str(qs('topupReason')&&qs('topupReason').value)||'추가 선입금';if(isNaN(amount)||amount<=0){toast('충전 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}if(wonTooBig(amount)){toast(WON_MAX_MSG);return}const dsel=readTxDate('topupDate');if(!dsel.ok){toast(dsel.msg);return}setBusy('저장 중입니다.');const before=balanceOf(emp.id),tx=await makeTx({employeeId:emp.id,type:'topup',amount,beforeBalance:before,afterBalance:before+amount,reason,note:txDateNote('topup',dsel),occurredAt:dsel.ts});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast('충전을 저장했습니다.')}catch(err){console.error(err);clearBusy();toast('충전 저장 중 오류')}})}
+async function saveAdjust(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const newBal=parseWon(qs('adjustBalance')&&qs('adjustBalance').value),reason=str(qs('adjustReason')&&qs('adjustReason').value);if(isNaN(newBal)){toast('새 잔액은 정수(원 단위)만 입력할 수 있습니다.');return}if(newBal<0){toast('새 잔액은 0원 이상이어야 합니다.');return}if(wonTooBig(newBal)){toast(WON_MAX_MSG);return}if(!reason){toast('조정 사유를 입력하세요.');return}const before=balanceOf(emp.id),delta=newBal-before;if(delta===0){toast('현재 잔액과 동일합니다.');return}const dsel=readTxDate('adjustDate');if(!dsel.ok){toast(dsel.msg);return}if(!window.confirm(`현재 잔액 ${money(before)} → ${money(newBal)}으로 조정하시겠습니까?${dsel.ts?`\n(실거래일 ${dsel.label})`:''}`))return;setBusy('저장 중입니다.');const tx=await makeTx({employeeId:emp.id,type:'adjust',amount:delta,beforeBalance:before,afterBalance:newBal,reason,note:txDateNote('adjust',dsel),occurredAt:dsel.ts});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast('잔액 조정을 저장했습니다.')}catch(err){console.error(err);clearBusy();toast('잔액 조정 중 오류')}})}
+async function saveUse(){return withTxLock(async()=>{const emp=state.data.employees.find(v=>v.id===state.modal.id&&!v.isDeleted);if(!emp){toast('직원을 찾을 수 없습니다.');return}const amount=parseWon(qs('useAmount')&&qs('useAmount').value);if(isNaN(amount)||amount<=0){toast('사용 금액은 1원 이상의 정수만 입력할 수 있습니다.');return}if(wonTooBig(amount)){toast(WON_MAX_MSG);return}const before=balanceOf(emp.id);if(before<amount){toast('잔액이 부족합니다.');return}
 // 서명은 두 곳에서 온다 — 사장님 앞에서 그린 캔버스, 또는 손님이 요청에 담아 보낸 dataURL(B단계).
 //   어느 쪽이든 서명 없이 저장되는 길은 없다(빈 서명은 여기서 걸린다).
 const preSign=str(state.modal.preSign),preAmount=num(state.modal.preAmount);
@@ -3327,7 +3537,7 @@ const preSign=str(state.modal.preSign),preAmount=num(state.modal.preAmount);
 //   나중에 다투면 서명은 사장님 편이 아니라 손님 편에 선다("나는 1,000원에 서명했다").
 //   → 저장 금액이 요청 금액과 다르면 손님 서명을 그 자리에서 무효화하고 다시 받는다. 저장은 이번엔 진행하지 않는다.
 if(preSign&&preAmount>0&&amount!==preAmount){captureUsageInputs();state.modal.preSign='';state.modal.resignNeeded=true;render();toast('금액이 손님 요청과 달라 서명을 다시 받아야 해요.');return}
-const signatureData=preSign||((signPad&&!signPad.isEmpty())?signPad.toDataUrl():'');
+const signatureData=preSign||((signPad&&!signPad.isEmpty())?await signPad.toDataUrl():'');
 if(!signatureData){toast('서명을 먼저 받아주세요.');return}
 const typedNote=str(qs('useNote')&&qs('useNote').value);
 const dsel=readTxDate('useDate');if(!dsel.ok){toast(dsel.msg);return}
@@ -3364,7 +3574,7 @@ if(!name){toast('직원명을 입력하세요.');return}
 const rawOpen=openInput&&openInput.value;
 const open=rawOpen?parseWon(rawOpen):0;
 if(rawOpen&&isNaN(open)){toast('선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}
-if(open<0){toast('선입금액은 0원 이상이어야 합니다.');return}
+if(open<0){toast('선입금액은 0원 이상이어야 합니다.');return}if(wonTooBig(open)){toast(WON_MAX_MSG);return}
 // 동일인 판정 키 = 소속·부서 표시 라벨|이름(empMatchKey) — 레거시 합성 dept와 신규 분리 저장을 같은 직원으로 본다.
 const key=empMatchKey({org,dept,name});
 // beta.54: 삭제한 같은 이름은 막지 않는다(saveEmployee와 같은 이유).
@@ -3413,7 +3623,14 @@ if(others&&!window.confirm(`'${newLabel}'에 이미 ${others}명이 있어요. �
 setBusy('저장 중입니다.');try{const patches=relabelGroupPatches(label,org,dept,null);await repo.apply({employees:patches});patches.forEach(upsertEmp);
 if(state.expandedDepts[label]){delete state.expandedDepts[label];state.expandedDepts[newLabel]=true}
 state.modal=null;clearBusy();toast(`'${label}' → '${newLabel}' (${patches.length}명)`)}catch(err){console.error(err);clearBusy();toast('저장 중 오류')}})}
-async function restoreEmployee(id){const emp=state.data.employees.find(v=>v.id===id);if(!emp)return;const dup=state.data.employees.find(v=>v.id!==emp.id&&!v.isDeleted&&empMatchKey(v)===empMatchKey(emp));if(dup){toast('같은 이름의 활성 직원이 있어 복원 불가');return}const bal=balanceOf(emp.id);if(!window.confirm(`${emp.name} 직원을 복원할까요?\n잔액은 ${money(bal)}이에요.${bal===0?' 필요하면 복원 뒤 [충전]이나 [조정]을 쓰세요.':''}`))return;const next={...emp,isDeleted:false,updatedAt:now()};try{await repo.apply({employees:[next]});upsertEmp(next);render();toast('복원됨')}catch(err){console.error(err);toast('오류')}}
+// beta.55(A-10h): 같은 소속·부서에 같은 이름의 활성 직원이 있으면 예전에는 "복원 불가" 토스트 한 줄로 끝났다(막다른 길).
+//   이제 이유를 말하고, 이름 뒤에 ·2(동명이인 표시와 같은 규칙)를 붙여 복원하는 길을 연다. 잔액·거래는 그대로다.
+function freeRestoreName(emp){const base=custDupBase(emp.name);for(let k=2;k<100;k++){const nn=base+'·'+k;if(!state.data.employees.some(v=>v.id!==emp.id&&!v.isDeleted&&empMatchKey(v)===empMatchKey({...emp,name:nn})))return nn}return base+'·'+Date.now().toString(36).slice(-3)}
+async function restoreEmployee(id){const emp=state.data.employees.find(v=>v.id===id);if(!emp)return;const dup=state.data.employees.find(v=>v.id!==emp.id&&!v.isDeleted&&empMatchKey(v)===empMatchKey(emp));const bal=balanceOf(emp.id);let name=emp.name;
+if(dup){const nn=freeRestoreName(emp);const v=await askChoice({title:'같은 이름의 직원이 이미 있어요',lines:[`<b>${esc(orgDeptLabel(emp)||'(소속 없음)')} · ${esc(emp.name)}</b> 이름의 직원이 지금 목록에 있어요(잔액 ${money(balanceOf(dup.id))}).`,'같은 소속·부서에 같은 이름은 둘일 수 없어서, 그대로는 복원할 수 없어요.',`이름을 <b>'${esc(nn)}'</b>(으)로 바꿔 복원하면 두 사람이 따로 보여요. 복원할 직원의 잔액은 ${money(bal)}이에요.`,'같은 사람이면 복원하지 말고 지금 있는 직원을 그대로 쓰세요.'],buttons:[{val:'rename',label:`'${nn}'(으)로 이름을 바꿔 복원`,cls:'btn-primary'},{val:'cancel',label:'취소',cls:'btn'}]});
+if(v!=='rename')return;name=nn}
+else if(!window.confirm(`${emp.name} 직원을 복원할까요?\n잔액은 ${money(bal)}이에요.${bal===0?' 필요하면 복원 뒤 [충전]이나 [조정]을 쓰세요.':''}`))return;
+const next={...emp,name,isDeleted:false,updatedAt:now()};try{await repo.apply({employees:[next]});upsertEmp(next);render();toast(name!==emp.name?`'${name}'(으)로 이름을 바꿔 복원했어요.`:'복원됨')}catch(err){console.error(err);toast('오류')}}
 async function voidUsage(id){return withTxLock(async()=>{const tx=state.data.transactions.find(v=>v.id===id&&v.type==='use');if(!tx)return;const already=state.data.transactions.some(v=>v.type==='void'&&v.targetTransactionId===tx.id);if(already){toast('이미 취소됨');return}const reason=window.prompt('취소 사유를 입력하세요.','');if(reason===null)return;if(!str(reason)){toast('취소 사유를 입력하세요.');return}setBusy('저장 중입니다.');const before=balanceOf(tx.employeeId),voidTx=await makeTx({employeeId:tx.employeeId,type:'void',amount:tx.amount,beforeBalance:before,afterBalance:before+tx.amount,reason:str(reason),note:'',targetTransactionId:tx.id});try{await repo.apply({transactions:[voidTx]});upsertTx(voidTx);clearBusy();toast('사용 취소 완료')}catch(err){console.error(err);clearBusy();toast('오류')}})}
 
 // ── 백업/복원 ──
@@ -3431,7 +3648,10 @@ async function exportCsvLedger(opts){
 opts=opts||{};
 const d=derive();const org=state.data.meta.orgName||DEFAULT_ORG;
 const today=new Date();const dateStr=`${today.getFullYear()}.${String(today.getMonth()+1).padStart(2,'0')}.${String(today.getDate()).padStart(2,'0')}`;
-const csvQ=v=>{const s=String(v==null?'':v);return s.includes(',')||s.includes('"')||s.includes('\n')?'"'+s.replace(/"/g,'""')+'"':s};
+// beta.55(A-10e·B-11): 엑셀 수식 주입 방지 — 글자 칸이 = + - @ 탭 CR로 시작하면 앞에 '를 붙여 "글자"로 열리게 한다.
+//   (명단·이름·메모는 남이 적은 값일 수 있다. "=HYPERLINK(…)" 같은 이름이 사장님 엑셀에서 수식으로 실행되면 안 된다.)
+//   숫자 칸(잔액·금액)과 "-5,000"처럼 숫자로만 된 글자는 그대로 둔다 — 합계 계산이 깨지지 않게.
+const csvQ=v=>{let s=String(v==null?'':v);if(typeof v==='string'&&/^[=+\-@\t\r]/.test(s)&&!/^[-+]?[\d,]+(\.\d+)?원?$/.test(s))s="'"+s;return s.includes(',')||s.includes('"')||s.includes('\n')||s.includes('\r')?'"'+s.replace(/"/g,'""')+'"':s};
 const row=arr=>arr.map(csvQ).join(',')+'\r\n';
 let csv='';
 // ── 1. 요약 정보 ──
@@ -3512,7 +3732,7 @@ const allowed=!!state.allowLockedRestore;state.allowLockedRestore=false;
 if(!file)return;
 if(lockScreenActive()&&!allowed){qs('restoreFile').value='';return}
 if(allowed)leaveRecovery();
-setBusy('백업 파일을 읽는 중입니다.');try{const text=await file.text(),parsed=JSON.parse(text);if(parsed&&parsed.type==='prepaid-key-backup'){const ok=await importKeyBackup(parsed);clearBusy();render();toast(ok?'내 열쇠를 복원했습니다.':'내 열쇠 복원 취소됨')}else if(parsed&&parsed.type==='prepaid-locked-backup'){await restoreLockedBackup(parsed,{forgotPin:allowed})}else{await restoreFromParsed(parsed,{forgotPin:allowed})}}catch(err){console.error(err);clearBusy();toast('파일을 읽을 수 없습니다: '+(err&&err.message||''))}finally{qs('restoreFile').value=''}}
+setBusy('백업 파일을 읽는 중입니다.');try{const text=await file.text(),parsed=JSON.parse(text);if(parsed&&parsed.type==='prepaid-key-backup'){const ok=await importKeyBackup(parsed);clearBusy();render();toast(ok?'내 열쇠를 복원했습니다.':'내 열쇠 복원 취소됨')}else if(parsed&&parsed.type==='prepaid-locked-backup'){await restoreLockedBackup(parsed,{forgotPin:allowed})}else{await restoreFromParsed(parsed,{forgotPin:allowed})}}catch(err){console.error(err);clearBusy();toast('파일을 읽을 수 없어요. '+relayErrMsg(err,'백업 파일이 맞는지 확인해 주세요.'))}finally{qs('restoreFile').value=''}}
 // 잠긴 백업(prepaid-locked-backup) 복원 — 이 기기의 개인키로 열어 평소 복원 경로에 그대로 태운다.
 const LOCKED_BACKUP_HELP="이 파일은 잠긴 백업이에요. 이 파일을 만든 가게의 '내 열쇠 백업'을 먼저 가져온 뒤(설정 > 자동 등록 카드) 다시 선택해 주세요.";
 async function restoreLockedBackup(parsed,opts){
@@ -3533,7 +3753,7 @@ window.onRestoreData=async function(json){setBusy('백업 데이터를 읽는 �
 // ① 태그 문자를 아예 지우고 ② 길이를 20자로 잘라 문구를 짧게 유지한다. 출력부의 esc()가 2중 방어다.
 function csvCellForMsg(v){return String(v==null?'':v).replace(/[<>&"'`]/g,' ').replace(/\s+/g,' ').trim().slice(0,20)}
 function parseCsvLine(line){const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===','&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
-function parseAmount(raw){const n=parseWon(raw);return isNaN(n)||n<=0?null:n}
+function parseAmount(raw){const n=parseWon(raw);return isNaN(n)||n<=0||wonTooBig(n)?null:n}
 // 동명이인 자동 보완 (스펙 §2.4-나): 화면 라벨(소속·부서)+이름이 같은 중복 그룹에 구분 마커 '·2','·3'…을 붙인다.
 //   첫 번째 사람은 이름 그대로 두고 두 번째부터 마커를 받는다(김철수 / 김철수·2 / 김철수·3).
 // ⚠️ 옛 규칙은 이름 뒤에 라틴 소문자 a/b/c를 붙였다 — 'Alex' 같은 라틴 이름은 이미 소문자로 끝나 마커를 못 받아
@@ -3589,17 +3809,21 @@ for(const l of nonEmpty){const m=l.match(/부서\s*[:：]\s*(.+)/);if(m){metaDep
 const ex=new Set(state.data.employees.filter(v=>!v.isDeleted).map(empMatchKey));
 const rows=[];
 for(let i=headerIdx+1;i<nonEmpty.length;i++){const f=parseCsvLine(nonEmpty[i]);
-const org=oi>=0?(f[oi]||'').trim():'';
-const dept=hasDeptCol?(f[di]||'').trim():metaDept;
-const name=(f[ni]||'').trim();const ar=f[ai]||'';
+// beta.55(B-13): 제어·방향 문자는 걷어 낸다(화면에서 이름이 뒤집혀 보이는 위장 방지). 정상 파일에서는 아무것도 바뀌지 않는다.
+const org=cleanRosterText(oi>=0?(f[oi]||''):'');
+const dept=cleanRosterText(hasDeptCol?(f[di]||''):metaDept);
+const name=cleanRosterText(f[ni]||'');const ar=f[ai]||'';
 if(/합계|소계|총계|total|합\s*계/i.test(name+dept+(f[0]||'')))continue;
 if(!name)continue;
 const amount=parseAmount(ar);let error='',mode='new',existId='';
 if(!dept)error='부서명 없음 (부서 칸이 없고, 파일 앞부분에서도 부서 이름을 찾지 못했어요)';
-else if(!amount)error='금액 오류: "'+csvCellForMsg(ar)+'"';
+else if(name.length>ROSTER_MAX_NAME)error=`이름이 너무 길어요(${ROSTER_MAX_NAME}자까지)`;
+else if(dept.length>ROSTER_MAX_LABEL||org.length>ROSTER_MAX_LABEL)error=`부서·소속 이름이 너무 길어요(${ROSTER_MAX_LABEL}자까지)`;
+else if(!amount)error=(wonTooBig(parseWon(ar))?'금액이 너무 커요(1억 원까지): "':'금액 오류: "')+csvCellForMsg(ar)+'"';
 else if(ex.has(empMatchKey({org,dept,name}))){mode='topup';const existEmp=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===empMatchKey({org,dept,name}));if(existEmp)existId=existEmp.id}
 rows.push({org,dept:dept||'(없음)',name,amount,error,line:i+1,mode:error?'error':mode,existId})}
 if(!rows.length){toast('등록할 직원이 없습니다.');return}
+if(rows.length>ROSTER_MAX_ITEMS){toast(`한 파일에 ${ROSTER_MAX_ITEMS.toLocaleString('ko-KR')}명까지만 불러올 수 있어요(${rows.length.toLocaleString('ko-KR')}명). 파일을 나눠 주세요.`,6000);return}
 const dupWarn=assignDuplicateSuffix(rows.filter(r=>r.mode!=='error'));
 // beta.54: 파일의 소속·부서가 기존 부서와 "비슷하기만" 하면(정확히 같지는 않음) 올리기 전에 묻는다 — 승인 경로와 같은 갈림길.
 //   이름을 고치기로 하면 고친 모습으로 다시 매칭해(activeEmployeeIndex(patches)) 같은 이름은 '추가 충전'으로 바뀐다. 저장은 [등록하기]에서 한 번에.
@@ -3610,11 +3834,11 @@ const nd=await askNearDuplicate(rec,same.map(x=>x.name),same.length);
 if(nd.choice==='cancel'){toast('불러오기를 취소했어요.');return}
 if(nd.choice==='rename'){renamePatches=renamePatches.concat(relabelGroupPatches(nd.group.label,rec.org,rec.dept,null));renameFrom=renameFrom?renameFrom+', '+nd.group.label:nd.group.label}}
 if(renamePatches.length){const idx=activeEmployeeIndex(renamePatches);rows.forEach(r=>{if(r.error)return;const ex2=idx.get(empMatchKey({org:r.org,dept:r.dept,name:r.name}));if(ex2){r.mode='topup';r.existId=ex2.id}})}
-state.modal={type:'csv',rows,dupWarn,renamePatches,renameFrom};render()}catch(err){console.error(err);toast('파일 읽기 실패: '+err.message)}finally{qs('csvFile').value=''}}
+state.modal={type:'csv',rows,dupWarn,renamePatches,renameFrom};render()}catch(err){console.error(err);toast('파일을 읽지 못했어요. '+relayErrMsg(err,'엑셀에서 CSV로 저장한 파일인지 확인해 주세요.'))}finally{qs('csvFile').value=''}}
 async function executeCsvImport(){return withTxLock(async()=>{const rows=(state.modal&&state.modal.rows||[]).filter(r=>!r.error);if(!rows.length)return;const renamePatches=(state.modal&&Array.isArray(state.modal.renamePatches))?state.modal.renamePatches:[];const newRows=rows.filter(r=>r.mode!=='topup');const topupRows=rows.filter(r=>r.mode==='topup');const msg=[];if(newRows.length)msg.push('신규 '+newRows.length+'명');if(topupRows.length)msg.push('추가 충전 '+topupRows.length+'명');if(!window.confirm(`${renamePatches.length?`기존 부서 '${str(state.modal.renameFrom)}'의 이름을 고치고, `:''}${msg.join(' + ')}을 처리하시겠습니까?`))return;setBusy('처리하는 중입니다.');try{const t=now();const emps=[],txs=[];
 const ymD=new Date(t),yearMonth=ymD.getFullYear()+'-'+String(ymD.getMonth()+1).padStart(2,'0');let tip=chainTip();
 for(const r of newRows){const eid=uid();emps.push({id:eid,org:str(r.org),orgKind:orgKindFor(r.org),dept:r.dept,name:r.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth,createdAt:t,updatedAt:t});if(r.amount>0){const tx=await makeTx({employeeId:eid,type:'open',amount:r.amount,beforeBalance:0,afterBalance:r.amount,reason:'CSV 임포트',note:'',createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}
-for(const r of topupRows){if(!r.existId||!r.amount)continue;const before=balanceOf(r.existId);const tx=await makeTx({employeeId:r.existId,type:'topup',amount:r.amount,beforeBalance:before,afterBalance:before+r.amount,reason:'CSV 추가 충전',note:dt(t),createdAt:t},tip);tip=tx.txHash;txs.push(tx)}
+const csvBal=runningBalance();for(const r of topupRows){if(!r.existId||!r.amount)continue;const before=csvBal.take(r.existId,r.amount);const tx=await makeTx({employeeId:r.existId,type:'topup',amount:r.amount,beforeBalance:before,afterBalance:before+r.amount,reason:'CSV 추가 충전',note:dt(t),createdAt:t},tip);tip=tx.txHash;txs.push(tx)}
 await repo.apply({employees:renamePatches.concat(emps),transactions:txs});renamePatches.forEach(upsertEmp);emps.forEach(upsertEmp);txs.forEach(upsertTx);state.modal=null;clearBusy();render();toast(`${msg.join(' + ')} 완료`)}catch(err){console.error(err);clearBusy();toast('임포트 오류')}})}
 
 // ── 전체 초기화 ──
@@ -3673,7 +3897,7 @@ if(!relayRegistered())return true;
 const warnTail='\n\n지금 초기화하면 서버에 우리 가게 등록 기록이 남아, 나중에 이 가게를 다시 등록할 때 막힐 수 있어요(이메일 문의로 풀어야 해요).\n\n그래도 지금 초기화할까요?';
 if(!navigator.onLine)return window.confirm('인터넷이 연결되어 있지 않아 서버의 우리 가게 등록을 해제하지 못해요. 인터넷을 연결한 뒤 초기화하기를 권해요.'+warnTail);
 setBusy('서버의 우리 가게 등록을 해제하는 중입니다.');
-try{const authToken=await relayAuthToken();const r=await fetch(relayBase()+'/api/deregister',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:str(state.data.meta.restaurantId),auth_token:authToken})});if(!r.ok){const jj=await r.json().catch(()=>({}));throw new Error(jj.error||('해제 실패 '+r.status))}clearBusy();return true}
+try{const authToken=await relayAuthToken();const r=await relayFetch(relayBase()+'/api/deregister',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:str(state.data.meta.restaurantId),auth_token:authToken})});if(!r.ok){const jj=await r.json().catch(()=>({}));throw new Error(jj.error||('해제 실패 '+r.status))}clearBusy();return true}
 catch(e){console.error('relay deregister on wipe:',e);clearBusy();
 return window.confirm('서버의 우리 가게 등록 해제에 실패했어요.'+warnTail)}}
 async function fullReset(){
@@ -3753,10 +3977,52 @@ canvas.addEventListener('pointerdown',markInput,{passive:true});
 ['pointermove','touchmove','mousemove'].forEach(ev=>canvas.addEventListener(ev,armIfDrawing,{passive:true}));
 // drawing() = 지금 손가락/펜이 닿아 있는가. renderIsDisruptive가 "서명 중"을 판정하는 데 쓴다
 //   (캔버스는 preventDefault 때문에 절대 포커스를 받지 않아 activeElement로는 알 수 없다).
-signPad={clear(){empty=true;strokes=[];cur=null;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);paint();setHint(true)},isEmpty(){return empty},drawing(){return drawing},resize,strokeCount(){return strokes.filter(s=>s.length>1).length},toDataUrl(){return empty?'':canvas.toDataURL('image/jpeg',0.5)}}}
+// beta.55(A-1): toDataUrl은 이제 **비동기**다(1비트 PNG 압축에 CompressionStream을 쓴다).
+//   ⚠️ 획 사본(snapshot)은 **첫 await 전에 동기로** 뜬다 — 부르는 순간의 서명이 저장된다. 그 뒤 화면이 갈아끼워지거나
+//   [지우고 다시]가 눌려도 이미 뜬 사본은 바뀌지 않는다(캔버스 3중 보호와 "dataURL로만 넘긴다" 계약 그대로).
+signPad={clear(){empty=true;strokes=[];cur=null;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);paint();setHint(true)},isEmpty(){return empty},drawing(){return drawing},resize,strokeCount(){return strokes.filter(s=>s.length>1).length},
+snapshot(){return{w,h,strokes:strokes.filter(s=>s.length>1).map(s=>s.map(p=>({x:p.x,y:p.y})))}},
+async toDataUrl(){if(empty)return '';const snap=this.snapshot();let liveJpeg=null;const live=()=>{if(liveJpeg==null){try{liveJpeg=canvas.toDataURL('image/jpeg',0.5)}catch(e){liveJpeg=''}}return liveJpeg};
+if(!snap.strokes.length)return sigD(live());
+return await sigEncode(snap,live)}}}
+// ── 새 서명 저장 형식(beta.55, A-1 — 사용자 결정 2026-11-13) ─────────────────────────────
+// 예전: 화면 크기 × 기기 배율 그대로의 JPEG(품질 0.5) — 태블릿에서 한 장 20~40KB. 거래마다 실려 클라우드 백업(1MB 상한)을
+//   몇 달 만에 채웠다(라이브 실측: 2주에 35%).
+// 지금: 기억해 둔 획을 **폭 320px**(높이는 비율 유지)에 흰 바탕·검은 선으로 다시 그리고, 흑/백 두 값으로 나눠
+//   **진짜 1비트 흑백 PNG**(IHDR 비트 깊이 1, 색 유형 0)로 굽는다. 한 장 약 1~1.5K자.
+//   · 회색 안내선·"여기에 서명" 안내는 획 목록에 없으므로 그림에 들어가지 않는다.
+//   · 기존에 저장된 서명(JPEG)은 손대지 않는다 — 표시·해시(signatureHash=hash(dataURL)) 모두 예전 그대로다.
+//   · CompressionStream이 없거나 굽다가 실패하면 폭 320px JPEG로 저장한다 — **서명을 잃는 길은 없다**.
+var SIG_CRC_TABLE=null;
+function sigCrc32(bytes){if(!SIG_CRC_TABLE){SIG_CRC_TABLE=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);SIG_CRC_TABLE[n]=c>>>0}}
+let c=0xFFFFFFFF;for(let i=0;i<bytes.length;i++)c=SIG_CRC_TABLE[(c^bytes[i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0}
+function sigPngChunk(type,data){const out=new Uint8Array(12+data.length),dv=new DataView(out.buffer);dv.setUint32(0,data.length);for(let i=0;i<4;i++)out[4+i]=type.charCodeAt(i);out.set(data,8);dv.setUint32(8+data.length,sigCrc32(out.subarray(4,8+data.length)));return out}
+async function sigZlib(bytes){const cs=new CompressionStream('deflate');const stream=new Blob([bytes]).stream().pipeThrough(cs);return new Uint8Array(await new Response(stream).arrayBuffer())}
+// ink: 길이 w*h, 1=먹(검정). PNG 1비트 흑백에서 표본값 1=흰색, 0=검정이다.
+async function sigPng1bit(ink,w,h){const rowBytes=Math.ceil(w/8),raw=new Uint8Array((rowBytes+1)*h);
+for(let y=0;y<h;y++){const o=y*(rowBytes+1);raw[o]=0;for(let b=0;b<rowBytes;b++)raw[o+1+b]=0xFF;for(let x=0;x<w;x++){if(ink[y*w+x])raw[o+1+(x>>3)]&=~(0x80>>(x&7))}}
+const ihdr=new Uint8Array(13),dv=new DataView(ihdr.buffer);dv.setUint32(0,w);dv.setUint32(4,h);ihdr[8]=1;ihdr[9]=0;ihdr[10]=0;ihdr[11]=0;ihdr[12]=0;
+const parts=[new Uint8Array([137,80,78,71,13,10,26,10]),sigPngChunk('IHDR',ihdr),sigPngChunk('IDAT',await sigZlib(raw)),sigPngChunk('IEND',new Uint8Array(0))];
+const total=parts.reduce((s,p)=>s+p.length,0),png=new Uint8Array(total);let off=0;parts.forEach(p=>{png.set(p,off);off+=p.length});
+return 'data:image/png;base64,'+bufToB64(png)}
+function sigRaster(snap){const W=320,sw=Number(snap.w)>0?Number(snap.w):600,sh=Number(snap.h)>0?Number(snap.h):180,s=W/sw,H=Math.max(1,Math.round(sh*s));
+const cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,W,H);
+c.strokeStyle='#000';c.lineWidth=Math.max(2,3*s);c.lineCap='round';c.lineJoin='round';
+snap.strokes.forEach(st=>{if(st.length<2)return;c.beginPath();c.moveTo(st[0].x*s,st[0].y*s);for(let i=1;i<st.length;i+=1)c.lineTo(st[i].x*s,st[i].y*s);c.stroke()});
+return{cv,c,W,H}}
+async function sigEncode(snap,liveFallback){let r=null;
+try{r=sigRaster(snap);
+if(typeof CompressionStream!=='function')throw new Error('no CompressionStream');
+const px=r.c.getImageData(0,0,r.W,r.H).data,ink=new Uint8Array(r.W*r.H);let inked=0;
+for(let i=0;i<ink.length;i++){const p=i*4,lum=(px[p]*299+px[p+1]*587+px[p+2]*114)/1000;if(lum<160){ink[i]=1;inked++}}
+const url=await sigPng1bit(ink,r.W,r.H);if(inked&&sigD(url))return url;throw new Error('empty png')}
+catch(e){console.error('sign png encode — jpeg fallback',e);
+try{if(r&&r.cv){const j=sigD(r.cv.toDataURL('image/jpeg',0.7));if(j)return j}}catch(e2){console.error('sign jpeg 320 fallback',e2)}
+return sigD(typeof liveFallback==='function'?liveFallback():'')}}
 // 회전·리사이즈는 창 단위 사건이다 — 리스너는 앱에 딱 하나만 둔다(캔버스마다 달면 렌더 교체 때마다
 //   떨어져 나간 캔버스를 붙든 리스너가 쌓인다). 살아 있는 signPad에게만 전달한다.
 let signResizeTimer=null;
+var custSignEncoding=false;// 손님 [사장님 확인 받기] 서명 굽는 중(연타 무시)
 function onSignViewportChange(){if(signResizeTimer)clearTimeout(signResizeTimer);
 signResizeTimer=setTimeout(()=>{signResizeTimer=null;if(signPad&&typeof signPad.resize==='function'){try{signPad.resize()}catch(e){console.error('sign resize',e)}}},100)}
 window.addEventListener('resize',onSignViewportChange);
@@ -3987,6 +4253,8 @@ async function init(){
 //   예전에는 없으면 hash()가 djb2로 조용히 강등돼 "동작은 하지만 안전하지 않은" 상태가 됐다.
 //   여기서 멈추는 편이 정직하다 — PIN 해시·해시 체인·서명 해시·개인키가 전부 이 API에 얹혀 있다.
 if(!cryptoOk()){clearBusy();qs('app').innerHTML='<div class="pin-screen"><div class="pin-icon" style="background:linear-gradient(135deg,var(--danger),#e74c3c)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="pin-title">안전하지 않은 주소</div><div class="pin-sub">이 주소(http)에서는 안전하게 동작할 수 없어요.<br>https 주소로 접속해 주세요.<br><br><strong>https://app.bapjangbu.com</strong><br><br>장부 잠금·서명·가게 열쇠가 모두 브라우저 암호 기능을 씁니다.<br>그 기능은 https에서만 켜집니다.</div></div>';return}
+// beta.55(A-3): 저장소를 열기 **전에** 한 창 잠금을 받는다 — 두 번째 창은 여기서 기다리며 아무것도 쓰지 않는다.
+await acquireInstanceLock();
 setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!repo){clearBusy();qs('app').innerHTML='<div class="pin-screen"><div class="pin-icon" style="background:linear-gradient(135deg,var(--danger),#e74c3c)"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="pin-title">저장소 오류</div><div class="pin-sub">이 브라우저/기기에서 IndexedDB를 사용할 수 없습니다.<br><br>선입금대장은 안정적인 데이터 저장을 위해<br>IndexedDB가 필수입니다.<br><br><strong>해결 방법:</strong><br>① Chrome 최신 버전을 사용하세요<br>② 시크릿/사생활 모드가 아닌지 확인하세요<br>③ 브라우저 설정에서 저장공간을 확인하세요</div></div>';return}repo=withChainAnchor(repo);state.mode=repo.modeLabel;state.data=norm(await repo.loadAll());
 // PIN 실패 횟수·입력 지연은 meta에서 되살린다 — 새로고침·앱 재시작으로 지연을 지울 수 없어야 한다(브루트포스 차단).
 state.pinFails=num(state.data.meta.pinFails);state.pinDelayUntil=num(state.data.meta.pinDelayUntil);
@@ -3995,7 +4263,10 @@ if(state.data.meta.inboxCountCache!=null&&relayRegistered())state.inboxCount=num
 try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}
 // 1회성 마이그레이션(D1): 이 기능이 생기기 전에 설정을 마친 기존 사용자는 pending 플래그가 없어 등록 안내를 못 받는다.
 if(state.data.meta.setupComplete&&!relayRegistered()&&state.data.meta.storeRegisterPending===undefined){state.data.meta.storeRegisterPending=true;try{await repo.apply({meta:{storeRegisterPending:true}})}catch(e){console.error('pending migration',e)}}
-state.loaded=true;clearBusy();render();maybeMonthlyAutoBackup();refreshInboxCount();relayDistrictSyncSilent();flushPendingNotify()}
+state.loaded=true;clearBusy();render();maybeMonthlyAutoBackup();refreshInboxCount();relayDistrictSyncSilent();flushPendingNotify();requestPersistentStorage()}
+// beta.55(A-6): 브라우저에 "이 사이트 저장소는 지우지 말아 달라"고 한 번 부탁한다(저장 공간이 모자랄 때 자동 정리 대상에서 빠진다).
+//   결과는 묻지 않는다 — 거절돼도 지금과 똑같이 동작한다. 화면에 아무것도 띄우지 않는다.
+function requestPersistentStorage(){try{if(navigator.storage&&typeof navigator.storage.persist==='function'){window.__persistRequested=true;navigator.storage.persist().catch(()=>{})}}catch(e){}}
 })();
 </script>
 </body>

@@ -37,6 +37,19 @@ function cacheable(res) {
   return !!(res && res.ok && res.type === 'basic');
 }
 
+// HTML 화면을 네트워크에서 기다리는 최대 시간(beta.55, A-7). 넘으면 캐시 화면을 먼저 보여 준다.
+const NAV_TIMEOUT_MS = 3500;
+// 앱 화면 자체(./ 또는 ./index.html)인가 — 그 경우에만 캐시의 index.html로 대신할 수 있다(문서 페이지는 제 사본만).
+function isAppShell(req) {
+  try {
+    const u = new URL(req.url);
+    const scope = new URL(self.registration ? self.registration.scope : self.location.href);
+    if (u.origin !== scope.origin || !u.pathname.startsWith(scope.pathname)) return false;
+    const rest = u.pathname.slice(scope.pathname.length);
+    return rest === '' || rest === 'index.html';
+  } catch (err) { return false; }
+}
+
 // 요청 가로채기
 self.addEventListener('fetch', e => {
   const req = e.request;
@@ -54,16 +67,25 @@ self.addEventListener('fetch', e => {
   // 오프라인일 때만 캐시로 폴백한다. (구버전에 갇히는 문제 방지)
   const isHTML = req.mode === 'navigate' ||
     (req.headers.get('accept') || '').includes('text/html');
+  // beta.55(A-7): 단, 네트워크를 **무한히 기다리지 않는다**. 가게 와이파이가 "연결은 됐는데 아무것도 오지 않는"
+  //   상태면 예전에는 빈 화면이 끝없이 떠 있었고, 사장님은 고치려다 '사이트 데이터 삭제'(= 장부 삭제)에 손이 갔다.
+  //   → 3.5초 안에 답이 없고 캐시에 화면이 있으면 캐시 화면을 먼저 보여 준다. 네트워크가 늦게라도 답하면
+  //     그 응답으로 캐시를 갱신해 둔다(다음 실행에 최신 화면). 캐시가 없으면(첫 설치) 네트워크를 끝까지 기다린다.
   if (isHTML) {
+    const network = fetch(req).then(response => {
+      if (cacheable(response)) {
+        const clone = response.clone();
+        return caches.open(CACHE_NAME).then(cache => cache.put(req, clone)).catch(() => {}).then(() => response);
+      }
+      return response;
+    });
+    e.waitUntil(network.catch(() => {}));
+    const cachedShell = () => caches.match(req).then(r => r || (isAppShell(req) ? caches.match('./index.html') : undefined));
+    const slowFallback = new Promise(resolve => {
+      setTimeout(() => { cachedShell().then(r => { if (r) resolve(r); }).catch(() => {}); }, NAV_TIMEOUT_MS);
+    });
     e.respondWith(
-      fetch(req)
-        .then(response => {
-          if (cacheable(response)) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
-          }
-          return response;
-        })
+      Promise.race([network, slowFallback])
         .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
     );
     return;
