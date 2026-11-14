@@ -210,6 +210,16 @@ async function drawSignature(page) {
     if (d.type() === 'prompt') await d.accept(promptAnswer);
     else await d.accept();
   });
+  // beta.55+: 전화번호·취소 사유는 기기 기본 팝업(prompt)이 아니라 앱 안 입력창(askText)으로 받는다.
+  // 입력창이 뜨면 같은 답을 넣고 [확인]을 누른다(팝업을 쓰는 구버전에서는 창이 없어 그대로 지나간다).
+  const answerTextDialog = async (value) => {
+    const inp = page.locator('#textDlgInput');
+    try { await inp.waitFor({ timeout: 1500 }); } catch (_) { return false; }
+    await inp.fill(value);
+    await page.locator('[data-a="text-ok"]').click();
+    await page.waitForTimeout(400);
+    return true;
+  };
   // 콘솔 수집 — 단계(phase)별로 나눠 담아 "갱신 직후 오류 0"을 따로 볼 수 있게.
   let phase = 'old';
   const consoleLog = [];
@@ -355,6 +365,7 @@ async function drawSignature(page) {
     await page.locator(`[data-a="emp-phone-edit"][data-id="${e1.id}"]`).waitFor({ timeout: 10000 });
     promptAnswer = '01012345678';
     await page.locator(`[data-a="emp-phone-edit"][data-id="${e1.id}"]`).click();
+    await answerTextDialog(promptAnswer);
     await page.waitForTimeout(600);
     // 문자 동의 스위치가 따로 있으면 켠다(없으면 setPhone이 이미 consent=true).
     const consentBtn = page.locator(`[data-a="emp-phone-consent"][data-id="${e1.id}"]`);
@@ -435,6 +446,7 @@ async function drawSignature(page) {
     await page.waitForTimeout(300);
     promptAnswer = '손님 요청으로 취소';
     await page.locator(`[data-a="void"][data-id="${toVoid.id}"]`).click();
+    await answerTextDialog(promptAnswer);
     await page.waitForTimeout(500);
 
     // ── 부서 1개 추가 ───────────────────────────────────────────────────────────
@@ -458,10 +470,30 @@ async function drawSignature(page) {
     // ── 로컬 백업(장부 안전 저장) 1회 ───────────────────────────────────────────
     await openSettingsCard(page, 'ledger');
     downloads.length = 0;
-    await page.locator('[data-a="export-safe"]').click();
-    await page.waitForTimeout(2500);
-    check('S5', '로컬 백업 파일 저장(CSV + JSON)', downloads.length >= 2 && downloads.every(d => d.bytes > 0),
-      downloads.map(d => `${d.name} (${d.bytes}B)`).join(' , '));
+    if (await page.locator('[data-a="export-safe"]').count()) {
+      // beta.54 이하: [장부 안전 저장] — CSV + JSON 두 파일
+      await page.locator('[data-a="export-safe"]').click();
+      await page.waitForTimeout(2500);
+      check('S5', '로컬 백업 파일 저장(CSV + JSON)', downloads.length >= 2 && downloads.every(d => d.bytes > 0),
+        downloads.map(d => `${d.name} (${d.bytes}B)`).join(' , '));
+    } else {
+      // beta.55+: [지금 백업하기] → (서버 백업 후) 선택창 [이 기기에 저장] → 백업 암호 두 번 → 잠긴 파일 1개 → "파일이 저장됐나요?" [예]
+      const pickChoice = async (val) => {
+        const b = page.locator(`.choice-modal [data-a="choice-pick"][data-val="${val}"]`);
+        await b.waitFor({ timeout: 30000 });
+        await b.click(); await page.waitForTimeout(200);
+      };
+      await page.locator('[data-a="backup-now"]').first().click();
+      await pickChoice('save');
+      await page.waitForSelector('#keyPass1', { timeout: 8000 });
+      await page.locator('#keyPass1').fill('upgrade-pass-01');
+      if (await page.locator('#keyPass2').count()) await page.locator('#keyPass2').fill('upgrade-pass-01');
+      await page.locator('[data-a="pass-ok"]').click();
+      await pickChoice('yes');
+      await page.waitForTimeout(1500);
+      check('S5', '내 보관 백업 파일 저장(백업 암호로 잠근 파일 1개)', downloads.length >= 1 && downloads.every(d => d.bytes > 0),
+        downloads.map(d => `${d.name} (${d.bytes}B)`).join(' , '));
+    }
     for (const d of downloads) {
       if (d.path) await fsp.copyFile(d.path, path.join(OUT, `${SLUG}-${d.name}`)).catch(() => {});
     }
@@ -574,8 +606,16 @@ async function drawSignature(page) {
         const after = cloudLog.filter(e => e.phase === 'after');
         const head = after.filter(e => e.t === 'head').pop();
         const segsUp = after.filter(e => e.t === 'seg');
-        check('v1', '갱신 뒤 첫 서버 백업이 v2(조각 → 머리, gen 포함)로 올라감', !!head && !!head.gen && segsUp.length >= 1 && after.indexOf(head) > after.indexOf(segsUp[segsUp.length - 1]),
-          `${how}: ${after.map(e => e.t + (e.n != null ? e.n : '')).join(' → ')} (gen ${head && head.gen})`);
+        // 구버전도 v2(beta.55+)였다면 조각은 갱신 전에 이미 올라가 있다 — 장부가 그대로이니 새 버전은 조각을 다시 올리지 않고
+        // **같은 세대(gen)** 의 머리만 다시 선언해야 한다(재업로드·새 세대 생성은 오히려 결함).
+        const oldSegGens = new Set(cloudLog.filter(e => e.phase !== 'after' && e.t === 'seg').map(e => e.gen));
+        const v1ok = !!head && !!head.gen && (segsUp.length >= 1
+          ? after.indexOf(head) > after.indexOf(segsUp[segsUp.length - 1])
+          : oldSegGens.has(head.gen));
+        check('v1', oldSegGens.size
+          ? '갱신 뒤 첫 서버 백업이 갱신 전 조각을 그대로 쓰고 같은 세대의 머리만 올림(v2 → v2)'
+          : '갱신 뒤 첫 서버 백업이 v2(조각 → 머리, gen 포함)로 올라감', v1ok,
+          `${how}: ${after.map(e => e.t + (e.n != null ? e.n : '')).join(' → ')} (gen ${head && head.gen}${oldSegGens.size ? ', 갱신 전 조각 세대 ' + [...oldSegGens].join(',') : ''})`);
         const sameRows = (A, C) => j(byId(A)) === j(byId(C));
         const mBb = metaMap(snapB.meta), mC = metaMap(snapC.meta);
         const changed = [...new Set([...Object.keys(mBb), ...Object.keys(mC)])].filter(k => j(mBb[k]) !== j(mC[k]));

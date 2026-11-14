@@ -34,7 +34,7 @@
 
 | 릴리스 | 실제 순서 | 비고 |
 |---|---|---|
-| beta.55 (2026-11) | 마이그레이션 2문(`migrations-2026-11.sql`) → 서버 → 담당자 웹 → 음식점 앱 | 🔴 **문 2(`taken_over_at` 컬럼)를 서버 배포 전에** — 새 서버의 `getPublicKey`가 이 컬럼을 읽으므로 없으면 등록·챌린지·백업이 전부 500. 프론트 쪽 새 필드(`gen`, `confirm_change`)는 선택 필드이고 새 오류 코드(`not_registered`·`too_many_pending`·`takeover_locked`·`invalid_public_key`·`fingerprint_changed`)는 구버전 프론트가 일반 오류로 보여 줄 뿐 깨지지 않는다 |
+| beta.55 (2026-11) | 마이그레이션 3문(`migrations-2026-11.sql`) → 서버 → 음식점 앱·문서 → 담당자 웹 → 홈페이지 → 직원 앱 (2026-11-14 이 순서로 배포, 태그 `live-beta55`) | 🔴 **문 2(`taken_over_at`)·문 3(`ledger_backup.gen`) 컬럼을 서버 배포 전에** — 새 서버의 `getPublicKey`·백업 저장이 이 컬럼을 읽고 쓰므로 없으면 등록·챌린지·백업이 전부 500. 프론트 쪽 새 필드(`gen`, `confirm_change`)는 선택 필드이고 새 오류 코드(`not_registered`·`too_many_pending`·`takeover_locked`·`invalid_public_key`·`fingerprint_changed`)는 구버전 프론트가 일반 오류로 보여 줄 뿐 깨지지 않는다 |
 | beta.48 (2026-09) | 마이그레이션 7문 → 서버 → **담당자 웹 → 음식점 앱** | `submission_id`·`transfer_id`가 둘 다 선택 필드라 어느 쪽을 먼저 내도 깨지지 않는다. `migrations-2026-09.sql` 머리말·`PROTOCOL.md` §9가 이 순서로 적혀 있다 |
 | beta.26 (2026-08) | 마이그레이션 → 서버 → 음식점 앱 → 담당자 웹 | 앱이 **수신자**인 계약 변경이었다(`org` 선택 필드 + district) |
 
