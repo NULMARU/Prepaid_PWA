@@ -648,7 +648,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.57',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.58',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -3502,7 +3502,12 @@ if(!blocked&&!state.data.meta.storeRegisterPending)return '';
 // ✕는 그대로 둔다(세션 한정) — 상태는 위의 칩이 항상 말하므로 배너는 닫아도 사실이 가려지지 않는다.
 const head=blocked?`예전 폰(다른 기기)에 등록된 가게예요 — ${esc(blocked.name||blocked.id)}`:'우리 가게 등록을 마무리하세요';
 const sub=blocked?'해결 방법 보기 · 눌러서 확인':'공공기관 명단 받기와 폰 분실 시 장부 되찾기(클라우드 백업)에 필요해요 · 눌러서 등록하기';
-return `<div class="card banner warn" data-a="go-register-store" style="cursor:pointer;position:relative"><button class="banner-x" data-a="dismiss-store-banner" aria-label="이 안내 닫기">✕</button><strong>${head}</strong><div class="meta">${sub}</div></div>`}
+// beta.58(사용자 결정): 공공기관 명단을 받지 않고 손으로만 장부를 쓰는 가게도 있다(직접 입력·오프라인 설치). 그런 가게에 이 배너는
+//   앱을 열 때마다 되돌아오는 재촉일 뿐이다 → "받지 않아요"를 한 번 누르면 다시 띄우지 않는다(meta.storeRegisterPending=false — 새 키 없음).
+//   상태 칩("등록 안 됨")과 설정의 [우리 가게 등록]은 그대로라 언제든 등록할 수 있고, 등록을 시도했다가 실패하면 배너는 다시 나온다.
+//   다른 기기에 등록된 가게(blocked)는 해결할 일이 남은 상태라 이 선택지를 주지 않는다.
+const never=blocked?'':'<div style="margin-top:2px"><button class="link-btn" data-a="store-register-never" style="padding-left:0;text-align:left">공공기관 명단은 받지 않아요 (이 안내 그만 보기)</button></div>';
+return `<div class="card banner warn" data-a="go-register-store" style="cursor:pointer;position:relative"><button class="banner-x" data-a="dismiss-store-banner" aria-label="이 안내 닫기">✕</button><strong>${head}</strong><div class="meta">${sub}</div>${never}</div>`}
 // beta.55(A2): 열쇠 백업 경고·30일 백업 리마인더·설정 맨 위 "매일 영업 종료 후 장부 안전 저장" 알림은 **guardBanner 하나**로 합쳤다.
 //   홈 배너·장부 지키기 상태 상자·접힌 요약이 모두 guardStatus()를 읽는다 — 셋이 서로 다른 말을 할 수 없다.
 //   조건(우선순위): ① 서버 백업이 실패 중이고 마지막 성공이 8일 넘게 지남 ② 등록 가게인데 암호 건 내 보관 백업(=열쇠 보관)을 한 적 없음
@@ -3902,6 +3907,7 @@ catch(e){window.prompt('아래 내용을 길게 눌러 복사한 뒤 contact@bap
 'retry-blocked-register':async()=>{const b=storeBlocked();if(!b){toast('다시 [우리 가게 등록]으로 가게를 골라 주세요.');return}await relayPickStore(b.id,b.name,b.addr)},
 // 배너 닫기는 세션 한정(저장하지 않음) — 앱을 다시 켜면 다시 안내한다.
 'dismiss-store-banner':()=>{state.storeBannerDismissed=true;render()},
+'store-register-never':async()=>{state.data.meta.storeRegisterPending=false;try{await repo.apply({meta:{storeRegisterPending:false}})}catch(e){console.error('register-never flag',e)}render();toast('이 안내를 다시 띄우지 않을게요. 필요해지면 설정 > 자동 등록에서 등록할 수 있어요.',6000)},
 'guide-dismiss':()=>{state.setupGuide=false;state.screen='home';render()},
 // ── 잠금 화면(손님 화면) 전용 액션 ─────────────────────────────────────────
 // 전부 화면 전환·휘발성 상태 변경뿐이다. 이 중 어떤 것도 makeTx/repo.apply에 닿지 않는다.
