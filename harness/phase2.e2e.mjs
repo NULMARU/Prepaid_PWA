@@ -2078,6 +2078,34 @@ async function beta55Suite(label, store, tw) {
     try { r = await callRaw(store, envPub, 'POST', '/api/register-key', { restaurant_id: 'PUB-SLOW-1', restaurant_name: '느린날식당', public_key: b64(await subtle.exportKey('spki', kpPub.publicKey)) }); } finally { globalThis.fetch = realFetch; }
     took = Date.now() - t0;
     ok(r.status === 200 && took < 2000, '공공API 한도: 실존 대조가 응답 없어도 등록은 한도 뒤 통과(가용성 우선) — ' + r.status + ', ' + took + 'ms');
+    // (f) beta.57 긴 한도 — 새 앱이 wait=long을 붙일 때만 더 기다린다(기본 200ms / 긴 한도 700ms, 공공 API는 400ms에 답함)
+    const envLong = { ...envPub, PUBLIC_API_TIMEOUT_LONG_MS: '700' };
+    const slow400 = (rows) => (url, init) => new Promise((resolve, reject) => {
+      const tm = setTimeout(() => resolve(pubBody(rows)), 400);
+      if (init && init.signal) init.signal.addEventListener('abort', () => { clearTimeout(tm); reject(new Error('aborted')); });
+    });
+    globalThis.fetch = slow400([pubRow(7, '서울김밥')]);
+    try { r = await callRaw(store, envLong, 'GET', '/api/restaurants?q=' + encodeURIComponent('서울김밥')); } finally { globalThis.fetch = realFetch; }
+    rjPub = await r.json();
+    ok(r.status === 503 && rjPub.error === 'public_api_timeout', '긴 한도: wait 없는 호출(옛 앱·담당자 웹)은 400ms 응답을 기본 한도 200ms에서 끊음 — ' + r.status);
+    globalThis.fetch = slow400([pubRow(7, '서울김밥')]);
+    try { r = await callRaw(store, envLong, 'GET', '/api/restaurants?wait=long&q=' + encodeURIComponent('서울김밥')); } finally { globalThis.fetch = realFetch; }
+    rjPub = await r.json();
+    ok(r.status === 200 && Array.isArray(rjPub) && rjPub.length === 1 && rjPub[0].name === '서울김밥', '긴 한도: wait=long 이름 검색은 400ms 응답을 받아 200 — ' + r.status + ' ' + JSON.stringify(rjPub).slice(0, 80));
+    globalThis.fetch = slow400([pubRow(8, '서울김밥 구의점')]);
+    try { r = await callRaw(store, envLong, 'GET', '/api/restaurants?wait=long&zip=05021&q=' + encodeURIComponent('서울')); } finally { globalThis.fetch = realFetch; }
+    rjPub = await r.json();
+    ok(r.status === 200 && Array.isArray(rjPub) && rjPub.length === 1, '긴 한도: wait=long 우편번호 검색도 같은 긴 한도 — ' + r.status);
+    t0 = Date.now();
+    globalThis.fetch = (url, init) => new Promise((_, reject) => { if (init && init.signal) init.signal.addEventListener('abort', () => reject(new Error('aborted'))); });
+    try { r = await callRaw(store, envLong, 'GET', '/api/restaurants?wait=long&zip=05021'); } finally { globalThis.fetch = realFetch; }
+    rjPub = await r.json(); took = Date.now() - t0;
+    ok(r.status === 503 && rjPub.error === 'public_api_timeout' && took >= 600 && took < 2500, '긴 한도: 끝내 답이 없으면 긴 한도(700ms) 직후 503 — ' + r.status + ', ' + took + 'ms');
+    const kpLong = await genKeyPair(); t0 = Date.now();
+    globalThis.fetch = (url, init) => new Promise((_, reject) => { if (init && init.signal) init.signal.addEventListener('abort', () => reject(new Error('aborted'))); });
+    try { r = await callRaw(store, envLong, 'POST', '/api/register-key', { restaurant_id: 'PUB-SLOW-2', restaurant_name: '느린날식당2', public_key: b64(await subtle.exportKey('spki', kpLong.publicKey)) }); } finally { globalThis.fetch = realFetch; }
+    took = Date.now() - t0;
+    ok(r.status === 200 && took < 600, '긴 한도: 가게 등록의 실존 대조는 기본 한도 그대로(200ms 뒤 통과 — 앱의 20초 제한 안) — ' + r.status + ', ' + took + 'ms');
   }
 
   // 29) OTP 발송 남용 차단(F-03)

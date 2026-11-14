@@ -342,16 +342,25 @@ async function runSearchOnboarding(browser, url, cors) {
     const welcomeText = await page.locator('.setup-welcome').innerText();
     // beta.33: 결제 수단은 카드가 대부분이라 "통장 입금"으로 못 박지 않는다 — 중립 표현이어야 한다.
     //   beta.47: 공공기관은 제로페이 결제가 많아 표현을 "결제(제로페이, 카드 등)"로 통일했다(사용자 지시).
-    await assert(welcomeText.includes('돈을 받거나 보내지 않아요') && welcomeText.includes('선금 결제(제로페이, 카드 등)') && welcomeText.includes('앱 밖에서 직접'),
+    //   beta.57: 결제는 기관뿐 아니라 손님 개인이 하기도 한다 → "기관과 손님, 우리 가게가"(사용자 지시).
+    await assert(welcomeText.includes('돈을 받거나 보내지 않아요') && welcomeText.includes('선금 결제(제로페이, 카드 등)') && welcomeText.includes('기관과 손님, 우리 가게가 앱 밖에서 직접'),
       `the welcome screen must carry the "the app never handles money" reassurance in payment-neutral wording (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
     await assert(!/통장|은행 계좌/.test(welcomeText), `the welcome screen must not name the bank account as the only way money arrives (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
-    await assert(/무료/.test(welcomeText), 'the welcome screen must say the service is free');
+    // beta.57(사용자 지시): 환영 화면은 인사 한 장 — 부제·①②③ 설명·"완전 무료" 줄을 뺐다(제목 + 돈 안내 + [시작하기]).
+    await assert(!/대신 적어 드려요|①|②|③|완전 무료|광고/.test(welcomeText), `the welcome screen must be just the title, the money reassurance and [시작하기] (got ${JSON.stringify(welcomeText.slice(0, 200))})`);
     // beta.55(A3): "진한 버튼 하나 + 글씨 링크 하나" — 진한 버튼은 여전히 [시작하기] 하나뿐이고, 새 태블릿에서 예전 장부를 되찾는
     //   길은 그 아래 글씨 링크 한 줄이다(누르면 곧바로 파일 고르기). 링크까지 진한 버튼이 되면 인사가 아니라 관문이 된다.
     await assert(await count(page, '.setup-welcome .btn-primary') === 1 && await count(page, '.setup-welcome .btn-primary[data-a="setup-welcome-start"]') === 1, 'the welcome screen must keep exactly one primary button ([시작하기])');
-    await assert(await count(page, '.setup-welcome button') === 2 && await count(page, '.setup-welcome .link-btn[data-a="welcome-restore"]') === 1, 'the welcome screen must offer exactly one more control: the text link to restore an old ledger from a backup file');
-    await assert((await page.locator('[data-a="welcome-restore"]').innerText()).includes('백업 파일로 되찾기'), 'the restore link must say it restores from a backup file');
+    // beta.57(사용자 결정): 되찾기 글씨 링크는 환영 화면에서 뺐다 — 1/3에서 '이미 등록된 가게'가 나올 때와 [직접 입력할게요] 화면에만 있다
+    //   (등록된 가게 쪽 계약은 harness/dongsearch.e2e.mjs 시나리오 K). 여기서는 환영 화면에 없음 + 직접 입력 화면에 있음을 고정한다.
+    await assert(await count(page, '.setup-welcome button') === 1 && await count(page, '[data-a="welcome-restore"]') === 0, 'the welcome screen must offer exactly one control ([시작하기]) — the restore link moved to step 1/3');
     await page.locator('[data-a="setup-welcome-start"]').click();
+    await page.waitForSelector('#setupStoreName');
+    await assert(await count(page, '[data-a="welcome-restore"]') === 0, 'step 1/3 must not show the restore link before any search');
+    await page.locator('[data-a="setup-manual-toggle"]').click();
+    await page.waitForSelector('#setupManualName');
+    await assert(await count(page, '.setup .link-btn[data-a="welcome-restore"]') === 1 && (await page.locator('[data-a="welcome-restore"]').innerText()).includes('백업 파일로 되찾기'), 'the direct-entry screen must carry the text link to restore an old ledger from a backup file');
+    await page.locator('[data-a="setup-manual-toggle"]').click();
     await page.waitForSelector('#setupStoreName');
     await assert(await count(page, '[data-a="setup-welcome-start"]') === 0, '[시작하기] must lead straight into 1/3');
     // 재실행(새로고침)에서는 다시 뜨지 않는다 — 인사는 두 번 하지 않는다(meta.welcomeSeen).
@@ -3053,11 +3062,12 @@ async function runBeta55c(browser, url, cors) {
     try {
       await B.page.goto(url, { waitUntil: 'load' });
       await B.page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
-      // beta.55(A3): 새 태블릿의 입구 — 환영 화면 [시작하기] 아래 글씨 링크 "예전 장부가 있어요 — 백업 파일로 되찾기"가 곧바로 파일 고르기를 연다.
+      // beta.55(A3) → beta.57: 새 태블릿의 입구 — [시작하기] → [직접 입력할게요] 화면의 글씨 링크 "예전 장부가 있어요 — 백업 파일로 되찾기"가 곧바로 파일 고르기를 연다.
       const pubB0 = (await metaOf(B.page)).pubKey;
       const tmpB = path.join(os.tmpdir(), 'b55c-fresh-' + Date.now() + '.txt');
       await fsp.writeFile(tmpB, JSON.stringify(passFile1));
-      const [chooserB] = await Promise.all([B.page.waitForEvent('filechooser', { timeout: 8000 }), B.page.locator('.setup-welcome [data-a="welcome-restore"]').click()]);
+      await B.page.locator('[data-a="setup-welcome-start"]').click(); await B.page.waitForSelector('#setupStoreName'); await B.page.locator('[data-a="setup-manual-toggle"]').click(); await B.page.waitForSelector('#setupManualName');
+      const [chooserB] = await Promise.all([B.page.waitForEvent('filechooser', { timeout: 8000 }), B.page.locator('.setup [data-a="welcome-restore"]').click()]);
       await chooserB.setFiles(tmpB);
       await fsp.unlink(tmpB).catch(() => {});
       await B.page.waitForSelector('#keyPass1', { timeout: 8000 });
@@ -3148,6 +3158,7 @@ async function runBeta55c(browser, url, cors) {
     try {
       await p.goto(url, { waitUntil: 'load' }); await p.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 }); await p.waitForTimeout(200);
       await fsp.writeFile(tmp, JSON.stringify(plainFx));
+      await p.locator('[data-a="setup-welcome-start"]').click(); await p.waitForSelector('#setupStoreName'); await p.locator('[data-a="setup-manual-toggle"]').click(); await p.waitForSelector('#setupManualName');
       const [chooser] = await Promise.all([p.waitForEvent('filechooser'), p.locator('[data-a="welcome-restore"]').click()]);
       await chooser.setFiles(tmp);
       await choiceTitle(p); await pick(p, 'go');

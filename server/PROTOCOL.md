@@ -111,7 +111,7 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. **해제(휴지통) 상태는 404**(§4.12 — 해제한 가게로는 보낼 수 없어야 한다). `contact`는 미등록 시 각 필드 `null`. IP당 분당 20회로 별도 레이트리밋(§6.3) |
 | `GET /api/registered?ids=a,b,c` | — | `[활성 등록 id…]` / 400 | 담당자 웹: '명단 받기 가능' 표시용. **한 번에 100개까지**(초과 시 `400 {error:'too_many_ids', max:100}` — 청킹은 클라이언트 몫) |
 | `GET /api/registered-list?sido=&sigungu=` | — | `{restaurants:[{restaurant_id,restaurant_name,district,registered_at,verified}]}` / 400 | 시도(+선택 시군구)의 등록 음식점 목록(§4.6). `sido` 필수(없으면 `400 {error:'sido_required'}`). **매칭은 정규화 후 정확 일치**(`district == "{sido} {sigungu}"` — 부분 일치 금지, §4.6). 공개 정보만(연락처 미포함), 레거시(district 없음) 제외, 이름 가나다 정렬. `registered_at`(등록 시각)·`verified`(0\|1, §4.10)는 담당자 웹의 "신규 등록"·"실존 확인" 배지용(개인정보 아님). IP당 분당 20회 별도 레이트리밋(§6.3) |
-| `GET /api/restaurants?region=&q=&zip=` | — | `[{restaurant_id,name,address,status,category,region_code,tel,zip}]` | data.go.kr 프록시(키 은닉). `region`(개방자치단체코드)·`q`(상호)·`zip`(도로명 우편번호 5자리) 중 **하나 이상 필수**, 폐업 제외. `zip`이 오면 우편번호로 후보를 받아(최대 3페이지=300건) **상호는 서버가 부분일치로 거른다** — §7.4의 상대 서비스 회귀 우회 경로. `zip`이 5자리가 아니면 `400`. **대기 한도(beta.56)**: 공공데이터를 검색 한 번 전체에 15초(`PUBLIC_API_TIMEOUT_MS`)까지만 기다리고, 넘으면 `503 {error:"public_api_timeout"}` — 앱은 "가게 목록을 불러오지 못했어요 · 와이파이 확인 · 직접 입력"으로 안내한다(그 밖의 공공 API 오류는 `500 internal` 그대로). |
+| `GET /api/restaurants?region=&q=&zip=&wait=` | — | `[{restaurant_id,name,address,status,category,region_code,tel,zip}]` | data.go.kr 프록시(키 은닉). `region`(개방자치단체코드)·`q`(상호)·`zip`(도로명 우편번호 5자리) 중 **하나 이상 필수**, 폐업 제외. `zip`이 오면 우편번호로 후보를 받아(최대 3페이지=300건) **상호는 서버가 부분일치로 거른다** — §7.4의 상대 서비스 회귀 우회 경로. `zip`이 5자리가 아니면 `400`. **대기 한도(beta.56)**: 공공데이터를 검색 한 번 전체에 15초(`PUBLIC_API_TIMEOUT_MS`)까지만 기다리고, 넘으면 `503 {error:"public_api_timeout"}` — 앱은 "가게 목록을 불러오지 못했어요 · 와이파이 확인 · 직접 입력"으로 안내한다(그 밖의 공공 API 오류는 `500 internal` 그대로). **긴 한도(beta.57)**: `wait=long`을 붙이면 25초(`PUBLIC_API_TIMEOUT_LONG_MS`)까지 기다린다 — 자체 제한이 30초인 음식점 앱 beta.57+의 가게 찾기만 보낸다. `wait`가 없으면 15초 그대로(옛 앱 20초 제한·담당자 웹·직원 앱), 가게 등록의 실존 대조도 15초 그대로다. |
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | 신규 `{summary_id}` / 재제출 `{summary_id, deduped:true, status, repaired?}` / 400/401/404/429 | 부서·음식점 단위 1건(§4.3). **beta.55**: 받는 가게가 활성 등록이 아니면(미등록·휴지통 모두) `404 {error:'not_registered'}`, 그 가게의 미수령(PENDING·72시간 이내) 신청이 이미 30건이면 `429 {error:'too_many_pending', max:30}` — 둘 다 이미 접수된 접수번호의 재시도(deduped)에는 적용하지 않는다(§4.7). 멱등 판정 키는 **접수번호**(`summary.submission_id`)이며 없으면 `batch_hash`+연월(§4.7). summary·blob·consent는 **한 트랜잭션**으로 저장된다(부분 저장 없음). `blob.ciphertext`는 **허용 4키 화이트리스트**(§2.1). 서버가 **토큰에서 읽은 인증 이메일 도메인**을 `deposit_summary.agency_domain`에 함께 기록한다(§4.11 — body로 온 값은 무시) |
 | `GET /api/inbox?restaurant_id=&auth_token=` (또는 헤더 `X-Auth-Token`) | — | `[{summary_id, summary, ciphertext, status}]` / 401 | 음식점 앱 폴링(PENDING만, `encrypted_blob` JOIN — 암호문 없는 건은 제외). **소유 증명 필수**(§4.1의 1회용 `auth_token`, 없거나 무효면 `401 {error:'auth_required'}`). `summary`에 **`batch_hash`는 실리지 않는다**(§4.9). `summary.agency_domain`(인증 이메일 도메인, 미인증·구버전이면 `null`)이 실린다(§4.11). **beta.55**: 한 번에 **최대 50건**, 오래된 것부터(순서는 예전과 같음) |
 | `GET /api/inbox-count?restaurant_id=` | — | `{"count":2}` / 400 | 알림 배지·경량 폴링용 **개수만**. `/api/inbox`와 동일 필터(PENDING + 72시간 이내 + `encrypted_blob` JOIN)를 COUNT로만 수행하고 요약 메타·암호문은 반환하지 않는다. `restaurant_id` 누락 시 `400 {error:'restaurant_id 필요'}`. **인증 없음** — 같은 id로 `/api/inbox`를 호출하면 이미 알 수 있는 값의 부분집합이라 새로 노출되는 정보가 0(남용 방어는 전역 레이트리밋 분당 60, §6.3) |
@@ -868,7 +868,19 @@ CORS 헤더와는 독립이므로 **CORS 동작(화이트리스트 echo / Origin
 다시 `register-key`하면 되살아난다. 휴지통 처리 직후 **진짜 사장님이 다른 열쇠로 먼저 등록**해야
 (선착순 인수, §4.12) 선점이 끝난다.
 
-## 7.4 공공데이터 API 한글 조건 장애 (2026-08-08 확인, 진행 중)
+## 7.4 공공데이터 API 한글 조건 장애 (2026-08-08 확인 → 2026-11-14 복구 확인)
+
+> **2026-11-14 밤 실측(키로 직접 호출 52회 + 라이브 앱 재현 4회):**
+> - **한글 조건이 다시 된다** — `cond[BPLC_NM::LIKE]=김밥` 29,662건, `cond[ROAD_NM_ADDR::LIKE]=아차산로 355` 19건.
+>   언제 고쳐졌는지는 모른다(포털의 이 API 수정일은 2026-08-25). 아래 우회 설계는 그대로 두었다(다시 깨져도 동작).
+> - **응답이 느리다** — 인증 오류 응답은 0.2초인데 정상 조회는 한 건에 5.7~41초(15초 안 절반, 25초 안 약 90%).
+>   조건·행 수와 무관하다(명세에 있는 조건이든 아니든 같다). 이 API는 행안부 공지 "장애 예방 점검"(2026-11-09 18~22시,
+>   지방행정인허가 195종+생활편의 14종, 문의 02-2031-9523·02-2195-1080)의 대상 목록에 들어 있다 — 인과는 확인 못 함.
+>   대응: 서버 대기 한도 15초(beta.56) + 새 앱의 `wait=long` 25초·첫 검색 재시도 3회(beta.57).
+> - **우리가 쓰는 `cond[ROAD_NM_ZIP::EQ]`·`cond[MNG_NO::EQ]`는 포털 명세(data.go.kr/data/15154916)의 조건 목록에 없다.**
+>   지금은 정상 동작하지만 문서로 보장된 조건이 아니다. 명세에 있는 조건: `LCPMT_YMD`(GTE/LT)·`SALS_STTS_CD::EQ`·
+>   `BPLC_NM::LIKE`·`ROAD_NM_ADDR::LIKE`·`DAT_UPDT_PNT`(GTE/LT)·`OPN_ATMY_GRP_CD::EQ`.
+
 
 data.go.kr **행정안전부_식품_일반음식점 조회서비스**(`apis.data.go.kr/1741000/general_restaurants/info`)가
 **조건값에 한글이 들어가면 언제나 0건**을 돌려준다. 우리 쪽 문제가 아님을 다음으로 확인했다.

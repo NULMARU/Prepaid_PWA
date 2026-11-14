@@ -637,9 +637,7 @@
    이 화면은 세는 단계가 아니라 인사다. */
 .setup-welcome{max-width:460px;margin:0 auto;text-align:center}
 .setup-welcome-logo{font-size:46px;line-height:1;margin-bottom:10px}
-.setup-welcome-lines{display:grid;gap:8px;font-size:15px;line-height:1.65;color:var(--text);word-break:keep-all;text-align:left}
-.setup-welcome-safe{margin-top:14px;border:1.5px solid #e8c9a0;background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:12px 14px;font-size:13.5px;font-weight:700;line-height:1.65;word-break:keep-all;text-align:left}
-.setup-welcome-free{margin-top:12px;font-size:13px;font-weight:800;color:var(--success)}
+.setup-welcome-safe{border:1.5px solid #e8c9a0;background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:12px 14px;font-size:13.5px;font-weight:700;line-height:1.65;word-break:keep-all;text-align:left}
 </style>
 </head>
 <body>
@@ -650,7 +648,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.56',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.57',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -1527,7 +1525,10 @@ return true}catch(e){console.error('relay district sync',e);return false}}
 // 검색 본체(모달·온보딩 공용) — 서버 응답을 지역 토큰으로 좁혀 {ok,error,results,regionFilteredOut}을 돌려준다.
 // 우편번호(zip)는 5자리 숫자일 때만 조건으로 붙인다 — 공공데이터 API가 한글 조건값에 0건을 돌려주는 기간에도(2026-08) 우편번호는 ASCII라 정상 동작한다.
 // 이름(q)만 있는 호출도 그대로 유지(상대 서비스가 복구되면 자동으로 다시 먹힌다). q가 비어도 zip만으로 검색 가능.
-async function searchStoresRaw(q,regionText,zip){const z=str(zip).replace(/\D/g,'');const qq=str(q);const usedZip=z.length===5;const params=[];if(qq)params.push('q='+encodeURIComponent(qq));if(usedZip)params.push('zip='+z);const r=await relayFetch(relayBase()+'/api/restaurants'+(params.length?'?'+params.join('&'):''));const list=await r.json();const ok=Array.isArray(list);const all=ok?list:[];const tokens=str(regionText).split(/\s+/).map(str).filter(Boolean);const filtered=tokens.length?all.filter(x=>tokens.every(t=>str(x.address).includes(t))):all;return{ok:ok&&r.ok,status:r.status,error:(ok&&r.ok)?'':((list&&list.error)||'검색 오류'),results:filtered,regionFilteredOut:tokens.length>0&&all.length>0&&filtered.length===0,usedZip}}
+// beta.57: 공공데이터가 느린 날(2026-11-14 실측 — 응답 52회 중 15초 안은 절반, 25초 안은 약 90%)을 위해 가게 찾기만
+//   서버에 `wait=long`(25초까지 기다림)을 청하고, 이 호출만 앱 제한을 30초로 둔다. 다른 중계 서버 호출은 20초 그대로다.
+const STORE_SEARCH_TIMEOUT_MS=30000;
+async function searchStoresRaw(q,regionText,zip){const z=str(zip).replace(/\D/g,'');const qq=str(q);const usedZip=z.length===5;const params=[];if(qq)params.push('q='+encodeURIComponent(qq));if(usedZip)params.push('zip='+z);params.push('wait=long');const r=await relayFetch(relayBase()+'/api/restaurants?'+params.join('&'),undefined,STORE_SEARCH_TIMEOUT_MS);const list=await r.json();const ok=Array.isArray(list);const all=ok?list:[];const tokens=str(regionText).split(/\s+/).map(str).filter(Boolean);const filtered=tokens.length?all.filter(x=>tokens.every(t=>str(x.address).includes(t))):all;return{ok:ok&&r.ok,status:r.status,error:(ok&&r.ok)?'':((list&&list.error)||'검색 오류'),results:filtered,regionFilteredOut:tokens.length>0&&all.length>0&&filtered.length===0,usedZip}}
 // ── 검색 결과 "다른 기기에서 이미 등록됨" 배지(beta.49) ──────────────────────────
 // 왜: 예전에는 이미 남이(또는 내 예전 폰이) 등록한 가게를 고른 뒤에야 401로 막혔다 — 고르기 전에 말해 준다.
 // 원천은 담당자 웹이 쓰는 공개 엔드포인트 GET /api/registered?ids=… (등록된 id 배열). 실패·오프라인·타임아웃은
@@ -1559,7 +1560,7 @@ if(!Array.isArray(list))return;
 const cur=kind==='setup'?state.setupStoreResults:(state.modal&&state.modal.type==='store-search'?state.modal.results:null);
 if(cur!==results)return;
 setStoreRegisteredIds(kind,list.map(str).filter(Boolean));
-paintRegisteredBadges(kind)}catch(e){console.error('registered badge',e)}}
+paintRegisteredBadges(kind);if(kind==='setup')paintSetupRestoreSlot()}catch(e){console.error('registered badge',e)}}
 // 배지가 붙은 가게를 골랐을 때의 확인. **막지는 않는다** — 자기 예전 폰일 수 있고, 설치 자체는 계속돼야 한다.
 //   다만 알림(alert)은 "읽고 닫는" 문이라 잘못 고른 사장님에게 되돌릴 길을 주지 않는다 →
 //   [취소]면 고르지 않고 **검색 결과 그 자리에 그대로 남는다**(다른 가게를 이어서 고를 수 있다).
@@ -1708,17 +1709,19 @@ if(remain)return '<div style="margin-top:10px"><div class="meta" style="line-hei
 return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 동네 전 구역('+ds.total+'곳)을 모두 살펴봤지만 찾지 못했어요. 가게 이름 표기를 바꿔 다시 검색하거나, 아래 [직접 입력]으로 등록해 주세요.</div></div>'}
 return ''}
 async function relaySearchStores(){blurSearchInput();const q=str(qs('storeName')&&qs('storeName').value),regionText=str(qs('storeRegion')&&qs('storeRegion').value),zip=str(qs('storeZip')&&qs('storeZip').value);state.modal.dong=null;state.modal.registeredIds=[];state.modal.err='';
+// beta.57: 온보딩과 같은 규칙 — 검색마다 번호를 매기고, 창이 닫혔거나 새 검색이 시작되면 앞선 검색은 물러난다.
+const m=state.modal;const seq=m.seq=num(m.seq)+1;const alive=()=>state.modal===m&&m.seq===seq;
 // 전면 재렌더 앱이라 입력값은 render() 전에 반드시 상태로 흡수한다.
 state.modal.q=q;state.modal.region=regionText;state.modal.zip=zip;
 // 오프라인: 토스트로 잠깐 알리고 끝내지 않는다 — 안내를 창 안에 남긴다(입력값은 위에서 이미 흡수).
-if(!navigator.onLine){state.modal.err='offline';state.modal.results=[];render();return}
-if(!q&&str(zip).replace(/\D/g,'').length!==5){toast('가게 이름이나 우편번호를 입력하세요.');return}state.modal.searching=true;render();try{const res=await searchStoresRaw(q,regionText,zip);state.modal.searching=false;state.modal.searched=true;state.modal.results=res.results;state.modal.regionFilteredOut=res.regionFilteredOut;state.modal.usedZip=res.usedZip;render();markRegisteredIds('modal',res.results);
+if(!navigator.onLine){state.modal.searching=false;state.modal.tryNo=0;state.modal.err='offline';state.modal.results=[];render();return}
+if(!q&&str(zip).replace(/\D/g,'').length!==5){toast('가게 이름이나 우편번호를 입력하세요.');return}state.modal.searching=true;state.modal.tryNo=1;render();try{const res=await searchStoresRetry(q,regionText,zip,alive,n=>{m.tryNo=n;if(!paintStoreBusy('modal'))render()});if(!res)return;state.modal.searching=false;state.modal.tryNo=0;state.modal.searched=true;state.modal.results=res.results;state.modal.regionFilteredOut=res.regionFilteredOut;state.modal.usedZip=res.usedZip;render();markRegisteredIds('modal',res.results);
 // 프로세스 순서(사용자 확정): ① 이름 검색(공공데이터 정상 경로) ② 0건이면 지역(구·군+동)으로 동네 자동 검색.
 // 우편번호를 직접 넣은 검색(usedZip)은 이미 동네를 콕 집은 것이라 자동 이어가기를 하지 않는다.
 // beta.52: 이름 검색이 실패해도 지역이 있으면 동네 순회로 넘어간다(온보딩과 같은 규칙).
 const canDong=!!(!res.usedZip&&q&&dongTokenOf(regionText));
 if(!res.ok&&!canDong){state.modal.err=storeSearchErrOf(res);render()}
-else if((!res.ok||!res.results.length)&&canDong)await runDongScan('modal','','',false)}catch(e){console.error(e);if(!state.modal||state.modal.type!=='store-search')return;state.modal.searching=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;state.modal.err='fail';render()}}
+else if((!res.ok||!res.results.length)&&canDong)await runDongScan('modal','','',false)}catch(e){console.error(e);if(!alive()||state.modal.type!=='store-search')return;state.modal.searching=false;state.modal.tryNo=0;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;state.modal.err='fail';render()}}
 // 온보딩 1/3 전용 검색(모달이 없는 화면이라 state에 직접 보관). 서버로 보내는 것은 검색어뿐이며 아무것도 저장되지 않는다.
 function blurSearchInput(){try{const a=document.activeElement;if(a&&a.tagName==='INPUT'&&typeof a.blur==='function')a.blur()}catch(e){}}
 // 입력 칸(INPUT·TEXTAREA)에 남은 초점을 거둔다 — 소프트키보드를 닫는 유일하게 믿을 수 있는 방법이다(beta.54).
@@ -1729,6 +1732,29 @@ function blurActiveInput(){try{const a=document.activeElement;if(!a||a===documen
 //   예전에는 3초 토스트로만 알리고 화면에는 "검색 결과가 없습니다"가 남아, 사장님이 "우리 가게가 없다"로 읽었다.
 //   code: 'offline'(와이파이·인터넷 없음) · 'busy'(요청 몰림 429) · 'fail'(공공데이터가 제때 답하지 않음·서버 오류)
 //   지금 오프라인이면 검색을 누르기 전에도 미리 보여 주고, 다시 연결되면 스스로 사라진다(online 이벤트의 render).
+// ── 가게 찾기 첫 검색 재시도 (beta.57) ─────────────────────────────────────────
+// 현장(2026-11-14): 공공데이터가 느린 날 첫 검색 한 번이 시간 초과로 끝나면 곧바로 동네 49구역 순회로 넘어가
+//   몇 분이 걸렸다("1/49 구역"에서 멈춘 듯 보임). 한글 상호 조건이 다시 살아났으므로 **같은 검색을 두 번 더** 해 보는 편이
+//   훨씬 빠르다(세 번 중 한 번만 답이 와도 바로 나온다). 다시 하는 것은 시간 초과(503)·끊김뿐 — 분당 한도(429)·
+//   잘못된 요청(4xx)은 다시 해도 같으므로 예전 그대로 안내한다. 그동안 화면에는 무엇을 하고 있는지 한 줄을 남긴다.
+const STORE_SEARCH_TRIES=3;
+function storeSearchSlow(res){return !!res&&!res.ok&&(res.status===503||res.status===0)}
+function storeBusyInner(kind){const on=kind==='setup'?!!state.setupStoreSearching:!!(state.modal&&state.modal.type==='store-search'&&state.modal.searching);if(!on)return '';
+const n=kind==='setup'?num(state.setupStoreTry):num(state.modal.tryNo);
+const msg=n>1?'공공데이터가 느려요. 다시 찾는 중 ('+n+'/'+STORE_SEARCH_TRIES+')…':'가게 목록을 받아 오는 중이에요. 느린 날은 30초쯤 걸려요.';
+return '<div class="meta store-search-busy" role="status" data-try="'+(n||1)+'" style="margin-top:8px;line-height:1.5">'+esc(msg)+'</div>'}
+function storeBusyHtml(kind){return '<div id="storeBusy-'+esc(kind)+'">'+storeBusyInner(kind)+'</div>'}
+// 진행 한 줄만 갈아끼운다 — 사장님이 그 사이 이름을 고쳐 치고 있어도 입력 노드를 건드리지 않는다(설계 원칙 ①).
+function paintStoreBusy(kind){const el=qs('storeBusy-'+kind);if(!el)return false;el.innerHTML=storeBusyInner(kind);return true}
+// alive(): 그 사이 새 검색이 시작됐거나 창이 닫혔으면 false — 그때는 null을 돌려주고 호출부는 아무것도 하지 않는다.
+async function searchStoresRetry(q,regionText,zip,alive,onTry){let res=null,lastErr=null;
+for(let i=1;i<=STORE_SEARCH_TRIES;i++){if(i>1){if(!navigator.onLine)break;onTry(i)}
+lastErr=null;
+try{res=await searchStoresRaw(q,regionText,zip)}catch(e){lastErr=e;res={ok:false,status:0,error:'timeout',results:[],regionFilteredOut:false,usedZip:str(zip).replace(/\D/g,'').length===5}}
+if(!alive())return null;
+if(!storeSearchSlow(res))break}
+if(lastErr)console.error(lastErr);
+return res}
 function storeSearchErrCode(saved){if(!navigator.onLine)return 'offline';const c=str(saved);return c==='offline'?'':c}
 function storeSearchErrOf(res){return ((res&&res.status===429)||str(res&&res.error)==='rate_limited')?'busy':'fail'}
 function storeSearchErrHtml(kind,code){if(!code)return '';
@@ -1739,12 +1765,14 @@ function searchErrMsg(res){const e=str(res&&res.error);if((res&&res.status===429
 async function setupSearchStores(){blurSearchInput();const q0=str(qs('setupStoreName')&&qs('setupStoreName').value),region0=str(qs('setupStoreRegion')&&qs('setupStoreRegion').value),zip0=str(qs('setupStoreZip')&&qs('setupStoreZip').value);
 // 전면 재렌더 앱이라 입력값은 render() 전에 반드시 상태로 흡수한다(오프라인 조기 반환보다도 먼저).
 state.setupStoreQ=q0;state.setupStoreRegion=region0;state.setupStoreZip=zip0;state.setupDong=null;state.setupStoreRegisteredIds=[];state.setupStoreErr='';
-if(!navigator.onLine){state.setupStoreErr='offline';state.setupStoreSearched=true;state.setupStoreResults=[];render();return}const q=q0,regionText=region0,zip=zip0;if(!q&&str(zip).replace(/\D/g,'').length!==5){toast('가게 이름이나 우편번호를 입력하세요.');return}state.setupStoreSearching=true;render();try{const res=await searchStoresRaw(q,regionText,zip);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=res.results;state.setupStoreFilteredOut=res.regionFilteredOut;state.setupStoreUsedZip=res.usedZip;render();markRegisteredIds('setup',res.results);
+// beta.57: 검색마다 번호를 매긴다 — 다시 찾는 동안 [가게 찾기]를 또 누르면 앞선 검색은 조용히 물러난다.
+const seq=state.setupSearchSeq=num(state.setupSearchSeq)+1;const alive=()=>state.setupSearchSeq===seq;
+if(!navigator.onLine){state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreErr='offline';state.setupStoreSearched=true;state.setupStoreResults=[];render();return}const q=q0,regionText=region0,zip=zip0;if(!q&&str(zip).replace(/\D/g,'').length!==5){toast('가게 이름이나 우편번호를 입력하세요.');return}state.setupStoreSearching=true;state.setupStoreTry=1;render();try{const res=await searchStoresRetry(q,regionText,zip,alive,n=>{state.setupStoreTry=n;if(!paintStoreBusy('setup'))render()});if(!res)return;state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreSearched=true;state.setupStoreResults=res.results;state.setupStoreFilteredOut=res.regionFilteredOut;state.setupStoreUsedZip=res.usedZip;render();markRegisteredIds('setup',res.results);
 // 프로세스 순서(사용자 확정): ① 이름 검색 ② 0건이면 지역(구·군+동)으로 동네 자동 검색. usedZip이면 생략.
 // beta.52: 이름 검색이 실패해도(서버 분당 한도·공공API 장애) 지역이 있으면 동네 순회로 넘어간다 — 순회가 재시도·대기를 맡는다.
 const canDong=!!(!res.usedZip&&q&&dongTokenOf(regionText));
 if(!res.ok&&!canDong){state.setupStoreErr=storeSearchErrOf(res);render()}
-else if((!res.ok||!res.results.length)&&canDong)await runDongScan('setup','','',false)}catch(e){console.error(e);state.setupStoreSearching=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;state.setupStoreErr='fail';render()}}
+else if((!res.ok||!res.results.length)&&canDong)await runDongScan('setup','','',false)}catch(e){console.error(e);if(!alive())return;state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;state.setupStoreErr='fail';render()}}
 // 새 명단 신청 개수 — 등록·온라인일 때만 조회. 실패·404(구서버)는 조용히 무시하고 폴링 타이머는 만들지 않는다.
 let lastInboxCountAt=0;
 // 비동기 렌더가 입력을 날리지 않도록(S8) 모달이 열려 있거나 입력/서명 조작 중이면 카운트만 갱신하고 다음 자연 렌더에 맡긴다.
@@ -3195,21 +3223,21 @@ if(state.setupStep===2)return setupStep2Html();if(state.setupStep===3)return set
 function setupWelcomeHtml(){
 return '<div class="setup"><div class="setup-welcome">'
 +'<div class="setup-welcome-logo" aria-hidden="true">🍚</div>'
-+'<div class="setup-head" style="margin-bottom:16px"><h1>밥장부에 오신 것을 환영합니다</h1><p>선입금 식대 장부를 대신 적어 드려요.</p></div>'
-+'<div class="card"><div class="setup-welcome-lines">'
-+'<div>① 공공기관·회사가 <b>직원 식대 선금</b>을 우리 가게에 맡겨요.</div>'
-+'<div>② 담당자(서무)가 <b>직원 명단</b>을 보내면 앱이 장부에 올려 드려요.</div>'
-+'<div>③ 손님이 밥을 먹으면 <b>서명 한 번</b>으로 잔액이 줄어요 — 종이 장부는 필요 없어요.</div>'
-+'</div>'
-+'<div class="setup-welcome-safe">이 앱은 돈을 받거나 보내지 않아요 — 선금 결제(제로페이, 카드 등)는 기관과 우리 가게가 앱 밖에서 직접 해요.</div>'
-+'<div class="setup-welcome-free">완전 무료예요 · 광고도 없어요</div>'
++'<div class="setup-head" style="margin-bottom:16px"><h1>밥장부에 오신 것을 환영합니다</h1></div>'
++'<div class="card">'
++'<div class="setup-welcome-safe">이 앱은 돈을 받거나 보내지 않아요 — 선금 결제(제로페이, 카드 등)는 기관과 손님, 우리 가게가 앱 밖에서 직접 해요.</div>'
 +'</div>'
 +'<button class="btn-primary" data-a="setup-welcome-start" style="width:100%;min-height:60px;font-size:18px;font-weight:800;margin-top:18px">시작하기</button>'
-// beta.55(A3): 새 태블릿에서 예전 장부를 되찾는 길 — 진한 버튼은 [시작하기] 하나로 두고, 되찾기는 글씨 링크 한 줄이다.
-//   누르면 곧바로 파일 고르기(확인창을 앞에 두지 않는다 — 파일 고르기는 탭 직후에만 열린다). 고른 파일은 설정 > [되찾기]와 같은 길(onRestoreFile)을 지난다.
-+'<div class="setup-welcome-restore"><button class="link-btn" data-a="welcome-restore">예전 장부가 있어요 — 백업 파일로 되찾기</button>'
-+'<div class="meta">예전 폰에서 만든 <b>암호 건 백업 파일</b>을 고르면 장부와 가게 열쇠를 함께 되찾아요.</div></div>'
 +'</div></div>'}
+// 새 태블릿에서 예전 장부를 되찾는 길(beta.55 A3 → beta.57에서 자리 옮김, 사용자 결정).
+//   환영 화면은 인사 한 장으로 두고(제목·돈 안내·[시작하기]), 되찾기 글씨 링크는 **필요한 사람에게만** 보인다:
+//   ① 1/3 검색 결과에 '다른 기기에서 이미 등록됨' 가게가 있을 때(목록 아래) ② 그런 가게를 골랐을 때(확인 화면)
+//   ③ [직접 입력할게요] 화면(서버에 등록한 적 없는 가게·검색이 안 되는 날의 길 — 막다른 길 금지).
+//   누르면 곧바로 파일 고르기(확인창을 앞에 두지 않는다 — 파일 고르기는 탭 직후에만 열린다). 고른 파일은 설정 > [되찾기]와 같은 길(onRestoreFile)을 지난다.
+function restoreLinkHtml(noteHtml){return '<div class="setup-welcome-restore"><button class="link-btn" data-a="welcome-restore">예전 장부가 있어요 — 백업 파일로 되찾기</button><div class="meta">'+noteHtml+'</div></div>'}
+function setupStoreTaken(id){const rid=str(id);return !!rid&&!/^__diag_/.test(rid)&&storeRegisteredIds('setup').indexOf(rid)>=0}
+function setupRestoreSlotInner(){return (state.setupStoreResults||[]).some(x=>setupStoreTaken(x&&x.restaurant_id))?restoreLinkHtml('<b>이미 등록된 가게가 우리 가게</b>라면, 예전 폰에서 만든 <b>암호 건 백업 파일</b>로 장부와 가게 열쇠를 함께 되찾을 수 있어요.'):''}
+function paintSetupRestoreSlot(){const el=qs('setupRestoreSlot');if(el)el.innerHTML=setupRestoreSlotInner()}
 
 // 1/3 우리 가게 찾기 — 공공데이터(중계 서버 프록시)에서 검색해 고르면 가게명·주소·전화가 한 번에 채워진다.
 //   · 여기서는 **고르기만** 하고 서버로 아무것도 보내지 않는다(실제 등록은 약관 동의 후 finishSetup에서 실행).
@@ -3229,14 +3257,16 @@ return '<div class="setup">'+head
 +'<div class="card setup-selected"><div class="meta">선택한 우리 가게</div><div style="font-size:19px;font-weight:800;margin:2px 0 4px">'+esc(sel.name)+'</div><div style="font-size:13px;color:var(--muted);line-height:1.5">'+esc(sel.addr||'(주소 없음)')+'</div></div>'
 +'<div class="card"><div class="form"><div class="field"><label for="setupStoreTel">가게 전화번호 (선택)</label><input id="setupStoreTel" type="tel" placeholder="예: 02-123-4567" value="'+esc(sel.tel||'')+'"></div></div><div class="meta" style="font-size:11px">공공데이터에 전화번호가 없으면 비어 있어요 — 직접 적어 두면 설정 화면에서 볼 수 있어요.</div></div>'
 +note
-+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-store-again" style="flex:1">다시 고르기</button><button class="btn-primary" data-a="setup-next" style="flex:1">다음</button></div></div>'}
++'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-store-again" style="flex:1">다시 고르기</button><button class="btn-primary" data-a="setup-next" style="flex:1">다음</button></div>'
++(picked&&setupStoreTaken(state.setupPickedStore.id)?restoreLinkHtml('이 가게가 <b>예전 폰에서 등록한 우리 가게</b>라면, <b>암호 건 백업 파일</b>로 장부와 가게 열쇠를 함께 되찾을 수 있어요.'):'')+'</div>'}
 // (B) 탈출구 — 검색에 없거나 오프라인일 때 손으로 넣는 길. 주소는 필수다.
 if(state.setupManualMode){
 const d=state.setupManualDraft||{name:'',addr:'',tel:''};
 return '<div class="setup">'+head
 +'<div class="card banner warn"><div class="meta" style="line-height:1.6">검색에 우리 가게가 없거나 인터넷이 안 될 때 쓰는 길이에요. <b>주소는 시·도부터</b> 적어 주세요 — 담당 공공기관을 그 주소로 찾아드려요.</div></div>'
 +'<div class="card"><div class="form"><div class="field"><label for="setupManualName">가게 이름</label><input id="setupManualName" placeholder="예: 맛있는식당" value="'+esc(d.name||'')+'"></div><div class="field"><label for="setupManualAddr">주소 (시·도부터 · 필수)</label><input id="setupManualAddr" placeholder="예: 서울특별시 광진구 구의동 123-45" value="'+esc(d.addr||'')+'"></div><div class="field"><label for="setupManualTel">전화번호 (선택)</label><input id="setupManualTel" type="tel" placeholder="예: 02-123-4567" value="'+esc(d.tel||'')+'"></div><button class="btn-primary" data-a="setup-manual-save">입력 완료</button></div></div>'
-+'<div style="text-align:center;margin-top:16px"><button class="btn" data-a="setup-manual-toggle" style="min-height:44px;padding:0 16px;font-size:13px">검색으로 찾을래요</button></div></div>'}
++'<div style="text-align:center;margin-top:16px"><button class="btn" data-a="setup-manual-toggle" style="min-height:44px;padding:0 16px;font-size:13px">검색으로 찾을래요</button></div>'
++restoreLinkHtml('예전 폰에서 만든 <b>암호 건 백업 파일</b>을 고르면 장부와 가게 열쇠를 함께 되찾아요.')+'</div>'}
 // (A) 기본 — 검색으로 고르기.
 const results=state.setupStoreResults||[];
 const errCode=results.length?'':storeSearchErrCode(state.setupStoreErr);
@@ -3246,7 +3276,7 @@ const searchHelp=state.setupStoreSearched&&!errCode?'<div class="meta" style="ma
 // 막다른 길 방지(S1): 직접 입력 길은 검색 전에도, 결과가 있어도(내 가게가 없을 수 있다) 항상 노출한다.
 const manualHtml='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)"><span class="meta" style="line-height:1.5">우리 가게가 안 나오나요? 인터넷이 안 되나요?</span><button class="btn" data-a="setup-manual-toggle" style="min-height:44px;padding:0 14px;font-size:13px;flex-shrink:0">직접 입력할게요</button></div>';
 return '<div class="setup">'+head
-+'<div class="card"><div class="form"><div class="field"><label for="setupStoreName">가게 이름</label><input id="setupStoreName" placeholder="예: 정식김밥" value="'+esc(state.setupStoreQ||'')+'"></div><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px"><div class="field"><label for="setupStoreRegion">지역 (구·군과 동)</label><input id="setupStoreRegion" placeholder="예: 광진구 구의동" value="'+esc(state.setupStoreRegion||'')+'"></div><div class="field"><label for="setupStoreZip">우편번호(선택)</label><input id="setupStoreZip" inputmode="numeric" maxlength="5" placeholder="아는 경우만" value="'+esc(state.setupStoreZip||'')+'"></div></div><div class="meta" style="line-height:1.5">이름으로 안 나오면 지역(구·군과 동)을 함께 적어 주세요 — 동네 전체에서 자동으로 찾아봐요. 우편번호는 아는 경우에만 넣으면 돼요.</div><button class="btn-primary" data-a="setup-store-search">'+(state.setupStoreSearching?'검색 중…':'가게 찾기')+'</button></div>'+manualHtml+(list?(errCode?list:'<div style="margin-top:12px">'+list+'</div>'):'')+(errCode==='offline'?'':dongScanBlockHtml('setup',state.setupStoreRegion,state.setupStoreSearched,(state.setupStoreResults||[]).length))+searchHelp+'</div></div>'}
++'<div class="card"><div class="form"><div class="field"><label for="setupStoreName">가게 이름</label><input id="setupStoreName" placeholder="예: 정식김밥" value="'+esc(state.setupStoreQ||'')+'"></div><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px"><div class="field"><label for="setupStoreRegion">지역 (구·군과 동)</label><input id="setupStoreRegion" placeholder="예: 광진구 구의동" value="'+esc(state.setupStoreRegion||'')+'"></div><div class="field"><label for="setupStoreZip">우편번호(선택)</label><input id="setupStoreZip" inputmode="numeric" maxlength="5" placeholder="아는 경우만" value="'+esc(state.setupStoreZip||'')+'"></div></div><div class="meta" style="line-height:1.5">이름으로 안 나오면 지역(구·군과 동)을 함께 적어 주세요 — 동네 전체에서 자동으로 찾아봐요. 우편번호는 아는 경우에만 넣으면 돼요.</div><button class="btn-primary" data-a="setup-store-search">'+(state.setupStoreSearching?'검색 중…':'가게 찾기')+'</button></div>'+storeBusyHtml('setup')+manualHtml+(list?(errCode?list:'<div style="margin-top:12px">'+list+'</div>'):'')+'<div id="setupRestoreSlot">'+(errCode?'':setupRestoreSlotInner())+'</div>'+(errCode==='offline'?'':dongScanBlockHtml('setup',state.setupStoreRegion,state.setupStoreSearched,(state.setupStoreResults||[]).length))+searchHelp+'</div></div>'}
 function setupStep2Html(){
 const tags=state.setupDepts.map(function(d,i){return '<span class="dept-tag">'+esc(d)+'<button data-a="setup-remove-dept" data-idx="'+i+'">×</button></span>'}).join('');
 return '<div class="setup"><div class="setup-head"><div class="setup-step">2 / 3</div><h1>공공기관 부서 목록 설정</h1><p>공공기관을 선택해 필요한 과를 복수 선택하세요<br>나중에 설정에서 변경할 수 있어요</p></div><div class="card">'+agencyPickerHtml('setup')+'</div><div class="card"><div style="line-height:2.2;margin-bottom:12px">'+(tags||'<span style="color:var(--muted)">부서가 없습니다</span>')+'</div><div style="display:flex;gap:8px"><input id="setupNewDept" placeholder="부서명 입력" style="min-height:44px"><button class="btn-secondary" data-a="setup-add-dept" style="min-height:44px;min-width:60px;flex-shrink:0">추가</button></div></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back" style="flex:1">이전</button><button class="btn-primary" data-a="setup-to-contact" style="flex:1">다음</button></div></div>'}
@@ -3564,7 +3594,7 @@ const sigField=preSign
 const sigBtn=preSign?'':'<button class="btn" data-a="clear-sign">서명 지우기</button>';
 return `<div class="modal-back"><div class="modal"><h2>사용 등록</h2><p class="help">${preAmount>0?'손님이 보낸 요청이에요. 금액과 서명을 확인한 뒤 저장하세요 (금액을 고치면 서명을 다시 받습니다).':'금액을 입력한 뒤 서명을 받고 저장하세요.'}</p>${resignWarn}<div class="receipt"><div class="receipt-row"><span>직원</span><strong>${esc(e.name)}</strong></div><div class="receipt-row"><span>소속·부서</span><strong>${esc(orgDeptLabel(e)||'부서 없음')}</strong></div><div class="receipt-row"><span>현재 잔액</span><strong style="font-size:24px;color:var(--primary)">${money(e.balance)}</strong></div>${reqNote}</div><div class="form">${field('useAmount','사용 금액',amtVal,'금액을 입력하세요','number',fromReq?'':'data-modal-focus')}<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px">${field('useNote','비고 (점심 등)',noteVal,'선택 입력')}${field('useDate','날짜 (지난 기록)',str(state.modal.dateDraft)||todayDateStr(),'','date',`max="${todayDateStr()}"`)}</div>${smsBox}${sigField}</div><div class="modal-actions">${sigBtn}<button class="btn" data-a="close-modal">취소</button>${preSign?'<button class="btn" data-a="use-resign">서명 다시 받기</button>':''}<button class="btn-primary" data-a="save-use"${fromReq?' data-modal-focus':''}>저장</button></div></div></div>`}
 if(state.modal.type==='signature'){const t=state.data.transactions.find(v=>v.id===state.modal.id);if(!t)return '';const sigSrc=sigD(t.signatureData);if(!sigSrc)return '';const e=state.data.employees.find(v=>v.id===t.employeeId);return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>서명 확인</h2><p class="help">${esc(e?e.name:'알 수 없음')} · ${dtDisp(t)} · ${money(t.amount)}</p><img src="${esc(sigSrc)}" style="max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff" alt="서명"><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
-if(state.modal.type==='store-search'){const results=state.modal.results||[];const emptyMsg=state.modal.regionFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':(state.modal.usedZip?'검색 결과가 없습니다. 가게 이름을 바꿔보세요.':emptySearchMsg('modal',state.modal.region));const errCode=results.length?'':storeSearchErrCode(state.modal.err);const list=errCode?'':results.length?results.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">${esc(x.name)}</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.address||'')}</div><div class="store-badge-slot">${storeBadgeHtml('modal',x.restaurant_id)}</div></div><button class="btn-primary small" data-a="relay-pick-store" data-id="${esc(x.restaurant_id)}" data-name="${esc(x.name)}" data-addr="${esc(x.address||'')}" style="flex-shrink:0">이 가게</button></div>`).join(''):(state.modal.searched&&emptyMsg?`<div class="empty">${esc(emptyMsg)}</div>`:'');return `<div class="modal-back"><div class="modal"><h2>우리 가게 찾기</h2><p class="help">가게 이름과 지역(구·군과 동)으로 검색해 우리 가게를 선택하세요. 한 번만 등록하면 됩니다.</p><div class="form"><div class="field"><label for="storeName">가게 이름</label><input id="storeName" placeholder="예: 정식김밥" value="${esc(state.modal.q||'')}"></div><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px"><div class="field"><label for="storeRegion">지역 (구·군과 동)</label><input id="storeRegion" placeholder="예: 광진구 구의동" value="${esc(state.modal.region||'')}"></div><div class="field"><label for="storeZip">우편번호(선택)</label><input id="storeZip" inputmode="numeric" maxlength="5" placeholder="아는 경우만" value="${esc(state.modal.zip||'')}"></div></div><div class="meta" style="line-height:1.5">이름으로 안 나오면 지역(구·군과 동)을 함께 적어 주세요 — 동네 전체에서 자동으로 찾아봐요. 우편번호는 아는 경우에만 넣으면 돼요.</div></div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button><button class="btn-primary" data-a="relay-search-stores">${state.modal.searching?'검색 중…':'검색'}</button></div>${storeSearchErrHtml('modal',errCode)}${list?`<div style="margin-top:12px">${list}</div>`:''}${errCode==='offline'?'':dongScanBlockHtml('modal',state.modal.region,state.modal.searched,(state.modal.results||[]).length)}</div></div>`}
+if(state.modal.type==='store-search'){const results=state.modal.results||[];const emptyMsg=state.modal.regionFilteredOut?'이 지역에서는 찾지 못했습니다. 지역을 빼고 다시 검색해 보세요.':(state.modal.usedZip?'검색 결과가 없습니다. 가게 이름을 바꿔보세요.':emptySearchMsg('modal',state.modal.region));const errCode=results.length?'':storeSearchErrCode(state.modal.err);const list=errCode?'':results.length?results.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:8px 0;gap:8px"><div style="min-width:0"><div style="font-weight:600">${esc(x.name)}</div><div class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.address||'')}</div><div class="store-badge-slot">${storeBadgeHtml('modal',x.restaurant_id)}</div></div><button class="btn-primary small" data-a="relay-pick-store" data-id="${esc(x.restaurant_id)}" data-name="${esc(x.name)}" data-addr="${esc(x.address||'')}" style="flex-shrink:0">이 가게</button></div>`).join(''):(state.modal.searched&&emptyMsg?`<div class="empty">${esc(emptyMsg)}</div>`:'');return `<div class="modal-back"><div class="modal"><h2>우리 가게 찾기</h2><p class="help">가게 이름과 지역(구·군과 동)으로 검색해 우리 가게를 선택하세요. 한 번만 등록하면 됩니다.</p><div class="form"><div class="field"><label for="storeName">가게 이름</label><input id="storeName" placeholder="예: 정식김밥" value="${esc(state.modal.q||'')}"></div><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px"><div class="field"><label for="storeRegion">지역 (구·군과 동)</label><input id="storeRegion" placeholder="예: 광진구 구의동" value="${esc(state.modal.region||'')}"></div><div class="field"><label for="storeZip">우편번호(선택)</label><input id="storeZip" inputmode="numeric" maxlength="5" placeholder="아는 경우만" value="${esc(state.modal.zip||'')}"></div></div><div class="meta" style="line-height:1.5">이름으로 안 나오면 지역(구·군과 동)을 함께 적어 주세요 — 동네 전체에서 자동으로 찾아봐요. 우편번호는 아는 경우에만 넣으면 돼요.</div></div><div class="modal-actions"><button class="btn" data-a="close-modal">닫기</button><button class="btn-primary" data-a="relay-search-stores">${state.modal.searching?'검색 중…':'검색'}</button></div>${storeBusyHtml('modal')}${storeSearchErrHtml('modal',errCode)}${list?`<div style="margin-top:12px">${list}</div>`:''}${errCode==='offline'?'':dongScanBlockHtml('modal',state.modal.region,state.modal.searched,(state.modal.results||[]).length)}</div></div>`}
 if(state.modal.type==='inbox'){const items=state.modal.items||[];const body=items.length?items.map(it=>{const sentAt=batchSentAt(it,it.summary);
 // beta.48: 이미 장부에 반영했는데 서버 통보만 못 한 신청은 **승인 버튼을 주지 않는다** — 다시 누르면
 //   같은 명단이 두 번 들어간다. 대신 무슨 일이 있었는지 한 줄로 말하고 [서버에 다시 알리기]만 남긴다.
@@ -4465,7 +4495,7 @@ function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:n
 async function clearAppCachesAndWorker(){if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}}
 function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.choiceDialog=null;state.expandedDepts={};state.expandedEmps={};state.homeExpanded={};state.settingsOpen={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
 // 초기화 후 온보딩/수신 상태 누수 방지(S4) — 이전 사용자의 가게 선택·검색 결과·동의·신청 건수가 남으면 안 된다.
-state.setupPickedStore=null;state.setupManualMode=false;state.setupManualDraft={name:'',addr:'',tel:''};state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreZip='';state.setupStoreResults=[];state.setupStoreRegisteredIds=[];state.setupStoreSearching=false;state.setupStoreSearched=false;state.setupStoreErr='';state.setupStoreFilteredOut=false;state.setupStoreUsedZip=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false;state.backupReminderDismissed=false;state.guardBannerDismissed=false;state.passDialog=null;state.textDialog=null}
+state.setupPickedStore=null;state.setupManualMode=false;state.setupManualDraft={name:'',addr:'',tel:''};state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreZip='';state.setupStoreResults=[];state.setupStoreRegisteredIds=[];state.setupStoreSearching=false;state.setupStoreTry=0;state.setupSearchSeq=num(state.setupSearchSeq)+1;state.setupStoreSearched=false;state.setupStoreErr='';state.setupStoreFilteredOut=false;state.setupStoreUsedZip=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false;state.backupReminderDismissed=false;state.guardBannerDismissed=false;state.passDialog=null;state.textDialog=null}
 async function wipeLocalData(){const empty=emptyAppData();await repo.replaceAll(empty);await clearAppCachesAndWorker();resetUiAfterWipe(empty);return empty}
 // 전체 초기화 확인 절차(스펙 §수정6): 개발자용 문자 입력 대신 안내창 2회 확인으로 단순화.
 // 1차 confirm → 자동 최종 백업 다운로드(실패해도 진행 여부는 2차 confirm에서 사용자가 선택) → 2차 confirm → 실행.

@@ -33,10 +33,10 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('✅ ' + m); } else { fail++; console.log('❌ ' + m); } };
 const cors = { 'Access-Control-Allow-Origin': '*' };
 
-async function newPage(ctx, calls, respond) {
+async function newPage(ctx, calls, respond, opts = {}) {
   await ctx.route('**/api/restaurants**', async route => {
     const u = new URL(route.request().url());
-    calls.push({ q: u.searchParams.get('q') || '', zip: u.searchParams.get('zip') || '' });
+    calls.push({ q: u.searchParams.get('q') || '', zip: u.searchParams.get('zip') || '', wait: u.searchParams.get('wait') || '' });
     const zip = u.searchParams.get('zip');
     const q = u.searchParams.get('q') || '';
     if (respond) {
@@ -55,13 +55,13 @@ async function newPage(ctx, calls, respond) {
   await ctx.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"nf"}' }));
   // beta.49: 검색 결과의 "다른 기기에서 이미 등록됨" 배지는 /api/registered 를 조회한다.
   //   목이 없으면 이 로컬 하니스가 **라이브 중계 서버로 실제 요청을 보낸다** — 반드시 막는다(배지는 이 하니스의 관심사가 아니므로 빈 배열).
-  await ctx.route('**/api/registered**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
+  await ctx.route('**/api/registered**', async route => { if (opts.registeredDelay) await new Promise(r => setTimeout(r, opts.registeredDelay)); route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(opts.registered ? opts.registered() : []) }); });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   await page.goto(base, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-a="setup-welcome-start"], #setupStoreName', { timeout: 8000 });
-  if (await page.locator('[data-a="setup-welcome-start"]').count()) {
+  if (!opts.stayOnWelcome && await page.locator('[data-a="setup-welcome-start"]').count()) {
     await page.locator('[data-a="setup-welcome-start"]').click();
     await page.waitForSelector('#setupStoreName', { timeout: 8000 });
   }
@@ -363,6 +363,117 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.waitForFunction(() => !document.querySelector('.store-search-err'), null, { timeout: 8000 });
   ok((await page.inputValue('#setupStoreName')) === '오프라인식당', 'I: 다시 연결되면 안내가 스스로 사라지고 입력값은 그대로다');
   ok(errors.length === 0, 'I: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 J(beta.57): 첫 검색이 시간 초과(503)·끊김이면 49구역 순회로 넘어가기 전에 **같은 검색을 두 번 더** 한다.
+//    현장(2026-11-14): 공공데이터가 한 번 응답에 8~40초 — 한 번 실패로 순회에 들어가면 "1/49 구역"에서 몇 분을 보냈다. ──
+{
+  const ctx = await browser.newContext();
+  const calls = [];
+  let plan = ['t', 't', 'ok'];
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => {
+    if (zip) { await sleep(10); return { body: [] }; }
+    await sleep(700);
+    const step = plan.shift() || 'ok';
+    if (step === 't') return { status: 503, body: { error: 'public_api_timeout' } };
+    if (step === 'busy') return { status: 429, body: { error: 'rate_limited' } };
+    return { body: mkRow(EARLY_ZIP, '서울김밥') };
+  });
+  const setupText = () => page.evaluate(() => document.querySelector('.setup').innerText);
+  const nameCalls = () => calls.filter(c => !c.zip).length, zipCalls = () => calls.filter(c => c.zip).length;
+  await page.fill('#setupStoreName', '서울김밥');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  const busy1 = await page.waitForSelector('.store-search-busy[data-try="1"]', { timeout: 3000 }).then(() => true, () => false);
+  ok(busy1 && (await setupText()).includes('가게 목록을 받아 오는 중이에요'), 'J: 검색하는 동안 무엇을 하는지 한 줄이 보인다("받아 오는 중 · 느린 날은 30초쯤")');
+  // 다시 찾는 동안 사장님이 이름 칸을 누르고 있어도 입력 노드는 그대로다(진행 한 줄만 갈아끼움)
+  await page.focus('#setupStoreName');
+  await page.evaluate(() => { window.__nameNode = document.getElementById('setupStoreName'); });
+  // 문구와 노드 동일성을 **같은 순간에** 읽는다(부하가 높은 날 그 사이 3번째 시도로 넘어가도 흔들리지 않게)
+  const try2 = await page.waitForFunction(() => { const e = document.querySelector('.store-search-busy[data-try="2"]'); if (!e) return false; const n = document.getElementById('setupStoreName'); return { text: e.innerText, same: n === window.__nameNode && document.activeElement === n }; }, null, { timeout: 5000, polling: 40 }).then(h => h.jsonValue(), () => null);
+  ok(!!try2 && try2.text.includes('공공데이터가 느려요. 다시 찾는 중 (2/3)'), 'J: 첫 응답이 시간 초과면 "공공데이터가 느려요. 다시 찾는 중 (2/3)"로 알리고 같은 검색을 다시 한다 — ' + JSON.stringify(try2 && try2.text));
+  ok(!!try2 && try2.same, 'J: 다시 찾는 동안에도 가게 이름 입력 노드·포커스는 그대로다(전체 화면을 갈아엎지 않음)');
+  const found = await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 8000 }).then(() => true, () => false);
+  ok(found && nameCalls() === 3 && zipCalls() === 0, 'J: 세 번째에 답이 오면 곧바로 결과 — 이름 검색 3회, 동네 순회(우편번호 호출) 0회 — 이름 ' + nameCalls() + ' / 구역 ' + zipCalls());
+  ok((await page.locator('.store-search-busy').count()) === 0 && (await page.locator('.store-search-err').count()) === 0 && (await setupText()).includes('서울김밥'),
+    'J: 결과가 나오면 진행 한 줄·실패 안내는 없다');
+  ok(calls.length > 0 && calls.every(c => c.wait === 'long'), 'J: 가게 찾기 요청은 모두 wait=long(서버가 25초까지 기다림)을 싣는다 — ' + JSON.stringify(calls.map(c => c.wait)));
+  // 세 번 모두 시간 초과 + 지역(구·군+동)이 있으면 그제서야 동네 순회로 넘어간다
+  calls.length = 0; plan = ['t', 't', 't'];
+  await page.click('[data-a="setup-store-search"]');
+  for (let i = 0; i < 100 && zipCalls() === 0; i++) await sleep(100);   // 이름 검색 3회(각 0.7초)가 끝나고 순회가 시작될 때까지
+  await page.waitForFunction(() => !document.querySelector('[data-a="dong-scan-stop"]') && !document.querySelector('.store-search-busy'), null, { timeout: 30000 }).catch(() => {});
+  ok(nameCalls() === 3 && zipCalls() === GUUI_ZIPS.length, 'J: 세 번 다 시간 초과면 이름 검색 3회 뒤에 동네 순회(' + GUUI_ZIPS.length + '구역)로 넘어간다 — 이름 ' + nameCalls() + ' / 구역 ' + zipCalls());
+  // 분당 한도(429)는 다시 해도 같으므로 재시도하지 않는다
+  calls.length = 0; plan = ['busy', 'ok'];
+  await page.fill('#setupStoreRegion', '');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.store-search-err[data-code="busy"]', { timeout: 5000 }).catch(() => {});
+  await sleep(1200);
+  ok(nameCalls() === 1 && (await page.locator('.store-search-err[data-code="busy"]').count()) === 1, 'J: 429(요청 몰림)는 재시도하지 않고 바로 안내한다 — 이름 ' + nameCalls() + '회');
+  // 다시 찾는 중에 [가게 찾기]를 또 누르면 앞선 검색은 물러난다(늦게 온 옛 응답이 화면을 덮지 않음)
+  calls.length = 0; plan = ['t', 'ok', 't', 't', 't'];
+  await page.fill('#setupStoreName', '옛검색');
+  await page.click('[data-a="setup-store-search"]');
+  await sleep(150);
+  await page.fill('#setupStoreName', '서울김밥');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 8000 }).catch(() => {});
+  await sleep(1800);
+  ok(calls.filter(c => c.q === '옛검색').length === 1 && (await page.locator('[data-a="setup-store-pick"]').count()) === 1 && (await page.locator('.store-search-err').count()) === 0 && (await page.locator('.store-search-busy').count()) === 0,
+    'J: 새로 누른 검색이 이긴다 — 옛 검색은 1회로 멈추고 결과·안내를 덮지 않는다 — 옛 ' + calls.filter(c => c.q === '옛검색').length + '회');
+  ok(errors.length === 0, 'J: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 K(beta.57): 환영 화면은 인사 한 장(제목·돈 안내·[시작하기])이고, "예전 장부가 있어요 — 백업 파일로 되찾기"는
+//    ① 검색 결과에 이미 등록된 가게가 있을 때 ② 그런 가게를 골랐을 때 ③ [직접 입력할게요] 화면에서만 보인다(사용자 결정) ──
+{
+  const ctx = await browser.newContext();
+  const calls = [];
+  const TAKEN = mkRow(EARLY_ZIP, '서울김밥')[0].restaurant_id;
+  let taken = false;
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: mkRow(EARLY_ZIP, '서울김밥') }), { stayOnWelcome: true, registeredDelay: 400, registered: () => (taken ? [TAKEN] : []) });
+  page.on('dialog', d => d.accept());
+  const wt = await page.evaluate(() => document.querySelector('.setup-welcome').innerText);
+  ok(wt.includes('밥장부에 오신 것을 환영합니다') && wt.includes('이 앱은 돈을 받거나 보내지 않아요') && wt.includes('기관과 손님, 우리 가게가 앱 밖에서 직접 해요'),
+    'K: 환영 화면 — 제목과 "돈을 받거나 보내지 않아요 … 기관과 손님, 우리 가게가 앱 밖에서 직접 해요" — ' + JSON.stringify(wt.replace(/\s+/g, ' ').slice(0, 140)));
+  ok(!/대신 적어 드려요|①|②|③|완전 무료|광고|백업 파일로 되찾기/.test(wt), 'K: 환영 화면에 부제·①②③·"완전 무료" 줄·되찾기 글씨가 없다');
+  ok((await page.locator('.setup-welcome button').count()) === 1 && (await page.locator('.setup-welcome [data-a="setup-welcome-start"]').count()) === 1, 'K: 환영 화면의 조작은 [시작하기] 하나');
+  await page.locator('[data-a="setup-welcome-start"]').click();
+  await page.waitForSelector('#setupStoreName');
+  ok((await page.locator('[data-a="welcome-restore"]').count()) === 0, 'K: 1/3 검색 전에는 되찾기 글씨가 없다');
+  await page.fill('#setupStoreName', '서울김밥');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="setup-store-pick"]');
+  await sleep(900);
+  ok((await page.locator('[data-a="welcome-restore"]').count()) === 0, 'K: 결과에 등록된 가게가 없으면 되찾기 글씨가 없다');
+  await page.click('[data-a="setup-store-pick"]');
+  await page.waitForSelector('[data-a="setup-next"]');
+  ok((await page.locator('[data-a="welcome-restore"]').count()) === 0, 'K: 등록 안 된 가게를 고른 확인 화면에도 없다');
+  await page.click('[data-a="setup-store-again"]');
+  taken = true;
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForFunction(() => !document.querySelector('.store-search-busy') && document.querySelector('[data-a="setup-store-pick"]'), null, { timeout: 8000 });   // 검색이 끝나 결과가 그려진 뒤
+  await page.evaluate(() => { window.__nameNode = document.getElementById('setupStoreName'); });   // 등록 여부 응답(0.4초 뒤)이 오기 전의 노드
+  const shown = await page.waitForSelector('#setupRestoreSlot [data-a="welcome-restore"]', { timeout: 5000 }).then(() => true, () => false);
+  const st = await page.evaluate(() => document.querySelector('.setup').innerText);
+  ok(shown && st.includes('다른 기기에서 이미 등록됨') && st.includes('예전 장부가 있어요 — 백업 파일로 되찾기') && st.includes('이미 등록된 가게가 우리 가게'),
+    'K: 결과에 "다른 기기에서 이미 등록됨" 가게가 있으면 목록 아래에 되찾기 글씨가 뜬다');
+  ok(await page.evaluate(() => document.getElementById('setupStoreName') === window.__nameNode), 'K: 되찾기 글씨는 그 자리만 갈아끼운다(이름 입력 노드 그대로)');
+  const fc1 = await Promise.all([page.waitForEvent('filechooser', { timeout: 5000 }), page.click('#setupRestoreSlot [data-a="welcome-restore"]')]).then(() => true, () => false);
+  ok(fc1, 'K: 글씨를 누르면 곧바로 파일 고르기가 열린다(검색 결과 화면)');
+  await page.click('[data-a="setup-store-pick"]');
+  await page.waitForSelector('[data-a="setup-next"]');
+  ok((await page.locator('[data-a="welcome-restore"]').count()) === 1 && await page.locator('[data-a="setup-next"]').isVisible(), 'K: 등록된 가게를 고른 확인 화면에도 되찾기 글씨가 있다([다음]은 그대로)');
+  await page.click('[data-a="setup-store-again"]');
+  await page.click('[data-a="setup-manual-toggle"]');
+  await page.waitForSelector('#setupManualName');
+  ok((await page.locator('[data-a="welcome-restore"]').count()) === 1, 'K: [직접 입력할게요] 화면에 되찾기 글씨가 있다(등록한 적 없는 가게·검색이 안 되는 날의 길)');
+  const fc2 = await Promise.all([page.waitForEvent('filechooser', { timeout: 5000 }), page.click('[data-a="welcome-restore"]')]).then(() => true, () => false);
+  ok(fc2, 'K: 직접 입력 화면에서도 누르면 곧바로 파일 고르기가 열린다');
+  ok(errors.length === 0, 'K: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
 }
 

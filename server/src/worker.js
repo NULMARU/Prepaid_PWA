@@ -490,9 +490,14 @@ function pick(r, keys) { for (const k of keys) { if (r[k] != null && String(r[k]
 // 쓰는 날이 있다 — 한도가 없으면 사장님은 앱의 20초 제한이 끊을 때까지 멍하니 기다리고, 가게 등록의 실존 대조는
 // 그 20초를 넘겨 등록 자체가 실패한다. 15초 안에 답이 없으면 '지금은 안 됨'을 바로 알린다(앱 제한보다 짧게).
 const PUBLIC_API_TIMEOUT_MS = 15000;
-function publicApiDeadline(env) {
-  const ms = Number(env && env.PUBLIC_API_TIMEOUT_MS);
-  return Date.now() + (Number.isFinite(ms) && ms > 0 ? ms : PUBLIC_API_TIMEOUT_MS);
+// 긴 한도(beta.57): 2026-11-14 밤 실측 — 공공 API 응답 52회 중 15초 안은 절반, 25초 안은 약 90%였다.
+//   가게 찾기는 한 번 실패하면 앱이 동네 49구역 순회로 넘어가 몇 분이 걸리므로, **새 앱(자체 제한 30초)이
+//   `wait=long`으로 요청할 때만** 25초까지 기다린다. 옛 앱(자체 제한 20초)·담당자 웹·직원 앱과 가게 등록의
+//   실존 대조는 그대로 15초다(그쪽은 20초 안에 답을 받아야 한다).
+const PUBLIC_API_TIMEOUT_LONG_MS = 25000;
+function publicApiDeadline(env, long) {
+  const ms = Number(env && (long ? env.PUBLIC_API_TIMEOUT_LONG_MS : env.PUBLIC_API_TIMEOUT_MS));
+  return Date.now() + (Number.isFinite(ms) && ms > 0 ? ms : (long ? PUBLIC_API_TIMEOUT_LONG_MS : PUBLIC_API_TIMEOUT_MS));
 }
 function publicApiTimeoutError() { const e = new Error('공공API 응답 시간 초과'); e.code = 'public_api_timeout'; return e; }
 // deadline(절대 시각 ms)을 주면 그때까지만 기다린다. 응답 머리뿐 아니라 본문 읽기까지 같은 한도 안이다.
@@ -545,7 +550,7 @@ function mapStoreRows(rows, kw) {
 // 우편번호 검색 시 훑는 최대 페이지 수(100건/페이지). 도로명 우편번호 하나에 딸린 음식점은
 // 대개 100~300곳이라 3페이지면 충분하고, Workers 서브요청 한도(무료 50)에도 여유가 있다.
 const ZIP_MAX_PAGES = 3;
-async function defaultSearch(env, region, q, zip) {
+async function defaultSearch(env, region, q, zip, opts) {
   // data.go.kr 행정안전부_식품_일반음식점 조회서비스 /info 오퍼레이션.
   // cond[OPN_ATMY_GRP_CD::EQ]=개방자치단체코드(지역), cond[ROAD_NM_ZIP::EQ]=도로명 우편번호,
   // cond[BPLC_NM::LIKE]=사업장명.
@@ -560,7 +565,7 @@ async function defaultSearch(env, region, q, zip) {
   if (zipKey) {
     const zipParam = env.PUBLIC_API_ZIP_PARAM || 'cond[ROAD_NM_ZIP::EQ]';
     const rows = [];
-    const deadline = publicApiDeadline(env); // 페이지를 여러 장 받아도 전체 한도는 하나
+    const deadline = publicApiDeadline(env, !!(opts && opts.long)); // 페이지를 여러 장 받아도 전체 한도는 하나
     for (let page = 1; page <= ZIP_MAX_PAGES; page++) {
       const got = await fetchPublicRows(env, [[zipParam, zipKey], ['pageNo', String(page)], ['numOfRows', '100']], deadline);
       rows.push(...got);
@@ -573,7 +578,7 @@ async function defaultSearch(env, region, q, zip) {
   const extra = [['pageNo', '1'], ['numOfRows', '100']];
   if (region) extra.push([regionParam, region]);
   if (q) extra.push([nameParam, q]);
-  return mapStoreRows(await fetchPublicRows(env, extra), q);
+  return mapStoreRows(await fetchPublicRows(env, extra, publicApiDeadline(env, !!(opts && opts.long))), q);
 }
 // 공개ID(관리번호 MNG_NO)로 한 곳만 조회 — 값이 ASCII라 위 한글 조건 장애의 영향을 받지 않는다.
 // 반환: 행 객체 | null(실존하지 않음) | undefined(판정 불가 — 장애·키 미설정 등)
@@ -893,7 +898,9 @@ export async function handle(request, env, store) {
       if (zip && zip.length !== 5) return j({ error: '우편번호는 5자리 숫자입니다' }, 400);
       const search = env.searchRestaurants || defaultSearch;
       let list;
-      try { list = await search(env, region, q, zip); }
+      // wait=long: 새 앱(beta.57+)만 보낸다 — 공공 API를 25초까지 기다린다(그 밖의 호출자는 15초 그대로).
+      const long = url.searchParams.get('wait') === 'long';
+      try { list = await search(env, region, q, zip, { long }); }
       catch (e) {
         // 공공 API가 한도 안에 답하지 않았다 — 우리 서버 고장(500 internal)과 구분해 알린다.
         // 앱은 "가게 목록을 불러오지 못했어요 · 다시 찾기 / 직접 입력"으로 안내한다.
