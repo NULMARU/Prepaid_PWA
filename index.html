@@ -292,6 +292,9 @@
 .guard-three button{min-height:48px;padding:4px 6px;font-size:14.5px;font-weight:700;white-space:normal;line-height:1.25}
 .guard-note{font-size:12.5px;line-height:1.6}
 .guard-links{text-align:center;color:var(--muted);font-size:14px}
+.pass-write{display:block;margin:6px 0 2px;padding:12px 10px;border:2px dashed var(--primary);border-radius:12px;background:#fff;color:var(--text);font-size:26px;font-weight:800;letter-spacing:.06em;text-align:center;word-break:break-all;line-height:1.3;user-select:all}
+.guard-pass-note{margin-top:10px;border:1.5px solid #e8c9a0;background:var(--warn-soft);color:var(--text);border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.55;word-break:keep-all}
+.choice-line .link-btn.choice-plain{padding-left:0;min-height:40px}
 .setup-welcome-restore{text-align:center;margin-top:12px;line-height:1.5}.setup-welcome-restore .link-btn{color:var(--primary);font-size:15px}.setup-welcome-restore .meta{margin-top:2px}
 .link-btn{background:none;border:none;box-shadow:none;color:var(--muted);text-decoration:underline;font-size:14px;font-weight:600;min-height:44px;padding:0 6px;border-radius:8px}
 .sig-missing{margin-top:6px;font-size:12.5px;color:var(--muted);line-height:1.5}
@@ -648,7 +651,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.58',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.59',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -900,6 +903,8 @@ const META_KEYS=['lastBackupAt','orgName','shopName','shopAddr','shopTel','depar
 'pubKey','keyCreatedAt','chainTip','txCount',
 // beta.55(A2): 백업 암호 검증자(기기 전용)·서버 백업 진행 상태(기기 전용 — 복원·초기화 때 비운다). 둘 다 backupCore가 뺀다.
 'backupPassCheck','cloudBackupState',
+// beta.59: 기억해 둔 백업 암호(기기 전용 — 이 기기 열쇠(deviceSecret)로 잠가 둔 사본). backupPassCheck와 같은 규칙(backupCore가 뺀다·백업에서 들여오지 않는다).
+'backupPassKeep',
 // 보안 민감 키(아래 META_DEVICE_KEYS)도 목록에는 있어야 한다 — 이 기기의 저장소를 다시 읽을 때 필요하다.
 'pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped'];
 // **이 기기에만 속하는 값**이다. 장부(백업 파일·클라우드 백업)에서 절대 가져오지 않는다.
@@ -908,7 +913,7 @@ const META_KEYS=['lastBackupAt','orgName','shopName','shopAddr','shopTel','depar
 //   들여오면 "이 기기 개인키 ≠ 저장된 공개키"인 짝 안 맞는 상태가 된다(챌린지 복호화가 영영 실패).
 //   기기 사이 열쇠 이동은 오직 '내 열쇠 백업' 파일로만 한다(importKeyBackup).
 // beta.55(A2): backupPassCheck(백업 암호 검증자)도 이 기기 것이다 — 백업 파일이 이 기기의 백업 암호를 바꿔치기하지 못하게.
-const META_DEVICE_KEYS=['pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck'];
+const META_DEVICE_KEYS=['pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck','backupPassKeep'];
 function normMeta(m){const src=(m&&typeof m==='object')?m:{};
 const out={lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]};
 META_KEYS.forEach(k=>{if(Object.prototype.hasOwnProperty.call(src,k))out[k]=src[k]});
@@ -1223,9 +1228,9 @@ function passDialogHtml(){const d=state.passDialog;if(!d)return '';const two=pas
 const attrs='class="key-pass" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="'+(two?'next':'done')+'"';
 const send=d.how==='share';
 const title=bk?({bset:'🔒 백업 암호 정하기',bchange:'🔒 백업 암호 바꾸기',benter:'🔒 백업 암호를 넣어 주세요',bopen:'🔒 백업 파일 암호 입력'}[d.mode]):(two?'🔑 내 열쇠 백업 — 암호 정하기':'🔑 내 열쇠 백업 — 암호 입력');
-const help=bk?({bset:`이 암호로 백업 파일을 잠가요 — <b>${KEY_PASS_MIN}자 이상</b>(화면 여는 숫자 4자리와 달라요).<br><b>새 태블릿에서 되찾을 때 필요해요. 꼭 적어 두세요.</b> 다음부터는 한 번만 넣어요.`,
-bchange:`새 백업 암호를 두 번 넣어 주세요(<b>${KEY_PASS_MIN}자 이상</b>). <b>예전에 만든 백업 파일은 예전 암호로 열려요.</b>`,
-benter:'이 암호로 파일을 잠가요. 새 태블릿에서 되찾을 때 같은 암호가 필요해요.',
+const help=bk?({bset:`이 암호로 백업 파일을 잠가요 — <b>${KEY_PASS_MIN}자 이상</b>(화면 여는 숫자 4자리와 달라요. 숫자만도 돼요).<br><b>📝 종이에 꼭 적어 두세요</b> — 새 태블릿에서 되찾을 때 필요해요. 평소에는 다시 묻지 않아요.`,
+bchange:`새 백업 암호를 두 번 넣어 주세요(<b>${KEY_PASS_MIN}자 이상</b>). <b>📝 새 암호도 종이에 꼭 적어 두세요.</b> 예전에 만든 백업 파일은 예전 암호로 열려요.`,
+benter:'처음 정한 <b>백업 암호</b>를 넣어 주세요. <b>이번 한 번만</b> 넣으면 다음부터는 묻지 않아요. (새 태블릿에서 되찾을 때는 이 암호가 필요해요 — 종이에 적어 두세요.)',
 bopen:'이 백업 파일을 만들 때 정한 <b>백업 암호</b>를 넣어 주세요.'}[d.mode])
 :(two?'<b>'+KEY_PASS_MIN+'자 이상</b>으로 정해 주세요. 화면을 여는 숫자 4자리 비밀번호와는 다른 암호예요.<br>이 암호는 어디에도 저장되지 않아요 — <b>잊으면 이 백업 파일을 열 수 없으니 꼭 적어 두세요.</b>':'내 열쇠 백업 파일을 만들 때 정한 암호를 입력해 주세요.');
 const label1=bk?(two?'백업 암호 ('+KEY_PASS_MIN+'자 이상)':'백업 암호'):(two?'암호 ('+KEY_PASS_MIN+'자 이상)':'암호');
@@ -2484,8 +2489,10 @@ function passPlainToggle(el){const d=state.passDialog;if(!d)return;d.plain=!!(el
 async function markOwnBackup(hasKey){const t=now();const patch={lastBackupAt:t};if(hasKey)patch.myKeyBackedUpAt=t;Object.assign(state.data.meta,patch);try{await repo.apply({meta:patch})}catch(e){console.error('relay own backup stamp',e)}state.backupConfirmed=true;render()}
 function ownFileBase(plain){return(plain?'밥장부백업_암호없음_':'밥장부백업_')+dateStamp()}
 function shareFileOk(f){try{return !!(navigator.share&&navigator.canShare&&navigator.canShare({files:[f]}))}catch(e){return false}}
-async function askOwnSent(how,name){const share=how==='share';
-const v=await askChoice({title:share?'카톡·메일로 잘 보냈나요?':'파일이 저장됐나요?',lines:share?['보내기 창에서 대화방이나 메일을 골라 <b>[보내기]</b>까지 눌렀다면 [네]를 눌러 주세요.']:[`다운로드가 시작됐어요. 다운로드 폴더에 <b>${esc(name)}</b> 파일이 보이는지 확인해 주세요.`],buttons:[{val:'yes',label:share?'네, 보냈어요':'네, 보여요',cls:'btn-primary'},{val:'no',label:share?'아니요, 못 보냈어요':'아니요, 안 보여요',cls:'btn'}]});
+async function askOwnSent(how,name,plain){const share=how==='share';
+// beta.59: 암호 건 파일을 남길 때마다 한 줄 — 평소엔 암호를 묻지 않으니, 적어 둔 종이가 유일한 열쇠라는 것을 여기서 되새긴다.
+const passLine=plain?[]:['📝 이 파일은 <b>백업 암호</b>로 열려요. 암호를 적어 둔 종이를 잘 보관해 주세요.'];
+const v=await askChoice({title:share?'카톡·메일로 잘 보냈나요?':'파일이 저장됐나요?',lines:(share?['보내기 창에서 대화방이나 메일을 골라 <b>[보내기]</b>까지 눌렀다면 [네]를 눌러 주세요.']:[`다운로드가 시작됐어요. 다운로드 폴더에 <b>${esc(name)}</b> 파일이 보이는지 확인해 주세요.`]).concat(passLine),buttons:[{val:'yes',label:share?'네, 보냈어요':'네, 보여요',cls:'btn-primary'},{val:'no',label:share?'아니요, 못 보냈어요':'아니요, 안 보여요',cls:'btn'}]});
 return v==='yes'}
 // 보내기(공유 시트)·저장(다운로드). 공유 시트는 '눌렀다'는 사용자 활성이 몇 초 안에 끝나므로, 준비가 늦었으면 [보내기]를 한 번 더 받는다.
 async function deliverOwnBackup(how,text,plain,hasKey,tapAt){const base=ownFileBase(plain);
@@ -2496,7 +2503,7 @@ let res=(now()-num(tapAt)<3000)?await trySend():'again';
 if(res==='again'){const v=await askChoice({title:'파일이 준비됐어요',lines:['아래 <b>[보내기]</b>를 누르면 카톡·메일을 고를 수 있어요. 나에게 보내는 대화방이나 내 메일로 보내 두세요.'],buttons:[{val:'send',label:'보내기',cls:'btn-primary'},{val:'cancel',label:'취소',cls:'btn'}]});
 if(v!=='send'){toast('보내지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}res=await trySend()}
 if(res==='abort'){toast('보내기를 취소했어요. 백업 기록은 남기지 않았어요.');return false}
-if(res==='sent'){if(await askOwnSent('share',name)){await markOwnBackup(hasKey);toast('내 보관 백업을 기록했어요.');return true}toast('기록하지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}}
+if(res==='sent'){if(await askOwnSent('share',name,plain)){await markOwnBackup(hasKey);toast('내 보관 백업을 기록했어요.');return true}toast('기록하지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}}
 // 이 기기(브라우저)가 파일 보내기를 못 하면 내려받기로 바꾸고 그렇게 말한다.
 const usedBridge=downloadFile(text,name,'text/plain');
 if(usedBridge){state.pendingOwnHasKey=hasKey;toast('백업 파일을 저장하는 중입니다.');return true}
@@ -2504,15 +2511,35 @@ const v=await askChoice({title:'이 기기에서는 바로 보내기가 안 돼�
 if(v==='yes'){await markOwnBackup(hasKey);toast('내 보관 백업을 기록했어요.');return true}toast('기록하지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}
 const name=base+'.json';const usedBridge=downloadFile(text,name,'application/json');
 if(usedBridge){state.pendingOwnHasKey=hasKey;toast('백업 파일을 저장하는 중입니다.');return true}
-if(await askOwnSent('save',name)){await markOwnBackup(hasKey);toast('내 보관 백업을 기록했어요.');return true}
+if(await askOwnSent('save',name,plain)){await markOwnBackup(hasKey);toast('내 보관 백업을 기록했어요.');return true}
 toast('기록하지 않았어요. 파일이 안 보이면 다시 [지금 백업하기]를 눌러 주세요.');return false}
-// 내 보관 백업 한 번: 암호 창 → (확인·처음이면 정하기) → 파일 만들기 → 보내기/저장.
-async function ownBackupFlow(how){const share=how==='share';let err='';let r=null;
-for(;;){const check=state.data.meta.backupPassCheck;const hasCheck=!!(check&&typeof check==='object'&&check.hash);
+// ── 백업 암호를 이 기기가 기억한다 (beta.59, 사용자 결정 2026-11-15) ─────────────────────────────
+// 현장: 연세 있는 사장님·바쁜 가게에서 백업할 때마다 8자 암호를 치는 것이 부담이다. 화면잠금 4자리와 합치자는 안은 채택하지 않았다 —
+//   백업 파일은 카톡·메일로 기기 밖에 나가고(시도 횟수 제한 없음) 4자리는 후보가 1만 개뿐이라 잠금이 이름뿐이 되며, 그 번호는 직원도 안다.
+// 대신: 암호는 **처음 한 번만** 정하고(또는 예전에 정한 암호를 한 번만 넣고) 기기가 기억한다 → 평소 [지금 백업하기]는 암호를 묻지 않는다.
+//   다시 넣는 때는 새 태블릿에서 되찾을 때뿐이라, **종이에 적어 두라는 안내**를 정할 때·카드·백업할 때마다 보인다.
+// 기억하는 값(meta.backupPassKeep)은 이 기기 열쇠(deviceSecret)로 잠근 사본이다. deviceSecret은 같은 저장소에 있으므로 기기를 통째로 가져간
+//   사람에게는 방어가 아니다 — 그 사람은 이미 장부와 가게 열쇠를 가졌다(deviceSecret을 PIN으로 감싸지 않는 이유와 같은 판단). 백업 파일의
+//   잠금 강도(8자 이상 + PBKDF2 60만 회)는 그대로다. 이 키는 기기 전용이라 백업 파일·서버 백업에 실리지 않고, 들여오지도 않는다.
+function backupPassIsKept(){const m=state.data.meta,c=m.backupPassCheck;return !!(str(m.backupPassKeep)&&str(m.deviceSecret)&&c&&typeof c==='object'&&c.hash)}
+async function backupPassKept(){if(!backupPassIsKept())return '';try{return String(await aesDecryptStr(state.data.meta.backupPassKeep,state.data.meta.deviceSecret)||'')}catch(e){console.error('backup pass keep read',e);return ''}}
+async function backupPassRemember(pass){try{const sec=str(state.data.meta.deviceSecret);if(!sec||!pass)return false;const enc=await aesEncryptStr(String(pass),sec);state.data.meta.backupPassKeep=enc;await repo.apply({meta:{backupPassKeep:enc}});return true}catch(e){console.error('backup pass keep save',e);return false}}
+// 정한(바꾼) 직후 — 암호를 크게 보여 주고 종이에 적게 한다. 버튼은 하나("종이에 적어 두었어요").
+async function backupPassWriteDown(pass,changed){await askChoice({title:changed?'📝 새 백업 암호를 종이에 적어 주세요':'📝 백업 암호를 종이에 적어 주세요',
+lines:[`<span class="pass-write" id="passWrite">${esc(pass)}</span>`,'<b>새 태블릿에서 장부를 되찾을 때 이 암호가 꼭 필요해요.</b>','잊으면 아무도(운영자도) 백업 파일을 열 수 없어요. 종이에 적어 가게의 안전한 곳에 두세요.',changed?'예전에 만든 백업 파일은 예전 암호로 열려요. 평소 백업할 때는 암호를 다시 묻지 않아요.':'평소 백업할 때는 암호를 다시 묻지 않아요.'],
+buttons:[{val:'ok',label:'종이에 적어 두었어요',cls:'btn-primary'}]})}
+// 내 보관 백업 한 번: (기억한 암호가 있으면 곧바로 / 없으면 암호 창 → 확인·처음이면 정하기·적어 두기) → 파일 만들기 → 보내기/저장.
+//   forcePlain = 선택창의 "암호 없이 파일 만들기"(암호를 기억한 뒤에는 암호 창이 뜨지 않으므로 그 길을 선택창에 둔다).
+async function ownBackupFlow(how,tapAt,forcePlain){const share=how==='share';let err='';let r=null;
+if(forcePlain)r={pass:'',plain:true,at:num(tapAt)||now()};
+else{const kept=await backupPassKept();
+if(kept)r={pass:kept,plain:false,at:num(tapAt)||now()};
+else for(;;){const check=state.data.meta.backupPassCheck;const hasCheck=!!(check&&typeof check==='object'&&check.hash);
 r=await askBackupPass({mode:hasCheck?'benter':'bset',allowPlain:true,how,err,okLabel:share?'잠가서 보내기':'잠가서 저장하기',plainOkLabel:share?'암호 없이 보내기':'암호 없이 저장하기'});
 if(!r)return false;if(r.plain)break;
-if(hasCheck){setBusy('백업 암호를 확인하는 중이에요.');const p=await passVerifierMatch(r.pass,check);clearBusy();if(p==null){err='암호가 맞지 않아요. 처음 정한 백업 암호를 넣어 주세요. (잊으셨으면 [백업 암호]에서 새로 정할 수 있어요 — 예전 파일은 예전 암호로 열려요)';continue}r.pass=p;break}
-setBusy('백업 암호를 정하는 중이에요.');try{const v=await passVerifierMake(r.pass);state.data.meta.backupPassCheck=v;await repo.apply({meta:{backupPassCheck:v}})}catch(e){console.error('relay pass check save',e)}clearBusy();break}
+if(hasCheck){setBusy('백업 암호를 확인하는 중이에요.');const p=await passVerifierMatch(r.pass,check);clearBusy();if(p==null){err='암호가 맞지 않아요. 처음 정한 백업 암호를 넣어 주세요. (잊으셨으면 [백업 암호]에서 새로 정할 수 있어요 — 예전 파일은 예전 암호로 열려요)';continue}r.pass=p;await backupPassRemember(p);break}
+setBusy('백업 암호를 정하는 중이에요.');try{const v=await passVerifierMake(r.pass);state.data.meta.backupPassCheck=v;await repo.apply({meta:{backupPassCheck:v}})}catch(e){console.error('relay pass check save',e)}clearBusy();
+await backupPassRemember(r.pass);await backupPassWriteDown(r.pass,false);r.at=now();break}}
 setBusy('백업 파일을 만드는 중이에요.');let text='',hasKey=false;
 try{if(r.plain){text=JSON.stringify(await buildBackupPayload(),null,2)}else{const b=await buildPassBackup(r.pass,relayRegistered());text=JSON.stringify(b.file);hasKey=b.hasKey}}
 catch(e){console.error('relay own backup build',e);clearBusy();toast('백업 파일을 만들지 못했어요. 다시 해 주세요.');return false}
@@ -2533,14 +2560,18 @@ const title={keyonly:'가게 열쇠를 보관해 둘까요?',ok:'백업했어요
 const lines={keyonly:['아직 장부는 비어 있지만 <b>가게 열쇠</b>가 있어요. 백업 암호로 잠근 파일에 열쇠가 함께 들어가요 — 폰을 잃어버려도 새 폰에서 명단을 계속 받을 수 있어요.'],ok:['서버에는 방금 올렸어요. 서명 그림까지 담긴 파일은 직접 보관해 두면 더 안전해요.'],fail:[esc(failMsg)],offline:['와이파이에 연결되면 서버에도 자동으로 올라가요.'],off:['서버 자동 백업은 꺼져 있어요. 파일로 직접 보관해 주세요.'],unreg:['이 기기에 저장하거나 카톡·메일로 보내 두세요. 가게를 등록하면 서버에도 자동 보관돼요.']}[server];
 const buttons=[{val:'share',label:'카톡·메일로 보내기',sub:'나에게 보내는 대화방이나 내 메일로 보내 두세요.',cls:'btn-primary'},{val:'save',label:'이 기기에 저장',sub:'다운로드 폴더에 파일로 저장해요.',cls:'btn'}];
 buttons.push(server==='ok'?{val:'none',label:'서버 백업만 할게요',sub:'이번에는 파일을 남기지 않아요.',cls:'btn'}:{val:'none',label:'취소',cls:'btn'});
-const v=await askChoice({title,lines,buttons});
-if(v==='share'||v==='save')return ownBackupFlow(v);
+// beta.59: 암호를 기억한 뒤에는 암호 창(그 안의 "암호 없이" 체크)이 뜨지 않는다 → 그 길을 선택창 맨 아래 글씨로 둔다(진한 버튼·3갈래는 그대로).
+const lines2=backupPassIsKept()?lines.concat(['<button class="link-btn choice-plain" data-a="choice-pick" data-val="plain">암호 없이 파일 만들기</button>']):lines;
+const v=await askChoice({title,lines:lines2,buttons});const tapAt=now();
+if(v==='share'||v==='save')return ownBackupFlow(v,tapAt,false);
+if(v==='plain'){const how=await askChoice({title:'암호 없이 만들까요?',lines:['암호 없이 만들면 <b>파일을 연 사람 누구나</b> 직원 이름·잔액·서명을 볼 수 있어요.','<b>가게 열쇠는 들어가지 않아요</b> — 새 태블릿에서 가게 등록을 이어받으려면 암호 건 백업이 필요해요.'],buttons:[{val:'share',label:'암호 없이 카톡·메일로 보내기',cls:'btn'},{val:'save',label:'암호 없이 이 기기에 저장',cls:'btn'},{val:'none',label:'취소',cls:'btn-primary'}]});const t2=now();
+if(how==='share'||how==='save')return ownBackupFlow(how,t2,true);return false}
 if(server==='ok')toast('서버에 백업했어요.');return false}
 // [백업 암호] — 정하기/바꾸기. 바꿔도 예전에 만든 파일은 예전 암호로 열린다(파일마다 그때의 암호로 잠겨 있다).
 async function backupPassChange(){const check=state.data.meta.backupPassCheck;const had=!!(check&&typeof check==='object'&&check.hash);
 const r=await askBackupPass({mode:had?'bchange':'bset',okLabel:'암호 정하기'});if(!r||r.plain)return;
-setBusy('백업 암호를 정하는 중이에요.');try{const v=await passVerifierMake(r.pass);state.data.meta.backupPassCheck=v;await repo.apply({meta:{backupPassCheck:v}});clearBusy();
-await askChoice({title:had?'백업 암호를 바꿨어요':'백업 암호를 정했어요',lines:had?['다음 백업부터 새 암호로 잠가요.','<b>예전에 만든 백업 파일은 예전 암호로 열려요.</b>']:['다음 백업부터 이 암호로 잠가요. 잊지 않게 꼭 적어 두세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]})}
+setBusy('백업 암호를 정하는 중이에요.');try{const v=await passVerifierMake(r.pass);state.data.meta.backupPassCheck=v;await repo.apply({meta:{backupPassCheck:v}});await backupPassRemember(r.pass);clearBusy();
+await backupPassWriteDown(r.pass,had)}
 catch(e){console.error('relay pass change',e);clearBusy();toast('백업 암호를 저장하지 못했어요. 다시 해 주세요.')}}
 // [되찾기] — 서버에서 / 파일에서. 덮어쓰기 전 확인·안전 사본은 restoreLedger가 맡는다.
 async function guardRestoreChoice(){const reg=relayRegistered();
@@ -2592,10 +2623,13 @@ const unreg=s.reg?'':`<div class="guard-unreg">가게를 등록하면 서버에�
 const box=`<div class="guard-state${s.level==='warn'?' warn':s.level==='none'?' none':''}" id="guardState" role="status"><b>${esc(s.head)}</b>${s.sub?`<div class="guard-sub">${s.sub}</div>`:''}${rows}${unreg}</div>`;
 const links=s.reg?`<div class="guard-links"><button class="link-btn" data-a="toggle-auto-cloud">${s.autoOn?'서버 자동 백업 끄기':'서버 자동 백업 켜기'}</button><span aria-hidden="true"> · </span><button class="link-btn" data-a="cloud-backup-delete">서버 백업 지우기</button></div>`:'';
 const note=`<div class="meta guard-note">${s.reg?'서버 백업은 잠근 채 보관돼 서버도 열어볼 수 없어요(서명 그림·전화번호는 빼고 올려요). ':''}내 보관 파일은 백업 암호로 잠그고, 가게 열쇠도 함께 들어가요.</div>`;
+// beta.59: 암호를 정한 가게에는 "적어 둔 종이"를 늘 한 줄로 되새긴다(평소엔 암호를 묻지 않으므로 잊기 쉽다).
+const pc=state.data.meta.backupPassCheck,passSet=!!(pc&&typeof pc==='object'&&pc.hash);
+const passNote=passSet?`<div class="guard-pass-note" id="guardPassNote">📝 <b>백업 암호는 종이에 적어 보관하세요.</b> 평소에는 묻지 않지만, 새 태블릿에서 장부를 되찾을 때 꼭 필요해요. 잊으셨으면 [백업 암호]에서 새로 정한 뒤 다시 백업해 주세요.</div>`:'';
 return foldCard('ledger','장부 지키기',esc(s.summary),`${box}
 <button class="btn-primary guard-main" data-a="backup-now">지금 백업하기</button>
 <div class="guard-three"><button class="btn" data-a="guard-restore">되찾기</button><button class="btn" data-a="backup-pass">백업 암호</button><button class="btn" data-a="verify-integrity">장부 검사</button></div>
-${verifyResultHtml()}${note}${links}`)}
+${passNote}${verifyResultHtml()}${note}${links}`)}
 async function toggleAutoCloud(){const on=state.data.meta.autoCloudBackup!==false;
 if(on){const v=await askChoice({title:'서버 자동 백업을 끌까요?',lines:['끄면 매주 서버에 올리지 않아요. 폰을 잃어버렸을 때 서버에서 되찾을 수 있는 내용이 점점 오래돼요.'],buttons:[{val:'keep',label:'끄지 않기',cls:'btn-primary'},{val:'off',label:'자동 백업 끄기',cls:'btn'}]});if(v!=='off')return}
 const nv=!on;state.data.meta.autoCloudBackup=nv;try{await repo.apply({meta:{autoCloudBackup:nv}})}catch(e){console.error(e)}render();toast(nv?'서버 자동 백업을 켰어요.':'서버 자동 백업을 껐어요.')}
@@ -4194,7 +4228,7 @@ return withTxLock(async()=>{const tx=state.data.transactions.find(v=>v.id===id&&
 
 // ── 백업/복원 ──
 // pinFails/pinDelayUntil은 이 기기의 잠금 상태일 뿐 장부가 아니다 — 백업에 실어 나르면 복원과 함께 남의 지연이 따라온다.
-function backupCore(){const{deviceSecret,privKeyWrapped,pinHash,pinFails,pinDelayUntil,inboxCountCache,backupPassCheck,cloudBackupState,...metaSafe}=state.data.meta;return{schemaVersion:3,appName:APP,appVersion:APP_VERSION,exportedAt:now(),payload:{employees:state.data.employees,transactions:state.data.transactions,meta:metaSafe}}}
+function backupCore(){const{deviceSecret,privKeyWrapped,pinHash,pinFails,pinDelayUntil,inboxCountCache,backupPassCheck,backupPassKeep,cloudBackupState,...metaSafe}=state.data.meta;return{schemaVersion:3,appName:APP,appVersion:APP_VERSION,exportedAt:now(),payload:{employees:state.data.employees,transactions:state.data.transactions,meta:metaSafe}}}
 function backupSummary(data){return{employeeCount:data.employees.filter(v=>!v.isDeleted).length,totalEmployeeCount:data.employees.length,transactionCount:data.transactions.length}}
 async function buildBackupPayload(){const core=backupCore();const checksum=await hash(JSON.stringify(core));return{...core,summary:backupSummary(core.payload),checksum}}
 function parseBackupPayload(parsed){if(!parsed||typeof parsed!=='object')throw new Error('형식 오류');if((parsed.schemaVersion===2||parsed.schemaVersion===3)&&parsed.payload&&Array.isArray(parsed.payload.employees)&&Array.isArray(parsed.payload.transactions)){const core={schemaVersion:parsed.schemaVersion,appName:parsed.appName,appVersion:parsed.appVersion,exportedAt:parsed.exportedAt,payload:parsed.payload};return{version:parsed.schemaVersion,checksum:parsed.checksum||'',core,data:parsed.payload}}if(Array.isArray(parsed.employees)&&Array.isArray(parsed.transactions)){const core={version:parsed.version,appName:parsed.appName,appVersion:parsed.appVersion,exportedAt:parsed.exportedAt,employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}};return{version:1,checksum:parsed.checksum||'',core,data:{employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}}}}throw new Error('지원하지 않는 백업 형식')}
@@ -4289,7 +4323,7 @@ return ''}
 async function restoreLedger(parsed,opts){opts=opts&&typeof opts==='object'?opts:{};const parsedBackup=parseBackupPayload(parsed);const checksum=parsedBackup.checksum,calc=await hash(JSON.stringify(parsedBackup.core));const data=norm(parsedBackup.data);
 const curMeta=(state.data&&state.data.meta)||{};
 META_DEVICE_KEYS.forEach(k=>{delete data.meta[k]});
-if(opts.forgotPin){['deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck'].forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
+if(opts.forgotPin){['deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck','backupPassKeep'].forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
 else{META_DEVICE_KEYS.forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
 const validation=validateRestoreData(data);if(validation.errors.length){throw relayCodeErr('restore_invalid','복원 검증 실패: '+validation.errors.join(', '))}
 // 데이터 보존: 복원 데이터에 직원/거래가 있으면 설정 마법사로 되돌아가지 않도록 setupComplete 유지
@@ -4318,7 +4352,7 @@ if(keyPlan){Object.assign(data.meta,keyPlan);data.meta.myKeyBackedUpAt=num(opts.
 const filePub=str(((parsedBackup.data&&parsedBackup.data.meta)||{}).pubKey);
 if(!keyPlan&&!keepDeviceReg&&str(data.meta.restaurantId)&&filePub&&filePub!==str(data.meta.pubKey)){data.meta.lastCloudBackupAt=num(curMeta.lastCloudBackupAt)||null;data.meta.myKeyBackedUpAt=num(curMeta.myKeyBackedUpAt)||null}
 data.meta.cloudBackupState=null;data.meta.inboxCountCache=null;
-if(opts.pass&&!data.meta.backupPassCheck){try{data.meta.backupPassCheck=await passVerifierMake(opts.pass)}catch(e){console.error('relay pass check',e)}}
+if(opts.pass&&!data.meta.backupPassCheck){try{data.meta.backupPassCheck=await passVerifierMake(opts.pass);/* beta.59: 이 파일을 연 암호가 곧 이 기기의 백업 암호가 된다 — 함께 기억해 평소 백업 때 묻지 않는다 */const sec=str(data.meta.deviceSecret)||str(curMeta.deviceSecret);if(sec)data.meta.backupPassKeep=await aesEncryptStr(String(opts.pass),sec);else delete data.meta.backupPassKeep}catch(e){console.error('relay pass check',e)}}
 // ── 같은 기기의 전화번호·문자 동의 유지(백업에 없을 때만) ──
 const curEmp=new Map(state.data.employees.map(e=>[e.id,e]));let phoneKept=0;
 data.employees.forEach(e=>{const c=curEmp.get(e.id);if(c&&!e.phone&&c.phone){e.phone=c.phone;e.phoneConsent=!!c.phoneConsent;phoneKept++}});

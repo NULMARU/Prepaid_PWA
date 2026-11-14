@@ -1270,6 +1270,12 @@ async function runBeta52(browser, url, cors) {
     await page.locator('#keyPass2').fill('harness-key-01 ');
     await assert((await hint()).text.includes('두 암호가 같아요'), 'matching passphrases must show the ready hint');
     await page.locator('[data-a="pass-ok"]').click();
+    // beta.59: 정한 직후 "📝 백업 암호를 종이에 적어 주세요" 창 — 끝 공백을 뗀 암호를 크게 보여 주고, [종이에 적어 두었어요]를 누르기 전에는 파일을 만들지 않는다.
+    //   이 창도 가입 직후 안내 화면 **위에** 뜬다(선택창과 같은 자리).
+    await page.waitForSelector('.choice-modal #passWrite', { timeout: 20000 });
+    await assert((await page.locator('#passWrite').innerText()).trim() === 'harness-key-01' && (await page.locator('#choiceTitle').innerText()).includes('종이에 적어 주세요') && await count(page, '[data-a="guide-dismiss"]') === 1 && dlBefore.length === 0,
+      'right after setting the backup password the write-it-down box must show the trimmed password over the guide screen, before any file is made');
+    await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
     for (let i = 0; i < 80 && dlBefore.length < 1; i += 1) await page.waitForTimeout(100);
     page.off('download', onDl);
     await assert(dlBefore.length === 1, `a valid passphrase must download exactly one backup file (got ${dlBefore.length})`);
@@ -2836,8 +2842,13 @@ async function runBeta55c(browser, url, cors) {
       const dl0 = A.downloads.length;
       await page.locator('#keyPass2').fill('harness-pass-01');
       await page.locator('[data-a="pass-ok"]').click();
+      // beta.59: 정한 직후 "종이에 적어 주세요" 창 — 암호를 그대로 크게 보여 주고, 버튼은 [종이에 적어 두었어요] 하나. 누르기 전에는 파일을 만들지 않는다.
+      const tw = await choiceTitle(page);
+      await check(tw.includes('백업 암호를 종이에 적어 주세요') && (await page.locator('.choice-modal #passWrite').innerText()).trim() === 'harness-pass-01' && (await choiceText(page)).includes('새 태블릿에서 장부를 되찾을 때 이 암호가 꼭 필요해요') && (await page.locator('.choice-modal [data-a="choice-pick"]').count()) === 1 && A.downloads.length === dl0,
+        `right after setting the backup password the app must show it and ask the owner to write it down before making the file (got ${JSON.stringify(tw)})`);
+      await pick(page, 'ok');
       const t = await choiceTitle(page);
-      await check(t === '파일이 저장됐나요?', `after downloading, the app must ask whether the file is visible instead of claiming it was saved (got ${JSON.stringify(t)})`);
+      await check(t === '파일이 저장됐나요?' && (await choiceText(page)).includes('이 파일은 백업 암호로 열려요'), `after downloading, the app must ask whether the file is visible (with the written-password reminder) instead of claiming it was saved (got ${JSON.stringify(t)})`);
       const d = A.downloads[dl0];
       passFileName1 = d && d.suggestedFilename();
       await check(/^밥장부백업_\d{4}-\d{2}-\d{2}\.json$/.test(passFileName1 || ''), `the own backup file name (got ${passFileName1})`);
@@ -2848,27 +2859,25 @@ async function runBeta55c(browser, url, cors) {
       const m0 = await metaOf(page);
       await pick(page, 'yes');
       const m = await metaOf(page);
-      await check(m.lastBackupAt > m0.lastBackupAt - 1 && m.lastBackupAt > Date.now() - 60000 && m.myKeyBackedUpAt > Date.now() - 60000 && m.backupPassCheck && m.backupPassCheck.it === 600000 && !('pass' in m.backupPassCheck),
-        'confirming the file must stamp lastBackupAt and myKeyBackedUpAt; only a verifier (no password) is kept on the device');
+      await check(m.lastBackupAt > m0.lastBackupAt - 1 && m.lastBackupAt > Date.now() - 60000 && m.myKeyBackedUpAt > Date.now() - 60000 && m.backupPassCheck && m.backupPassCheck.it === 600000 && !('pass' in m.backupPassCheck) && typeof m.backupPassKeep === 'string' && m.backupPassKeep.length > 20 && !m.backupPassKeep.includes('harness-pass-01'),
+        'confirming the file must stamp lastBackupAt and myKeyBackedUpAt; the device keeps a verifier and (beta.59) a device-key-locked copy of the password — never the plain text');
+      await check((await page.locator('#guardPassNote').innerText()).includes('백업 암호는 종이에 적어 보관하세요'), 'once a backup password exists the guard card must keep reminding the owner to keep it written down');
       const bk = await page.locator('#guardState').innerText();
       await check(bk.includes('내 보관 백업') && bk.includes('오늘'), `the status box must show 내 보관 백업 오늘 (got ${JSON.stringify(bk)})`);
     });
 
-    // ── ⑨ 두 번째부터는 한 번만 — 틀리면 창 안에서 다시 ──
+    // ── ⑨ 두 번째부터는 묻지 않는다(beta.59 — 기기가 암호를 기억). 예전 기기(검증자만 있음)의 "한 번만 넣기"·틀린 암호는
+    //    harness/backup-pass.e2e.mjs ⑥이 본다. ──
     await guard('own-save-enter', async () => {
-      await page.locator('[data-a="backup-now"]').click();
-      await choiceTitle(page); await pick(page, 'save');
-      await page.waitForSelector('#keyPass1');
-      await check((await page.locator('#keyPass2').count()) === 0 && (await page.locator('#keyPassTitle').innerText()).includes('백업 암호를 넣어 주세요'), 'once set, the backup password is asked only once');
-      await page.locator('#keyPass1').fill('wrong-pass-99');
-      await page.locator('[data-a="pass-ok"]').click();
-      await page.waitForFunction(() => { const h = document.getElementById('keyPassHint'); return h && /암호가 맞지 않아요/.test(h.textContent); }, null, { timeout: 20000 });
-      await check((await page.locator('#keyPass1').count()) === 1, 'a wrong backup password must keep the dialog open with the reason');
       const dl0 = A.downloads.length;
-      await page.locator('#keyPass1').fill('harness-pass-01 ');
-      await page.locator('[data-a="pass-ok"]').click();
+      await page.locator('[data-a="backup-now"]').click();
       await choiceTitle(page);
-      await check(A.downloads.length === dl0 + 1, 'the right password (with a stray trailing space) must produce one file');
+      await check((await choiceText(page)).includes('암호 없이 파일 만들기') && (await page.locator('.choice-modal .choice-actions [data-a="choice-pick"]').count()) === 3, 'once the password is remembered the choice must still be three buttons, with the no-password path as a text link below');
+      await pick(page, 'save');
+      const t = await choiceTitle(page);
+      await check(t === '파일이 저장됐나요?' && (await page.locator('#keyPass1').count()) === 0 && A.downloads.length === dl0 + 1, `once set, the backup password must not be asked again — the file is made straight away (got ${JSON.stringify(t)})`);
+      const f = JSON.parse(await fsp.readFile(await A.downloads[dl0].path(), 'utf8'));
+      await check(f.type === 'prepaid-pass-backup', 'the unasked backup must still be a password-locked file');
       await pick(page, 'yes');
     });
 
@@ -2876,15 +2885,15 @@ async function runBeta55c(browser, url, cors) {
     await guard('own-plain', async () => {
       const k0 = (await metaOf(page)).myKeyBackedUpAt;
       await page.locator('[data-a="backup-now"]').click();
-      await choiceTitle(page); await pick(page, 'save');
-      await page.waitForSelector('#keyPassPlain');
-      await page.locator('#keyPassPlain').check();
-      await check((await page.locator('#keyPassOk').innerText()).trim() === '암호 없이 저장하기' && !(await page.locator('#keyPass1').isVisible()), 'choosing "암호 없이" must hide the password fields and relabel the button');
+      await choiceTitle(page); await pick(page, 'plain');
+      // beta.59: 암호를 기억한 뒤에는 암호 창이 뜨지 않으므로 "암호 없이"는 선택창 아래 글씨 → 확인 창(진한 버튼 = [취소])으로 고른다.
+      const tp = await choiceTitle(page);
+      await check(tp === '암호 없이 만들까요?' && (await choiceText(page)).includes('가게 열쇠는 들어가지 않아요') && (await page.locator('.choice-modal .btn-primary').innerText()).trim() === '취소', `the no-password path must warn and default to cancel (got ${JSON.stringify(tp)})`);
       const dl0 = A.downloads.length;
-      await page.locator('[data-a="pass-ok"]').click();
+      await pick(page, 'save');
       await choiceTitle(page);
       const d = A.downloads[dl0]; const f = await dlJson(d);
-      await check(/^밥장부백업_암호없음_/.test(d.suggestedFilename()) && f.schemaVersion === 3 && Array.isArray(f.payload.transactions) && !JSON.stringify(f).includes('pkcs8') && !('privKeyWrapped' in f.payload.meta) && !('backupPassCheck' in f.payload.meta) && !('cloudBackupState' in f.payload.meta),
+      await check(/^밥장부백업_암호없음_/.test(d.suggestedFilename()) && f.schemaVersion === 3 && Array.isArray(f.payload.transactions) && !JSON.stringify(f).includes('pkcs8') && !('privKeyWrapped' in f.payload.meta) && !('backupPassCheck' in f.payload.meta) && !('backupPassKeep' in f.payload.meta) && !('cloudBackupState' in f.payload.meta),
         'an unpassworded backup must be today\'s plain schemaVersion 3 file without the key or device-only meta');
       await pick(page, 'yes');
       await check((await metaOf(page)).myKeyBackedUpAt === k0, 'a plain backup must not count as a key backup');
@@ -2897,7 +2906,7 @@ async function runBeta55c(browser, url, cors) {
         navigator.canShare = d => window.__shareMode !== 'nofiles' && !!(d && d.files && d.files.length);
         navigator.share = async d => { if (window.__shareMode === 'notallowed') { window.__shareMode = 'ok'; const e = new Error('activation'); e.name = 'NotAllowedError'; throw e; } const f = d.files[0]; window.__shared.push({ name: f.name, type: f.type, text: await f.text() }); };
       });
-      const run = async () => { await page.locator('[data-a="backup-now"]').click(); await choiceTitle(page); await pick(page, 'share'); await page.waitForSelector('#keyPass1'); await page.locator('#keyPass1').fill('harness-pass-01'); await page.locator('[data-a="pass-ok"]').click(); return choiceTitle(page); };
+      const run = async () => { await page.locator('[data-a="backup-now"]').click(); await choiceTitle(page); await pick(page, 'share'); return choiceTitle(page); };   // beta.59: 암호는 기기가 기억 — 묻지 않는다
       let t = await run();
       let sh = await page.evaluate(() => window.__shared);
       await check(t === '카톡·메일로 잘 보냈나요?' && sh.length === 1 && /^밥장부백업_\d{4}-\d{2}-\d{2}\.txt$/.test(sh[0].name) && sh[0].type === 'text/plain' && JSON.parse(sh[0].text).type === 'prepaid-pass-backup',
@@ -2929,7 +2938,7 @@ async function runBeta55c(browser, url, cors) {
       await page.locator('#keyPass1').fill('harness-pass-NEW'); await page.locator('#keyPass2').fill('harness-pass-NEW');
       await page.locator('[data-a="pass-ok"]').click();
       const t = await choiceTitle(page);
-      await check(t === '백업 암호를 바꿨어요' && (await choiceText(page)).includes('예전 암호로 열려요'), `the confirmation must repeat that old files open with the old password (got ${JSON.stringify(t)})`);
+      await check(t.includes('새 백업 암호를 종이에 적어 주세요') && (await page.locator('.choice-modal #passWrite').innerText()).trim() === 'harness-pass-NEW' && (await choiceText(page)).includes('예전 암호로 열려요'), `the confirmation must show the new password to write down and repeat that old files open with the old password (got ${JSON.stringify(t)})`);
       await pick(page, 'ok');
       const v1 = (await metaOf(page)).backupPassCheck;
       await check(v1 && v1.hash !== v0.hash, 'the verifier must change');

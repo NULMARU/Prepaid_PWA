@@ -489,6 +489,9 @@ async function drawSignature(page) {
       await page.locator('#keyPass1').fill('upgrade-pass-01');
       if (await page.locator('#keyPass2').count()) await page.locator('#keyPass2').fill('upgrade-pass-01');
       await page.locator('[data-a="pass-ok"]').click();
+      // beta.59+가 구버전일 때: 처음 정한 직후 "종이에 적어 주세요" 창([종이에 적어 두었어요])이 한 번 더 뜬다.
+      await page.waitForSelector('.choice-modal', { timeout: 20000 }).catch(() => {});
+      if (await page.locator('.choice-modal #passWrite').count()) await pickChoice('ok');
       await pickChoice('yes');
       await page.waitForTimeout(1500);
       check('S5', '내 보관 백업 파일 저장(백업 암호로 잠근 파일 1개)', downloads.length >= 1 && downloads.every(d => d.bytes > 0),
