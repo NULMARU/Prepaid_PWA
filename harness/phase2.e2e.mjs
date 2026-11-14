@@ -2039,6 +2039,47 @@ async function beta55Suite(label, store, tw) {
   ok(r.status === 200 && cntIa.count === 1 && Object.keys(cntIa).join(',') === 'count',
     'inbox-count: 인증 없이 200 유지(응답은 count만 — 요약 메타 없음)');
 
+  // 28z) 공공 API 대기 한도(2026-11-14 — 한 응답에 16~75초가 걸리던 날의 재현).
+  //   실제 defaultSearch·fetchPublicRows 경로를 탄다(searchRestaurants 목을 뺀 env + fetch 스텁).
+  {
+    const envPub = { ...env, searchRestaurants: undefined, PUBLIC_API_KEY: 'test-public-key', PUBLIC_API_TIMEOUT_MS: '200' };
+    const pubRow = (i, name) => ({ MNG_NO: 'PUB-' + i, BPLC_NM: name || ('가게' + i), ROAD_NM_ADDR: '서울특별시 광진구 테스트로 ' + i, SALS_STTS_NM: '영업/정상', ROAD_NM_ZIP: '05021' });
+    const pubBody = rows => ({ ok: true, status: 200, json: async () => ({ response: { header: { resultCode: '0' }, body: { items: { item: rows } } } }) });
+    // (a) 응답이 영영 오지 않음 → 한도(200ms) 직후 503 public_api_timeout, fetch에는 abort 신호가 전달됨
+    let aborted = 0, t0 = Date.now();
+    globalThis.fetch = (url, init) => new Promise((_, reject) => { if (init && init.signal) init.signal.addEventListener('abort', () => { aborted += 1; reject(new Error('aborted')); }); });
+    try { r = await callRaw(store, envPub, 'GET', '/api/restaurants?zip=05021'); } finally { globalThis.fetch = realFetch; }
+    let rjPub = await r.json(); let took = Date.now() - t0;
+    ok(r.status === 503 && rjPub.error === 'public_api_timeout', '공공API 한도: 응답 없는 검색은 503 public_api_timeout(우리 서버 고장 500 internal과 구분) — ' + r.status + ' ' + JSON.stringify(rjPub));
+    ok(took >= 150 && took < 2000 && aborted === 1, '공공API 한도: 한도(200ms) 직후에 끝나고 걸려 있던 요청을 끊음 — ' + took + 'ms, abort ' + aborted + '회');
+    // (b) 한도는 검색 한 번 전체에 하나 — 페이지마다 120ms씩 걸리면 두 번째 장에서 한도에 닿는다(장마다 새 한도면 통과해 버림)
+    let pages = 0; t0 = Date.now();
+    globalThis.fetch = (url, init) => new Promise((resolve, reject) => {
+      pages += 1; const tm = setTimeout(() => resolve(pubBody(Array.from({ length: 100 }, (_, i) => pubRow(pages * 1000 + i)))), 120);
+      if (init && init.signal) init.signal.addEventListener('abort', () => { clearTimeout(tm); reject(new Error('aborted')); });
+    });
+    try { r = await callRaw(store, envPub, 'GET', '/api/restaurants?zip=05021'); } finally { globalThis.fetch = realFetch; }
+    rjPub = await r.json(); took = Date.now() - t0;
+    ok(r.status === 503 && rjPub.error === 'public_api_timeout' && pages === 2 && took < 2000, '공공API 한도: 여러 장을 받아도 전체 한도는 하나(2번째 장에서 503) — ' + r.status + ', ' + pages + '장, ' + took + 'ms');
+    // (c) 빠른 응답은 그대로 200 + 상호 필터
+    globalThis.fetch = async () => pubBody([pubRow(1, '도쿄오므라이스 광진본점'), pubRow(2, '골목닭')]);
+    try { r = await callRaw(store, envPub, 'GET', '/api/restaurants?zip=05021&q=' + encodeURIComponent('도쿄')); } finally { globalThis.fetch = realFetch; }
+    rjPub = await r.json();
+    ok(r.status === 200 && Array.isArray(rjPub) && rjPub.length === 1 && rjPub[0].name === '도쿄오므라이스 광진본점', '공공API 한도: 제때 온 응답은 200 + 상호 필터 그대로 — ' + JSON.stringify(rjPub).slice(0, 120));
+    // (d) 한도와 무관한 공공 API 오류(HTTP 500)는 예전처럼 500 internal(코드 구분 유지)
+    globalThis.fetch = async () => ({ ok: false, status: 500 });
+    const errLog = console.error; console.error = () => {};
+    try { r = await callRaw(store, envPub, 'GET', '/api/restaurants?zip=05021'); } finally { globalThis.fetch = realFetch; console.error = errLog; }
+    rjPub = await r.json();
+    ok(r.status === 500 && rjPub.error === 'internal', '공공API 한도: 시간 초과가 아닌 공공 API 오류는 500 internal 그대로 — ' + r.status);
+    // (e) 가게 등록의 실존 대조가 응답 없음 → 한도 뒤 등록은 통과(가용성 우선, verified=0) — 예전엔 앱의 20초 제한이 먼저 끊어 등록이 실패했다
+    const kpPub = await genKeyPair(); t0 = Date.now();
+    globalThis.fetch = (url, init) => new Promise((_, reject) => { if (init && init.signal) init.signal.addEventListener('abort', () => reject(new Error('aborted'))); });
+    try { r = await callRaw(store, envPub, 'POST', '/api/register-key', { restaurant_id: 'PUB-SLOW-1', restaurant_name: '느린날식당', public_key: b64(await subtle.exportKey('spki', kpPub.publicKey)) }); } finally { globalThis.fetch = realFetch; }
+    took = Date.now() - t0;
+    ok(r.status === 200 && took < 2000, '공공API 한도: 실존 대조가 응답 없어도 등록은 한도 뒤 통과(가용성 우선) — ' + r.status + ', ' + took + 'ms');
+  }
+
   // 29) OTP 발송 남용 차단(F-03)
   const ymd = new Date();
   const otpKey = 'otp_sent_' + ymd.getUTCFullYear() + '-' + String(ymd.getUTCMonth() + 1).padStart(2, '0') + '-' + String(ymd.getUTCDate()).padStart(2, '0');

@@ -290,6 +290,82 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await ctx.close();
 }
 
+// ── 시나리오 H(beta.56): 공공데이터가 제때 답하지 않으면(서버 503 public_api_timeout) "검색 결과 없음"이 아니라
+//    "불러오지 못했어요 · 와이파이 확인 · 직접 입력"을 화면에 **남긴다**(3초 토스트로 사라지지 않는다) ──
+{
+  const ctx = await browser.newContext();
+  const calls = [];
+  let mode = 'timeout';
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => {
+    await sleep(20);
+    if (mode === 'timeout') return { status: 503, body: { error: 'public_api_timeout' } };
+    if (mode === 'busy') return { status: 429, body: { error: 'rate_limited' } };
+    return { body: mkRow(zip || EARLY_ZIP, '느린날식당') };
+  });
+  const setupText = () => page.evaluate(() => document.querySelector('.setup').innerText);
+  ok((await page.locator('.store-search-err').count()) === 0, 'H: 검색 전(온라인)에는 실패 안내가 없다');
+  await page.fill('#setupStoreName', '느린날식당');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.store-search-err', { timeout: 8000 });
+  let t = await setupText();
+  ok(t.includes('가게 목록을 불러오지 못했어요') && t.includes('와이파이(인터넷)를 확인하고 다시 눌러 주세요') && t.includes('[직접 입력할게요]로 먼저 시작하세요'),
+    'H: 서버 503(공공데이터 응답 없음) → "불러오지 못했어요 · 와이파이 확인 · 직접 입력" 안내 — ' + JSON.stringify(t.slice(-160)));
+  ok(!t.includes('검색 결과가 없습니다') && !t.includes('목록에 우리 가게가 없나요') && !/public_api_timeout|internal/.test(t),
+    'H: 실패를 "검색 결과 없음"으로 말하지 않고(간판·상호 안내도 없음) 영문 코드도 보이지 않는다');
+  await sleep(4200); // 토스트(3초)였다면 사라졌을 시간
+  ok((await page.locator('.store-search-err[data-code="fail"]').count()) === 1 && (await page.inputValue('#setupStoreName')) === '느린날식당',
+    'H: 안내는 4초 뒤에도 화면에 남아 있고 입력한 가게 이름도 그대로다');
+  ok(await page.locator('[data-a="setup-manual-toggle"]').isVisible(), 'H: [직접 입력할게요] 버튼이 함께 보인다(막다른 길 아님)');
+  mode = 'busy';
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.store-search-err[data-code="busy"]', { timeout: 8000 });
+  ok((await setupText()).includes('검색 요청이 잠시 몰렸어요'), 'H: 429는 "요청이 몰렸어요 · 30초쯤 뒤" 안내');
+  mode = 'ok';
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 8000 });
+  ok((await page.locator('.store-search-err').count()) === 0 && (await setupText()).includes('느린날식당'), 'H: 다시 눌러 성공하면 안내는 사라지고 결과가 보인다');
+  ok(errors.length === 0, 'H: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 I(beta.56): 와이파이(인터넷)가 없으면 누르기 전부터 한 줄로 알리고, 연결되면 스스로 사라진다 ──
+{
+  const ctx = await browser.newContext();
+  const calls = [];
+  const { page, errors } = await newPage(ctx, calls);
+  const setupText = () => page.evaluate(() => document.querySelector('.setup').innerText);
+  await page.fill('#setupStoreName', '오프라인식당');
+  // 글자를 치는 중에는 화면을 갈아엎지 않는다(입력 보호) — 칸에서 손을 뗀 상태에서 연결이 끊기면 곧바로 안내가 뜬다.
+  await page.evaluate(() => { const a = document.activeElement; if (a && a.blur) a.blur(); });
+  await ctx.setOffline(true);
+  await page.waitForSelector('.store-search-err[data-code="offline"]', { timeout: 8000 });
+  let t = await setupText();
+  ok(t.includes('와이파이(인터넷)에 연결해야 가게를 찾을 수 있어요') && t.includes('연결이 어려우면 [직접 입력할게요]로 먼저 시작하세요'),
+    'I: 오프라인이 되면 검색을 누르기 전에도 "와이파이에 연결해야 찾을 수 있어요 · 직접 입력" 안내 — ' + JSON.stringify(t.slice(-120)));
+  ok((await page.inputValue('#setupStoreName')) === '오프라인식당', 'I: 안내가 뜨는 동안 입력한 가게 이름이 그대로다');
+  const before = calls.length;
+  await page.click('[data-a="setup-store-search"]');
+  await sleep(500);
+  t = await setupText();
+  ok(calls.length === before && (await page.locator('.store-search-err[data-code="offline"]').count()) === 1 && !t.includes('검색 결과가 없습니다'),
+    'I: 오프라인에서 [가게 찾기]를 눌러도 서버를 두드리지 않고, "검색 결과 없음"이 아니라 와이파이 안내가 남는다');
+  // 글자를 치는 중에 끊겨도(화면은 그대로) [가게 찾기]를 누르면 같은 안내가 뜬다
+  await ctx.setOffline(false);
+  await page.waitForFunction(() => !document.querySelector('.store-search-err'), null, { timeout: 8000 });
+  await page.click('#setupStoreName');
+  await ctx.setOffline(true);
+  await sleep(300);
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.store-search-err[data-code="offline"]', { timeout: 8000 });
+  ok(calls.length === before && (await page.inputValue('#setupStoreName')) === '오프라인식당', 'I: 입력 중에 끊긴 경우에도 [가게 찾기]를 누르면 와이파이 안내가 뜬다(서버 호출 없음·입력 유지)');
+  await page.evaluate(() => { const a = document.activeElement; if (a && a.blur) a.blur(); });
+  await ctx.setOffline(false);
+  await page.waitForFunction(() => !document.querySelector('.store-search-err'), null, { timeout: 8000 });
+  ok((await page.inputValue('#setupStoreName')) === '오프라인식당', 'I: 다시 연결되면 안내가 스스로 사라지고 입력값은 그대로다');
+  ok(errors.length === 0, 'I: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
 await browser.close();
 srv.close();
 console.log(`\n결과: ${pass} 통과, ${fail} 실패`);

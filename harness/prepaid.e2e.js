@@ -8561,7 +8561,9 @@ async function main() {
     // 남겨 두는 예외는 **하니스가 일부러 만든 네트워크 실패**뿐이고, 그것도 상한을 둔다.
     //   상한을 넘거나 목록에 없는 오류가 하나라도 나오면 실패한다(신규·증가 = 회귀).
     const EXPECTED_CONSOLE = [
-      { name: 'mocked HTTP 401/404/500', re: /Failed to load resource: the server responded with a status of (401|404|500)/, max: 60 },
+      { name: 'mocked HTTP 401/404/500', re: /Failed to load resource: the server responded with a status of (401|404|500)/, max: 63 },
+      //   ↑ 기준값은 60이다(beta.55·56 모두 60 — 2026-11-14 실측). 상한이 기준값과 같으면, 기기가 바쁜 날 재시도 한 번이 더 끼어
+      //     61이 되어 무관한 실패가 난다(같은 날 실제로 겪음). 여유 3을 둔다 — 실제 수치는 아래 'console noise tally' 줄로 늘 찍힌다.
       { name: 'offline/DNS 실패 시나리오', re: /net::ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_REFUSED|FAILED)/, max: 8 },
       // beta.55(A2): 명단을 받은 직후의 "백업을 갱신할까요?" 확인창이 없어지고 조용한 서버 백업이 그 자리에서 돈다 — 등록된 가게의
       //   직접 전달·승인마다 시도하므로, 안전망 목(500)에 대한 'silent cloud backup' 로그가 몇 건 는다(예전에는 확인창을 닫아 시도 자체가 없었다).
@@ -8577,6 +8579,8 @@ async function main() {
     const consoleOverflow = EXPECTED_CONSOLE
       .filter(e => consoleTally.get(e.name) > e.max)
       .map(e => `${e.name}: ${consoleTally.get(e.name)}건 > 상한 ${e.max} ${JSON.stringify(consoleProblems.filter(m => e.re.test(m)).map(m => m.slice(0, 60)))}`);
+    // 상한까지 얼마나 남았는지 늘 찍는다 — 상한에 닿은 실패가 '회귀'인지 '원래 턱밑이었는지'를 로그만 보고 가릴 수 있게.
+    console.log('console noise tally: ' + EXPECTED_CONSOLE.map(e => `${e.name} ${consoleTally.get(e.name)}/${e.max}`).join(' · '));
     await assert(consoleUnexpected.length === 0,
       `the browser console must stay clean — ${consoleUnexpected.length} unexpected error/warning(s): ${JSON.stringify([...new Set(consoleUnexpected)].slice(0, 5))}`);
     await assert(consoleOverflow.length === 0,

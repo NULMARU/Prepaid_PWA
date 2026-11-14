@@ -486,15 +486,35 @@ function extractRows(data) {
 function pick(r, keys) { for (const k of keys) { if (r[k] != null && String(r[k]).trim() !== '') return String(r[k]); } return ''; }
 // 공공 API 한 페이지 호출 → 원본 행 배열. params 는 [키, 값] 배열(값은 여기서 인코딩).
 // cond[...] 파라미터명은 브래킷을 리터럴로 유지하고 값만 인코딩(값에 serviceKey +,/,= 포함 가능).
-async function fetchPublicRows(env, extraParams) {
+// 공공 API를 기다리는 한도(전체 한 번의 검색·대조 기준). 2026-11-14 실측: 공공 API가 한 응답에 16~75초를
+// 쓰는 날이 있다 — 한도가 없으면 사장님은 앱의 20초 제한이 끊을 때까지 멍하니 기다리고, 가게 등록의 실존 대조는
+// 그 20초를 넘겨 등록 자체가 실패한다. 15초 안에 답이 없으면 '지금은 안 됨'을 바로 알린다(앱 제한보다 짧게).
+const PUBLIC_API_TIMEOUT_MS = 15000;
+function publicApiDeadline(env) {
+  const ms = Number(env && env.PUBLIC_API_TIMEOUT_MS);
+  return Date.now() + (Number.isFinite(ms) && ms > 0 ? ms : PUBLIC_API_TIMEOUT_MS);
+}
+function publicApiTimeoutError() { const e = new Error('공공API 응답 시간 초과'); e.code = 'public_api_timeout'; return e; }
+// deadline(절대 시각 ms)을 주면 그때까지만 기다린다. 응답 머리뿐 아니라 본문 읽기까지 같은 한도 안이다.
+async function fetchPublicRows(env, extraParams, deadline) {
   const key = env.PUBLIC_API_KEY || env.LOCALDATA_KEY;
   if (!key) throw new Error('PUBLIC_API_KEY 미설정');
   const base = env.PUBLIC_API_BASE || 'https://apis.data.go.kr/1741000/general_restaurants/info';
   const params = [['serviceKey', key], ['returnType', 'json']].concat(extraParams);
   const qs = params.map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
-  const res = await fetch(base + '?' + qs);
-  if (!res.ok) throw new Error('공공API HTTP ' + res.status);
-  const data = await res.json();
+  const left = (deadline || publicApiDeadline(env)) - Date.now();
+  if (left <= 0) throw publicApiTimeoutError();
+  const ctl = new AbortController();
+  let timer = null;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => { try { ctl.abort(); } catch (_) {} reject(publicApiTimeoutError()); }, left); });
+  const work = (async () => {
+    const res = await fetch(base + '?' + qs, { signal: ctl.signal });
+    if (!res.ok) throw new Error('공공API HTTP ' + res.status);
+    return res.json();
+  })();
+  work.catch(() => {}); // 한도가 먼저 끝난 뒤 늦게 오는 거절이 '처리 안 된 거절'로 남지 않게
+  let data;
+  try { data = await Promise.race([work, timeout]); } finally { clearTimeout(timer); }
   const hdr = data && data.response && data.response.header;
   if (hdr && hdr.resultCode != null && !['0', '00'].includes(String(hdr.resultCode)))
     throw new Error('공공API 오류: ' + (hdr.resultMsg || hdr.resultCode));
@@ -540,8 +560,9 @@ async function defaultSearch(env, region, q, zip) {
   if (zipKey) {
     const zipParam = env.PUBLIC_API_ZIP_PARAM || 'cond[ROAD_NM_ZIP::EQ]';
     const rows = [];
+    const deadline = publicApiDeadline(env); // 페이지를 여러 장 받아도 전체 한도는 하나
     for (let page = 1; page <= ZIP_MAX_PAGES; page++) {
-      const got = await fetchPublicRows(env, [[zipParam, zipKey], ['pageNo', String(page)], ['numOfRows', '100']]);
+      const got = await fetchPublicRows(env, [[zipParam, zipKey], ['pageNo', String(page)], ['numOfRows', '100']], deadline);
       rows.push(...got);
       if (got.length < 100) break;
     }
@@ -871,7 +892,14 @@ export async function handle(request, env, store) {
       if (tooLong(region, MAX_STR) || tooLong(q, MAX_STR)) return j({ error: '입력 길이 초과' }, 400);
       if (zip && zip.length !== 5) return j({ error: '우편번호는 5자리 숫자입니다' }, 400);
       const search = env.searchRestaurants || defaultSearch;
-      const list = await search(env, region, q, zip);
+      let list;
+      try { list = await search(env, region, q, zip); }
+      catch (e) {
+        // 공공 API가 한도 안에 답하지 않았다 — 우리 서버 고장(500 internal)과 구분해 알린다.
+        // 앱은 "가게 목록을 불러오지 못했어요 · 다시 찾기 / 직접 입력"으로 안내한다.
+        if (e && e.code === 'public_api_timeout') return j({ error: 'public_api_timeout' }, 503);
+        throw e;
+      }
       await bumpStats(async () => { await store.incrCounter('searches', 1); });
       return j(list);
     }
