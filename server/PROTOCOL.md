@@ -104,8 +104,8 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 
 | 메서드·경로 | 요청 | 응답 | 비고 |
 |---|---|---|---|
-| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?, district?}` | `{ok:true}` / `{ok:true, reactivated:true}` / 400/401 | 공개키 등록. **최초 등록은 공공데이터로 실존·상호를 대조**하고 어긋나면 `400 {error:'store_not_found'}`(§4.10). 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1). 선택 필드 `district`(관할 지역, 공개 사업장 정보, ≤100자, 예 "서울특별시 광진구") 저장 — **저장값이 비어 있으면 무인증 갱신, 값이 있는데 다르면 소유 증명 필요**(§4.6). 해제(휴지통) 상태에서 같은 키면 **재활성**(`reactivated:true`), 다른 키면 선착순 신규 등록(§4.12). **beta.55**: `public_key`가 RSA-OAEP(2048~4096비트) SPKI로 열리지 않으면 `400 {error:'invalid_public_key'}`(모든 경로). 운영자가 휴지통에 넣은 가게를 7일 안에 **다른 키**로 등록하면 `409 {error:'takeover_locked', locked_until}`(같은 키 되돌리기는 잠금 없음, §4.12) |
-| `POST /api/challenge` | `{restaurant_id}` | `{challenge_ct}` / 404 | 소유 증명 챌린지 발급(§4.1). **beta.55**: 미만료 챌린지가 상한(5)이면 가장 오래된 것을 지우고 발급한다(예전 `429 too_many_challenges`는 더 나오지 않음) |
+| `POST /api/register-key` | `{restaurant_id, restaurant_name, public_key, auth_token?, district?}` | `{ok:true}` / `{ok:true, reactivated:true}` / 400/401 / 409(`takeover_locked`·`takeover_conflict`·`state_conflict`) | 공개키 등록. **최초 등록은 공공데이터로 실존·상호를 대조**하고 어긋나면 `400 {error:'store_not_found'}`(§4.10). 최초 등록·동일 키 재등록은 인증 불요. 다른 키로 재등록 시 `auth_token` 필요(§4.1). 선택 필드 `district`(관할 지역, 공개 사업장 정보, ≤100자, 예 "서울특별시 광진구") 저장 — **저장값이 비어 있으면 무인증 갱신, 값이 있는데 다르면 소유 증명 필요**(§4.6). 해제(휴지통) 상태에서 같은 키면 **재활성**(`reactivated:true`), 다른 키면 선착순 신규 등록(§4.12). **beta.55**: `public_key`가 RSA-OAEP(2048~4096비트) SPKI로 열리지 않으면 `400 {error:'invalid_public_key'}`(모든 경로). 운영자가 휴지통에 넣은 가게를 7일 안에 **다른 키**로 등록하면 `409 {error:'takeover_locked', locked_until}`(같은 키 되돌리기는 잠금 없음, §4.12). **beta.60**: ① 최초 등록·다른 키 인수에서 상호가 비었으면 `400 {error:'store_name_required'}` ② 휴지통 가게의 **같은 키 되돌리기도 `auth_token` 필요**(없으면 구버전 앱 호환 경로 — 상호·관할을 바꾸지 않고 운영자 휴지통이 아닐 때만 받음, 그 밖은 `401 auth_required`). 상호를 바꾸면 실존 대조를 다시 한다(`400 store_not_found`, 확인되면 `verified=1`, 판정 불가면 **기존 `verified` 유지**) ③ 인수·되돌리기·키 교체는 **처음 읽은 상태가 그대로일 때만** — 아니면 `409 {error:'takeover_conflict'}`(인수) / `409 {error:'state_conflict'}`(되돌리기·키 교체) ④ 인수 때 옛 백업과 옛 공개키는 보관 칸으로(§4.14) ⑤ 키 교체·인수 때 그 가게의 미사용 챌린지가 지워진다(§4.1) |
+| `POST /api/challenge` | `{restaurant_id}` | `{challenge_ct}` / 404 | 소유 증명 챌린지 발급(§4.1). **beta.55**: 미만료 챌린지가 상한(5)이면 가장 오래된 것을 지우고 발급한다(예전 `429 too_many_challenges`는 더 나오지 않음). **beta.60**: 챌린지는 발급 당시의 공개키에 묶인다 — 소비할 때 키가 바뀌었으면 `401`(§4.1) |
 | `POST /api/deregister` | `{restaurant_id, auth_token}` | `{ok:true, backup_kept_until}` / 401 | 음식점 주인 등록 해제(명단 받기 중단). **즉시 삭제가 아니라 30일 휴지통**(§4.12) — 담당자에게는 곧바로 '없는 가게'가 되지만 공개키 행·원장 백업은 30일 보관되고 그 안에 같은 키로 재등록하면 되살아난다. `backup_kept_until`은 삭제 예정 시각(epoch ms). 인증 필요 |
 | `POST /api/contact` | `{restaurant_id, auth_token, kakao_link, email}` | `{ok:true}` / 400/401/404 | 업무용 연락처 등록·수정·삭제(§4.5). 인증 필요 |
 | `GET /api/public-key?restaurant_id=` | — | `{restaurant_id, public_key, contact:{kakao_link,email}}` / 404 | 담당자 웹이 암호화 전 조회. **해제(휴지통) 상태는 404**(§4.12 — 해제한 가게로는 보낼 수 없어야 한다). `contact`는 미등록 시 각 필드 `null`. IP당 분당 20회로 별도 레이트리밋(§6.3) |
@@ -115,22 +115,26 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 | `POST /api/submit` | `{summary, blob, consent}` (아래) + 헤더 `X-Agency-Token`(운영 시 필수) | 신규 `{summary_id}` / 재제출 `{summary_id, deduped:true, status, repaired?}` / 400/401/404/429 | 부서·음식점 단위 1건(§4.3). **beta.55**: 받는 가게가 활성 등록이 아니면(미등록·휴지통 모두) `404 {error:'not_registered'}`, 그 가게의 미수령(PENDING·72시간 이내) 신청이 이미 30건이면 `429 {error:'too_many_pending', max:30}` — 둘 다 이미 접수된 접수번호의 재시도(deduped)에는 적용하지 않는다(§4.7). 멱등 판정 키는 **접수번호**(`summary.submission_id`)이며 없으면 `batch_hash`+연월(§4.7). summary·blob·consent는 **한 트랜잭션**으로 저장된다(부분 저장 없음). `blob.ciphertext`는 **허용 4키 화이트리스트**(§2.1). 서버가 **토큰에서 읽은 인증 이메일 도메인**을 `deposit_summary.agency_domain`에 함께 기록한다(§4.11 — body로 온 값은 무시) |
 | `GET /api/inbox?restaurant_id=&auth_token=` (또는 헤더 `X-Auth-Token`) | — | `[{summary_id, summary, ciphertext, status}]` / 401 | 음식점 앱 폴링(PENDING만, `encrypted_blob` JOIN — 암호문 없는 건은 제외). **소유 증명 필수**(§4.1의 1회용 `auth_token`, 없거나 무효면 `401 {error:'auth_required'}`). `summary`에 **`batch_hash`는 실리지 않는다**(§4.9). `summary.agency_domain`(인증 이메일 도메인, 미인증·구버전이면 `null`)이 실린다(§4.11). **beta.55**: 한 번에 **최대 50건**, 오래된 것부터(순서는 예전과 같음) |
 | `GET /api/inbox-count?restaurant_id=` | — | `{"count":2}` / 400 | 알림 배지·경량 폴링용 **개수만**. `/api/inbox`와 동일 필터(PENDING + 72시간 이내 + `encrypted_blob` JOIN)를 COUNT로만 수행하고 요약 메타·암호문은 반환하지 않는다. `restaurant_id` 누락 시 `400 {error:'restaurant_id 필요'}`. **인증 없음** — 같은 id로 `/api/inbox`를 호출하면 이미 알 수 있는 값의 부분집합이라 새로 노출되는 정보가 0(남용 방어는 전역 레이트리밋 분당 60, §6.3) |
-| `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절. 상태 전이 성공 시 암호문(`encrypted_blob`) 즉시 파기(§6). 인증 필요 |
-| `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash, gen?}` | `{ok:true}` / 400/401/409 | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요. **beta.55** 선택 필드 `gen`(조각 백업의 머리, §4.13): 오면 형식 검사(틀리면 `400 {error:'invalid_gen'}`) 후 머리 저장과 **같은 배치로** 다른 세대 조각을 지운다. 없으면 조각을 건드리지 않는다(v1 앱 그대로). **해제(휴지통) 상태에서는 `409 {error:'deregistered'}`** — 30일 뒤 지워질 자리에 새 백업을 받아 "백업해 뒀다"는 잘못된 안심을 주지 않는다(되찾기는 그대로 가능) |
+| `POST /api/approve` | `{summary_id, status:"APPROVED"\|"REJECTED", restaurant_id, auth_token}` | `{ok:true}` / 401/403/404/409 | 승인/거절. 상태 전이 성공 시 암호문(`encrypted_blob`) 즉시 파기(§6). 인증 필요. **beta.60**: 전이와 삭제가 **한 트랜잭션** — 삭제가 실패하면 전이도 취소돼 재시도가 200이 된다. 이미 처리된 건의 재시도(`409 already_processed`)도 남아 있던 암호문을 지운다 |
+| `POST /api/ledger-backup` | `{restaurant_id, auth_token, blob, blob_hash, gen?, seg_count?}` | `{ok:true}` / 400/401/409 | 암호화 원장 클라우드 백업 upsert(§4.2). 인증 필요. **beta.55** 선택 필드 `gen`(조각 백업의 머리, §4.13): 오면 형식 검사(틀리면 `400 {error:'invalid_gen'}`) 후 머리 저장과 **같은 배치로** 다른 세대 조각을 지운다 — **beta.60**부터는 **15분 넘게 아무도 쓰지 않은 세대만**(동시 백업 보호, §4.13). 없으면 조각을 건드리지 않는다(v1 앱 그대로). **beta.60** 선택 필드 `seg_count`(정수 1~1000, `gen`과 함께만): 그 세대의 조각 0..seg_count-1이 모두 있을 때만 머리를 쓰고, 아니면 `409 {error:'segments_missing'}`(머리·조각 무변경). 형식이 틀리면 `400 {error:'invalid_seg_count'}`. 진단용 id(`__diag_`)는 머리 2만 자까지(`400 backup_quota_exceeded`). **해제(휴지통) 상태에서는 `409 {error:'deregistered'}`** — 30일 뒤 지워질 자리에 새 백업을 받아 "백업해 뒀다"는 잘못된 안심을 주지 않는다(되찾기는 그대로 가능) |
 | `POST /api/ledger-backup/get` | `{restaurant_id, auth_token}` | `{blob, blob_hash, updated_at}` / 404 | 백업 조회. 인증 필요. 다른 열쇠 인수 **전**에 쓰인 백업은 404(§4.12, beta.55) |
 | `POST /api/ledger-backup/delete` | `{restaurant_id, auth_token}` | `{ok:true}` / 401/404 | 백업 삭제(예: 기기를 되찾아 클라우드 백업이 더 이상 필요 없을 때). 인증 필요. **beta.55**: 머리와 함께 조각(§4.13)도 지운다. 지울 것이 하나도 없으면 404 |
-| `POST /api/ledger-backup/seg` | `{restaurant_id, auth_token, gen, seg_no, blob, blob_hash?}` | `{ok:true, updated_at}` / 400/401/409 | **beta.55** 조각 1개 upsert(§4.13). 휴지통이면 `409 deregistered`, 가게당 1,000행 초과면 `400 too_many_segments`(24시간 지난 고아 세대는 먼저 비움, `reason` 동봉) |
+| `POST /api/ledger-backup/seg` | `{restaurant_id, auth_token, gen, seg_no, blob, blob_hash?}` | `{ok:true, updated_at}` / 400/401/409 | **beta.55** 조각 1개 upsert(§4.13). 휴지통이면 `409 deregistered`, 가게당 1,000행 초과면 `400 too_many_segments`(24시간 지난 고아 세대는 먼저 비움, `reason` 동봉). **beta.60** 할당량: 실존 미확인(`verified=0`) 가게 250행·글자 합계 1,200만 자, 진단용 id 2행·2만 자 — 행 초과는 `too_many_segments`(`max`=그 가게의 행 한도), 글자 초과는 `400 {error:'backup_quota_exceeded', max_chars}` |
 | `POST /api/ledger-backup/seg/get` | `{restaurant_id, auth_token, gen, seg_nos:[…≤5]}` | `{segments:[{seg_no, blob, blob_hash, updated_at}]}` / 400/401 | **beta.55** 조각 받기(없는 번호는 빠짐). 휴지통 상태에서도 된다 |
 | `POST /api/ledger-backup/seg/list` | `{restaurant_id, auth_token}` | `{segments:[{gen, seg_no, blob_hash, updated_at, size}]}` / 401 | **beta.55** 조각 목록(본문 없음, `size`=blob 글자 수) |
-| `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?, sent?}` / 400/429/500 | 기관 이메일 OTP 발급(§4.4). **beta.55**: OTP 전용 한도에 걸린 `429 {error:'rate_limited'}`에 `scope`(`'ip'`=IP당 시간당 5회, `'email'`=같은 이메일 60초)와 `retry_after_s`(다시 될 때까지 남은 초)가 함께 실린다 |
+| `POST /api/ledger-archive/challenge` | `{restaurant_id, public_key}` | `{challenge_ct, archived_at, keep_until, has_head}` / 400/404/429 | **beta.60** 인수된 가게의 옛 백업 보관 칸 — **옛 열쇠 소유자 전용 읽기 챌린지**(§4.14). 옛 공개키로 봉인. 보관 칸이 없거나 30일이 지났으면 `404 not_found` |
+| `POST /api/ledger-archive/get` | `{restaurant_id, public_key, auth_token}` | `{blob, blob_hash, updated_at}` / 400/401/404 | **beta.60** 보관 칸의 옛 머리(§4.14, `/api/ledger-backup/get`과 같은 모양). 토큰은 보관 칸 전용 1회용 |
+| `POST /api/ledger-archive/seg/get` | `{restaurant_id, public_key, auth_token, gen, seg_nos:[…≤5]}` | `{segments:[{seg_no, blob, blob_hash, updated_at}]}` / 400/401/404 | **beta.60** 보관 칸의 옛 조각(§4.14, `/seg/get`과 같은 규칙) |
+| `POST /api/ledger-archive/seg/list` | `{restaurant_id, public_key, auth_token}` | `{segments:[{gen, seg_no, blob_hash, updated_at, size}]}` / 401/404 | **beta.60** 보관 칸의 옛 조각 목록(§4.14) |
+| `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?, sent?}` / 400/429/500 | 기관 이메일 OTP 발급(§4.4). **beta.55**: OTP 전용 한도에 걸린 `429 {error:'rate_limited'}`에 `scope`(`'ip'`=IP당 시간당 5회, `'email'`=같은 이메일 60초)와 `retry_after_s`(다시 될 때까지 남은 초)가 함께 실린다. **beta.60**: 일일 예산은 발송 **전** 원자 예약 — 예산 저장소 오류면 보내지 않고 `500 {error:'email_send_failed'}`(§4.4) |
 | `POST /api/agency/verify-otp` | `{email, otp}` | `{token}` / 401/429 | OTP 검증 → 24시간 기관 토큰 발급. 시도 5회 초과 `429 {error:'too_many_attempts'}` — **beta.55**부터 시도 횟수는 비교 **전에** 원자적으로 센다(병렬 대입 차단, §4.4) |
-| `POST /api/agency/keycheck` | 헤더 `X-Agency-Token` + `{institution, department, restaurant_id, fingerprint}` | `{ok:true, fingerprint}` / 400/401/404/409 | 열쇠 지문 확인 기록(§4.8). 서버가 현재 공개키로 지문을 재계산해 **일치할 때만** 저장(upsert). 불일치 시 `409 {error:'fingerprint_mismatch', current}`. **beta.55**: 이미 **다른 지문으로 확인한 기록**이 있으면 `confirm_change:true`일 때만 덮어쓰고, 아니면 `409 {error:'fingerprint_changed', current, had_previous:true}` |
+| `POST /api/agency/keycheck` | 헤더 `X-Agency-Token` + `{institution, department, restaurant_id, fingerprint}` | `{ok:true, fingerprint}` / 400/401/404/409 | 열쇠 지문 확인 기록(§4.8). 서버가 현재 공개키로 지문을 재계산해 **일치할 때만** 저장(upsert). 불일치 시 `409 {error:'fingerprint_mismatch', current}`. **beta.55**: 이미 **다른 지문으로 확인한 기록**이 있으면 `confirm_change:true`일 때만 덮어쓰고, 아니면 `409 {error:'fingerprint_changed', current, had_previous:true}`. **beta.60**: 기록은 **인증 도메인별로 따로** 저장된다 — 다른 도메인이 같은 기관·부서명을 적어도 남의 기록을 덮어쓰지 못하고, `fingerprint_changed` 비교도 같은 도메인의 기록과만 한다(§4.8) |
 | `GET /api/agency/keychecks?institution=&department=` | 헤더 `X-Agency-Token` | `{keychecks:[{restaurant_id, fingerprint, checked_at}]}` / 400/401 | 그 **부서가** 확인해 둔 음식점 목록(§4.8). **토큰이 인증한 도메인의 기록만** 반환한다(기관·부서명은 자칭 값이므로 — §4.8 도메인 결속). 다른 정보(인원·금액 등)는 절대 싣지 않는다 |
 | `GET /api/admin/stats` | 헤더 `X-Admin-Token` | `{restaurants, institutions_total, …, feedback[]}` / 401/503/429 | 비식별 집계 통계(관리자 전용, §8) |
 | `GET /api/admin/registry` | 헤더 `X-Admin-Token` | `{restaurants:[{restaurant_id, restaurant_name, district, registered_at, deregistered_at, purge_after, verified, has_contact, has_backup, pending, is_diag}], grace_ms}` / 401/503/429 | 등록 가게 목록(관리자 전용, §8.4). 공개 정보만 — 연락처·백업은 **있음/없음(boolean)만**, 공개키 미포함. 휴지통·진단(`__diag_`) 행도 포함하되 표시 |
 | `POST /api/admin/deregister` | 헤더 `X-Admin-Token` + `{restaurant_id, confirm_id, reason_code, memo?}` | `{ok:true, restaurant_id, deregistered_at, purge_after}` / 이미 휴지통 `{ok:true, already_deregistered:true, deregistered_at, purge_after}` / 400/401/404/429/503 | 운영자 **30일 휴지통** 처리(§8.4). 효과는 `/api/deregister`와 동일. `confirm_id`는 `restaurant_id`와 정확히 같아야 함. 감사 기록 `admin_action_log` |
 | `GET /api/admin/actions?limit=` | 헤더 `X-Admin-Token` | `{actions:[{action, restaurant_id, reason_code, memo, created_at}]}` / 401/503/429 | 운영자 조치 기록 최신순(기본 50, 최대 200, §8.4) |
-| `POST /api/feedback` | `{role, message, contact?}` | `{ok:true}` / 400/429 | 피드백 수신(§8.3) |
+| `POST /api/feedback` | `{role, message, contact?}` | `{ok:true}` / 400/429 | 피드백 수신(§8.3). **beta.60**: 유선전화·공백/점 구분 전화·국가번호 표기·이메일 주소도 `400 no_personal_info` |
 
 `POST /api/submit` 본문:
 ```json
@@ -179,6 +183,17 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 사장님의 '발급~소비' 사이(수백 ms)에 5건을 더 발급해 그 1건을 밀어내는 것뿐이며, IP당 분당 20회 한도가
 그 속도를 늦추고 앱은 401이면 챌린지를 다시 받아 재시도한다.
 
+**챌린지는 발급 당시 공개키에 묶인다(beta.60, S-6)**: `auth_challenge.pk`에 발급 시점의 공개키를 적고, 소비할 때
+그 가게의 **현재** 공개키와 같아야 통과한다(마이그레이션 전에 발급된 `pk` NULL 행은 5분 안에 사라지므로 허용).
+그리고 다른 키로의 교체(소유 증명 재등록)·다른 열쇠 인수는 **같은 트랜잭션에서 그 가게의 미사용 챌린지를 지운다**.
+예전에는 옛 키 소유자가 토큰을 미리 여러 개 받아 두면 키가 바뀐 뒤에도 최대 5분 동안 새 주인의 가게를 해제·백업 삭제할
+수 있었다. 앱 동작은 바뀌지 않는다(토큰은 원래 받자마자 한 번 쓴다).
+
+**앱의 등록 요청(beta.60, 클라이언트 쪽 사실)**: 음식점 앱(`relayRegister`)은 기기에 가게 열쇠(`meta.pubKey`)가 있으면
+`register-key`를 보내기 전에 **항상** 이 챌린지로 `auth_token`을 먼저 얻어 싣는다(예전에는 등록에 성공한 적이 있는 기기만).
+토큰을 얻지 못하면(처음 등록이라 404, 다른 열쇠로 등록된 가게, 끊김) 토큰 없이 보내고 결과는 서버 답에 맡긴다. 같은 열쇠의
+해제 가게 되돌리기(§4.12 S-8)가 토큰을 요구하므로, 이 동작이 그 경로의 정상 길이다.
+
 `POST /api/approve`는 body에 `restaurant_id`도 함께 받아 summary의 `restaurant_id`와 일치하는지
 검증한다(불일치 시 `403 {error:'restaurant_mismatch'}`) — 다른 음식점의 챌린지로 엉뚱한 summary를
 승인하는 것을 막기 위함.
@@ -198,6 +213,13 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 삭제한다. 해제 상태에서 **새 백업 저장**(`POST /api/ledger-backup`)만 `409 {error:'deregistered'}`로
 막는다. 다른 키가 그 가게를 선착순으로 인수하면(§4.12) 옛 백업은 **그 시점에 지우지 않고**(beta.55 —
 예전에는 지웠다) 새 주인에게서 숨긴 채 30일 보관했다가 cron이 지운다. 새 주인이 새 백업을 올리면 그 자리에서 대체된다.
+**beta.60부터** 인수 순간 옛 백업은 **보관 칸**(§4.14)으로 옮겨져 새 주인의 업로드가 지우지 못하고, 옛 주인의 해제 시각부터 30일
+동안 옛 열쇠로 읽기만 할 수 있다.
+
+**백업에 들어가지 않는 것(앱 쪽 사실)**: 음식점 앱이 서버로 올리는 백업(v1 blob·v2 머리·조각 모두)에서는 **서명 그림**(beta.55),
+**직원 전화번호·문자 동의**(beta.55), **가게 전화번호 `meta.shopTel`**(beta.60, `stripPhonesForCloud` — 불변식 4)을 뺀다. 서명을
+했다는 확인값(`signatureHash`)은 남는다. 서버 백업으로 되찾을 때 빠진 값은 같은 기기면 기기 값을 그대로 두고, 새 기기면 비어 있다
+(사장님이 가게 전화만 다시 적는다). 내 보관 백업 파일과 기기 장부에는 셋 다 그대로 있다.
 
 장부가 1MB에 들어가지 않는 가게는 **조각 백업**(§4.13)을 쓴다 — 이 절의 머리(`ledger_backup`)가 조각 목록을
 가리키는 구조이며, v1 단일 blob 백업은 그대로 계속 동작한다.
@@ -259,8 +281,12 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
       `429 {error:'email_quota_exceeded'}`를 반환한다(Resend가 429를 준 경우와 같은 코드 —
       담당자에게는 "오늘 한도 도달" 안내로 동일하게 보인다). Resend 무료 플랜의 "하루 100통"에
       닿기 전에 우리 쪽에서 먼저 멈추기 위한 안전 여유값이다. 이 검사는 OTP 행을 만들기
-      **전**에 하므로 60초 스로틀을 소모하지 않고, 카운터는 **발송 성공분만** 증가한다.
-      D1 카운터라 isolate 분산과 무관한 전역 집계다.
+      **전**에 하므로 60초 스로틀을 소모하지 않는다. D1 카운터라 isolate 분산과 무관한 전역 집계다.
+      **beta.60(S-11)**: 예전의 '읽기 → 발송 → 성공하면 +1'은 동시 요청이 모두 같은 값을 읽어 상한을 넘었고,
+      카운터를 못 읽으면 0으로 보고 보냈다. 이제 발송 **전에** 조건부 원자 증가(`count<budget`일 때만 +1)로 한 통을
+      예약한다. 예약 실패 = `429 email_quota_exceeded`(예전과 같음). **예산 저장소 오류면 보내지 않는다**
+      (`500 {error:'email_send_failed'}`). 발송이 **확실히 안 된** 경우(Resend가 HTTP 오류로 답함·키 미설정·발송 요청 **전**의 예외 — 예: OTP 행 쓰기 실패)만 예약을
+      되돌리고, `fetch` 자체가 끊긴 경우(실제로 나갔는지 모름)는 되돌리지 않는다(예산을 보수적으로 센다).
     - **IP당 저한도**: `POST /api/agency/request-otp`는 `CF-Connecting-IP`당 **시간당 5회**로
       별도 제한한다(`429 {error:'rate_limited'}`). 이쪽은 per-isolate 메모리 Map이라 §6.3의
       한계를 그대로 가진다(여러 isolate/IP로 분산하면 우회 가능) — 전역 차단은 위 D1 일일
@@ -440,6 +466,12 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
   (`agency_token.email_domain`)을 `agency_keycheck.agency_domain`에 함께 기록하고, 조회는 **토큰
   도메인이 같은 행만** 반환한다. `agency_domain`이 NULL인 레거시 행(2026-09 이전 기록)은 어느
   도메인의 것인지 알 수 없으므로 반환하지 않는다 — 담당자가 한 번 재확인하면 값이 채워져 다시 보인다.
+- **도메인별 저장(beta.60, S-12)**: 위 표(`agency_keycheck`)는 키가 (기관·부서·음식점)뿐이라, 다른 도메인 토큰이
+  같은 기관·부서명을 적어 확인하면 **원래 도메인의 기록을 덮어써** 그 도메인의 목록에서 사라지게 할 수 있었다.
+  새 기록은 `agency_keycheck_dom`(키 = **도메인**·기관·부서·음식점)에만 쓴다. 옛 표는 더 쓰지 않고 읽기만 한다 —
+  같은 도메인이 남긴 옛 기록은 그 도메인이 새로 확인하기 전까지 그대로 목록에 나온다(기존 행을 고치는 마이그레이션
+  없음). `confirm_change` 비교(아래)도 **같은 도메인의 기록**과만 한다. 도메인이 없는 구버전 토큰의 확인은 저장하지
+  않는다(어차피 조회되지 않는다).
 - **부서 단위 격리**: 같은 부서는 재확인이 필요 없지만, **같은 기관의 다른 부서**는 처음 보낼 때
   다시 확인해야 한다(한 부서의 확인이 기관 전체의 신뢰로 번지지 않게). 기관 간에도 물론 격리된다.
 - **이미 확인한 지문을 바꾸려면 `confirm_change:true`(beta.55, D-7)**: 같은 (기관·부서·음식점)에 **다른
@@ -558,10 +590,25 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
   (백업 되찾기). 복구 경로를 열어 두는 것이 이 변경의 목적이다.
 - **해제 상태에서 막는 것**: `POST /api/ledger-backup`(새 백업 저장) → `409 {error:'deregistered'}`.
 - **되돌리기**: 30일 안에 **같은 공개키**로 `POST /api/register-key` → `200 {ok:true, reactivated:true}`
-  (해제 표시 제거 + 이름·관할 갱신, 연락처·백업·등록 시각 유지, 인증 불요 — 같은 공개키 = 같은 기기).
+  (해제 표시 제거 + 이름·관할 갱신, 연락처·백업·등록 시각 유지).
+  - **beta.60(S-8) — 소유 증명 필요**: 예전에는 "같은 공개키 = 같은 기기"로 보고 인증 없이 받았지만 공개키는 공개값이라
+    (`/api/public-key`), 남이 복사해 해제를 취소하고 **상호를 바꾸고 운영자 휴지통 조치를 풀** 수 있었다. 이제 `auth_token`
+    (§4.1 — 휴지통 상태에서도 챌린지는 발급된다)을 실어야 한다. 틀린 토큰은 `401`. 상호를 바꾸면(정규화 비교) 실존 대조를
+    다시 해 `mismatch`면 `400 store_not_found`, 맞으면 `verified`도 갱신한다. 빈 상호는 '바꾸지 않음'이다.
+  - **구버전 앱 호환(토큰 없음)**: beta.59 앱은 [자동 등록 중단] 뒤 같은 기기에서 다시 등록할 때 토큰을 싣지 않는다. 그래서
+    토큰이 없으면 **예전 상태를 그대로 되돌리는 경우만** 받는다 — 상호가 같고(빈 상호 포함), 관할을 바꾸지 않고(§4.6 규칙
+    그대로), 운영자 휴지통이 아닐 때. 그 밖은 `401 {error:'auth_required'}`(앱의 기존 안내로 간다). 모든 기기가 토큰을 싣는
+    앱으로 바뀐 뒤 `env.REACTIVATE_COMPAT="0"`으로 끈다(끄면 토큰 없는 되돌리기는 전부 401).
+  - 처음 읽은 상태(같은 키·같은 해제 시각)가 그대로일 때만 되돌린다 — 그 사이 다른 열쇠가 인수했으면 `409 {error:'state_conflict'}`.
 - **선착순 인수**: 해제 상태에서 **다른 공개키**로 등록하면 재등록이 아니라 최초 등록과 같은
   선착순 신규 등록이다(공공데이터 실존·상호 대조 §4.10 수행, `verified` 갱신, `registered_at`=현재).
   **옛 연락처는 그 시점에 삭제**한다(다음 주인이 이전 사업장의 것을 물려받지 않게).
+  - **beta.60(S-5·S-6·S-7)**: 인수는 한 트랜잭션으로 ① 옛 주인의 백업(머리+조각 — 지난 인수 뒤에 쓰인 것)과 **옛 공개키**를
+    **보관 칸**(§4.14)으로 옮기고 ② 산 표에서 지우고 ③ 등록을 바꾸고 ④ 그 가게의 미사용 챌린지를 지운다. ①~③은 **처음 읽은
+    상태(해제 시각·옛 공개키)가 그대로일 때만** 일어난다 — 공공데이터 대조를 기다리는 사이 원래 주인이 되돌렸거나 다른 인수가
+    먼저 끝났으면 아무것도 바꾸지 않고 `409 {error:'takeover_conflict'}`(예전에는 마지막 쓰기가 이겨 방금 되살아난 가게의 키를
+    덮어썼다). 상호가 비었으면 `400 store_name_required`. 아래 beta.55의 `taken_over_at` 숨김은 **배포 전 인수로 산 표에 남은 옛
+    백업**에만 의미가 있다(새 인수는 산 표에 옛 백업을 남기지 않는다) — 규칙·cron ⑥은 그대로 둔다.
   - **옛 원장 백업은 지우지 않는다(beta.55, E-2)**: 예전에는 같은 배치로 지웠다 — 그러면 잘못된 인수
     (토큰 유출·착오) 한 번이 되돌릴 수 없는 백업 소실이 됐다. 이제 `public_key_registry.taken_over_at`에
     인수 시각을 남기고, 그보다 먼저 쓰인 머리·조각은 **새 주인에게 '없는 것'**이다(`/ledger-backup/get` 404,
@@ -578,6 +625,8 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
     대조보다 먼저라 잠긴 동안 외부 호출도 없다. 상수는 `ADMIN_TAKEOVER_LOCK_MS = 7일`.
 - **만료**: TTL cron이 `deregistered_at < now-30일`인 행의 `ledger_backup`·`ledger_backup_seg`를 먼저 지우고 키 행을
   지운다(순서 중요 — 키 행이 먼저 사라지면 남은 백업은 아무도 되찾을 수 없는 죽은 데이터가 된다).
+  **beta.60(S-4)**: 세 DELETE 모두 **삭제 시점에** 그 가게가 여전히 '30일 넘게 해제된 상태'인지를 조건으로 다시 보고,
+  청크마다 한 트랜잭션으로 묶는다 — 대상 조회와 삭제 사이에 되살아났거나 인수된 가게는 지우지 않는다.
   상수는 `worker.js`의 `DEREGISTER_GRACE_MS = 30일`.
 - **자동 만료는 없다**: 해제하지 않은 등록은 시간이 지나도 사라지지 않는다(운영 런북 §12 —
   자동 만료는 '가게 가로채기' 경로라 금기).
@@ -612,6 +661,23 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 그대로** 적는다(gen 없는 v1 업로드는 **NULL로 되돌린다** — 그 머리는 조각을 가리키지 않는다). 이 값은 서버 안에서만
 쓰이고(고아 조각 정리), `/api/ledger-backup/get` 응답은 예전 그대로 `{blob, blob_hash, updated_at}`다(응답 계약 무변경).
 
+**beta.60(S-9) — 동시 백업 보호**: 예전 규칙(머리 저장 = 다른 **모든** 세대 삭제)은 같은 열쇠의 두 세션이 동시에 백업하면
+A 머리가 B 조각을, B 머리가 A 조각을 지워 "B 머리 + 조각 없음"을 남겼다(양쪽 다 200). 이제 머리 저장은 **최근 15분
+(`HEAD_SEG_GRACE_MS`) 동안 아무도 쓰지 않은 다른 세대만** 지운다(세대의 최대 `updated_at` 기준 — 진행 중인 업로드는 조각을 올릴 때마다
+갱신된다). 진 쪽 세대는 유예가 지난 다음 머리 저장이나 고아 정리가 치운다. 선택 필드 **`seg_count`**(정수 1~1000)를 머리와 함께
+보내면 서버는 그 세대의 조각 `0..seg_count-1`이 **모두 있는지** 같은 트랜잭션에서 확인하고, 하나라도 없으면 머리·조각을 바꾸지
+않고 `409 {error:'segments_missing'}`를 돌려준다(beta.59 앱은 보내지 않는다 — 그때는 예전처럼 확인 없음). 앱은 이 409를 받으면
+새 세대로 처음부터 다시 올리면 된다(⚠️ 앱의 `cloudFail`은 409를 `deregistered`로 읽으므로 `error` 값으로 먼저 가를 것).
+**beta.60 앱(클라이언트 쪽 사실)**: 조각이 하나라도 있는 머리에는 언제나 `seg_count`를 싣는다. `segments_missing`을 받으면
+`error` 값으로 먼저 갈라(`deregistered`로 읽지 않는다) 끊긴 세대 기록을 비우고 **새 세대로 한 번만** 처음부터 다시 올린다.
+그래도 실패하면 더 되풀이하지 않고 상태 상자에 "서버에 올린 장부 일부가 사라져 백업을 마치지 못했어요"로 남긴다.
+
+**beta.60(S-10) — 실존 미확인 가게의 할당량**: `verified=0`(공공 API 장애 중 등록 등)은 조각 **250행·글자 합계 1,200만 자**,
+진단용 id(`__diag_`)는 **2행·2만 자**(머리도 2만 자). 근거: 300건 조각 하나 ≈ 5.7만 자(서명 제외·gzip·암호화·base64, 2026-11-16
+실측) → 장부 3만 건 ≈ 570만 자, 다시 올리는 동안 두 세대가 겹칠 수 있어 2배 + 여유. 행 초과는 `too_many_segments`(`max`=그 가게의
+행 한도), 글자 초과는 `400 {error:'backup_quota_exceeded', max_chars}`(먼저 24시간 지난 고아 세대를 비우고 다시 센다).
+`verified=1`은 예전 그대로 1,000행(글자 합계는 세지 않는다).
+
 **삭제되는 곳(머리와 항상 함께)**: `POST /api/ledger-backup/delete`(머리·조각 모두, 지울 것이 없으면 404),
 30일 휴지통 cron ⑤, 인수 후 30일 cron ⑥(인수 전 옛 조각, §4.12). 인수 시점에는 지우지 않고 새 주인에게서
 숨긴다(`updated_at < taken_over_at`인 조각은 `get`·`list`에서 빠진다).
@@ -632,6 +698,41 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 생각해 클라이언트는 압축·서명 그림 제외로 조각 수를 작게 유지한다(계약서 §1-3). 관리자 목록의 `has_backup`은
 머리 존재 여부 그대로다.
 
+### 4.14 인수된 가게의 옛 백업 보관 칸 (2026-11, beta.60 — 결정 3-가)
+
+**배경**: 사장님이 스스로 해제(`/api/deregister`)한 가게는 남이 다른 열쇠로 곧바로 인수할 수 있다(폐업·양도 경로라 잠그지
+않는다 — 잠그면 "예전 폰에서 해제 → 새 폰에서 등록" 길이 막힌다). 그런데 인수 뒤 새 주인이 백업을 올리면 옛 백업이 대체·삭제되어,
+잘못된 인수(착오·악의) 한 번이 옛 주인의 마지막 복구선을 없앴다. 이제 인수 순간 옛 백업과 옛 공개키를 **보관 칸**으로 옮기고,
+옛 열쇠 소유자에게 **읽기 전용** 경로를 준다.
+
+**저장**: `ledger_backup_archive(archive_id, restaurant_id, public_key, deregistered_at, archived_at, blob, blob_hash, updated_at, gen)`
++ `ledger_backup_archive_seg(archive_id, gen, seg_no, blob, blob_hash, updated_at)`. 백업이 하나도 없던 가게의 인수는 행을 만들지 않는다.
+새 주인의 업로드·삭제(`/api/ledger-backup*`)는 이 표에 닿지 않는다. **보존: 옛 주인의 해제 시각(`deregistered_at`)부터 30일** —
+일일 cron ⑧이 머리·조각·보관 칸 토큰을 함께 지운다(인수가 해제 29일째였다면 하루 남는다 — 예전 휴지통 30일과 같은 시계).
+
+**인증**: 보관 칸 전용 챌린지(`archive_challenge`, 옛 공개키로 봉인, 5분, 1회용, 보관 칸당 미만료 5개)다. 이 토큰은 일반 엔드포인트
+(`verifyAuth`)에서 **통하지 않고**, 일반 토큰도 보관 칸에서 통하지 않는다. 쓰기·삭제·등록 변경 경로는 없다(`/api/ledger-archive/`의
+다른 경로는 404).
+
+| 엔드포인트 | 요청 | 응답 |
+|---|---|---|
+| `POST /api/ledger-archive/challenge` | `{restaurant_id, public_key}` (`public_key` = 앱이 가진 **자기 옛 공개키** SPKI base64, ≤8KB) | `200 {challenge_ct, archived_at, keep_until, has_head}` — `challenge_ct`는 `/api/challenge`와 같은 형식(옛 공개키로 RSA-OAEP 봉인한 `token_b64`). `keep_until` = 지워질 시각(epoch ms), `has_head` = 머리 유무. 그 (가게, 공개키)의 살아 있는 보관이 없으면 `404 {error:'not_found'}`. 필드 누락 `400`. IP당 분당 20회(`/api/challenge`와 같은 카운터) |
+| `POST /api/ledger-archive/get` | `{restaurant_id, public_key, auth_token}` | `200 {blob, blob_hash, updated_at}`(`/api/ledger-backup/get`과 같은 모양) / 머리 없음·보관 없음 `404 not_found` / 토큰 없음·틀림·재사용 `401 auth_required` |
+| `POST /api/ledger-archive/seg/get` | `{restaurant_id, public_key, auth_token, gen, seg_nos:[정수 1~5개]}` | `200 {segments:[{seg_no, blob, blob_hash, updated_at}]}` — `/api/ledger-backup/seg/get`과 같은 규칙(`400 invalid_gen`·`invalid_seg_nos`, 없는 번호는 빠짐) / 401 / 404 |
+| `POST /api/ledger-archive/seg/list` | `{restaurant_id, public_key, auth_token}` | `200 {segments:[{gen, seg_no, blob_hash, updated_at, size}]}` / 401 / 404 |
+
+**앱이 이 경로를 시도할 때**: 기기에 그 가게의 열쇠(`meta.pubKey`·개인키)가 있는데 서버가 **다른 열쇠**를 가진 경우 — 구체적으로
+① `register-key`가 `401 auth_required`(다른 기기에 등록됨) ② `/api/challenge`는 200인데 `challenge_ct`가 이 기기 개인키로 풀리지 않음
+(복호화 오류 = 서버의 공개키가 바뀜) ③ 서버 되찾기(`/api/ledger-backup/get`)가 401·404. 이때 **되찾기 흐름에서만**
+`/api/ledger-archive/challenge`를 부르고, 200이면 개인키로 풀어 `get` → (v2 머리면) `seg/get` 5개씩 — 일반 서버 되찾기와 같은 처리
+(머리 `gen`·조각 확인값 검사, 토큰은 요청마다 새로). 404면 "서버에 보관된 예전 백업이 없어요(인수 뒤 30일이 지났거나 백업이 없었음)".
+보관 칸에서 되찾은 장부는 **그 가게의 등록을 되돌리지 않는다**(지금 등록은 새 주인 것) — 앱은 안내만 하고 등록은 시도하지 않는다.
+
+**앱의 진입 위치(beta.60, 클라이언트 쪽 사실)**: 설정 > 장부 지키기 > [되찾기] > **[서버에서 되찾기]** 한 곳뿐이다(`archiveRestoreRun`).
+① 등록된 기기는 일반 서버 되찾기가 열쇠 불일치·401·404로 막히면 이어서 보관 칸을 본다. ② 등록이 막힌 기기(다른 기기에 등록됨)는
+이 기기가 예전에 서버 백업을 올린 적이 있을 때만 [서버에서 되찾기]를 보여 주고("이 기기가 예전에 서버에 올린 백업을 찾아요(30일 동안
+남아 있어요)") 곧바로 보관 칸을 본다. 404면 앱 안 창 "서버에 남은 예전 백업이 없어요"로 [파일에서 되찾기]를 안내한다.
+
 ## 5. 상태 머신
 `deposit_summary.status`: `PENDING` →(approve)→ `APPROVED` / `REJECTED`, 또는
 `PENDING` →(72시간 미수령)→ `EXPIRED`.
@@ -650,7 +751,8 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 TTL cron이 삭제한다(§6.3). 이메일 해시의 pepper(HMAC)는 2026-08에 도입됐다(§4.4).
 
 등록을 해제하면 공개키 행과 암호화 원장 백업(머리·조각)은 **30일 휴지통**(§4.12)에 들어갔다가 삭제된다.
-다른 열쇠가 인수한 가게의 '인수 전 옛 백업'도 인수 후 30일에 삭제된다(beta.55, §4.12).
+다른 열쇠가 인수한 가게의 '인수 전 옛 백업'도 인수 후 30일에 삭제된다(beta.55, §4.12). beta.60부터는 인수 때 옛 백업이
+보관 칸(§4.14)으로 옮겨져 **옛 주인의 해제 시각부터 30일**에 삭제된다(일일 cron ⑧).
 
 **예외(장기 보관)**: `agency_keycheck`(§4.8 열쇠 지문 확인 이력)와 `public_key_registry`(등록 유지 중인
 공개키·관할·연락처)는 TTL 정리 대상이 아니다 — 전자는 지우면 담당자가 매번 다시 전화해야 하고,
@@ -667,8 +769,9 @@ TTL cron이 삭제한다(§6.3). 이메일 해시의 pepper(HMAC)는 2026-08에 
 
 `POST /api/approve`가 `deposit_summary.status`를 `PENDING`에서 `APPROVED` 또는 `REJECTED`로
 전이시키는 데 성공하면, 같은 요청 처리 안에서 곧바로 해당 `summary_id`에 연결된
-`encrypted_blob` 행을 삭제한다. 상태 전이가 실패(이미 처리됨 등)하면 blob은 삭제되지
-않으므로 재시도가 안전하다. `deposit_summary` 행(비식별 요약) 자체는 삭제하지 않고 §6.3의
+`encrypted_blob` 행을 삭제한다. **beta.60(S-13)**: 전이와 삭제는 **한 트랜잭션**이다(삭제가 실패하면 전이도 취소돼
+`500` → 재시도가 `200`). 이미 처리된 건의 재시도(`409`)는 그 건이 PENDING이 아니면 **남아 있던 암호문을 지운다**(예전에는 첫 요청의
+삭제가 실패하면 재시도가 409로 끝나 암호문이 30일 정리까지 남았다). `deposit_summary` 행(비식별 요약) 자체는 삭제하지 않고 §6.3의
 30일 TTL까지 유지한다.
 
 ### 6.2 미수령 72시간 만료
@@ -681,12 +784,16 @@ TTL cron이 삭제한다(§6.3). 이메일 해시의 pepper(HMAC)는 2026-08에 
    두 엔드포인트는 **`encrypted_blob` JOIN까지 동일**하다 — 암호문이 이미 파기된 고아 summary는
    `/api/inbox`에 나오지 않으므로 개수에서도 빠져야 한다(그렇지 않으면 "열 수 없는 알림 배지"가
    남는다). 즉 언제나 `inbox-count == inbox.length`.
-2. **cron 시점**: TTL cron이 하루 1회 돌 때, 72시간 지난 `PENDING` 항목을 `status='EXPIRED'`로
-   전이시키고 연결된 `encrypted_blob`을 즉시 삭제한다(`processed_at`을 전이 시각으로 기록).
+2. **cron 시점**: TTL cron이 **매시(beta.60)** 72시간 지난 `PENDING` 항목을 `status='EXPIRED'`로
+   전이시키고 연결된 `encrypted_blob`을 즉시 삭제한다(`processed_at`을 전이 시각으로 기록, 청크마다 한 트랜잭션).
+   예전에는 하루 1회라 실제 삭제가 최대 약 96시간 뒤였다 — 이제 **72시간 + 1시간 안**에 지워진다.
 
 ### 6.3 TTL cron · 레이트 리밋
 
-- **TTL cron** (`wrangler.toml` `[triggers] crons`, 매일 UTC 18:17=KST 새벽 03:17): 개인정보
+- **cron 분기(beta.60, S-14)**: `wrangler.toml` cron은 **매시 17분 하나**(`"17 * * * *"` — 무료 플랜 트리거 수를 늘리지 않는다).
+  `scheduled()`가 `event.scheduledTime`의 UTC 시각으로 가른다(`cronJobFor`): **UTC 18시 회차만** 아래 일일 정리 전체,
+  나머지 23회는 ①(미수령 72시간 만료)만. ⑧ = 보관 칸(§4.14) 중 옛 주인 해제 30일이 지난 것 삭제(beta.60).
+- **TTL cron** (일일 정리, UTC 18:17=KST 새벽 03:17): 개인정보
   최소화 목적으로 ① 72시간 지난 `PENDING`을 `EXPIRED`로 전이하며 `encrypted_blob`을 즉시 삭제
   (§6.2 — 승인/거절 건은 §6.1에서 이미 즉시 삭제되었으므로 이 단계는 대개 no-op),
   ② `APPROVED`/`REJECTED`/`EXPIRED` 후 30일 지난 `deposit_summary`(+ 혹시 남아있는
@@ -822,6 +929,10 @@ CORS 헤더와는 독립이므로 **CORS 동작(화이트리스트 echo / Origin
   (`01[0-9]-?\d{3,4}-?\d{4}`)이 있으면 **저장하지 않고** `400 {error:'no_personal_info'}`.
   자유 입력은 사용자가 "연락처: 010-…"을 무심코 적기 가장 쉬운 창구라 서버에서 막는다.
   날짜(`2026-08-01`) 등 다른 숫자는 통과한다.
+  **beta.60(S-D2, 결정 2)**: 운영자 메모와 같은 규칙(`hasPersonalContact`)으로 넓혔다 — 공백·점으로 끊은 휴대전화
+  (`010 1234 5678`·`010.1234.5678`), 국가번호 표기(`+82 10-…`), **유선전화**(`02-123-4567`·`031)123-4567`·0으로 시작하는
+  9~11자리 연속 숫자), **이메일 주소**도 같은 `400 {error:'no_personal_info'}`. 관리번호(`3040000-101-2017-00034`)·날짜·금액·
+  버전 표기는 통과. 이미 저장된 행은 건드리지 않는다(180일 cron이 지운다).
 - 스팸 방지로 IP당 분당 5회 레이트리밋(`429`). 성공 시 `200 {ok:true}`.
 - **주의**: 자유 입력이므로 저장은 그대로 하되, 응답·서버 로그에 입력 내용을 반영하지 않는다.
 
@@ -911,6 +1022,7 @@ probe(`server/probe-emd.mjs`) 실측 결과 공공 API 응답·조건에 법정�
 
 | 버전 | 날짜 | 계약 변경 | 마이그레이션 |
 |---|---|---|---|
+| beta.60 | 2026-11 | ① 휴지통 cron이 삭제 시점에 상태를 다시 확인(S-4, §4.12). ② 인수 때 옛 백업+옛 공개키를 **보관 칸**으로, 옛 열쇠 읽기 전용 `/api/ledger-archive/{challenge,get,seg/get,seg/list}` 신설·cron ⑧(S-5, §4.14). ③ 챌린지를 발급 키에 결속 + 키 교체·인수 때 미사용 챌린지 삭제(S-6, §4.1). ④ 인수·되돌리기·키 교체를 처음 읽은 상태 조건부로 — `409 takeover_conflict`·`state_conflict`(S-7). ⑤ 같은 키 되돌리기에 소유 증명(토큰 없으면 구버전 호환 — 상호·관할 그대로·운영자 휴지통 아님만, `REACTIVATE_COMPAT`), 상호 변경 시 실존 재대조(S-8, §4.12). ⑥ 머리 교체는 15분 넘게 조용한 세대만 지움 + 선택 `seg_count` 검증 `409 segments_missing`(S-9, §4.13). ⑦ 빈 상호 등록 `400 store_name_required`, 미확인·진단 가게 조각 할당량 `backup_quota_exceeded`(S-10). ⑧ OTP 예산 원자 예약·확인된 실패만 환원·저장소 오류면 미발송(S-11, §4.4). ⑨ 지문 확인 기록 도메인별 저장(S-12, §4.8). ⑩ 승인·거절 전이+삭제 한 트랜잭션, 409 재시도도 남은 암호문 삭제(S-13, §6.1). ⑪ cron 매시(만료만) + UTC 18시 일일 정리(S-14, §6.2·§6.3). ⑫ 의견함 개인정보 차단 확대(S-D2, §8.3) | **`migrations-2026-11b.sql`**(신규 파일) 문 1(`ALTER … auth_challenge ADD COLUMN pk`)·문 2~6(보관 칸 3표 + 인덱스 2)·문 7(`agency_keycheck_dom`) — 문 단위 `--command`, **일곱 문 모두 서버 배포 전에** |
 | beta.55 | 2026-11 | ① **조각 백업**: `POST /api/ledger-backup/seg`·`/seg/get`·`/seg/list` 신설, `/api/ledger-backup`에 선택 필드 `gen`(머리 저장과 같은 배치로 다른 세대 조각 삭제), `/delete`·휴지통 cron이 조각도 삭제(§4.13). ② 인수 때 옛 백업을 **지우지 않음**(`taken_over_at`으로 숨김, 30일 뒤 cron ⑥) + 운영자 휴지통 가게 **7일 인수 잠금** `409 takeover_locked` + `400 invalid_public_key`(§4.12). ③ 챌린지 상한에서 429 대신 가장 오래된 것 교체(§4.1). ④ OTP 시도 원자 증가(§4.4). ⑤ `/api/submit` 활성 가게 확인 `404 not_registered`·미수령 상한 `429 too_many_pending`, `/api/inbox` 최대 50건(§4.7·§4.9). ⑥ OTP `rate_limited`에 `scope`·`retry_after_s` 추가(기존 필드 유지, §4.4). ⑦ keycheck 지문 변경 시 `confirm_change` 필요 `409 fingerprint_changed`(§4.8). ⑧ cron 단계별 격리 `errors`(§6.3), 진단 id 제외를 `substr`로(LIKE 와일드카드 수정). ⑨ **고아 조각 정리**: cron ⑦(14일) + 업로드 중 상한에서 24시간 지난 고아 세대 비우기, `too_many_segments`에 `reason`(`recent_orphans`+`retry_after_s` / `full`) 추가(기존 필드 유지, §4.13), 머리의 세대를 지키려고 `ledger_backup.gen` 저장(서버 내부용 — 응답 무변경) | **`migrations-2026-11.sql`**(신규 파일) 문 1(`ledger_backup_seg`)·문 2(`ALTER … public_key_registry ADD COLUMN taken_over_at`)·문 3(`ALTER … ledger_backup ADD COLUMN gen`) — 문 단위 `--command`, **세 문 모두 서버 배포 전에** |
 | admin | 2026-10 | 운영자 등록 가게 관리: `GET /api/admin/registry`·`POST /api/admin/deregister`(30일 휴지통, 효과는 `/api/deregister`와 동일)·`GET /api/admin/actions`(§8.4). 기존 계약 무변경 | **`migrations-2026-10.sql`**(신규 파일) 문 1~2(`admin_action_log` + 인덱스) — 문 단위 `--command` |
 | beta.48 | 2026-09 | ① `/api/submit`에 **접수번호 `submission_id`**(선택) 추가 — 멱등 키가 `batch_hash`에서 `dedupe_key`로 바뀜(§4.7). ② 제출 **원자 저장**(summary+blob+consent 한 트랜잭션) + **고아 요약 복구** `repaired:true`(§4.7). ③ `blob.ciphertext` **필드 화이트리스트**(§2.1). ④ 등록 해제 = **30일 휴지통**, `deregister` 응답에 `backup_kept_until`, 같은 키 재등록 시 `reactivated:true`(§4.12). ⑤ 같은 키 재등록의 **district 변경에 소유 증명 필요**(저장값이 있고 다를 때만, §4.6). ⑥ `keychecks` 조회의 **인증 도메인 결속**(§4.8). ⑦ 직접 전달 파일·QR에 `transfer_id`(§2.2, 클라이언트 계약). ⑧ cron `CLEANUP_CHUNK` 100 → **99**(D1 바인딩 상한, §6.3) | **`migrations-2026-09.sql`**(신규 파일, append-only) 문 1~7 — 문 단위 `--command` 실행. 문 2(백필)는 문 4(UNIQUE 인덱스)보다 먼저 |

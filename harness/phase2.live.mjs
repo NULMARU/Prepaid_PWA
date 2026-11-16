@@ -96,5 +96,23 @@ ok(hres.headers.get('cache-control') === 'no-store' && hres.headers.get('x-conte
 const deregToken = await getAuthToken(kp.privateKey);
 ok((await jf('/api/deregister', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_id: RID, auth_token: deregToken }) })).r.ok, '등록 해제(챌린지-응답 소유 증명 통과)');
 
+// 7) beta.60(S-8): 해제된 가게를 공개키만으로(토큰 없이) 상호를 바꿔 되살리기는 401. 같은 상호·같은 관할이면
+//    구버전 앱(beta.59) 호환 경로로 200 reactivated — 확인 뒤 다시 해제해 둔다(진단 id는 30일 휴지통 그대로).
+const post = (p, body) => jf(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const { r: s8a } = await post('/api/register-key', { restaurant_id: RID, restaurant_name: '남이바꾼상호', public_key: spki });
+ok(s8a.status === 401, 'beta.60 S-8: 토큰 없이 상호를 바꿔 되살리기 401');
+const { r: s8b, j: s8bj } = await post('/api/register-key', { restaurant_id: RID, restaurant_name: '데모김밥', public_key: spki });
+ok(s8b.ok && s8bj && s8bj.reactivated === true, 'beta.60 S-8: 같은 상호(구버전 앱 호환) 되돌리기 200 reactivated');
+ok((await post('/api/deregister', { restaurant_id: RID, auth_token: await getAuthToken(kp.privateKey) })).r.ok, 'beta.60: 확인 뒤 다시 해제');
+
+// 8) beta.60(S-5): 보관 칸 읽기 경로가 배포됐는가 — 보관이 없는 (가게, 키)는 404 {error:'not_found'}
+//    (구서버는 경로가 없어 404 {error:'not found'} — error 값으로 구분한다).
+const { r: arcR, j: arcJ } = await post('/api/ledger-archive/challenge', { restaurant_id: RID, public_key: spki });
+ok(arcR.status === 404 && arcJ && arcJ.error === 'not_found', 'beta.60 S-5: /api/ledger-archive/challenge 경로 존재(보관 없음 404 not_found)');
+
+// 9) beta.60(S-D2): 이메일이 든 의견은 저장하지 않고 400 no_personal_info(거절되므로 라이브 의견함에 남지 않는다).
+const { r: fbR, j: fbJ } = await post('/api/feedback', { role: '기타', message: '라이브 스모크 owner@example.org' });
+ok(fbR.status === 400 && fbJ && fbJ.error === 'no_personal_info', 'beta.60 S-D2: 이메일이 든 의견 400 no_personal_info');
+
 console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
 process.exit(fail ? 1 : 0);

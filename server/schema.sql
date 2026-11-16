@@ -73,7 +73,9 @@ CREATE TABLE IF NOT EXISTS consent_log (
 CREATE TABLE IF NOT EXISTS auth_challenge (
   restaurant_id TEXT NOT NULL,
   token_hash    TEXT NOT NULL,
-  expires_at    INTEGER NOT NULL
+  expires_at    INTEGER NOT NULL,
+  pk            TEXT                   -- (2026-11, beta.60) 발급 당시의 공개키(SPKI base64). 소비할 때 그 가게의 **현재** 공개키와
+                                       -- 같아야 한다(키 교체·인수 뒤 옛 키 토큰 무효). NULL = 마이그레이션 전 발급분(5분 안에 소멸, 허용).
 );
 CREATE INDEX IF NOT EXISTS idx_challenge_lookup ON auth_challenge(restaurant_id, token_hash);
 
@@ -102,6 +104,39 @@ CREATE TABLE IF NOT EXISTS ledger_backup_seg (
   updated_at    INTEGER NOT NULL,
   PRIMARY KEY (restaurant_id, gen, seg_no)
 );
+
+-- 인수 전 옛 백업 보관 칸(2026-11, beta.60 — PROTOCOL §4.14). 해제된 가게를 '다른 열쇠'가 인수하는 순간 옛 주인의
+-- 원장 백업(머리+조각)과 옛 공개키를 여기로 옮긴다(같은 트랜잭션에서 산 표에서는 지운다). 새 주인의 업로드·삭제는 이 표에
+-- 닿지 않는다. 옛 열쇠 소유자는 옛 개인키로 소유를 증명해 **읽기만** 할 수 있고(/api/ledger-archive/*), 옛 주인의
+-- 해제 시각(deregistered_at)부터 30일 뒤 cron이 지운다. 서버는 내용을 모른다(전부 암호문).
+CREATE TABLE IF NOT EXISTS ledger_backup_archive (
+  archive_id      TEXT PRIMARY KEY,    -- uuid
+  restaurant_id   TEXT NOT NULL,
+  public_key      TEXT NOT NULL,       -- 옛 주인의 공개키(SPKI base64) — 읽기 인증(챌린지)에 쓴다
+  deregistered_at INTEGER NOT NULL,    -- 옛 주인의 해제 시각(30일 보존 기준)
+  archived_at     INTEGER NOT NULL,    -- 인수(보관) 시각
+  blob            TEXT,                -- 옛 머리(없으면 NULL — 조각만 있던 경우)
+  blob_hash       TEXT,
+  updated_at      INTEGER,
+  gen             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_archive_restaurant ON ledger_backup_archive(restaurant_id, archived_at);
+CREATE TABLE IF NOT EXISTS ledger_backup_archive_seg (
+  archive_id TEXT NOT NULL,
+  gen        TEXT NOT NULL,
+  seg_no     INTEGER NOT NULL,
+  blob       TEXT NOT NULL,
+  blob_hash  TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (archive_id, gen, seg_no)
+);
+-- 보관 칸 읽기 전용 챌린지(옛 공개키로 봉인). 일반 auth_challenge와 따로 둔다 — 보관 칸 토큰은 일반 엔드포인트에서 통하지 않는다.
+CREATE TABLE IF NOT EXISTS archive_challenge (
+  archive_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_archive_challenge ON archive_challenge(archive_id, token_hash);
 
 -- 기관 OTP 인증(단계적 활성화). 이메일 도메인은 .go.kr/.korea.kr만 허용.
 CREATE TABLE IF NOT EXISTS agency_otp (
@@ -136,6 +171,18 @@ CREATE TABLE IF NOT EXISTS agency_keycheck (
   PRIMARY KEY (institution, department, restaurant_id)
 );
 CREATE INDEX IF NOT EXISTS idx_keycheck_dept ON agency_keycheck(institution, department);
+-- 도메인별 지문 확인 기록(2026-11, beta.60 S-12). 예전 표는 키에 도메인이 없어, 다른 도메인 토큰이 같은 기관·부서명을 적어
+-- 확인하면 원래 도메인의 기록을 덮어쓸 수 있었다. 새 기록은 이 표에만 쓰고(키 = 도메인·기관·부서·음식점), 옛 표는 읽기만 한다
+-- (같은 도메인이 남긴 옛 기록은 새 기록이 생기기 전까지 그대로 인정 — 기존 행을 고치는 마이그레이션 없음).
+CREATE TABLE IF NOT EXISTS agency_keycheck_dom (
+  agency_domain TEXT NOT NULL,
+  institution   TEXT NOT NULL,
+  department    TEXT NOT NULL,
+  restaurant_id TEXT NOT NULL,
+  fingerprint   TEXT NOT NULL,
+  checked_at    INTEGER NOT NULL,
+  PRIMARY KEY (agency_domain, institution, department, restaurant_id)
+);
 
 -- ── 비식별 집계 통계 (개인정보 아님 — 조직정보·공개ID·누적 카운터만 저장) ──
 -- 직원명·개인별 금액·이메일은 어디에도 저장하지 않는다(§0 불변식). 관리자 통계 API의 재료.

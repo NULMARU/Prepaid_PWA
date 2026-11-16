@@ -42,10 +42,12 @@ database_id = "13cf43c0-5d02-45bd-b00e-032285d5323c"
 # 아래 secret을 등록한 뒤에만 AUTH_MODE를 "prod"로 전환할 것(값은 이 파일에 쓰지 말 것):
 #   wrangler secret put RESEND_API_KEY
 
-# TTL 정리 cron: 매일 UTC 18:17(KST 새벽 03:17)에 실행 — 처리 완료 30일 경과 데이터,
-# 만료된 인증 챌린지/기관 OTP/기관 토큰을 삭제(개인정보 최소화 목적).
+# TTL 정리 cron(beta.60 S-14): **매시 17분** 한 개(무료 플랜 cron 트리거 수를 늘리지 않는다).
+#   · 매시: 미수령 72시간 만료(암호문 파기)만 — "미수령 암호문 72시간 뒤 삭제" 약속을 72시간+1시간 안에 지킨다.
+#   · UTC 18시(KST 03:17) 회차만: 예전 일일 정리 전체(처리 완료 30일, 인증 만료, 180일 보존, 휴지통, 보관 칸, 고아 조각).
+#   분기는 worker.js cronJobFor(event.scheduledTime). 예전 값: ["17 18 * * *"].
 [triggers]
-crons = ["17 18 * * *"]
+crons = ["17 * * * *"]
 
 # 비밀키는 파일에 두지 말고 CLI로 등록 (data.go.kr "Decoding(일반)" 키 사용):
 #   wrangler secret put PUBLIC_API_KEY

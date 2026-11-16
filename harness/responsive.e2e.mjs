@@ -1276,14 +1276,15 @@ async function runViewport(context, url, w, h) {
   });
   await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-owner-pin-${w}.png`) }).catch(() => {});
 
-  // ── PIN 분실 복구 화면(beta.18): 60초 활성화 게이트 안내와 두 파괴 버튼이 4개 뷰포트에서 온전해야 한다 ──
+  // ── PIN 분실 복구 화면(beta.18): 60초 활성화 게이트 안내와 파괴 버튼이 4개 뷰포트에서 온전해야 한다 ──
   //    잠금 화면에서 도달 가능한 유일한 파괴 경로라, 안내 문구가 잘리거나 버튼이 화면 밖으로 나가면 안 된다.
+  // beta.60: 이 시드 기기는 백업 암호를 정한 적이 없다 → [전부 지우고 새로 시작] 하나 + 이유 한 줄. ①②③ 화면은 runRecoveryProfile이 잰다.
   await noHorizontalOverflow(page, 'PIN 화면', w);
   await page.locator('[data-a="pin-forgot"]').click();
-  await page.waitForSelector('[data-a="pin-forgot-restore"]');
+  await page.waitForSelector('.pin-recovery [data-a="pin-reset"]');
   await noHorizontalOverflow(page, 'PIN 복구 화면', w);
   const recovery = await page.evaluate(() => {
-    const gate = document.querySelector('.pin-screen .pin-delay');
+    const gate = document.querySelector('.pin-screen .rec-gate');
     const g = gate ? gate.getBoundingClientRect() : null;
     return {
       gateText: gate ? gate.innerText.replace(/\n/g, ' ').trim() : '',
@@ -1298,7 +1299,7 @@ async function runViewport(context, url, w, h) {
   check(recovery.gateText.includes('잘못 누름 방지'), `${w}px PIN 복구 화면: 60초 활성화 게이트 안내가 보여야 한다 (got "${recovery.gateText}")`);
   check(!recovery.gateClipped, `${w}px PIN 복구 화면: 게이트 안내 문구가 잘렸다 ("${recovery.gateText}")`);
   check(recovery.gateLeft >= -1 && recovery.gateRight <= clientW + 1, `${w}px PIN 복구 화면: 게이트 안내가 화면 밖으로 나갔다`);
-  check(recovery.buttons.length === 2, `${w}px PIN 복구 화면: 복구/초기화 두 버튼이 있어야 한다 (${recovery.buttons.length}개)`);
+  check(recovery.buttons.length === 1, `${w}px PIN 복구 화면(백업 암호 없음): [전부 지우고 새로 시작] 하나만 있어야 한다 (${recovery.buttons.length}개)`);
   recovery.buttons.forEach(b => {
     check(b.disabled === true, `${w}px PIN 복구 화면: 게이트가 도는 동안 "${b.text}" 버튼은 비활성이어야 한다`);
     check(b.height >= 48, `${w}px PIN 복구 화면: "${b.text}" 터치 타겟이 48px 미만 (${Math.round(b.height)}px)`);
@@ -1865,6 +1866,127 @@ async function runGuardProfile(browser, url, w, h) {
   }
 }
 
+// ── beta.60: [비밀번호를 잊으셨나요?] 복구 화면 — 백업 암호가 있는 기기(①②③ + 게이트 안내)와 없는 기기(③ + 이유 한 줄) ──────────
+//   계약(폰 4폭 + 태블릿 6종): 가로 넘침 0 · 버튼 전부와 [돌아가기]가 **스크롤 없이** 화면 안 · 각 버튼 48px 이상·글자 안 잘림 ·
+//   안내(소제목·게이트) 안 잘림 · ①을 누르면 뜨는 백업 암호 창의 입력 칸과 [확인]도 스크롤 없이 화면 안.
+async function runRecoveryProfile(browser, url, w, h) {
+  const tag = `복구 화면 ${w}×${h}`;
+  const context = await browser.newContext({ viewport: { width: w, height: h }, isMobile: w <= 640, hasTouch: true, deviceScaleFactor: 2 });
+  await context.route('**/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '[]' }));
+  const page = await context.newPage();
+  page.on('dialog', d => d.dismiss());
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const salt = crypto.randomBytes(16);
+  const passCheck = { v: 1, it: 600000, salt: salt.toString('base64'), hash: crypto.pbkdf2Sync('resp-pass-60', salt, 600000, 32, 'sha256').toString('hex') };
+  const measure = () => page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const b = el => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height }; };
+    const clip = el => !!el && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1);
+    const sub = document.querySelector('#pinRecoverySub'), gate = document.querySelector('.rec-gate');
+    return { vh: innerHeight, vw: document.documentElement.clientWidth, scrollY: window.scrollY,
+      buttons: [...document.querySelectorAll('.pin-recovery .action-btn')].map(x => ({ a: x.dataset.a, text: x.innerText.replace(/\n/g, ' ').trim().slice(0, 30), clipped: [...x.querySelectorAll('strong,span')].some(clip), ...b(x) })),
+      back: b(document.querySelector('[data-a="pin-forgot-cancel"]')), sub: sub ? { ...b(sub), clipped: clip(sub) } : null, gate: gate ? { ...b(gate), clipped: clip(gate) } : null };
+  });
+  const inV = (m, r) => r && r.top >= -1 && r.bottom <= m.vh + 1 && r.left >= -1 && r.right <= m.vw + 1;
+  const verify = (m, label, n) => {
+    check(m.scrollY === 0, `${tag} ${label}: 초기 뷰포트(스크롤 0)에서 재야 한다`);
+    check(m.buttons.length === n, `${tag} ${label}: 버튼 ${n}개여야 한다 (${m.buttons.length}개)`);
+    m.buttons.forEach(x => {
+      check(inV(m, x), `${tag} ${label}: "${x.text}"이(가) 스크롤 없이 보이지 않는다 (${Math.round(x.top)}~${Math.round(x.bottom)} / vh ${m.vh})`);
+      check(x.height >= 48, `${tag} ${label}: "${x.text}" 터치 타겟이 48px 미만 (${Math.round(x.height)}px)`);
+      check(!x.clipped, `${tag} ${label}: "${x.text}" 글자가 잘렸다`);
+    });
+    check(inV(m, m.back), `${tag} ${label}: [돌아가기]가 스크롤 없이 보이지 않는다 (${Math.round(m.back.bottom)} / vh ${m.vh})`);
+    check(m.sub && inV(m, m.sub) && !m.sub.clipped, `${tag} ${label}: 안내 한 줄이 잘리거나 화면 밖이다`);
+  };
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await seed(page);
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('.cust-screen');
+    // (가) 백업 암호 없음 — ③ + 이유 한 줄
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.locator('[data-a="pin-forgot"]').click();
+    await page.waitForSelector('.pin-recovery');
+    await page.waitForTimeout(150);
+    await noHorizontalOverflow(page, `${tag} 백업 암호 없음`, w);
+    verify(await measure(), '백업 암호 없음', 1);
+    // (나) 백업 암호 있음 — ①②③ + 게이트 안내(가장 긴 상태)
+    await page.evaluate(check2 => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => { const t = req.result.transaction(['meta'], 'readwrite'); t.objectStore('meta').put({ key: 'backupPassCheck', value: check2 }); t.oncomplete = () => resolve(true); t.onerror = () => reject(t.error); };
+    }), passCheck);
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('.cust-screen');
+    await page.locator('[data-a="lock-to-pin"]').click();
+    await page.locator('[data-a="pin-forgot"]').click();
+    await page.waitForSelector('[data-a="pin-recover-pass"]');
+    await page.waitForTimeout(150);
+    await noHorizontalOverflow(page, `${tag} 백업 암호 있음`, w);
+    const m = await measure();
+    verify(m, '백업 암호 있음', 3);
+    check(JSON.stringify(m.buttons.map(x => x.a)) === JSON.stringify(['pin-recover-pass', 'pin-forgot-restore', 'pin-reset']), `${tag}: ①②③ 순서 (${JSON.stringify(m.buttons.map(x => x.a))})`);
+    check(m.gate && inV(m, m.gate) && !m.gate.clipped, `${tag}: 60초 게이트 안내가 잘리거나 화면 밖이다`);
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-recovery-${w}x${h}.png`) }).catch(() => {});
+    // ① → 백업 암호 창: 입력 칸·[확인]·[취소]가 스크롤 없이
+    await page.locator('[data-a="pin-recover-pass"]').click();
+    await page.waitForSelector('#keyPass1');
+    await page.waitForTimeout(150);
+    await noHorizontalOverflow(page, `${tag} 백업 암호 창`, w);
+    const dlg = await page.evaluate(() => { const b = el => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
+      const md = document.querySelector('.pass-modal');
+      return { vh: innerHeight, vw: document.documentElement.clientWidth, input: b(document.querySelector('#keyPass1')), ok: b(document.querySelector('[data-a="pass-ok"]')), cancel: b(document.querySelector('[data-a="pass-cancel"]')), inner: md ? md.scrollHeight > md.clientHeight + 1 : true }; });
+    check(inV(dlg, dlg.input) && inV(dlg, dlg.ok) && inV(dlg, dlg.cancel) && !dlg.inner, `${tag} 백업 암호 창: 입력 칸과 [확인]·[취소]가 스크롤 없이 보여야 한다 (확인 ${Math.round(dlg.ok.bottom)} / vh ${dlg.vh})`);
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-recovery-pass-${w}x${h}.png`) }).catch(() => {});
+    check(errors.length === 0, `${tag}: 페이지 오류가 없어야 한다 (${JSON.stringify(errors.slice(0, 3))})`);
+  } finally {
+    await page.close();
+    await context.close();
+  }
+}
+
+// ── beta.60(A3b): 환영 화면의 "홈 화면에 추가" 안내 — 폰 4폭 + 태블릿 가로·세로 ─────────────────────────────
+//   설치되지 않은 폰·태블릿에서는 인사 아래에 설치 안내 상자가 붙는다. 계약: 진한 버튼(있으면)과 작은 글씨 탈출구가
+//   **초기 뷰포트(스크롤 0)** 안에 있고 44px 이상, 가로 넘침 0. 기기 종류(UA)마다 상자 길이가 달라 셋을 모두 잰다.
+const INSTALL_UAS = {
+  'android-chrome': 'Mozilla/5.0 (Linux; Android 14; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
+  'ios-safari': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
+  'inapp': 'Mozilla/5.0 (Linux; Android 14; SM-S918N; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0 Mobile Safari/537.36;KAKAOTALK 2411020 (INAPP)',
+  'tablet-android': 'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  'tablet-ipad': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15'
+};
+async function runInstallWelcomeProfile(browser, url, w, h, kind) {
+  const tag = `설치 안내(${kind}) ${w}×${h}`;
+  const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2, isMobile: w <= 640, hasTouch: true, userAgent: INSTALL_UAS[kind] });
+  if (kind === 'tablet-ipad') await context.addInitScript(() => { Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 5, configurable: true }); });
+  await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"error":"internal"}' }));
+  const page = await context.newPage();
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('.setup-welcome', { timeout: 15000 });
+    // 안드로이드 크롬은 설치 창이 오면 진한 버튼이 [홈 화면에 추가]로 바뀌고 탈출구가 하나 더 생긴다 — 더 긴 쪽을 잰다.
+    if (kind === 'android-chrome' || kind === 'tablet-android') await page.evaluate(() => { const e = new Event('beforeinstallprompt', { cancelable: true }); e.prompt = () => Promise.resolve(); e.userChoice = Promise.resolve({ outcome: 'dismissed' }); window.dispatchEvent(e); });
+    await page.waitForTimeout(150);
+    check(await page.locator('#installBox').count() === 1, `${tag}: 설치 안내 상자가 있어야 한다`);
+    await noHorizontalOverflow(page, `환영(설치 안내 ${kind})`, w);
+    const m = await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      const els = [...document.querySelectorAll('.setup-welcome .btn-primary, .install-skip .link-btn, .install-url .btn')];
+      return { vh: window.innerHeight, cw: document.documentElement.clientWidth, list: els.map(el => { const r = el.getBoundingClientRect(); return { t: (el.innerText || '').trim(), b: r.bottom, h: r.height, r: r.right }; }) };
+    });
+    check(m.list.length > 0, `${tag}: 누를 것(진한 버튼 또는 탈출구)이 하나 이상`);
+    for (const e of m.list) {
+      check(e.b <= m.vh + 1, `${tag}: "${e.t}"가 스크롤 없이 보이지 않는다 (아래로 ${Math.max(0, Math.round(e.b - m.vh))}px / vh ${m.vh})`);
+      check(e.h >= 44, `${tag}: "${e.t}" 터치 타겟이 44px 미만 (${Math.round(e.h)}px)`);
+      check(e.r <= m.cw + 1, `${tag}: "${e.t}"가 오른쪽으로 넘친다`);
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -1890,9 +2012,20 @@ async function main() {
     for (const { w, h } of TABLET_PROFILES) {
       try { await runTabletProfile(browser, url, w, h); } catch (err) { check(false, `태블릿 ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
     }
+    // beta.60: 비밀번호 분실 복구 화면(①②③ / ③만) — 폰 4폭 + 태블릿 6종
+    for (const { w, h } of [...VIEWPORTS, ...TABLET_PROFILES]) {
+      try { await runRecoveryProfile(browser, url, w, h); } catch (err) { check(false, `복구 화면 ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
+    }
     // beta.55(A2): 장부 지키기 카드·창 4종 기하
     for (const { w, h } of GUARD_PROFILES) {
       try { await runGuardProfile(browser, url, w, h); } catch (err) { check(false, `장부 지키기 ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0]})`); }
+    }
+    // beta.60(A3b): 환영 화면 설치 안내 — 폰 4폭 × (안드로이드 크롬·아이폰 사파리·카카오톡) + 태블릿 6종 × (안드로이드·아이패드)
+    for (const { w, h } of VIEWPORTS) for (const kind of ['android-chrome', 'ios-safari', 'inapp']) {
+      try { await runInstallWelcomeProfile(browser, url, w, h, kind); } catch (err) { check(false, `설치 안내(${kind}) ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
+    }
+    for (const { w, h } of TABLET_PROFILES) for (const kind of ['tablet-android', 'tablet-ipad']) {
+      try { await runInstallWelcomeProfile(browser, url, w, h, kind); } catch (err) { check(false, `설치 안내(${kind}) ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
     }
     // 손님 검색 타이핑 회귀(beta.20) — 실제 디바이스 프로파일(터치·모바일 UA)과 데스크톱을 함께 돌린다.
     for (const [label, opts] of [

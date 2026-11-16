@@ -141,6 +141,43 @@ ok(gl[1]==="'"+AT+',광진구청,위생과,,,,,'&&gl[4]==="'"+EVIL+',광진구�
 gl[1]="'"+AT+',광진구청,위생과,김진표,,9000,,';gl[4]="'"+EVIL+',광진구청,위생과,배유정,,9000,,';
 await up('g.csv',Buffer.from('﻿'+gl.join('\r\n')),'text/csv');rr=await rowsOf();
 ok(rr.length===2&&rr.every(r=>!r.skip&&!r.err)&&by('김진표').rest===AT&&by('배유정').rest===EVIL,'15 올릴 때 따옴표 떼고 가게와 맞춤 '+JSON.stringify(rr));
+// ── beta.60 (W-6·W-13) — 아래 단언은 전부 수정 전 코드에서 실패한다 ──
+await p.evaluate(R1=>{const S=window.__S;S.restaurants=[{name:R1,restaurant_id:'r1'}];window.__v()},R1);
+// 16 받는 음식점 앱과 같은 제한(앱 validateRosterItems: 이름 40자·소속/부서 60자·한 명단 3,000명, 보이지 않는 문자를 뗀 이름이 비면 거부)
+const N41='가'.repeat(41),N40='나'.repeat(40),D61='과'.repeat(61),O61='기'.repeat(61),ZW='​​',RLO='‮오른쪽',D60='부'.repeat(60);
+await csvUp('w6.csv',H5+[[ '광진구청','위생과',N41],['광진구청','위생과',N40],['광진구청',D61,'긴부서'],[O61,'위생과','긴소속'],['광진구청',D60,'육십자부서'],['광진구청','위생과',ZW],['광진구청','위생과',RLO]]
+  .map(([o,d,n])=>`${R1},${o},${d},${n},9000,`).join('\n')+'\n');
+rr=await rowsOf();
+ok(/40자/.test(by(N41).err||'')&&!by(N40).err,'16 직원명 40자 한도 '+JSON.stringify(rr.map(r=>[r.name.length,r.err])));
+ok(/60자/.test(by('긴부서').err||'')&&/60자/.test(by('긴소속').err||'')&&!by('육십자부서').err,'16 소속·부서 60자 한도 '+JSON.stringify(rr.map(r=>[r.name.slice(0,4),r.err])));
+ok(/빈 칸/.test(by(ZW).err||'')&&!by(RLO).err,'16 보이지 않는 문자만 있는 이름은 빈 칸(앱처럼 정리 뒤 판정) '+JSON.stringify(rr.map(r=>[r.name.length,r.err])));
+ok(await p.evaluate(()=>window.__S.valid)===false,'16 문제 줄이 있으면 다음 단계로 못 감');
+// 3,000명 한도는 '음식점·소속·부서 한 묶음'(= 음식점 앱이 받는 명단 한 건) 단위
+const many=n=>H5+Array.from({length:n},(_,i)=>`${R1},광진구청,위생과,직원${i},9000,`).join('\n')+'\n';
+await csvUp('w6b.csv',many(3001));
+let g6=await p.evaluate(()=>{const rs=window.__S.rows||[];return{n:rs.length,errN:rs.filter(r=>/3,000명/.test(r.err||'')).length,valid:window.__S.valid}});
+ok(g6.n===3001&&g6.errN===3001&&!g6.valid,'16 한 묶음 3,001명은 막음 '+JSON.stringify(g6));
+await csvUp('w6c.csv',many(3000));
+g6=await p.evaluate(()=>{const rs=window.__S.rows||[];return{n:rs.length,errN:rs.filter(r=>r.err).length}});
+ok(g6.n===3000&&g6.errN===0,'16 3,000명은 그대로 '+JSON.stringify(g6));
+// 17 엑셀 수식 칸(W-13): 저장된 계산값이 없으면 막고, 있으면 읽되 경고, 수동 계산으로 저장된 파일은 막는다
+const ic=(ref,v)=>`<c r="${ref}" t="inlineStr"><is><t>${v}</t></is></c>`;
+const head6=`<row r="1">`+['음식점명','소속','부서명','직원명','선금금액','입금자명'].map((v,i)=>ic(String.fromCharCode(65+i)+'1',v)).join('')+`</row>`;
+const frow=(r,name,amtCell)=>`<row r="${r}">${ic('A'+r,R1)}${ic('B'+r,'광진구청')}${ic('C'+r,'위생과')}${ic('D'+r,name)}${amtCell}</row>`;
+const fsheet=rows=>`<?xml version="1.0" encoding="UTF-8"?><worksheet ${NS}><sheetData>${head6}${rows}</sheetData></worksheet>`;
+const wbx=calc=>`<workbook ${NS} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets>${calc}</workbook>`;
+const relx='<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="x" Target="worksheets/sheet1.xml"/></Relationships>';
+const fx=(calc,rows)=>zipDeflate([['xl/workbook.xml',wbx(calc)],['xl/_rels/workbook.xml.rels',relx],['xl/worksheets/sheet1.xml',fsheet(rows)]]);
+await p.click('#csvResult button[data-csv="clear"]').catch(()=>{});
+await up('수식.xlsx',fx('<calcPr calcId="191029"/>',frow(2,'수식값있음','<c r="E2"><f>20*9000</f><v>180000</v></c>')+frow(3,'수식값없음','<c r="E3"><f>20*9000</f></c>')+frow(4,'보통값','<c r="E4"><v>9000</v></c>')));
+rr=await rowsOf();s=await st();
+ok(/수식/.test(by('수식값없음').err||'')&&/값으로 붙여넣기/.test(by('수식값없음').err||''),'17 계산값 없는 수식 칸은 막음 '+JSON.stringify(rr));
+ok(by('수식값있음').amount===180000&&!by('수식값있음').err&&by('보통값').amount===9000&&!by('보통값').err,'17 계산값 있는 수식 칸은 읽음 '+JSON.stringify(rr));
+ok(/수식이 든 칸이 있어요/.test(s.warn)&&/엑셀 2번째 줄/.test(s.warn)&&/수식이 든 칸이 있어요/.test(s.text),'17 수식 칸 경고(줄 번호) '+s.warn);
+await p.click('#csvResult button[data-csv="clear"]').catch(()=>{});
+await up('수동.xlsx',fx('<calcPr calcId="191029" calcMode="manual"/>',frow(2,'수동수식','<c r="E2"><f>20*9000</f><v>90000</v></c>')+frow(3,'수동보통','<c r="E3"><v>9000</v></c>')));
+rr=await rowsOf();
+ok(/수동 계산/.test(by('수동수식').err||'')&&!by('수동보통').err,'17 수동 계산 파일의 수식 칸은 막음(일반 칸은 그대로) '+JSON.stringify(rr));
 ok(dialogs===0,'전 과정 기본 팝업 0회');
 ok(errs.length===0,'페이지 오류 0 '+errs.join('|'));
 console.log(`xlsx: ${pass} pass, ${fail} fail`);await b.close();fs.rmSync(tmp,{recursive:true,force:true});process.exit(fail?1:0);

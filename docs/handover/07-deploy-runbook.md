@@ -34,6 +34,7 @@
 
 | 릴리스 | 실제 순서 | 비고 |
 |---|---|---|
+| beta.60 (2026-11, 배포 전) | 마이그레이션 7문(`migrations-2026-11b.sql`) → 서버 → 음식점 앱·문서 → 담당자 웹 → 홈페이지 → 직원 앱 → `git tag live-beta60` | 🔴 **문 1(`auth_challenge.pk`)을 서버 배포 전에** — 새 서버의 `/api/challenge`가 이 컬럼에 쓰므로 없으면 챌린지 발급이 500 → 승인·서버 백업·등록 해제·연락처가 **전부** 막힌다. 문 2~6(보관 칸)이 없으면 다른 열쇠 인수가 500, 문 7(`agency_keycheck_dom`)이 없으면 담당자 웹의 지문 확인이 500. 서버를 올리면 cron이 **매시 17분**으로 바뀐다(§8). 구버전 앱(beta.59)은 토큰 없이 같은 열쇠로 재등록하는데, 서버가 `REACTIVATE_COMPAT`(기본 켜짐)으로 상호·관할이 같을 때만 받아 준다(§8). 새 오류 코드(`segments_missing`·`state_conflict`·`takeover_conflict`·`store_name_required`·`backup_quota_exceeded`)는 구버전 앱에 일반 오류로 보일 뿐 깨지지 않는다 |
 | beta.55 (2026-11) | 마이그레이션 3문(`migrations-2026-11.sql`) → 서버 → 음식점 앱·문서 → 담당자 웹 → 홈페이지 → 직원 앱 (2026-11-14 이 순서로 배포, 태그 `live-beta55`) | 🔴 **문 2(`taken_over_at`)·문 3(`ledger_backup.gen`) 컬럼을 서버 배포 전에** — 새 서버의 `getPublicKey`·백업 저장이 이 컬럼을 읽고 쓰므로 없으면 등록·챌린지·백업이 전부 500. 프론트 쪽 새 필드(`gen`, `confirm_change`)는 선택 필드이고 새 오류 코드(`not_registered`·`too_many_pending`·`takeover_locked`·`invalid_public_key`·`fingerprint_changed`)는 구버전 프론트가 일반 오류로 보여 줄 뿐 깨지지 않는다 |
 | beta.48 (2026-09) | 마이그레이션 7문 → 서버 → **담당자 웹 → 음식점 앱** | `submission_id`·`transfer_id`가 둘 다 선택 필드라 어느 쪽을 먼저 내도 깨지지 않는다. `migrations-2026-09.sql` 머리말·`PROTOCOL.md` §9가 이 순서로 적혀 있다 |
 | beta.26 (2026-08) | 마이그레이션 → 서버 → 음식점 앱 → 담당자 웹 | 앱이 **수신자**인 계약 변경이었다(`org` 선택 필드 + district) |
@@ -82,6 +83,7 @@ bash harness/verify-all.sh    # 12/12 기대
   | `server/migrations-2026-09.sql` | 문 1~7 — beta.48(아래) |
   | `server/migrations-2026-10.sql` | 문 1~2 — `admin_action_log`(운영자 휴지통 처리) |
   | `server/migrations-2026-11.sql` | 문 1~3 — beta.55 `ledger_backup_seg`(조각 백업) + `public_key_registry.taken_over_at`(인수 시각) + `ledger_backup.gen`(머리의 세대 — 고아 조각 정리가 씀). **세 문 모두 `wrangler deploy` 전에** 적용. 문 2·3은 ALTER라 재실행하면 duplicate column — 이미 적용된 것 |
+  | `server/migrations-2026-11b.sql` | 문 1~7 — beta.60. 문 1 `ALTER TABLE auth_challenge ADD COLUMN pk TEXT`(챌린지의 발급 키 — **빠지면 챌린지 발급 500으로 승인·백업·해제가 전부 막힌다**), 문 2~6 인수 전 옛 백업 **보관 칸**(`ledger_backup_archive`·`ledger_backup_archive_seg`·`archive_challenge` + 인덱스 2), 문 7 `agency_keycheck_dom`(도메인별 지문 확인 기록). **일곱 문 모두 `wrangler deploy` 전에**, `--command`로 한 문장씩 순서대로. 문 1을 다시 실행하면 duplicate column — 이미 적용된 것(정상). 문 2~7은 `IF NOT EXISTS`라 재실행 안전. 같은 달 두 번째 파일이라 이름에 `b`가 붙었다(같은 달 `-11.sql`은 append-only로 건드리지 않음) |
 
   신규 설치는 `server/schema.sql` 하나로 끝난다(마이그레이션 결과가 이미 반영돼 있다).
 - 🔴 **`wrangler d1 execute --remote --file`을 쓰지 말 것.** OAuth 토큰과 import API가 비호환이라 **오류 2036**이 난다.
@@ -179,7 +181,8 @@ npx wrangler secret put RESEND_API_KEY
 | `AUTH_MODE` | `prod` | `dev`=응답에 평문 OTP 포함(**운영 금지**) / `pilot`=발송 안 함 / `prod`=Resend 실발송 |
 | `REQUIRE_AGENCY_AUTH` | `1` | `/api/submit`에 `X-Agency-Token` 필수(없으면 `401 agency_auth_required`) |
 | `PUBLIC_API_BASE` / `*_REGION_PARAM` / `*_NAME_PARAM` | data.go.kr | 검색 프록시 파라미터 |
-| `crons` | `17 18 * * *` | TTL 정리(UTC 18:17 = KST 03:17) — 단계 ①~⑦(⑦ 고아 조각 정리, PROTOCOL §6.3) |
+| `crons` | `17 * * * *` (beta.60, 예전 `17 18 * * *`) | **매시 17분** 한 개(무료 플랜 트리거 수를 늘리지 않음). 매시 회차는 **미수령 72시간 만료(암호문 파기)만** 한다 — "받지 않으면 3일 뒤 삭제" 약속을 72시간+1시간 안에 지킨다. **UTC 18시 회차(KST 03:17)만** 예전 일일 정리 전체(처리 완료 30일·인증 만료·180일 보존·휴지통·보관 칸 ⑧·고아 조각 ⑦, PROTOCOL §6.3). 분기는 `worker.js` `cronJobFor` |
+| `REACTIVATE_COMPAT` | 설정 안 함(= `"1"`, 켜짐) | beta.60. 구버전 앱(beta.59 이하)이 [자동 등록 중단] 뒤 같은 열쇠로 다시 등록할 때 **토큰 없이** 오는 것을, 상호·관할이 같고 운영자 휴지통이 아닐 때만 받아 준다(PROTOCOL §4.12). 필드테스트 기기가 **모두 beta.60 이상**이 된 것을 확인하면 `[vars]`에 `REACTIVATE_COMPAT = "0"`을 넣고 deploy — 끄면 토큰 없는 되돌리기는 전부 `401 auth_required` |
 
 `ALLOW_ORIGIN`에는 `staff.bapjangbu.com`이 **선등재**돼 있다.
 
@@ -216,7 +219,8 @@ npx wrangler secret put RESEND_API_KEY
 | 담당자가 "보냈는데 없어졌다" | `deduped:true` 응답 확인([04](04-contracts.md) C6) / `batch_hash` 충돌([04](04-contracts.md) C1 부수 계약) / 담당자 웹이 `submission_id`를 싣는 버전인가(구버전은 같은 달 같은 내용이 멱등으로 삼켜진다) |
 | 사장님이 "같은 명단이 두 번 들어갔다" | 승인 아웃박스([04](04-contracts.md) C11) — 수신함에 `장부에 반영됨 · 서버 알림 대기`가 떠 있는가 / 직접 전달 파일을 두 번 열었는가(`transfer_id`가 없는 구버전 파일이면 경고만 뜬다) |
 | 등록 해제한 가게가 담당자 목록에 계속 보인다 | `deregistered_at`이 실제로 찍혔는가 — 활성 필터가 빠진 경로가 있는지 확인([04](04-contracts.md) C12) |
-| "등록 해제했는데 백업을 되찾고 싶다" | 해제 후 **30일 안**이면 같은 열쇠로 재등록하면 된다(`reactivated:true`). 30일이 지났으면 cron이 이미 지웠다 — 복구 불가. 그 사이 **다른 열쇠가 인수**했어도 인수 후 30일까지는 옛 백업 행이 남아 있다(beta.55, 새 주인에게만 숨김) — §12 "인수 뒤 옛 백업" |
+| "등록 해제했는데 백업을 되찾고 싶다" | 해제 후 **30일 안**이면 같은 열쇠로 재등록하면 된다(`reactivated:true` — beta.60 앱은 소유 증명 토큰을 싣는다). 30일이 지났으면 cron이 이미 지웠다 — 복구 불가. 그 사이 **다른 열쇠가 인수**했으면 beta.60부터 옛 백업이 **보관 칸**으로 옮겨져 해제 시각부터 30일 동안 남는다 — 옛 열쇠가 있는 기기(예전에 서버 백업을 올린 기기)에서 설정 > 장부 지키기 > [되찾기] > [서버에서 되찾기]로 사장님이 직접 받는다(운영자 작업 없음, PROTOCOL §4.14) |
+| 사장님 앱이 "다른 기기에 등록됨"으로 재등록이 401 | 같은 열쇠의 해제 가게 되돌리기는 beta.60부터 소유 증명이 필요하다. beta.60 앱은 자동으로 토큰을 싣는다. 구버전 앱은 `REACTIVATE_COMPAT`이 켜져 있고 상호·관할이 같을 때만 통과(§8) — 앱을 beta.60으로 갱신하게 안내 |
 | 사장님이 "가게 등록이 `takeover_locked`로 막힌다" | 운영자가 [휴지통으로] 처리한 지 7일이 안 된 가게를 **다른 열쇠**로 등록하려는 것(beta.55). 원래 기기는 같은 열쇠로 바로 되살릴 수 있다. 부당 선점 정리 직후라면 7일 뒤에 진짜 사장님이 등록하거나, 본인 확인 후 아래 §12 터미널 절차로 잠금 없이 처리 |
 | 담당자가 "`too_many_pending`으로 안 보내진다" | 그 가게 수신함에 미수령 신청이 30건 쌓였다(beta.55). 사장님이 받기·거절을 하면 풀린다(72시간 지나면 자동 만료) |
 | 사장님 앱이 "서버 백업 자리가 가득 찼어요"(`too_many_segments`) | 운영자가 할 일은 대개 없다(beta.55) — 서버가 스스로 고아 조각(머리가 오지 않은 세대)을 치운다: 업로드 때 24시간 지난 고아 세대를 바로 비우고, cron ⑦이 14일 지난 것을 지운다. 응답의 `reason`이 `recent_orphans`면 `retry_after_s` 뒤 다시 하면 풀리고, `full`이면 머리의 세대만으로 1,000행이 찬 것(장부가 비정상적으로 크다 — 앱의 조각 크기·압축을 볼 것). cron 로그의 `orphanSegments`·`errors`(`purge_orphan_segments`)로 정리 여부 확인. **머리(`ledger_backup`)는 지우지 말 것** |
@@ -261,7 +265,9 @@ npx wrangler d1 execute prepaid-relay --remote --command \
 
 이 시점부터 새 열쇠의 `register-key`는 **선착순 신규 등록**으로 통과한다(공공데이터 실존·상호 대조 수행). 다른 키로 등록되는 순간 서버가 **옛 연락처를 스스로 지운다**. 옛 원장 백업(`ledger_backup`·`ledger_backup_seg`)은 beta.55부터 **그 순간 지우지 않는다** — `taken_over_at`(인수 시각)보다 오래된 백업은 새 주인에게 보이지 않고, 인수 30일 뒤 cron이 지운다. 운영자가 따로 지울 필요가 없다. 30일이 지나도록 아무도 등록하지 않으면 cron이 행과 백업(머리·조각)을 함께 정리한다.
 
-#### 인수 뒤 옛 백업 (beta.55)
+#### 인수 뒤 옛 백업 (beta.55 → beta.60)
+
+**beta.60부터**: 다른 열쇠가 인수하는 순간 옛 백업(머리·조각)과 옛 공개키가 **보관 칸**(`ledger_backup_archive*`)으로 옮겨지고, 옛 주인의 해제 시각부터 30일 동안 옛 열쇠로 **읽기만** 할 수 있다(PROTOCOL §4.14). 옛 주인은 앱의 [되찾기] > [서버에서 되찾기]로 직접 받으므로 운영자가 행을 고칠 일은 없다. 아래 수작업은 beta.60 배포 **전에** 인수된 가게(산 표에 `taken_over_at`보다 오래된 백업이 남은 경우)에만 해당한다.
 
 잘못된 인수(착오·토큰 유출)였다면, 인수 후 **30일 안**에는 옛 주인의 백업 행이 그대로 있다(옛 열쇠로 암호화된 상태). 이때 옛 주인이 열쇠 백업을 갖고 있다면 본인 확인 후 운영자가 수작업으로 되돌릴 수 있다 — 단, 새 키를 심는 것이 아니라 **새 주인 등록을 휴지통에 넣고(3) 옛 주인이 자기 열쇠로 다시 등록**하게 하는 순서다(다시 '다른 열쇠 인수'가 되므로 `taken_over_at`이 갱신되고, 그보다 오래된 옛 백업은 여전히 숨겨진다 → 필요하면 `UPDATE ledger_backup SET updated_at=<now_ms> WHERE restaurant_id='<ID>'`로 '지금 주인 것'으로 표시. 이 UPDATE는 본인 확인을 마친 경우에만).
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.59';
+const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.60';
 const ASSETS = [
   './',
   './index.html',
@@ -81,11 +81,18 @@ self.addEventListener('fetch', e => {
     });
     e.waitUntil(network.catch(() => {}));
     const cachedShell = () => caches.match(req).then(r => r || (isAppShell(req) ? caches.match('./index.html') : undefined));
+    // beta.60(앱 12): 서버가 **빨리** 오류(503 등)를 주면 위 race에서 그 오류 응답이 이겨, 정상 화면이 캐시에 있는데도 오류 페이지가 떴다
+    //   (.catch는 '거절'에만 걸리고 오류 응답은 정상 완료다). 앱 화면의 비정상 응답은 캐시 화면으로 대신하고, 캐시가 없을 때만 그 응답을 보여 준다.
+    //   대상: 앱 화면(./·index.html)은 모든 비정상 응답, 그 밖의 문서는 5xx·408·429(일시적 장애)만 — 지운 문서의 404는 그대로 404다.
+    //   캐시에 넣는 규칙(cacheable: res.ok만)은 그대로라 404·5xx가 앱 셸을 덮는 일은 없다.
+    //   주소 옮김(301 등 — 서비스워커에는 opaqueredirect로 온다)은 그대로 통과시킨다(옛 주소 → 새 주소 이동을 막지 않게).
+    const transientBad = res => !!res && res.type !== 'opaqueredirect' && !res.ok && (isAppShell(req) || res.status >= 500 || res.status === 408 || res.status === 429);
+    const networkOrCache = network.then(res => transientBad(res) ? cachedShell().then(c => c || res).catch(() => res) : res);
     const slowFallback = new Promise(resolve => {
       setTimeout(() => { cachedShell().then(r => { if (r) resolve(r); }).catch(() => {}); }, NAV_TIMEOUT_MS);
     });
     e.respondWith(
-      Promise.race([network, slowFallback])
+      Promise.race([networkOrCache, slowFallback])
         .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
     );
     return;

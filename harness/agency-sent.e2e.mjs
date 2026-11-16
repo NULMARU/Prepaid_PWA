@@ -93,7 +93,7 @@ async function mkPage(m){
   m.subs=[];
   await q.route('**/*',async r=>{const u=r.request().url();
     if(u==='https://t.test/')return r.fulfill({contentType:'text/html',body:src});
-    if(/\/api\/public-key\?/.test(u))return r.fulfill({contentType:'application/json',body:JSON.stringify({public_key:SPKI,contact:m.contact||null})});
+    if(/\/api\/public-key\?/.test(u)){m.pubCalls=(m.pubCalls||0)+1;return r.fulfill({contentType:'application/json',body:JSON.stringify({public_key:(m.pubFor&&m.pubFor(u))||SPKI,contact:m.contact||null})})}
     if(/\/api\/agency\/keychecks\?/.test(u))return r.fulfill({contentType:'application/json',body:JSON.stringify({keychecks:RIDS.map(id=>({restaurant_id:id,fingerprint:FP,checked_at:1}))})});
     if(/\/api\/agency\/request-otp$/.test(u))return r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,sent:true})});
     if(/\/api\/agency\/verify-otp$/.test(u))return r.fulfill({contentType:'application/json',body:JSON.stringify({token:'T2'})});
@@ -214,6 +214,78 @@ const safe=async(f,label)=>{try{return await f()}catch(e){console.log('  ('+labe
   await upq(q,rosterOf(['r1']));await q.click('.mode-card[data-mode="direct"]');await q.click('#submitBtn');await q.check('#agree');await q.click('#okC');
   await q.waitForSelector('.group-card',{timeout:10000});
   ok(!(await q.$('.group-card a[data-act="mail"]')),'D8-3 ?·& 가 든 이메일은 mailto 링크로 만들지 않음');
+  await q.context().close();
+}
+// ════ beta.60 (W-3 보내는 중 편집 잠금 · W-4 만료 재시도 · W-5 재시도 때 공개키 다시 받기) — 전부 수정 전 코드에서 실패한다 ════
+// ── W-3: 보내는 중에는 파일·단가를 바꿀 수 없고, 완료 잠금은 보낸(시작할 때의) 명단에 걸린다 ──
+{
+  let release;const m={};m.hold=new Promise(r=>release=r);
+  const q=await mkPage(m);await setup(q,['r1','r2'],false);await upq(q,rosterOf(['r1','r2']));
+  const snap=()=>q.evaluate(()=>({amts:(window.__S.rawRows||[]).map(r=>r.amount).join(','),unit:window.__S.unitPrice,pending:!!window.__S.pendingCsv}));
+  const before=await snap();
+  await sendq(q);await q.waitForTimeout(400);
+  const during=await q.evaluate(()=>({note:[...document.querySelectorAll('#csvCard .edit-lock-note')].some(e=>!e.classList.contains('hide')&&/보내는 중/.test(e.innerText)),
+    csv:document.getElementById('csv').disabled,unit:document.getElementById('unitPrice').disabled}));
+  // 보내는 동안 고친 파일을 올리고 [이 파일로 바꾸기], 단가 변경을 시도한다(입력이 막혀 있어도 이벤트를 직접 보낸다)
+  await q.setInputFiles('#csv',{name:'fix.csv',mimeType:'text/csv',buffer:Buffer.from('﻿'+rosterOf(['r1','r2'],{r1:1000,r2:2000}))}).catch(()=>{});await q.waitForTimeout(250);
+  await q.evaluate(()=>{const b=document.querySelector('#csvResult button[data-csv="replace"]');if(b){b.disabled=false;b.click()}});
+  await q.evaluate(()=>{const u=document.getElementById('unitPrice');u.disabled=false;u.value='5000';u.dispatchEvent(new Event('input',{bubbles:true}))});
+  const mid=await snap();
+  release();m.hold=null;await settle(q);await q.waitForTimeout(150);
+  const after=await snap();
+  ok(during.note&&during.csv&&during.unit,'W3-1 보내는 중: 파일·단가 칸 잠금 + 이유 한 줄 '+JSON.stringify(during));
+  ok(mid.amts===before.amts&&mid.unit===before.unit&&!mid.pending&&after.amts===before.amts&&after.unit===before.unit,'W3-2 보내는 중 고친 파일·단가는 반영되지 않음 '+JSON.stringify({before,mid,after}));
+  const bt=await btnq(q);
+  const lockOk=await q.evaluate(()=>{const c=document.getElementById('csv'),u=document.getElementById('unitPrice');return !c.disabled&&!u.disabled&&[...document.querySelectorAll('.edit-lock-note')].every(e=>e.classList.contains('hide'))});
+  ok(m.subs.length===2&&bt.d&&/보내기 완료/.test(bt.t)&&lockOk,'W3-3 다 보내면 잠금 풀림 · 완료 잠금은 보낸 명단 '+JSON.stringify({n:m.subs.length,bt,lockOk}));
+  await closeModal(q);
+  // 끝난 뒤에 명단을 바꾸면 완료 잠금이 풀린다(바뀐 명단은 아직 안 보냈으므로)
+  await upq(q,rosterOf(['r1','r2'],{r1:1000,r2:2000}));await q.click('.mode-card[data-mode="relay"]');
+  const bt2=await btnq(q);
+  ok(!bt2.d&&/바로 보내기/.test(bt2.t),'W3-4 보낸 뒤 바꾼 명단은 다시 보낼 수 있음 '+JSON.stringify(bt2));
+  await q.context().close();
+}
+// ── W-4: 같은 접수번호가 이미 만료(EXPIRED)면 '보냄'이 아니다 → 음식점 확인 후 새 접수번호로 ──
+{
+  const m={submit:rec=>rec.rid==='r2'&&!m.fresh?{json:{summary_id:'old2',deduped:true,status:'EXPIRED'}}:null};
+  const q=await mkPage(m);await setup(q,['r1','r2'],false);await upq(q,rosterOf(['r1','r2']));
+  await sendq(q);await settle(q);await q.waitForTimeout(200);
+  const rt=await resultText(q),modal=!!(await q.$('#sentTitle')),bt=await btnq(q);
+  ok(/72시간 동안 받지 않아 만료됐어요/.test(rt)&&/음식점에 확인한 뒤 새로 보내 주세요/.test(rt)&&!/모두 보냈습니다/.test(rt)&&!/이미 접수된 전송/.test(rt)&&!modal&&!/보내기 완료/.test(bt.t),
+    'W4-1 만료는 성공으로 표시하지 않음 '+JSON.stringify({bt,modal})+' '+rt.slice(0,200));
+  ok(!(await q.$('#retryFailBtn'))&&!!(await q.$('#expiredResendBtn')),'W4-2 같은 접수번호 재시도 대신 [만료된 건 새로 보내기]');
+  const oldSid=(m.subs.find(x=>x.rid==='r2')||{}).sid;m.fresh=true;const n0=m.subs.length;
+  await safe(async()=>{await q.click('#expiredResendBtn',{timeout:3000});await settle(q)},'만료 건 새로 보내기');
+  const re=m.subs.slice(n0);
+  ok(re.length===1&&re[0].rid==='r2'&&re[0].sid!==oldSid&&/모두 보냈습니다/.test(await resultText(q)),'W4-3 새 접수번호로 만료된 가게만 다시 보냄 '+JSON.stringify({oldSid,re}));
+  await q.context().close();
+}
+// ── W-5: [실패한 건 다시 보내기]는 공개키를 새로 받아 지문을 다시 맞춘다 ──
+{
+  const SPKI2=crypto.generateKeyPairSync('rsa',{modulusLength:2048}).publicKey.export({type:'spki',format:'der'}).toString('base64');
+  const m={submit:rec=>rec.rid==='r2'&&!m.okNow?{status:409,json:{error:'deregistered'}}:null};
+  const q=await mkPage(m);await setup(q,['r1','r2'],true);await upq(q,rosterOf(['r1','r2']));
+  await sendq(q);await settle(q);await q.waitForTimeout(200);
+  // 그 사이 음식점(r2)이 다른 열쇠로 다시 등록했다
+  m.okNow=true;m.pubFor=u=>/restaurant_id=r2/.test(u)?SPKI2:null;
+  const pk0=m.pubCalls||0,n0=m.subs.length;
+  await safe(async()=>{await q.click('#retryFailBtn',{timeout:3000});await settle(q)},'재시도');
+  const rt=await resultText(q);
+  ok((m.pubCalls||0)>pk0&&m.subs.length===n0&&/열쇠 지문이 확인한 값과 달라요/.test(rt),'W5-1 재시도 때 공개키를 다시 받아, 바뀐 열쇠면 보내지 않음 '+JSON.stringify({pk0,pk:m.pubCalls,subs:m.subs.length-n0})+' '+rt.slice(0,160));
+  await q.context().close();
+}
+// ── W-9: 제공 동의창이 실제로 보내는 항목·보관 방식을 그대로 말한다 ──
+{
+  const m={};const q=await mkPage(m);await setup(q,['r1','r2'],false);
+  const consentText=async mode=>{await q.click('.mode-card[data-mode="'+mode+'"]');await q.click('#submitBtn');const t=await q.$eval('#consentBody',e=>e.innerText).catch(()=>'');await q.click('#cancelC').catch(()=>{});return t};
+  await upq(q,rosterOf(['r1','r2'])); // 결제구분(카드)만 있고 입금자명은 빈 명단
+  let t=await consentText('relay');
+  ok(/소속기관, 부서, 직원 이름, 선금 금액/.test(t)&&/결제구분/.test(t)&&!/입금자명/.test(t)&&/전화번호는 보내지 않아요/.test(t),'W9-1 제공 항목 = 실제 실려 가는 항목 '+t.slice(0,300));
+  ok(/음식점의 선입금 장부 기록으로 보관/.test(t)&&/잔액 확인·정산 증빙/.test(t)&&!/정산 종료 시까지/.test(t),'W9-2 보관 = 음식점 장부 기록(정산 종료 시까지 아님)');
+  ok(/서버는 내용을 볼 수 없고/.test(t),'W9-3 바로 보내기의 전달 방식');
+  await upq(q,H+`${NAMES.r1},광진구청,보건의료과,김진표,,9000,보건의료과,\n${NAMES.r2},광진구청,보건의료과,배유정,,9000,,\n`); // 입금자명 있음·결제구분 없음
+  t=await consentText('direct');
+  ok(/결제자·입금자명/.test(t)&&!/결제구분/.test(t)&&/서버를 거치지 않아요/.test(t),'W9-4 입금자명 있는 명단·직접 전달 '+t.slice(0,300));
   await q.context().close();
 }
 ok(dialogs===0,'전 과정 기본 팝업 0회');

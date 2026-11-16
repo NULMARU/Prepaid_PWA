@@ -284,6 +284,8 @@
 .guard-state.none{background:#f4f6f8;border-color:var(--line)}
 .guard-state>b{display:block;font-size:17px;line-height:1.4}
 .guard-sub{font-size:14px;line-height:1.55;margin-top:4px}
+.guard-device-note{font-size:13.5px;line-height:1.55;margin-top:8px;color:var(--warn);font-weight:600;word-break:keep-all}
+.own-device-line{display:block;color:var(--warn);font-weight:700}
 .guard-row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14.5px;line-height:1.45;margin-top:6px}
 .guard-row>span:last-child{color:var(--muted);text-align:right;flex:0 0 auto}
 .guard-unreg{font-size:14.5px;line-height:1.5;margin-top:6px}.guard-unreg .link-btn{color:var(--primary);min-height:40px;padding:0 2px}
@@ -389,6 +391,13 @@
 .pin-reset{margin-top:20px;text-align:center}
 .pin-reset button{min-height:44px;padding:8px 16px;font-size:14px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px}
 .pin-delay{margin-top:16px;text-align:center;font-size:13px;font-weight:700;color:var(--danger);line-height:1.6;max-width:320px}
+/* beta.60: 복구 화면 — 백업 암호 길(①)이 있으면 ③(전부 지우기)은 테두리만 빨간 버튼(진한 버튼은 ① 하나). 게이트 안내는 ③ 바로 위. */
+.pin-recovery .action-btn.rec-wipe-soft{background:#fff;color:var(--danger);border:1.5px solid var(--danger)}
+.pin-recovery .action-btn.rec-wipe-soft span,.pin-recovery .action-btn.rec-wipe-soft .action-icon{color:var(--danger)}
+.pin-recovery .rec-gate{margin:6px auto 0}
+/* beta.60: 기다리는 동안의 [전부 지우고]는 흐리게(눌릴 것처럼 보이지 않게) · 안내 문장은 낱말 중간에서 줄을 바꾸지 않는다 */
+.pin-recovery .action-btn[disabled]{opacity:.5}
+.pin-recovery .rec-gate,.pin-recovery .pin-delay,.banner.install-banner{word-break:keep-all;overflow-wrap:break-word}
 .pin-key[disabled]{opacity:.4}
 /* ─── 잠금 화면 = 손님 화면 ─── */
 /* 손님이 직접 만지는 유일한 화면이다. 여기서는 어떤 원장 쓰기도 일어나지 않는다(요청만 만들 수 있다). */
@@ -641,6 +650,25 @@
 .setup-welcome{max-width:460px;margin:0 auto;text-align:center}
 .setup-welcome-logo{font-size:46px;line-height:1;margin-bottom:10px}
 .setup-welcome-safe{border:1.5px solid #e8c9a0;background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:12px 14px;font-size:13.5px;font-weight:700;line-height:1.65;word-break:keep-all;text-align:left}
+/* beta.60(A3b) 홈 화면에 추가 안내 — 환영 화면 아래 상자 · 홈 배너. 폰 360×640에서도 진한 버튼·작은 글씨 탈출구까지 스크롤 없이 */
+.setup-welcome.install-mode .setup-welcome-logo{font-size:30px;margin-bottom:4px}
+.setup-welcome.install-mode .setup-welcome-safe{font-size:13px;line-height:1.55;padding:9px 12px}
+.setup-welcome.install-mode>.card{padding:10px}
+.install-box{margin-top:12px;text-align:left;border:1.5px solid #bcd3e6;background:var(--primary-soft);border-radius:12px;padding:11px 13px;line-height:1.5;word-break:keep-all}
+.install-title{display:block;font-size:17px;line-height:1.35;color:var(--primary-dark)}
+.install-why,.install-how{font-size:14.5px;margin-top:4px}
+.install-steps{margin:6px 0 0;padding-left:22px;font-size:14.5px}.install-steps li{margin:2px 0}
+.install-steps.small{font-size:14px;margin-top:4px}
+.install-warn{margin-top:6px;font-size:14px;font-weight:700;color:var(--warn)}
+.install-url{display:flex;gap:6px;align-items:center;margin-top:6px}
+.install-url-text{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;font-size:13px;color:var(--text);background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 8px;user-select:all;-webkit-user-select:all}
+.install-url .btn{flex:0 0 auto;min-height:44px;padding:0 12px;font-size:14px;font-weight:700}
+a.install-go{display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;margin-top:12px;border-radius:12px;font-size:18px;font-weight:800;text-decoration:none}
+.install-skip{text-align:center;margin-top:6px;line-height:1.45}.install-skip .link-btn{color:var(--primary);font-size:15px}.install-skip .meta{margin-top:0;font-size:13px;word-break:keep-all}
+.banner.install-banner{background:var(--primary-soft);border-left-color:var(--primary)}
+.install-banner-btn{margin-top:8px;min-height:44px;padding:0 16px;font-weight:700}
+.install-banner .link-btn.install-inline{padding:0;min-height:32px;color:var(--primary);font-size:14px}
+a.install-inline-link{color:var(--primary);font-weight:700}
 </style>
 </head>
 <body>
@@ -651,7 +679,7 @@
 <script>
 (()=>{
 'use strict';
-const APP='선입금대장',APP_VERSION='1.0.0-beta.59',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',APP_VERSION='1.0.0-beta.60',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -687,7 +715,7 @@ const COMMON_DEPTS=[...DEFAULT_DEPTS];
 //   custAmount = 작성 중인 금액, pendingAmount·pendingSign = 사장님께 넘긴 요청의 내용.
 //   저장소·서버·백업 어디에도 나가지 않는다(state.data 바깥이라 backupCore/repo.apply의 사정권 밖이다).
 //   "손님은 요청을 만들고, 사장님은 기록을 만든다" — 이 4개는 요청이지 기록이 아니다.
-const state={loaded:false,mode:'준비 중',screen:'home',formDrafts:{},search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},expandedEmps:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreZip:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,guardBannerDismissed:false,pendingOwnHasKey:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',formDrafts:{},search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},expandedEmps:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,recoveryPass:'',pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreZip:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,guardBannerDismissed:false,pendingOwnHasKey:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 // lastInputAt = 마지막 **사용자 조작** 시각. 유휴 만료의 유일한 기준이다(렌더는 이 값을 건드리지 못한다).
 //   init()이 첫 render를 부르기 전에 반드시 초기화돼 있어야 하므로 선언을 여기(최상단 상태 묶음)에 둔다.
 let lastInputAt=Date.now();
@@ -760,8 +788,10 @@ window.__prepaidTestHooks={TIMERS,clickActionKeys:()=>Object.keys(clickActions),
 instanceMode:()=>instanceLockMode||'',
 // 읽기 전용 잠금 상태 스냅샷(자동화 검증용) — 쓰기 경로는 없다.
 // 체인 결정성 회귀용(읽기 전용) — 전부 순수 계산 함수다(저장·전송 경로 없음).
-verifyChain,verifyBalanceFor,chainTip,txClock:()=>num(__txClock),txOrder:list=>sortTxAsc(list||state.data.transactions).map(t=>t.id),
-lockState:()=>({locked:!!state.pinLocked,lockView:state.lockView,pinContext:str(state.pinContext),pinRecovery:!!state.pinRecovery,recoveryLeft:recoveryLeft(),allowLockedRestore:!!state.allowLockedRestore,pinFails:num(state.pinFails),pinDelayLeft:pinDelayLeft(),pendingCustomerId:str(state.pendingCustomerId),custQuery:str(state.custQuery),custStage:str(state.custStage),
+verifyChain,verifyBalanceFor,chainTip,
+// beta.60(A2): 동명이인 번호 규칙(순수 계산 — 넘겨 준 배열의 이름만 바꾼다, 저장·전송 없음).
+assignDuplicateSuffix,isCsvTotalRow,txClock:()=>num(__txClock),txOrder:list=>sortTxAsc(list||state.data.transactions).map(t=>t.id),
+lockState:()=>({locked:!!state.pinLocked,lockView:state.lockView,pinContext:str(state.pinContext),pinRecovery:!!state.pinRecovery,recoveryLeft:recoveryLeft(),allowLockedRestore:!!state.allowLockedRestore,pinMode:str(state.pinMode),recoveryPassHeld:!!state.recoveryPass,pinFails:num(state.pinFails),pinDelayLeft:pinDelayLeft(),pendingCustomerId:str(state.pendingCustomerId),custQuery:str(state.custQuery),custStage:str(state.custStage),
 // B단계 요청(휘발성)의 관측점. 서명은 **길이만** 내보낸다(그림 자체는 훅으로도 꺼내지 않는다) —
 //   폐기 경로가 대상만 지우고 금액·서명을 남기지 않았는지 확인하는 용도다.
 custAmount:str(state.custAmount),signPadLive:!!signPad,
@@ -784,15 +814,19 @@ pinKeyGuardLeft:Math.max(0,pinKeyGuardUntil-Date.now()),handoffLeftSec:handoffLe
 forceRender:()=>render(),custComposeActive,
 parseWon,renderIsDisruptive,signInProgress,reconcileLedger,reconcileEmployee,keyFingerprint,matchAgencyByRegion,relayDistrict:(...a)=>relayDistrict(...a),backupFileName,
 // beta.55(A2): 장부 지키기 상태(읽기 전용 계산) — 상자·접힌 요약·홈 배너가 같은 함수를 읽는지 하니스가 못 박는다.
-guardStatus:()=>guardStatus(),cloudState:()=>({...cloudState()}),ledgerFp:()=>ledgerFp(),cloudAutoDue:()=>cloudAutoDue(),
+guardStatus:()=>guardStatus(),cloudState:()=>({...cloudState()}),
+// beta.60(A3b): 설치 상태 판별(순수 계산 — UA 등 넘겨 준 값만 본다)과 지금 이 화면의 판정(읽기 전용).
+installEnv,installEnvNow:()=>installEnvNow(),ledgerFp:()=>ledgerFp(),cloudAutoDue:()=>cloudAutoDue(),
 // ⚠️ 아래는 **네트워크 전송·복호화**에 직접 닿는 함수다. 라이브(https://app.bapjangbu.com)에서 window에
 //   걸어 두면 XSS 한 줄이 "장부를 통째로 암호화해 업로드"·"기관 명단 복호화"를 그대로 호출할 수 있다.
 //   하니스가 필요로 하므로 없애지는 않고, localhost 또는 ?e2e=1 일 때만 노출한다.
-...(E2E_HOOKS?{buildCloudBackupBlob,decryptBlob,relayBackupSilent,maybeAutoCloudBackup:(...a)=>maybeAutoCloudBackup(...a),maybeMonthlyAutoBackup:(...a)=>maybeAutoCloudBackup(...a),cloudBackupRun:(...a)=>cloudBackupRun(...a),
+...(E2E_HOOKS?{buildCloudBackupBlob,decryptBlob,openFromCloud:(...a)=>openFromCloud(...a),relayBackupSilent,maybeAutoCloudBackup:(...a)=>maybeAutoCloudBackup(...a),maybeMonthlyAutoBackup:(...a)=>maybeAutoCloudBackup(...a),cloudBackupRun:(...a)=>cloudBackupRun(...a),
 // 하니스 전용: 실패 뒤 '한 시간 재시도 간격'만 비운다(메모리 상태만 — 저장하지 않는다).
 cloudRetryGapReset:()=>{const s=cloudState();if(s&&s.lastTryAt)state.data.meta.cloudBackupState={...s,lastTryAt:0}},refreshInboxCount:(...a)=>refreshInboxCount(...a),
 // beta.48: 저장 연타 잠금(withTxLock)·승인 아웃박스를 하니스가 직접 못 박기 위한 훅.
-saveTopup:(...a)=>saveTopup(...a),flushPendingNotify:(...a)=>flushPendingNotify(...a)}:{})};
+saveTopup:(...a)=>saveTopup(...a),flushPendingNotify:(...a)=>flushPendingNotify(...a),
+// beta.60(보완): 백업 파일에 실리는 meta 키 이름만(값은 내보내지 않는다) — 기기 전용 키가 빠지는지 하니스가 본다.
+backupCoreMetaKeys:()=>Object.keys(backupCore().payload.meta)}:{})};
 
 // ── 유틸리티 ──
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
@@ -905,6 +939,10 @@ const META_KEYS=['lastBackupAt','orgName','shopName','shopAddr','shopTel','depar
 'backupPassCheck','cloudBackupState',
 // beta.59: 기억해 둔 백업 암호(기기 전용 — 이 기기 열쇠(deviceSecret)로 잠가 둔 사본). backupPassCheck와 같은 규칙(backupCore가 뺀다·백업에서 들여오지 않는다).
 'backupPassKeep',
+// beta.60(A3b): 마지막 내 보관 백업을 어떻게 남겼는가 {how: save(이 기기에 저장) 또는 share(카톡·메일), at} — 기기 전용(이 기기에서 한 일). 백업 파일·서버 백업에 싣지 않고 들여오지 않는다.
+'ownBackupWhere',
+// beta.60(보완): 홈 설치 배너 [이 안내 그만 보기]를 누른 시각 — 기기 전용(이 기기 화면 설정). 백업에 싣지 않고 들여오지 않는다.
+'installHintOff',
 // 보안 민감 키(아래 META_DEVICE_KEYS)도 목록에는 있어야 한다 — 이 기기의 저장소를 다시 읽을 때 필요하다.
 'pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped'];
 // **이 기기에만 속하는 값**이다. 장부(백업 파일·클라우드 백업)에서 절대 가져오지 않는다.
@@ -913,7 +951,7 @@ const META_KEYS=['lastBackupAt','orgName','shopName','shopAddr','shopTel','depar
 //   들여오면 "이 기기 개인키 ≠ 저장된 공개키"인 짝 안 맞는 상태가 된다(챌린지 복호화가 영영 실패).
 //   기기 사이 열쇠 이동은 오직 '내 열쇠 백업' 파일로만 한다(importKeyBackup).
 // beta.55(A2): backupPassCheck(백업 암호 검증자)도 이 기기 것이다 — 백업 파일이 이 기기의 백업 암호를 바꿔치기하지 못하게.
-const META_DEVICE_KEYS=['pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck','backupPassKeep'];
+const META_DEVICE_KEYS=['pinHash','pinFails','pinDelayUntil','deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck','backupPassKeep','ownBackupWhere','installHintOff'];
 function normMeta(m){const src=(m&&typeof m==='object')?m:{};
 const out={lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]};
 META_KEYS.forEach(k=>{if(Object.prototype.hasOwnProperty.call(src,k))out[k]=src[k]});
@@ -1227,11 +1265,12 @@ function paintPassHint(){const d=state.passDialog,el=qs('keyPassHint');if(!d||!e
 function passDialogHtml(){const d=state.passDialog;if(!d)return '';const two=passTwoFields(d.mode),bk=passIsBackup(d.mode),t=d.show?'text':'password',h=passDialogHint(d);
 const attrs='class="key-pass" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="'+(two?'next':'done')+'"';
 const send=d.how==='share';
-const title=bk?({bset:'🔒 백업 암호 정하기',bchange:'🔒 백업 암호 바꾸기',benter:'🔒 백업 암호를 넣어 주세요',bopen:'🔒 백업 파일 암호 입력'}[d.mode]):(two?'🔑 내 열쇠 백업 — 암호 정하기':'🔑 내 열쇠 백업 — 암호 입력');
+const title=bk?({bset:'🔒 백업 암호 정하기',bchange:'🔒 백업 암호 바꾸기',benter:'🔒 백업 암호를 넣어 주세요',bopen:'🔒 백업 파일 암호 입력',brecover:'🔒 백업 암호로 확인해요'}[d.mode]):(two?'🔑 내 열쇠 백업 — 암호 정하기':'🔑 내 열쇠 백업 — 암호 입력');
 const help=bk?({bset:`이 암호로 백업 파일을 잠가요 — <b>${KEY_PASS_MIN}자 이상</b>(화면 여는 숫자 4자리와 달라요. 숫자만도 돼요).<br><b>📝 종이에 꼭 적어 두세요</b> — 새 태블릿에서 되찾을 때 필요해요. 평소에는 다시 묻지 않아요.`,
 bchange:`새 백업 암호를 두 번 넣어 주세요(<b>${KEY_PASS_MIN}자 이상</b>). <b>📝 새 암호도 종이에 꼭 적어 두세요.</b> 예전에 만든 백업 파일은 예전 암호로 열려요.`,
 benter:'처음 정한 <b>백업 암호</b>를 넣어 주세요. <b>이번 한 번만</b> 넣으면 다음부터는 묻지 않아요. (새 태블릿에서 되찾을 때는 이 암호가 필요해요 — 종이에 적어 두세요.)',
-bopen:'이 백업 파일을 만들 때 정한 <b>백업 암호</b>를 넣어 주세요.'}[d.mode])
+bopen:'이 백업 파일을 만들 때 정한 <b>백업 암호</b>를 넣어 주세요.',
+brecover:(d.purpose==='file'?'종이에 적어 둔 <b>백업 암호</b>를 넣어 주세요. 맞으면 백업 파일을 고를 수 있어요.':'종이에 적어 둔 <b>백업 암호</b>를 넣어 주세요. 맞으면 장부는 그대로 두고 화면을 여는 숫자 비밀번호만 새로 정해요.')+'<br>비밀번호와 합쳐 5번 틀리면 1분 기다려야 해요.'}[d.mode])
 :(two?'<b>'+KEY_PASS_MIN+'자 이상</b>으로 정해 주세요. 화면을 여는 숫자 4자리 비밀번호와는 다른 암호예요.<br>이 암호는 어디에도 저장되지 않아요 — <b>잊으면 이 백업 파일을 열 수 없으니 꼭 적어 두세요.</b>':'내 열쇠 백업 파일을 만들 때 정한 암호를 입력해 주세요.');
 const label1=bk?(two?'백업 암호 ('+KEY_PASS_MIN+'자 이상)':'백업 암호'):(two?'암호 ('+KEY_PASS_MIN+'자 이상)':'암호');
 const plain=d.allowPlain?`<label class="pass-show pass-plain"><input type="checkbox" id="keyPassPlain" data-a="pass-plain"${d.plain?' checked':''}><span>암호 없이 ${send?'보내기':'저장하기'} <span class="pass-plain-warn">— 직원 이름·잔액·서명이 그대로 보여요</span></span></label>`:'';
@@ -1471,8 +1510,10 @@ const district=relayDistrict(addrHint);if(district)payload.district=district;
 //   서버는 "같은 공개키라도 저장된 관할(district)과 다른 값으로 덮어쓰려면" 인증을 요구한다(권한 경계).
 //   토큰을 못 얻는 경우(서버에 다른 열쇠가 등록돼 있어 챌린지를 못 푸는 경우 등)에는 예전처럼 토큰 없이
 //   보내고, 401이면 기존 안내(REGISTER_TAKEN_MSG)로 간다 — 막다른 길을 만들지 않는다.
-//   (처음 등록하는 기기는 서버에 열쇠가 없어 챌린지를 받을 수 없다 — 그래서 relayRegisteredAt이 선 뒤에만 시도한다.)
-if(relayRegistered()&&num(state.data.meta.relayRegisteredAt)>0){try{payload.auth_token=await relayAuthToken()}catch(e1){console.error('relay register auth',e1)}}
+// beta.60(S-8): 기기에 열쇠가 있으면 **언제나** 소유 증명을 시도한다. 휴지통(등록 해제) 가게를 같은 열쇠로 되돌릴 때 서버가 토큰을 요구하고,
+//   [자동 등록 중단] 뒤의 기기는 relayRegisteredAt이 비어 있어 예전 조건으로는 토큰을 싣지 못했다. 처음 등록하는 가게는 챌린지가
+//   404(서버에 열쇠 없음)라 토큰 없이 보낸다 — 서버 답(401·409·400)은 아래에서 사람 말로 바꾼다.
+if(str(state.data.meta.pubKey)){try{payload.auth_token=await relayAuthToken()}catch(e1){/* 토큰을 못 얻으면 토큰 없이 보낸다(처음 등록·다른 열쇠) — 결과는 서버 답이 말한다 */}}
 const r=await relayFetch(base+'/api/register-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const j=await r.json().catch(()=>({}));clearBusy();if(!r.ok){const err=relayCodeErr(str(j&&j.error)||(r.status===429?'rate_limited':'register_failed'));err.lockedUntil=j&&j.locked_until;throw err}state.data.meta.relayRegisteredAt=now();state.data.meta.storeRegisterPending=false;
 // 지역을 실어 보냈으면 자동 치유(relayDistrictSyncSilent)는 더 돌 필요가 없다.
 state.data.meta.storeRegisterBlocked=null;
@@ -1498,9 +1539,12 @@ try{await repo.apply({meta:{storeRegisterBlocked:blocked}})}catch(e3){console.er
 window.alert(REGISTER_TAKEN_MSG);takeoverReportHref(takeoverReportTarget().name,takeoverReportTarget().rid);return}
 // beta.55(B-12): 서버가 이유를 알려 준 실패는 그 이유를 사장님 말로 말한다(뒤따르는 "인터넷 확인" 토스트로 덮지 않는다).
 if(relayRegisterLastError==='takeover_locked'){relayRegisterToldUser=true;await askChoice({title:'지금은 이 가게를 등록할 수 없어요',lines:[`운영자가 최근 정리한 가게라 <b>${esc(lockedUntilText(e&&e.lockedUntil))}</b> 다시 등록할 수 있어요.`,'우리 가게가 맞는데 급하시면 contact@bapjangbu.com으로 가게 이름과 함께 알려 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return}
+// beta.60(S 계약 ③): 그 사이 등록이 바뀐 경우·상호가 빈 경우는 3초 토스트로 흘려보내지 않는다 — 이유 + 다음 행동을 창에 남긴다.
+if(REGISTER_STAY_ERR.includes(relayRegisterLastError)){relayRegisterToldUser=true;await askChoice({title:relayRegisterLastError==='store_name_required'?'가게 이름이 비어 있어요':'그 사이 가게 등록이 바뀌었어요',lines:[esc(RELAY_ERR_KO[relayRegisterLastError]),relayRegisterLastError==='store_name_required'?'설정 &gt; 자동 등록 &gt; [우리 가게 등록]에서 가게를 다시 골라 주세요.':'다른 기기에서 먼저 등록했거나 되돌렸을 수 있어요. 우리 가게가 맞는데 남이 등록한 것 같으면 contact@bapjangbu.com으로 알려 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return}
 const known=REGISTER_ERR_KO[relayRegisterLastError]||(['timeout','network','rate_limited','too_many_attempts'].includes(relayRegisterLastError)?RELAY_ERR_KO[relayRegisterLastError]:'');
 if(known){relayRegisterToldUser=true;toast('가게 등록에 실패했어요. '+known,6000);return}
 toast('가게 등록에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.')}}
+var REGISTER_STAY_ERR=['state_conflict','takeover_conflict','store_name_required'];
 var REGISTER_ERR_KO={invalid_public_key:'이 기기의 가게 열쇠가 올바르지 않아요. 앱을 새로 고친 뒤 다시 해 보고, 계속 안 되면 contact@bapjangbu.com으로 알려 주세요.',
 store_not_found:'공공데이터에서 이 가게를 찾지 못했어요. 가게 이름·주소로 다시 검색해서 골라 주세요.'};
 // 서버의 locked_until(초·ms·ISO 문자열 무엇이든)을 "11월 20일 이후" 같은 말로. 읽지 못하면 "며칠 뒤에".
@@ -2266,7 +2310,13 @@ bad_file:'파일 내용을 읽을 수 없어요(형식이 맞지 않아요). 받
 bad_reply:'서버 답을 읽지 못했어요. 잠시 뒤 다시 해 주세요.',
 internal:'서버에 잠깐 문제가 있어요. 잠시 뒤 다시 해 주세요.',
 invalid_public_key:'이 기기의 가게 열쇠가 올바르지 않아요. 계속 안 되면 contact@bapjangbu.com으로 알려 주세요.',
-takeover_locked:'운영자가 최근 정리한 가게라 며칠 뒤에 다시 등록할 수 있어요. 급하시면 contact@bapjangbu.com으로 알려 주세요.'};
+takeover_locked:'운영자가 최근 정리한 가게라 며칠 뒤에 다시 등록할 수 있어요. 급하시면 contact@bapjangbu.com으로 알려 주세요.',
+// beta.60(S 계약 ③): 서버가 새로 주는 이유들 — 이유 한 줄 + 다음 행동.
+backup_quota_exceeded:'우리 가게 몫의 서버 백업 자리가 가득 찼어요. [지금 백업하기]로 내 보관용 파일을 꼭 남겨 주세요(계속되면 contact@bapjangbu.com으로 알려 주세요).',
+segments_missing:'서버에 올린 장부 일부가 사라져 백업을 마치지 못했어요. 잠시 뒤 [지금 백업하기]를 다시 눌러 주세요.',
+state_conflict:'그 사이 다른 기기에서 이 가게 등록이 바뀌었어요. 설정 > 자동 등록에서 등록 상태를 다시 확인해 주세요.',
+takeover_conflict:'그 사이 다른 기기에서 이 가게 등록이 먼저 바뀌었어요. 설정 > 자동 등록에서 등록 상태를 다시 확인해 주세요.',
+store_name_required:'가게 이름이 비어 있어 등록할 수 없어요. 가게 이름·주소로 다시 검색해서 골라 주세요.'};
 function relayErrCode(e){if(!e)return '';const c=str(e.code)||'';if(c)return c;const n=str(e.name),m=str(e.message);
 if(n==='AbortError'||m==='timeout')return 'timeout';
 if(n==='TypeError'&&/fetch|network|load/i.test(m))return 'network';
@@ -2286,7 +2336,11 @@ let raw;try{raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(j.ch
 return new TextDecoder().decode(raw)}
 // 클라우드 원장 백업(암호화, 선택) — 기관 신청 blob과 동일한 하이브리드 구조(AES-256-GCM + RSA-OAEP 래핑), 서버는 평문을 볼 수 없음
 // 전화번호는 이 기기(로컬)에만 저장 — 클라우드 백업(서버 전송 경로)에는 절대 포함하지 않는다. 로컬 파일 백업에는 그대로 남지만, 그 파일은 기기 밖으로 나가지 않는 한 서버로 전송되지 않는다.
-function stripPhonesForCloud(core){return{...core,payload:{...core.payload,employees:core.payload.employees.map(({phone,phoneConsent,...rest})=>rest)}}}
+// beta.60(결정 2): 가게 전화(shopTel)도 서버로 가는 백업에서 뺀다 — 불변식 4("전화번호는 어떤 서버 경로에도 실리지 않는다")는
+//   암호화 여부와 무관하다. 사장님 휴대전화를 가게 전화로 적는 가게가 있다. 내 보관 백업 파일과 기기 장부에는 그대로 둔다.
+//   빼는 곳은 meta 하나뿐이라 조각(거래만 담는다)의 확인값(ph)은 바뀌지 않는다 — 갱신해도 닫힌 조각을 다시 올리지 않는다.
+//   잠긴 파일(buildCloudBackupBlob)도 이 함수를 쓰므로 거기서도 빠진다. 되찾을 때 이 기기의 가게 전화를 지키는 것은 restoreLedger가 한다.
+function stripPhonesForCloud(core){const{shopTel,...meta}=(core.payload.meta&&typeof core.payload.meta==='object')?core.payload.meta:{};return{...core,payload:{...core.payload,meta,employees:core.payload.employees.map(({phone,phoneConsent,...rest})=>rest)}}}
 // buildCloudBackupBlob은 이제 **잠긴 파일**(exportLockedBackup — 초기화·되돌리기 직전 안전 사본) 전용이다. 서버 백업은 아래 v2(조각)가 맡는다.
 async function buildCloudBackupBlob(){if(!state.data.meta.pubKey)throw new Error('키가 없습니다.');const core=stripPhonesForCloud(backupCore());const plaintext=JSON.stringify(core);const aesRaw=randBytes(32);const aesKey=await crypto.subtle.importKey('raw',aesRaw,{name:'AES-GCM'},false,['encrypt']);const iv=randBytes(12);const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},aesKey,new TextEncoder().encode(plaintext));const pub=await crypto.subtle.importKey('spki',b64ToBuf(state.data.meta.pubKey),{name:'RSA-OAEP',hash:'SHA-256'},true,['encrypt']);const encKey=await crypto.subtle.encrypt({name:'RSA-OAEP'},pub,aesRaw);return{encKey:bufToB64(encKey),iv:bufToB64(iv),ct:bufToB64(ct)}}
 
@@ -2333,18 +2387,26 @@ function newCloudGen(){return 'g'+Date.now().toString(36)+bufToB64(randBytes(9))
 function sleepMs(ms){return new Promise(r=>setTimeout(r,ms))}
 function cloudRetryWait(attempt,retryAfterS){if(E2E_HOOKS&&typeof window.__cloudRetryWaitMs==='number')return window.__cloudRetryWaitMs;const s=num(retryAfterS);return s>0?Math.min(90000,s*1000):[20000,30000,45000][Math.min(attempt,2)]}
 // 소유 증명 토큰은 **1회용**이다 — 요청마다 챌린지를 새로 받는다. 429(요청 몰림)·401(토큰 경합)은 몇 번 기다렸다 다시 한다.
-async function cloudCall(path,body,onWait){const rid=str(state.data.meta.restaurantId);if(!rid)throw relayCodeErr('no_store');
-for(let attempt=0;;attempt++){let token;
+// beta.60(앱 8): alive() — 백업 한 번이 '아직 유효한가'를 보는 함수(서버 백업 삭제가 진행 중 업로드를 무효화한다). 요청 직전마다 부른다.
+async function cloudCall(path,body,onWait,alive){const rid=str(state.data.meta.restaurantId);if(!rid)throw relayCodeErr('no_store');
+for(let attempt=0;;attempt++){let token;if(alive)alive();
 try{token=await relayAuthToken()}catch(e){if(relayErrCode(e)==='rate_limited'&&attempt<3){const w=cloudRetryWait(attempt);if(onWait)onWait(w);await sleepMs(w);continue}throw e}
+if(alive)alive();
 const r=await relayFetch(relayBase()+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,restaurant_id:rid,auth_token:token})});
 if(r.status===429&&attempt<3){const j=await cloudJson(r);const w=cloudRetryWait(attempt,j&&j.retry_after_s);if(onWait)onWait(w);await sleepMs(w);continue}
 if(r.status===401&&attempt<1)continue;
 return r}}
 async function cloudJson(r){const j=await r.json().catch(()=>null);return j&&typeof j==='object'?j:{}}
-async function cloudFail(r,j){const e=str(j&&j.error);if(r.status===409||e==='deregistered')return relayCodeErr('deregistered');if(r.status===401)return relayCodeErr('auth_required');if(/크기/.test(e))return relayCodeErr('backup_too_big');return relayCodeErr(/^[a-z][a-z0-9_]+$/.test(e)?e:(r.status===429?'rate_limited':'internal'))}
+async function cloudFail(r,j){const e=str(j&&j.error);if(e==='segments_missing')return relayCodeErr('segments_missing');if(r.status===409||e==='deregistered')return relayCodeErr('deregistered');if(r.status===401)return relayCodeErr('auth_required');if(/크기/.test(e))return relayCodeErr('backup_too_big');return relayCodeErr(/^[a-z][a-z0-9_]+$/.test(e)?e:(r.status===429?'rate_limited':'internal'))}
 // 서버 백업 한 번(조용한 자동·[지금 백업하기] 공용). 성공하면 {ok,mode,uploaded,total}, 실패하면 코드가 붙은 오류를 던진다.
 //   opts.progress(text) — [지금 백업하기]가 '바쁨' 문구를 갈아 끼우는 데 쓴다.
+// beta.60(앱 8): 서버 백업 한 번마다 '세대 번호(cloudEpoch)'를 잡는다. [서버 백업 삭제]는 이 번호를 올려 진행 중인 업로드를 무효화하고,
+//   그 업로드가 멈춘 뒤에야 지운다. 무효가 된 업로드는 다음 요청도, '성공' 기록도 남기지 않는다(삭제한 백업이 되살아나지 않게).
+let cloudEpoch=0,cloudDeleting=false;
+function cloudCancelled(e){return relayErrCode(e)==='cancelled'}
 async function cloudBackupRun(opts){opts=opts||{};const say=t=>{try{if(opts.progress)opts.progress(t)}catch(e){}};
+if(cloudDeleting)throw relayCodeErr('cancelled');
+const ep=cloudEpoch,alive=()=>{if(ep!==cloudEpoch||cloudDeleting)throw relayCodeErr('cancelled')};
 if(!relayRegistered())throw relayCodeErr('no_store');if(!str(state.data.meta.pubKey))throw relayCodeErr('no_key');
 const onWait=ms=>say(`요청이 잠깐 몰려 ${Math.ceil(ms/1000)}초 기다렸다 이어서 올려요.`);
 // 시작 순간의 장부를 사본으로 잡는다 — 올리는 동안 새 거래가 생겨도 이번 백업은 시작 시점 그대로다(다음 백업이 이어 올린다).
@@ -2353,52 +2415,62 @@ const segs=[];for(let i=0,n=0;i<txs.length;i+=size,n++){const list=txs.slice(i,i
 const st=cloudState();
 // ① 구서버 확인 + 서버가 실제로 가진 조각 목록. 404 = 조각 API가 없는 예전 서버 → v1 방식(한 덩어리)으로 올린다.
 say('서버의 백업 목록을 확인하는 중이에요.');
-const lr=await cloudCall('/api/ledger-backup/seg/list',{},onWait);
-if(lr.status===404)return cloudBackupRunV1(core,fp,say,onWait);
+const lr=await cloudCall('/api/ledger-backup/seg/list',{},onWait,alive);
+if(lr.status===404)return cloudBackupRunV1(core,fp,say,onWait,alive);
 const lj=await cloudJson(lr);if(!lr.ok)throw await cloudFail(lr,lj);
 // ② 조각마다 ph 계산(압축 전 바이트) → 예전 기록과 비교
 for(const s of segs){s.plain={v:2,seg_no:s.n,transactions:s.list};s.ph=await sha256Hex(new TextEncoder().encode(JSON.stringify(s.plain)))}
 const prevPh=(st.segs&&typeof st.segs==='object')?st.segs:{},prevCnt=(st.counts&&typeof st.counts==='object')?st.counts:{},prevBh=(st.bh&&typeof st.bh==='object')?st.bh:{};
 // 새 세대(gen)가 필요한 경우: 처음 / 거래 수가 줄었다(복원 등) / 이미 꽉 찬(닫힌) 조각의 내용이 바뀌었다.
-let fresh=!str(st.gen)||num(st.txCount)>txs.length||Object.keys(prevPh).some(k=>num(prevCnt[k])>=size&&(!segs[num(k)]||segs[num(k)].ph!==prevPh[k]))||num(st.segSize)!==size;
+//   beta.60(S-9): 서버가 "조각이 모자라요"(segments_missing)라고 한 뒤의 다시 하기(opts.freshGen)는 무조건 새 세대다.
+let fresh=!!opts.freshGen||!str(st.gen)||num(st.txCount)>txs.length||Object.keys(prevPh).some(k=>num(prevCnt[k])>=size&&(!segs[num(k)]||segs[num(k)].ph!==prevPh[k]))||num(st.segSize)!==size;
 // beta.55(A3): 새 세대를 올리다 끊기면(머리 전) 그 조각들은 머리가 오기 전까지 서버에 남는다. 다시 할 때마다 또 새 세대를 만들면
 //   남은 조각이 쌓여 가게당 상한(1,000)에 닿고, 그 뒤로는 조각부터 거절돼 머리를 영영 못 올린다(서버에 고아 조각 정리가 없다).
 //   → 끊긴 새 세대는 기억했다가(pendingGen) 다음 시도에서 **같은 세대 번호로** 다시 올린다(같은 자리 덮어쓰기라 행이 늘지 않는다).
-let gen=str(st.gen);if(fresh){const pg=str(st.pendingGen);gen=(pg&&pg!==str(st.gen)&&num(st.pendingSegSize)===size)?pg:newCloudGen();if(gen!==pg){await saveCloudState({...st,pendingGen:gen,pendingSegSize:size})}}
+let gen=str(st.gen);if(fresh){const pg=str(st.pendingGen);gen=(!opts.freshGen&&pg&&pg!==str(st.gen)&&num(st.pendingSegSize)===size)?pg:newCloudGen();if(gen!==pg){alive();await saveCloudState({...st,pendingGen:gen,pendingSegSize:size})}}
 const onServer=new Map();(Array.isArray(lj.segments)?lj.segments:[]).forEach(x=>{if(x&&str(x.gen)===gen)onServer.set(num(x.seg_no),str(x.blob_hash))});
 const todo=segs.filter(s=>fresh||prevPh[s.n]!==s.ph||!onServer.has(s.n)||(prevBh[s.n]&&onServer.get(s.n)&&onServer.get(s.n)!==prevBh[s.n]));
 const bh={};if(!fresh)segs.forEach(s=>{if(prevBh[s.n])bh[s.n]=prevBh[s.n]});
 let done=0;
 for(const s of todo){say(`서버에 장부를 올리는 중이에요 (${done+1}/${todo.length}).`);
 const sealed=await sealForCloud(s.plain,2);if(sealed.blob.length>CLOUD_SEG_MAX)throw relayCodeErr('backup_too_big');
-const r=await cloudCall('/api/ledger-backup/seg',{gen,seg_no:s.n,blob:sealed.blob,blob_hash:sealed.blob_hash},onWait);const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
+const r=await cloudCall('/api/ledger-backup/seg',{gen,seg_no:s.n,blob:sealed.blob,blob_hash:sealed.blob_hash},onWait,alive);const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
 bh[s.n]=sealed.blob_hash;done++}
-// ③ 머리(head) — 조각을 다 올린 뒤 **마지막에**. 직원·가게 정보와 조각 목록(ph·건수)을 담는다.
+// ③ 머리(head) — 조각을 다 올린 뒤 **마지막에**. 직원·가게 정보(가게 전화 제외)와 조각 목록(ph·건수)을 담는다.
 say('서버에 마무리 정보를 올리는 중이에요.');
 const head={v:2,gen,appName:APP,appVersion:APP_VERSION,exportedAt:now(),employees:core.payload.employees,meta:core.payload.meta,txCount:txs.length,chainTip:chainTipOf(txs),segs:segs.map(s=>({n:s.n,ph:s.ph,count:s.count}))};
 const hs=await sealForCloud(head,2);if(hs.blob.length>CLOUD_HEAD_MAX)throw relayCodeErr('backup_too_big');
-const hr=await cloudCall('/api/ledger-backup',{blob:hs.blob,blob_hash:hs.blob_hash,gen},onWait);const hj=await cloudJson(hr);if(!hr.ok)throw await cloudFail(hr,hj);
+// beta.60(S-9): 머리에 조각 수(seg_count)를 싣는다 — 서버가 그 세대의 조각 0..n-1이 모두 있는지 같은 자리에서 확인한다.
+//   거래가 하나도 없으면(직원만) 조각이 0개라 싣지 않는다(서버는 1..1000만 받는다).
+const hb={blob:hs.blob,blob_hash:hs.blob_hash,gen};if(segs.length)hb.seg_count=segs.length;
+const hr=await cloudCall('/api/ledger-backup',hb,onWait,alive);const hj=await cloudJson(hr);
+if(!hr.ok){const fe=await cloudFail(hr,hj);
+// 조각이 모자라다(서버가 그 사이 정리했거나 다른 세션과 겹침) → **새 세대로 한 번만** 처음부터 다시. 두 번째도 모자라면 실패로 남긴다(무한 반복 금지).
+if(relayErrCode(fe)==='segments_missing'&&!opts.freshGen){alive();await saveCloudState({...cloudState(),pendingGen:'',pendingSegSize:0});return cloudBackupRun({...opts,freshGen:true})}
+throw fe}
+alive();
 const at=now(),segsPh={},counts={};segs.forEach(s=>{segsPh[s.n]=s.ph;counts[s.n]=s.count});
 await saveCloudState({v:2,mode:'v2',gen,segSize:size,segs:segsPh,counts,bh,txCount:txs.length,fp,headAt:at,lastOkAt:at,lastTryAt:at,failSince:0,lastError:''});
 state.data.meta.lastCloudBackupAt=at;try{await repo.apply({meta:{lastCloudBackupAt:at}})}catch(e){console.error('relay cloud stamp',e)}
 return{ok:true,mode:'v2',uploaded:todo.length,total:segs.length}}
 // 예전 서버(조각 API 없음) — v1과 같은 자리(/api/ledger-backup, gen 없음)에 한 덩어리로. 그래도 서명 그림은 빼고 압축한다.
-async function cloudBackupRunV1(core,fp,say,onWait){say('서버에 장부를 올리는 중이에요.');
+async function cloudBackupRunV1(core,fp,say,onWait,alive){say('서버에 장부를 올리는 중이에요.');
 const lean={...core,payload:{...core.payload,transactions:sortTxAsc(core.payload.transactions).map(segTx)}};
 const sealed=await sealForCloud(lean,1);if(sealed.blob.length>CLOUD_HEAD_MAX)throw relayCodeErr('backup_too_big');
-const r=await cloudCall('/api/ledger-backup',{blob:sealed.blob,blob_hash:sealed.blob_hash},onWait);const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
+const r=await cloudCall('/api/ledger-backup',{blob:sealed.blob,blob_hash:sealed.blob_hash},onWait,alive);const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
+if(alive)alive();
 const at=now();await saveCloudState({v:2,mode:'v1',fp,txCount:core.payload.transactions.length,headAt:at,lastOkAt:at,lastTryAt:at,failSince:0,lastError:''});
 state.data.meta.lastCloudBackupAt=at;try{await repo.apply({meta:{lastCloudBackupAt:at}})}catch(e){console.error('relay cloud stamp',e)}
 return{ok:true,mode:'v1',uploaded:1,total:1}}
-async function recordCloudFail(e){const st=cloudState();const t=now();await saveCloudState({...st,failSince:num(st.failSince)||t,lastTryAt:t,lastError:relayErrCode(e)||'internal'})}
+async function recordCloudFail(e){if(cloudCancelled(e))return;const st=cloudState();const t=now();await saveCloudState({...st,failSince:num(st.failSince)||t,lastTryAt:t,lastError:relayErrCode(e)||'internal'})}
 // 조용한 서버 백업(자동·명단 받은 뒤) — 화면을 막지 않는다. 실패는 기록만 하고(장부 지키기 상자·홈 배너가 말한다) false.
 // ⚠️ 잠금(손님) 화면에서는 절대 돌지 않는다 — 이 경로는 개인키를 풀어 챌린지를 복호화한다. PIN을 넣기 전에 그 일이 벌어질 이유가 없다.
 let cloudRunning=null;
-async function relayBackupSilent(){if(lockScreenActive())return false;if(!navigator.onLine||!relayRegistered()||!state.data.meta.pubKey)return false;
+async function relayBackupSilent(){if(lockScreenActive())return false;if(cloudDeleting||!navigator.onLine||!relayRegistered()||!state.data.meta.pubKey)return false;
 if(cloudRunning){try{await cloudRunning}catch(e){}return true}
 const p=cloudBackupRun({});cloudRunning=p;
 try{await p;if(state.loaded&&!renderIsDisruptive())render();return true}
-catch(e){console.error('silent cloud backup',relayErrCode(e)||e);await recordCloudFail(e);if(state.loaded&&!renderIsDisruptive())render();return false}
+catch(e){if(cloudCancelled(e))return false;console.error('silent cloud backup',relayErrCode(e)||e);await recordCloudFail(e);if(state.loaded&&!renderIsDisruptive())render();return false}
 finally{if(cloudRunning===p)cloudRunning=null}}
 // 주 1회 자동 서버 백업(앱 시작·잠금 해제 때). 조건: 등록됨 · 자동 켜짐 · 온라인 · 장부가 있음 · 마지막 성공 7일 이상 · 그 뒤 바뀐 것 있음.
 //   실패 뒤 다시 시도는 한 시간에 한 번(잠금 해제가 하루 수십 번이라 서버를 두드리지 않게). 폴링은 없다.
@@ -2406,14 +2478,15 @@ function cloudAutoDue(){const m=state.data.meta;if(m.autoCloudBackup===false||!r
 if(!state.data.transactions.length&&!state.data.employees.length)return false;
 const last=cloudLastOkAt();if(last&&now()-last<CLOUD_WEEK_MS)return false;if(!cloudChanged())return false;
 const st=cloudState();if(pastTs(st.lastTryAt)&&num(st.failSince)&&now()-pastTs(st.lastTryAt)<CLOUD_RETRY_GAP_MS)return false;return true}
-async function maybeAutoCloudBackup(){try{if(lockScreenActive()||!navigator.onLine||cloudRunning)return false;if(!cloudAutoDue())return false;return await relayBackupSilent()}catch(e){console.error('silent cloud backup',e);return false}}
+async function maybeAutoCloudBackup(){try{if(lockScreenActive()||!navigator.onLine||cloudRunning||cloudDeleting)return false;if(!cloudAutoDue())return false;return await relayBackupSilent()}catch(e){console.error('silent cloud backup',e);return false}}
 // 명단을 받은 직후 — 예전의 "백업을 갱신할까요?" 확인창 대신 조용히 시도한다(자동 백업을 끈 가게는 건드리지 않는다).
 function cloudBackupAfterRoster(){if(state.data.meta.autoCloudBackup===false)return;relayBackupSilent().catch(()=>{})}
 
 // ── 서버에서 되찾기 (v2 머리 → 조각 5개씩 / v1 한 덩어리) ─────────────────────────────────────────
-async function cloudFetchSegments(head,say){const metas=[...head.segs].sort((a,b)=>num(a.n)-num(b.n));const out=[];
+// call(path,body) — 조각을 받는 요청. 기본은 지금 가게의 서버 백업, 보관 칸 되찾기(beta.60)는 archiveCall을 넘긴다.
+async function cloudFetchSegments(head,say,call){call=call||((p,b)=>cloudCall(p,b));const metas=[...head.segs].sort((a,b)=>num(a.n)-num(b.n));const out=[];
 for(let i=0;i<metas.length;i+=5){const part=metas.slice(i,i+5);say(`서버에서 장부를 받는 중이에요 (${Math.min(i+5,metas.length)}/${metas.length}).`);
-const r=await cloudCall('/api/ledger-backup/seg/get',{gen:str(head.gen),seg_nos:part.map(m=>num(m.n))});const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
+const r=await call('/api/ledger-backup/seg/get',{gen:str(head.gen),seg_nos:part.map(m=>num(m.n))});const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
 const got=new Map((Array.isArray(j.segments)?j.segments:[]).map(s=>[num(s&&s.seg_no),s]));
 for(const m of part){const s=got.get(num(m.n));if(!s||typeof s.blob!=='string')throw relayCodeErr('backup_incomplete');
 if(s.blob_hash&&(await hash(s.blob))!==str(s.blob_hash))throw relayCodeErr('backup_corrupt');
@@ -2431,30 +2504,84 @@ if(out.length!==num(head.txCount))throw relayCodeErr('backup_incomplete');
 if(str(head.chainTip)&&chainTipOf(out)!==str(head.chainTip))throw relayCodeErr('backup_corrupt');
 return out}
 function hasStrippedSignatures(txs){return(txs||[]).some(t=>t&&t.type==='use'&&str(t.signatureHash)&&!sigD(t.signatureData))}
-async function relayRestoreFromCloud(){if(!navigator.onLine){toast('인터넷(와이파이) 연결을 확인해 주세요.');return}if(!relayRegistered()){toast('먼저 우리 가게를 등록해 주세요.');return}
-setBusy('서버에 보관된 백업을 확인하는 중이에요.');
-try{const say=t=>{state.busy=t;const b=document.querySelector('.busy>div');if(b)b.textContent=t};
-const r=await cloudCall('/api/ledger-backup/get',{});
-if(r.status===404){clearBusy();await askChoice({title:'서버에 보관된 백업이 없어요',lines:['이 가게 이름으로 서버에 올린 백업을 찾지 못했어요. 파일로 보관한 백업이 있으면 [파일에서 되찾기]로 골라 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return}
-const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
-if(j.blob_hash&&(await hash(j.blob))!==str(j.blob_hash))throw relayCodeErr('backup_corrupt');
+// 서버의 백업 응답(머리)을 되찾기 꾸러미(schemaVersion 3 모양)로 푼다 — 지금 가게의 서버 백업·보관 칸 공용.
+async function cloudParseHead(j,say,call){if(j.blob_hash&&(await hash(j.blob))!==str(j.blob_hash))throw relayCodeErr('backup_corrupt');
 const top=await openFromCloud(j.blob);const obj=top.obj;let parsed,noSig=false,exportedAt=0;
-if(obj&&obj.v===2&&Array.isArray(obj.segs)){const txs=await cloudFetchSegments(obj,say);
+if(obj&&obj.v===2&&Array.isArray(obj.segs)){const txs=await cloudFetchSegments(obj,say,call);
 parsed={schemaVersion:3,appName:obj.appName||APP,appVersion:obj.appVersion,exportedAt:obj.exportedAt,payload:{employees:Array.isArray(obj.employees)?obj.employees:[],transactions:txs,meta:(obj.meta&&typeof obj.meta==='object')?obj.meta:{}}};noSig=hasStrippedSignatures(txs);exportedAt=num(obj.exportedAt)}
 else{parsed=obj;const p=obj&&obj.payload;noSig=hasStrippedSignatures(p&&p.transactions);exportedAt=num(obj&&obj.exportedAt)}
 const updatedAt=num(j.updated_at)||(new Date(j.updated_at).getTime()||0);
+return{parsed,noSig,when:updatedAt||exportedAt,updatedAt}}
+// ── 보관 칸에서 되찾기(beta.60, S-5 · PROTOCOL §4.14) ─────────────────────────────────────────────
+// 언제: 이 기기에 그 가게의 열쇠가 있는데 서버 등록은 **다른 열쇠**로 바뀐 경우(해제된 가게를 남이 인수). 인수 순간 서버는 옛 백업을
+//   '보관 칸'으로 옮겨 30일 동안 옛 열쇠 주인에게 **읽기만** 허락한다. 진입은 설정 > 장부 지키기 > [되찾기] > [서버에서 되찾기] 한 곳 —
+//   ① 등록된 기기: 서버 되찾기가 '열쇠가 달라요'(챌린지를 못 풂)·401·404로 막히면 이어서 시도 ② 등록이 막힌 기기(storeBlocked):
+//   이 기기가 예전에 서버 백업을 올린 적이 있으면 [서버에서 되찾기]를 보여 주고 곧바로 보관 칸을 본다.
+//   되찾은 뒤 등록은 시도하지 않는다(지금 등록은 새 주인 것이다) — 안내만 한다.
+async function archiveCall(rid,path,body){const pub=str(state.data.meta.pubKey);if(!pub)throw relayCodeErr('no_key');
+for(let attempt=0;;attempt++){
+const cr=await relayFetch(relayBase()+'/api/ledger-archive/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_id:rid,public_key:pub})});
+const cj=await cloudJson(cr);
+if(cr.status===404){const e=relayCodeErr('archive_none');throw e}
+if(!cr.ok||!cj.challenge_ct){if(cr.status===429&&attempt<2){await sleepMs(cloudRetryWait(attempt,cj.retry_after_s));continue}throw await cloudFail(cr,cj)}
+const priv=await getPrivateKey();if(!priv)throw relayCodeErr('no_key');
+let token;try{token=new TextDecoder().decode(await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64ToBuf(cj.challenge_ct)))}catch(e){throw relayCodeErr('auth_key_mismatch')}
+const r=await relayFetch(relayBase()+path.replace('/api/ledger-backup','/api/ledger-archive'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,restaurant_id:rid,public_key:pub,auth_token:token})});
+if(r.status===401&&attempt<1)continue;
+return r}}
+// 결과: 'ok' | 'cancel'(사장님이 되돌리지 않음) | 'none'(보관 칸에 없음). 그 밖의 실패는 던진다.
+async function archiveRestoreRun(rid,say){say('서버에 남은 예전 백업을 찾는 중이에요.');
+let r;try{r=await archiveCall(rid,'/api/ledger-backup/get',{})}catch(e){if(relayErrCode(e)==='archive_none')return 'none';throw e}
+if(r.status===404)return 'none';
+const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
+const call=async(p,b)=>{try{return await archiveCall(rid,p,b)}catch(e){if(relayErrCode(e)==='archive_none')throw relayCodeErr('backup_incomplete');throw e}};
+const got=await cloudParseHead(j,say,call);
 clearBusy();
-const ok=await restoreLedger(parsed,{source:'cloud',when:updatedAt||exportedAt,noSig});
-if(ok){const at=updatedAt||now();state.data.meta.lastCloudBackupAt=Math.max(num(state.data.meta.lastCloudBackupAt),at);try{await repo.apply({meta:{lastCloudBackupAt:state.data.meta.lastCloudBackupAt}})}catch(e){console.error('relay cloud stamp',e)}render()}}
+const ok=await restoreLedger(got.parsed,{source:'archive',when:got.when,noSig:got.noSig});
+if(ok)render();return ok?'ok':'cancel'}
+async function archiveNoneDialog(){await askChoice({title:'서버에 남은 예전 백업이 없어요',lines:['30일이 지났거나, 이 기기에서 서버에 올린 백업이 없었어요.','파일로 보관한 백업이 있으면 [되찾기] &gt; [파일에서 되찾기]로 골라 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]})}
+// 등록이 막힌 기기(storeBlocked)에서 보관 칸을 볼 만한가 — 이 기기 열쇠가 있고, 이 기기가 예전에 서버 백업을 올린 적이 있을 때만.
+//   (앱을 새로 깐 기기는 열쇠가 새것이라 보관 칸에 그 열쇠가 있을 수 없다 — 늘 실패할 버튼을 보여 주지 않는다.)
+function archiveCandidate(){if(relayRegistered())return null;const b=storeBlocked();if(!b||!str(state.data.meta.pubKey))return null;return cloudLastOkAt()>0?b:null}
+const ARCHIVE_TRIGGERS=['auth_key_mismatch','auth_required','store_not_registered','not_found'];
+async function relayRestoreFromCloud(){if(!navigator.onLine){toast('인터넷(와이파이) 연결을 확인해 주세요.');return}
+const reg=relayRegistered(),blk=reg?null:archiveCandidate();if(!reg&&!blk){toast('먼저 우리 가게를 등록해 주세요.');return}
+setBusy('서버에 보관된 백업을 확인하는 중이에요.');
+const say=t=>{state.busy=t;const b=document.querySelector('.busy>div');if(b)b.textContent=t};
+try{
+if(blk){const a=await archiveRestoreRun(str(blk.id),say);if(a==='none'){clearBusy();await archiveNoneDialog()}return}
+const rid=str(state.data.meta.restaurantId);let r=null,why='';
+try{r=await cloudCall('/api/ledger-backup/get',{})}catch(e){const c=relayErrCode(e);if(!ARCHIVE_TRIGGERS.includes(c)||!str(state.data.meta.pubKey))throw e;why=c}
+if(r&&r.status===404){
+// 같은 열쇠인데 백업이 없다 — 보관 칸에 이 열쇠의 예전 백업이 있으면 그것을, 없으면(대부분) 예전 안내를 그대로.
+let a='none';try{a=await archiveRestoreRun(rid,say)}catch(e){console.error('relay archive (after 404)',relayErrCode(e)||e);a='none'}
+if(a==='none'){clearBusy();await askChoice({title:'서버에 보관된 백업이 없어요',lines:['이 가게 이름으로 서버에 올린 백업을 찾지 못했어요. 파일로 보관한 백업이 있으면 [파일에서 되찾기]로 골라 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]})}return}
+if(r&&r.status===401&&str(state.data.meta.pubKey))why='auth_required';
+if(why){const a=await archiveRestoreRun(rid,say);if(a==='none'){clearBusy();await archiveNoneDialog()}return}
+const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
+const got=await cloudParseHead(j,say);
+clearBusy();
+const ok=await restoreLedger(got.parsed,{source:'cloud',when:got.when,noSig:got.noSig});
+if(ok){const at=got.updatedAt||now();state.data.meta.lastCloudBackupAt=Math.max(num(state.data.meta.lastCloudBackupAt),at);try{await repo.apply({meta:{lastCloudBackupAt:state.data.meta.lastCloudBackupAt}})}catch(e){console.error('relay cloud stamp',e)}render()}}
 catch(e){console.error('relay restore',relayErrCode(e)||e);clearBusy();await askChoice({title:'서버에서 되찾지 못했어요',lines:[esc(relayErrMsg(e,'잠시 뒤 다시 해 주세요.'))],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]})}}
+const CLOUD_DELETE_WAIT_MS=75000;// [서버 백업 삭제]가 진행 중 업로드를 기다리는 최대 시간(그 뒤엔 그대로 지운다)
 async function relayDeleteCloudBackup(){if(!relayRegistered())return;
 const v=await askChoice({title:'서버에 보관된 백업을 지울까요?',lines:['지우면 폰을 잃어버렸을 때 <b>서버에서 되찾을 수 없어요</b>. 이 기기의 장부는 그대로예요.','서버 자동 백업도 함께 꺼져요(다시 켜면 다음 백업 때 새로 올라가요).'],buttons:[{val:'keep',label:'지우지 않기',cls:'btn-primary'},{val:'del',label:'서버 백업 지우기',cls:'btn-danger'}]});
 if(v!=='del')return;if(!navigator.onLine){toast('인터넷(와이파이) 연결 후 다시 해 주세요.');return}
 setBusy('서버 백업을 지우는 중이에요.');
-try{const r=await cloudCall('/api/ledger-backup/delete',{});const j=await cloudJson(r);if(!r.ok&&r.status!==404)throw await cloudFail(r,j);
+// beta.60(앱 8): 진행 중인 자동·수동 업로드를 먼저 무효화하고(세대 번호를 올림) 그것이 멈출 때까지 기다린 뒤에 지운다.
+//   예전에는 삭제가 끝난 뒤에 앞서 시작한 업로드가 이어져 조각·머리를 다시 올리고 '성공'까지 기록했다(지운 백업이 되살아남).
+//   무효가 된 업로드는 다음 요청을 보내지 않는다 — 이미 날아간 요청 하나는 기다렸다가 그 뒤에 지우므로 함께 지워진다.
+cloudEpoch++;cloudDeleting=true;
+// beta.60(보완): 기다림에는 상한(약 75초)이 있다 — 업로드 응답이 멈춰 그 약속이 끝나지 않아도 '지우는 중' 화면이 영영 남지 않게.
+//   상한을 넘기면 그대로 지운다. 그 업로드는 위에서 이미 무효가 됐다(cloudEpoch) — cloudCall이 요청마다(열쇠 확인·전송 직전) alive()를
+//   부르고, 머리 뒤 '성공' 기록(saveCloudState·lastCloudBackupAt) 직전에도 alive()가 있어 뒤늦게 깨어나도 다음 요청·성공 기록을 남기지 않는다.
+let waitCap=CLOUD_DELETE_WAIT_MS;if(E2E_HOOKS&&Number(window.__cloudDeleteWaitMs)>0)waitCap=Number(window.__cloudDeleteWaitMs);
+try{if(cloudRunning){let capT=null;try{await Promise.race([Promise.resolve(cloudRunning).catch(()=>{}),new Promise(res=>{capT=setTimeout(res,waitCap)})])}catch(e){}finally{clearTimeout(capT)}}
+const r=await cloudCall('/api/ledger-backup/delete',{});const j=await cloudJson(r);if(!r.ok&&r.status!==404)throw await cloudFail(r,j);
 state.data.meta.autoCloudBackup=false;state.data.meta.cloudBackupState=null;state.data.meta.lastCloudBackupAt=null;
-await repo.apply({meta:{autoCloudBackup:false,cloudBackupState:null,lastCloudBackupAt:null}});clearBusy();render();toast('서버 백업을 지웠어요. 서버 자동 백업도 껐어요.')}
-catch(e){console.error('relay backup delete',relayErrCode(e)||e);clearBusy();toast('서버 백업을 지우지 못했어요. '+relayErrMsg(e))}}
+await repo.apply({meta:{autoCloudBackup:false,cloudBackupState:null,lastCloudBackupAt:null}});cloudDeleting=false;clearBusy();render();toast('서버 백업을 지웠어요. 서버 자동 백업도 껐어요.')}
+catch(e){cloudDeleting=false;console.error('relay backup delete',relayErrCode(e)||e);clearBusy();toast('서버 백업을 지우지 못했어요. '+relayErrMsg(e))}}
 // ── 장부 지키기(beta.55 A2, 계약 §4.1·§4.2) — 내 보관 백업(암호 건 파일)·백업 암호·상태 상자 ─────────────────
 // 사장님이 기억할 것은 둘뿐이다: [지금 백업하기]와 '백업 암호'.
 //   · [지금 백업하기] = (등록·온라인·자동 켜짐이면) 서버에 올리고 → "내 보관용도 남길까요?" ① 카톡·메일로 보내기 ② 이 기기에 저장 ③ 서버만.
@@ -2478,21 +2605,26 @@ const raw=String(pass==null?'':pass),tries=[raw],t=raw.trim();if(t&&t!==raw)trie
 for(const p of tries){let pt;try{const k=await passAesKey(p,new Uint8Array(b64ToBuf(str(kdf.salt))),num(kdf.it)||PASS_KDF_ITER);pt=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(b64ToBuf(str(file.iv)))},k,b64ToBuf(str(file.ct))))}catch(e){continue}
 const u=await unpackBytes(pt,num(file.z)===1);return{inner:u.obj,pass:p}}
 return null}
-// 암호 창(passDialog 재사용). mode: bset(처음 정하기·두 번) · bchange(바꾸기·두 번) · benter(한 번) · bopen(파일 열기·한 번).
+// 암호 창(passDialog 재사용). mode: bset(처음 정하기·두 번) · bchange(바꾸기·두 번) · benter(한 번) · bopen(파일 열기·한 번)
+//   · brecover(beta.60 — 잠금 화면의 [비밀번호를 잊으셨나요?]에서 사장님인지 확인·한 번, o.purpose='pin'|'file').
 //   o.allowPlain → "암호 없이 보내기/저장" 체크. 돌려주는 값 {pass, plain, at(누른 시각)} | null.
-function askBackupPass(o){o=o||{};return new Promise(resolve=>{const prev=state.passDialog;state.passDialog={mode:o.mode,p1:'',p2:'',err:str(o.err),show:false,focused:false,plain:false,allowPlain:!!o.allowPlain,how:o.how==='share'?'share':'save',okLabel:str(o.okLabel),plainOkLabel:str(o.plainOkLabel),resolve};if(prev&&typeof prev.resolve==='function'){try{prev.resolve(null)}catch(e){}}render()})}
+function askBackupPass(o){o=o||{};return new Promise(resolve=>{const prev=state.passDialog;state.passDialog={mode:o.mode,p1:'',p2:'',err:str(o.err),show:false,focused:false,plain:false,allowPlain:!!o.allowPlain,how:o.how==='share'?'share':'save',okLabel:str(o.okLabel),plainOkLabel:str(o.plainOkLabel),purpose:str(o.purpose),resolve};if(prev&&typeof prev.resolve==='function'){try{prev.resolve(null)}catch(e){}}render()})}
 function passTwoFields(mode){return mode==='export'||mode==='bset'||mode==='bchange'}
-function passIsBackup(mode){return mode==='bset'||mode==='bchange'||mode==='benter'||mode==='bopen'}
+function passIsBackup(mode){return mode==='bset'||mode==='bchange'||mode==='benter'||mode==='bopen'||mode==='brecover'}
 function passPlainToggle(el){const d=state.passDialog;if(!d)return;d.plain=!!(el&&el.checked);d.err='';const f=qs('keyPassFields');if(f)f.style.display=d.plain?'none':'';const ok=qs('keyPassOk');if(ok)ok.textContent=d.plain?(d.plainOkLabel||'암호 없이 진행'):(d.okLabel||'확인');paintPassHint()}
 
 // ── 내 보관 백업 기록 ──
-async function markOwnBackup(hasKey){const t=now();const patch={lastBackupAt:t};if(hasKey)patch.myKeyBackedUpAt=t;Object.assign(state.data.meta,patch);try{await repo.apply({meta:patch})}catch(e){console.error('relay own backup stamp',e)}state.backupConfirmed=true;render()}
+// beta.60(A3b): how='save'(이 기기에 저장)|'share'(카톡·메일로 보냄) — 마지막 백업이 이 기기 안에만 있는지 장부 지키기 카드가 말할 수 있게 함께 적는다.
+async function markOwnBackup(hasKey,how){const t=now();const patch={lastBackupAt:t,ownBackupWhere:{how:how==='share'?'share':'save',at:t}};if(hasKey)patch.myKeyBackedUpAt=t;Object.assign(state.data.meta,patch);try{await repo.apply({meta:patch})}catch(e){console.error('relay own backup stamp',e)}state.backupConfirmed=true;render()}
 function ownFileBase(plain){return(plain?'밥장부백업_암호없음_':'밥장부백업_')+dateStamp()}
 function shareFileOk(f){try{return !!(navigator.share&&navigator.canShare&&navigator.canShare({files:[f]}))}catch(e){return false}}
+// beta.60(A3b): [이 기기에 저장]으로 남긴 파일은 기기와 운명을 같이한다 — 확인 창과 장부 지키기 카드가 같은 뜻의 문장을 쓴다(OWN_DEVICE_NOTE).
+const OWN_DEVICE_NOTE='태블릿(폰)이 고장 나거나 없어지면 이 기기에 저장한 파일도 함께 사라져요. 폰이나 USB로 옮겨 두거나, 와이파이가 될 때 [카톡·메일로 보내기]를 해 주세요.';
+const OWN_DEVICE_LINE='<span class="own-device-line">⚠ '+OWN_DEVICE_NOTE+'</span>';
 async function askOwnSent(how,name,plain){const share=how==='share';
 // beta.59: 암호 건 파일을 남길 때마다 한 줄 — 평소엔 암호를 묻지 않으니, 적어 둔 종이가 유일한 열쇠라는 것을 여기서 되새긴다.
 const passLine=plain?[]:['📝 이 파일은 <b>백업 암호</b>로 열려요. 암호를 적어 둔 종이를 잘 보관해 주세요.'];
-const v=await askChoice({title:share?'카톡·메일로 잘 보냈나요?':'파일이 저장됐나요?',lines:(share?['보내기 창에서 대화방이나 메일을 골라 <b>[보내기]</b>까지 눌렀다면 [네]를 눌러 주세요.']:[`다운로드가 시작됐어요. 다운로드 폴더에 <b>${esc(name)}</b> 파일이 보이는지 확인해 주세요.`]).concat(passLine),buttons:[{val:'yes',label:share?'네, 보냈어요':'네, 보여요',cls:'btn-primary'},{val:'no',label:share?'아니요, 못 보냈어요':'아니요, 안 보여요',cls:'btn'}]});
+const v=await askChoice({title:share?'카톡·메일로 잘 보냈나요?':'파일이 저장됐나요?',lines:(share?['보내기 창에서 대화방이나 메일을 골라 <b>[보내기]</b>까지 눌렀다면 [네]를 눌러 주세요.']:[`다운로드가 시작됐어요. 다운로드 폴더에 <b>${esc(name)}</b> 파일이 보이는지 확인해 주세요.`,OWN_DEVICE_LINE]).concat(passLine),buttons:[{val:'yes',label:share?'네, 보냈어요':'네, 보여요',cls:'btn-primary'},{val:'no',label:share?'아니요, 못 보냈어요':'아니요, 안 보여요',cls:'btn'}]});
 return v==='yes'}
 // 보내기(공유 시트)·저장(다운로드). 공유 시트는 '눌렀다'는 사용자 활성이 몇 초 안에 끝나므로, 준비가 늦었으면 [보내기]를 한 번 더 받는다.
 async function deliverOwnBackup(how,text,plain,hasKey,tapAt){const base=ownFileBase(plain);
@@ -2503,15 +2635,15 @@ let res=(now()-num(tapAt)<3000)?await trySend():'again';
 if(res==='again'){const v=await askChoice({title:'파일이 준비됐어요',lines:['아래 <b>[보내기]</b>를 누르면 카톡·메일을 고를 수 있어요. 나에게 보내는 대화방이나 내 메일로 보내 두세요.'],buttons:[{val:'send',label:'보내기',cls:'btn-primary'},{val:'cancel',label:'취소',cls:'btn'}]});
 if(v!=='send'){toast('보내지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}res=await trySend()}
 if(res==='abort'){toast('보내기를 취소했어요. 백업 기록은 남기지 않았어요.');return false}
-if(res==='sent'){if(await askOwnSent('share',name,plain)){await markOwnBackup(hasKey);toast('내 보관 백업을 기록했어요.');return true}toast('기록하지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}}
+if(res==='sent'){if(await askOwnSent('share',name,plain)){await markOwnBackup(hasKey,'share');toast('내 보관 백업을 기록했어요.');return true}toast('기록하지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}}
 // 이 기기(브라우저)가 파일 보내기를 못 하면 내려받기로 바꾸고 그렇게 말한다.
 const usedBridge=downloadFile(text,name,'text/plain');
 if(usedBridge){state.pendingOwnHasKey=hasKey;toast('백업 파일을 저장하는 중입니다.');return true}
-const v=await askChoice({title:'이 기기에서는 바로 보내기가 안 돼요',lines:[`그래서 파일을 다운로드 폴더에 <b>${esc(name)}</b>로 저장했어요.`,'카톡·메일 앱에서 그 파일을 첨부해 나에게 보내 두세요.','다운로드 폴더에 파일이 보이나요?'],buttons:[{val:'yes',label:'네, 보여요',cls:'btn-primary'},{val:'no',label:'아니요, 안 보여요',cls:'btn'}]});
-if(v==='yes'){await markOwnBackup(hasKey);toast('내 보관 백업을 기록했어요.');return true}toast('기록하지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}
+const v=await askChoice({title:'이 기기에서는 바로 보내기가 안 돼요',lines:[`그래서 파일을 다운로드 폴더에 <b>${esc(name)}</b>로 저장했어요.`,'카톡·메일 앱에서 그 파일을 첨부해 나에게 보내 두세요.',OWN_DEVICE_LINE,'다운로드 폴더에 파일이 보이나요?'],buttons:[{val:'yes',label:'네, 보여요',cls:'btn-primary'},{val:'no',label:'아니요, 안 보여요',cls:'btn'}]});
+if(v==='yes'){await markOwnBackup(hasKey,'save');toast('내 보관 백업을 기록했어요.');return true}toast('기록하지 않았어요. 다시 [지금 백업하기]를 눌러 주세요.');return false}
 const name=base+'.json';const usedBridge=downloadFile(text,name,'application/json');
 if(usedBridge){state.pendingOwnHasKey=hasKey;toast('백업 파일을 저장하는 중입니다.');return true}
-if(await askOwnSent('save',name,plain)){await markOwnBackup(hasKey);toast('내 보관 백업을 기록했어요.');return true}
+if(await askOwnSent('save',name,plain)){await markOwnBackup(hasKey,'save');toast('내 보관 백업을 기록했어요.');return true}
 toast('기록하지 않았어요. 파일이 안 보이면 다시 [지금 백업하기]를 눌러 주세요.');return false}
 // ── 백업 암호를 이 기기가 기억한다 (beta.59, 사용자 결정 2026-11-15) ─────────────────────────────
 // 현장: 연세 있는 사장님·바쁜 가게에서 백업할 때마다 8자 암호를 치는 것이 부담이다. 화면잠금 4자리와 합치자는 안은 채택하지 않았다 —
@@ -2574,10 +2706,12 @@ setBusy('백업 암호를 정하는 중이에요.');try{const v=await passVerifi
 await backupPassWriteDown(r.pass,had)}
 catch(e){console.error('relay pass change',e);clearBusy();toast('백업 암호를 저장하지 못했어요. 다시 해 주세요.')}}
 // [되찾기] — 서버에서 / 파일에서. 덮어쓰기 전 확인·안전 사본은 restoreLedger가 맡는다.
-async function guardRestoreChoice(){const reg=relayRegistered();
+async function guardRestoreChoice(){const reg=relayRegistered(),blk=reg?null:archiveCandidate();
 const buttons=[];if(reg)buttons.push({val:'cloud',label:'서버에서 되찾기',sub:'서버에 보관된 마지막 백업으로 되돌려요.',cls:'btn'});
+// beta.60: 등록이 막힌 기기라도 예전에 서버 백업을 올린 적이 있으면 — 서버에 남은 예전 백업(보관 칸, 30일)을 찾아 본다.
+else if(blk)buttons.push({val:'cloud',label:'서버에서 되찾기',sub:'이 기기가 예전에 서버에 올린 백업을 찾아요(30일 동안 남아 있어요).',cls:'btn'});
 buttons.push({val:'file',label:'파일에서 되찾기',sub:'카톡·메일·다운로드 폴더에 보관한 백업 파일을 골라요.',cls:'btn'},{val:'cancel',label:'취소',cls:'btn'});
-const v=await askChoice({title:'어디에서 되찾을까요?',lines:['되찾으면 이 기기의 장부가 백업 내용으로 바뀌어요. 바뀌기 전에 백업 시각·건수를 보여 드리고, 지금 장부는 안전 사본 파일로 먼저 내려받아요.'].concat(reg?[]:['가게를 등록하면 서버에서도 되찾을 수 있어요.']),buttons});
+const v=await askChoice({title:'어디에서 되찾을까요?',lines:['되찾으면 이 기기의 장부가 백업 내용으로 바뀌어요. 바뀌기 전에 백업 시각·건수를 보여 드리고, 지금 장부는 안전 사본 파일로 먼저 내려받아요.'].concat(reg||blk?[]:['가게를 등록하면 서버에서도 되찾을 수 있어요.']),buttons});
 if(v==='cloud')return relayRestoreFromCloud();
 if(v==='file'){const inp=qs('restoreFile');inp.value='';inp.click()}}
 
@@ -2597,30 +2731,45 @@ const bothStale=(()=>{if(!txs.length)return false;const last=Math.max(ownAt,clou
 const cloudText=!reg?'':(!autoOn?'꺼져 있어요':(cloudAt?daysAgoText(cloudAt):'아직 없음'));
 const ownText=ownAt?daysAgoText(ownAt):'아직 없음';
 // 상태는 하나의 문장으로 정한다 — 상자 제목·접힌 요약·홈 배너가 **같은 문장**을 쓴다(A3: 예전에는 배너만 다른 말을 했다).
-//   우선순위: 서버 실패 → 서버 멈춤 → 열쇠가 이 기기에만 → 백업 없음 → 내 보관 오래됨 → 서버 자동 꺼짐+내 보관 없음.
+//   우선순위: 서버 실패 → 서버 멈춤 → 열쇠가 이 기기에만 → 백업 암호 없음(beta.60) → 백업 없음 → 내 보관 오래됨 → 서버 자동 꺼짐+내 보관 없음.
+// beta.60(결정 1 가-1): 화면잠금 비밀번호를 잊었을 때 장부를 지키는 유일한 길이 백업 암호가 됐다(복구 화면 ①②). 장부에 자료가 있는데 백업 암호를
+//   정한 적이 없으면 그 길이 없다 — 상자·접힌 요약·홈 배너가 같은 문장으로 알린다(등록 여부와 무관). 서버 실패·멈춤·열쇠 경고보다 아래인 이유:
+//   그 셋은 지금 장부가 기기 밖에 없다는 뜻이라 더 급하고, 셋 다 [지금 백업하기] → 내 보관 파일에서 백업 암호를 정하게 되므로 이 경고도 함께 풀린다.
+//   '백업 없음'·'오래됨'보다 위인 이유: 그 둘은 [지금 백업하기]를 "암호 없이" 마쳐도 풀리지만 이 위험은 남는다.
 let level='ok',head='✓ 장부가 안전하게 보관돼 있어요',sub='',why='';
 if(failing){const since=cloudAt||num(st.failSince),n=days(since);level='warn';why='cloud';head=n>=1?`⚠ 서버 백업이 ${n}일째 안 되고 있어요`:'⚠ 서버 백업이 안 됐어요';sub=esc(relayErrMsg({code:str(st.lastError)},'잠시 뒤 다시 해 주세요.'))+' — 인터넷을 연결하고 [지금 백업하기]를 눌러 주세요.'}
 else if(cloudStale){level='warn';why='cloud';head=`⚠ 서버 백업이 ${days(cloudAt)}일째 안 되고 있어요`;sub='인터넷(와이파이)을 연결하고 [지금 백업하기]를 눌러 주세요.'}
 // 등록된 가게의 서버 백업은 **이 기기의 가게 열쇠**로만 열린다. 암호 건 내 보관 백업(열쇠가 함께 들어감)을 한 번도 안 했으면
 //   폰을 잃어버리는 순간 서버 백업도 열 수 없다 — 서버 백업이 '오늘'이어도 안전하다고 말하지 않는다.
 else if(keyMissing){level='warn';why='key';head=cloudAt?'⚠ 서버 백업을 열 가게 열쇠가 이 기기에만 있어요':'⚠ 가게 열쇠가 이 기기에만 있어요';sub='[지금 백업하기]로 암호 건 내 보관 파일을 남겨 주세요. 폰을 잃어버려도 그 파일과 백업 암호가 있으면 새 폰에서 장부와 가게 열쇠를 되찾아요.'}
+else if(hasData&&!backupPassSet()){level='warn';why='nopass';head='⚠ 백업 암호를 아직 정하지 않았어요';sub='화면잠금 비밀번호를 잊으면 장부를 되찾을 수 없어요. [지금 백업하기]에서 백업 암호를 정해 주세요.'}
 else if(!cloudAt&&!ownAt){level=hasData?'warn':'none';head='아직 백업이 없어요';sub=hasData?'[지금 백업하기]를 눌러 장부를 보관해 주세요.':'직원·거래가 생기면 백업할 수 있어요.'}
 else if(ownStale){level='warn';why=bothStale?'stale':'';head=bothStale?`⚠ 장부를 백업한 지 오래됐어요 (마지막 ${daysAgoText(Math.max(ownAt,cloudAt)||oldest)})`:(ownAt?`⚠ 내 보관 백업을 한 지 ${days(ownAt)}일 됐어요`:'⚠ 내 보관 백업을 아직 안 했어요');sub='[지금 백업하기]에서 카톡·메일로 보내거나 이 기기에 저장해 주세요.'}
 else if(reg&&!autoOn&&!ownAt&&hasData){level='warn';head='⚠ 서버 자동 백업이 꺼져 있고 내 보관 백업도 없어요';sub='[지금 백업하기]로 내 보관 파일을 남기거나, 아래 [서버 자동 백업 켜기]를 눌러 주세요.'}
-const rows=[];if(reg)rows.push(['서버 자동 백업 (매주)',cloudText]);rows.push(['내 보관 백업',ownText]);
+// beta.60(A3b): 마지막 내 보관 백업이 [이 기기에 저장]이었다 → 그 파일은 기기와 함께 사라진다. 서버에 최신 사본이 없으면 상자 제목을 경고로
+//   세우고(그 밖의 상태가 모두 괜찮을 때만 — 더 급한 경고를 덮지 않는다), 서버 사본이 있거나 다른 경고가 서 있으면 상자 안 한 줄(deviceNote)로만 말한다.
+//   홈 배너는 띄우지 않는다(와이파이 없이 손으로만 쓰는 가게에 매번 재촉하지 않게 — 카드와 확인 창이 말한다). 판정은 기록 시각이 마지막 백업 시각과
+//   같을 때만(다른 길로 lastBackupAt이 바뀌었으면 옛 기록으로 말하지 않는다).
+const ob=m.ownBackupWhere,deviceOnly=!!(ownAt&&ob&&typeof ob==='object'&&ob.how==='save'&&num(ob.at)===num(m.lastBackupAt));
+const serverCopy=reg&&autoOn&&cloudAt>0&&!failing&&!cloudStale;
+if(level==='ok'&&deviceOnly&&!serverCopy){level='warn';why='device';head='⚠ 백업 파일이 이 기기 안에만 있어요';sub=OWN_DEVICE_NOTE}
+const deviceNote=deviceOnly&&why!=='device'?OWN_DEVICE_NOTE:'';
+const rows=[];if(reg)rows.push(['서버 자동 백업 (매주)',cloudText]);rows.push(['내 보관 백업',ownText+(deviceOnly?' (이 기기에 저장)':'')]);
 const summary=level==='warn'?head:(reg?`서버 ${cloudText} · 내 보관 ${ownText}`:`내 보관 ${ownText} · 가게를 등록하면 서버에도 보관돼요`);
 // 홈 배너: 제목은 상자와 같은 문장. 서버 문제는 마지막 성공이 8일 넘었을 때(또는 열쇠도 없을 때), 열쇠는 언제나, 오래됨은 둘 다 오래됐을 때.
 let banner=null;
 if(why==='cloud'&&(!cloudAt||now()-cloudAt>=CLOUD_WEEK_MS+DAY_MS||keyMissing))banner={head,sub:'인터넷(와이파이)을 연결한 뒤 여기를 눌러 지금 백업해 주세요.'};
 else if(why==='key')banner={head,sub:'여기를 눌러 암호 건 내 보관 백업을 남겨 주세요.'};
 else if(why==='stale')banner={head,sub:'여기를 눌러 지금 백업해 주세요.'};
-return{reg,autoOn,level,head,sub,rows,summary,banner,cloudAt,ownAt,failing,keyMissing,cloudStale}}
+else if(why==='nopass')banner={head,sub:'화면잠금 비밀번호를 잊으면 장부를 되찾을 수 없어요. 여기를 눌러 백업 암호를 정하고 백업해 주세요.'};
+return{reg,autoOn,level,head,sub,rows,summary,banner,cloudAt,ownAt,failing,keyMissing,cloudStale,deviceOnly,deviceNote}}
 function guardBanner(){const s=guardStatus();if(!s.banner||state.guardBannerDismissed)return '';
 return `<div class="card banner warn guard-banner" data-a="backup-now" style="cursor:pointer;position:relative"><button class="banner-x" data-a="dismiss-guard-banner" aria-label="이 안내 닫기">✕</button><strong>${esc(s.banner.head)}</strong><div class="meta">${esc(s.banner.sub)}</div></div>`}
 function guardCardHtml(){const s=guardStatus();
 const rows=s.rows.map(([k,v])=>`<div class="guard-row"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join('');
 const unreg=s.reg?'':`<div class="guard-unreg">가게를 등록하면 서버에도 자동 보관돼요. <button class="link-btn" data-a="go-register-store">우리 가게 등록하기</button></div>`;
-const box=`<div class="guard-state${s.level==='warn'?' warn':s.level==='none'?' none':''}" id="guardState" role="status"><b>${esc(s.head)}</b>${s.sub?`<div class="guard-sub">${s.sub}</div>`:''}${rows}${unreg}</div>`;
+const devLine=s.deviceNote?`<div class="guard-device-note" id="guardDeviceNote">⚠ ${esc(s.deviceNote)}</div>`:'';
+const box=`<div class="guard-state${s.level==='warn'?' warn':s.level==='none'?' none':''}" id="guardState" role="status"><b>${esc(s.head)}</b>${s.sub?`<div class="guard-sub">${s.sub}</div>`:''}${rows}${devLine}${unreg}</div>`;
 const links=s.reg?`<div class="guard-links"><button class="link-btn" data-a="toggle-auto-cloud">${s.autoOn?'서버 자동 백업 끄기':'서버 자동 백업 켜기'}</button><span aria-hidden="true"> · </span><button class="link-btn" data-a="cloud-backup-delete">서버 백업 지우기</button></div>`:'';
 const note=`<div class="meta guard-note">${s.reg?'서버 백업은 잠근 채 보관돼 서버도 열어볼 수 없어요(서명 그림·전화번호는 빼고 올려요). ':''}내 보관 파일은 백업 암호로 잠그고, 가게 열쇠도 함께 들어가요.</div>`;
 // beta.59: 암호를 정한 가게에는 "적어 둔 종이"를 늘 한 줄로 되새긴다(평소엔 암호를 묻지 않으므로 잊기 쉽다).
@@ -2725,12 +2874,25 @@ function deptField(id,label,value,ph){const depts=state.data.meta.departments||[
 // ── 기관 데이터 v2: 전국 2단 계층(시·도 → 기관). 인덱스(agency-index.json) 로드 후 시·도별 부서 파일은 lazy fetch + 캐시. 실패 시 레거시(agency-departments.json) 폴백. ──
 function legacyToV2(legacy){return{schemaVersion:2,updatedAt:str(legacy.updatedAt),scope:str(legacy.scope),regions:[{code:'seoul',name:'서울',deptsFile:null,agencies:(legacy.agencies||[]).map(a=>({id:a.id,name:a.name}))}]}}
 function legacyDeptMap(legacy){const m={};(legacy.agencies||[]).forEach(a=>{m[a.id]=Array.isArray(a.departments)?a.departments:[]});return m}
-async function loadAgencyData(force){
+// beta.60(앱 11): 기관 자료 요청에 시간 제한을 둔다. 와이파이가 "연결은 됐는데 아무것도 오지 않는" 상태에서 이 요청이 끝나지 않으면
+//   예전에는 앱 시작이 여기서 멈춰 **장부 화면도 열리지 않았다**(기관 자료는 장부와 무관한데). 이제 한 요청당 4초를 넘기면 포기하고
+//   (서울·기본 목록은 서비스워커 캐시로 즉시 온다), 앱 시작은 이 요청을 짧게만 기다린 뒤 장부부터 연다(init 참조).
+const AGENCY_FETCH_MS=4000,AGENCY_BOOT_WAIT_MS=1500;
+function agencyFetch(url,opts){let ctl=null;try{ctl=typeof AbortController==='function'?new AbortController():null}catch(e){ctl=null}
+const o=Object.assign({},opts||{});if(ctl)o.signal=ctl.signal;let timer=null;
+const ms=(E2E_HOOKS&&Number(window.__agencyFetchMs)>0)?Number(window.__agencyFetchMs):AGENCY_FETCH_MS;
+const timeout=new Promise((_,rej)=>{timer=setTimeout(()=>{try{if(ctl)ctl.abort()}catch(e){}rej(new Error('timeout'))},ms)});
+const run=fetch(url,o);run.catch(()=>{});
+return Promise.race([run,timeout]).finally(()=>clearTimeout(timer))}
+// 같은 시점에 여러 곳(앱 시작·가게 등록의 관할 계산·온보딩 2/3)이 부르면 요청 하나를 함께 기다린다.
+let agencyLoadP=null;
+function loadAgencyData(force){if(!force&&agencyLoadP)return agencyLoadP;const p=loadAgencyDataCore(force).finally(()=>{if(agencyLoadP===p)agencyLoadP=null});if(!force)agencyLoadP=p;return p}
+async function loadAgencyDataCore(force){
   // 1차: v2 인덱스
-  try{const res=await fetch('./agency-index.json'+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();if(!data||!Array.isArray(data.regions))throw new Error('형식 오류');state.agencyData=data;state.agencyError='';if(force)state.deptCache={};restoreAgencySelection();await ensureDeptsForRegion(state.regionSelected,force);return true}
+  try{const res=await agencyFetch('./agency-index.json'+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();if(!data||!Array.isArray(data.regions))throw new Error('형식 오류');state.agencyData=data;state.agencyError='';if(force)state.deptCache={};restoreAgencySelection();await ensureDeptsForRegion(state.regionSelected,force);return true}
   catch(e){console.warn('agency-index v2 로드 실패 → 레거시 폴백 시도:',e&&e.message);}
   // 2차: 레거시 폴백(서울 단일 시·도로 변환, 부서는 즉시 캐시)
-  try{const res=await fetch('./agency-departments.json'+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const legacy=await res.json();if(!legacy||!Array.isArray(legacy.agencies))throw new Error('형식 오류');state.agencyData=legacyToV2(legacy);state.deptCache={seoul:{updatedAt:str(legacy.updatedAt),source:'agency-departments.json',depts:legacyDeptMap(legacy),failed:false}};state.agencyError='';restoreAgencySelection();return true}
+  try{const res=await agencyFetch('./agency-departments.json'+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const legacy=await res.json();if(!legacy||!Array.isArray(legacy.agencies))throw new Error('형식 오류');state.agencyData=legacyToV2(legacy);state.deptCache={seoul:{updatedAt:str(legacy.updatedAt),source:'agency-departments.json',depts:legacyDeptMap(legacy),failed:false}};state.agencyError='';restoreAgencySelection();return true}
   catch(e2){console.error('agency data:',e2);state.agencyError='공공기관 목록을 불러올 수 없습니다.';return false}
 }
 function regionList(){return(state.agencyData&&state.agencyData.regions)||[]}
@@ -2746,7 +2908,8 @@ function restoreAgencySelection(){const rs=regionList();if(!rs.length)return;con
 //   자동으로 골라 놓았다 — 서울이 아닌 가게에는 처음부터 틀린 값이 보였다).
 state.regionSelected='';state.agencySelected=''}
 // 시·도 부서 파일 lazy fetch + 메모리 캐시. 실패 시 실패 플래그를 남겨 UI에서 기본 목록 안내.
-async function ensureDeptsForRegion(code,force){code=str(code);if(!code)return true;if(!force&&state.deptCache[code])return true;const region=regionList().find(r=>r.code===code);if(!region)return false;if(!region.deptsFile&&state.deptCache[code])return true;const fileRef=region.deptsFile||('agency-depts/'+code+'.json');const url='./'+(fileRef.indexOf('/')>=0?fileRef:('agency-depts/'+fileRef));try{const res=await fetch(url+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();const depts=(data&&data.depts&&typeof data.depts==='object')?data.depts:{};state.deptCache[code]={updatedAt:str(data&&data.updatedAt),source:str(data&&data.source),depts,failed:false};return true}catch(e){console.error('depts load ('+code+'):',e&&e.message);state.deptCache[code]={updatedAt:'',source:'',depts:{},failed:true};return false}}
+// beta.60: 늦게 온(또는 시간 초과로 실패한) 자료는 다음 요청 때 다시 받아 본다 — 실패 표시가 영원히 남지 않게.
+async function ensureDeptsForRegion(code,force){code=str(code);if(!code)return true;if(!force&&state.deptCache[code]&&!state.deptCache[code].failed)return true;const region=regionList().find(r=>r.code===code);if(!region)return false;if(!region.deptsFile&&state.deptCache[code])return true;const fileRef=region.deptsFile||('agency-depts/'+code+'.json');const url='./'+(fileRef.indexOf('/')>=0?fileRef:('agency-depts/'+fileRef));try{const res=await agencyFetch(url+(force?'?t='+Date.now():''),{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();const depts=(data&&data.depts&&typeof data.depts==='object')?data.depts:{};state.deptCache[code]={updatedAt:str(data&&data.updatedAt),source:str(data&&data.source),depts,failed:false};return true}catch(e){console.error('depts load ('+code+'):',e&&e.message);state.deptCache[code]={updatedAt:'',source:'',depts:{},failed:true};return false}}
 // 선택 기관의 부서 목록: 부서 파일에 해당 agencyId가 있으면 그 목록, 없으면 COMMON_DEPTS 템플릿 폴백.
 function agencyDeptEntry(regionCode,agencyId){const cache=state.deptCache[regionCode];if(cache&&cache.depts&&Array.isArray(cache.depts[agencyId]))return cache.depts[agencyId];return null}
 function resolveAgencyDepts(regionCode,agencyId){return agencyDeptEntry(regionCode,agencyId)||COMMON_DEPTS}
@@ -2820,9 +2983,12 @@ function handoffEmp(){if(state.pinContext!=='handoff')return null;const id=str(s
 const at=num(state.pendingCustomerAt);
 if(!at||now()-at>TIMERS.pendingTtl){clearPendingRequest();state.pendingExpired=true;return null}
 return state.data.employees.find(v=>v.id===id&&!v.isDeleted)||null}
+// beta.60: 화면잠금 비밀번호를 새로 정하는 중인가 — 설정의 [비밀번호 변경](change)과 복구 화면의 [백업 암호로 비밀번호 다시 정하기](reset).
+//   reset은 백업 암호를 맞힌 뒤에만 선다(메모리에만 — 새로고침하면 사라지고 예전 비밀번호가 그대로 남는다).
+function pinSetupMode(){return state.pinMode==='change'||state.pinMode==='reset'}
 function pinScreenHtml(){
 const hasPin=!!state.data.meta.pinHash;
-const isSetup=!hasPin||state.pinMode==='change';
+const isSetup=!hasPin||pinSetupMode();
 const step=isSetup?(state.pinSetup1?'confirm':'new'):'unlock';
 if(step==='unlock'&&state.pinRecovery)return pinRecoveryHtml();
 // 인계 대상이 사라졌거나(삭제·숨김) 요청이 비었으면 조용히 평범한 잠금 해제 화면으로 되돌아간다.
@@ -2830,8 +2996,9 @@ const ho=step==='unlock'?handoffEmp():null;
 // 대상이 표시되는 동안에는 TTL 만료 시점에 딱 한 번 다시 그린다. 이게 없으면 화면은 오직 "조작"에만
 //   갱신되는데, 조작이 계속되면 유휴 시계가 계속 밀려 죽은 요청을 영원히 광고하게 된다.
 if(ho)scheduleHandoffTtl();else stopHandoffTtl();
-const titles={new:'비밀번호 설정',confirm:'비밀번호 확인',unlock:ho?'사장님 확인':'비밀번호 입력'};
-const subs={new:'숫자 4자리를 입력하세요',confirm:'한번 더 입력하세요',unlock:ho?`<span class="pin-ho"><b>${esc(ho.name)}</b>님 · 사장님이 비밀번호를 입력해 주세요<br><span class="pin-ho-label">${esc(orgDeptLabel(ho)||'부서 없음')}</span></span>`:'비밀번호를 입력하세요'};
+const isReset=state.pinMode==='reset'&&hasPin;
+const titles={new:isReset?'새 비밀번호 정하기':'비밀번호 설정',confirm:'비밀번호 확인',unlock:ho?'사장님 확인':'비밀번호 입력'};
+const subs={new:isReset?'장부는 그대로예요. 새로 쓸 숫자 4자리를 넣어 주세요.':'숫자 4자리를 입력하세요',confirm:'한번 더 입력하세요',unlock:ho?`<span class="pin-ho"><b>${esc(ho.name)}</b>님 · 사장님이 비밀번호를 입력해 주세요<br><span class="pin-ho-label">${esc(orgDeptLabel(ho)||'부서 없음')}</span></span>`:'비밀번호를 입력하세요'};
 // B단계 요청(금액·서명 포함)이면 사장님이 **PIN을 누르기 전에** 요청 내용을 눈으로 검증할 수 있어야 한다.
 //   금액을 화면에서 가장 크게 띄우고, 그 출처("손님이 입력한 금액")를 반드시 함께 적는다 —
 //   이 숫자는 앱이 계산한 값이 아니라 손님이 친 값이다. 라벨이 없으면 사장님이 "앱이 정한 금액"으로 오해하고
@@ -2849,13 +3016,15 @@ const keys=[1,2,3,4,5,6,7,8,9].map(n=>`<button class="pin-key" data-a="pin-key" 
 // 카운트다운은 숫자 노드(#pinDelayLeft) 하나만 갈아끼운다 — 매초 전체 render를 돌리면 유휴 타이머가 계속 재무장돼 굶는다.
 const delayBox=delayLeft>0?`<div class="pin-delay">비밀번호를 ${state.pinFails}번 틀렸습니다.<br><span id="pinDelayLeft">${delayLeft}</span>초 뒤에 다시 입력할 수 있어요.</div>`:'';
 if(delayLeft>0)schedulePinDelayTick();
-const forgotBtn=step==='unlock'?`<div class="pin-reset"><button data-a="pin-forgot">PIN을 잊으셨나요?</button></div>`:'';
+const forgotBtn=step==='unlock'?`<div class="pin-reset"><button data-a="pin-forgot">비밀번호를 잊으셨나요?</button></div>`:'';
 // PIN 화면은 사장님 전용 갈림길이다 — 손님이 잘못 들어왔으면 1탭으로 손님 화면으로 돌아갈 수 있어야 한다.
 //   인계 화면("사장님 확인")에서는 [처음으로] — 누르면 인계 요청까지 함께 버린다(pin-to-cust가 전부 정리한다).
 // beta.55(C8): "사장님 확인" 화면은 60초 무조작이면 처음 화면으로 돌아간다 — 남은 초를 [처음으로] 바로 아래에 보여 준다.
 //   숫자 노드(#handoffLeft)만 1초마다 바꾼다(전체 render는 유휴 시계·포커스를 흔든다). 키를 누르면 시계가 다시 60초부터다.
 const hoLeft=ho?handoffLeftSec():0;if(ho)scheduleHandoffLeftTick();else stopHandoffLeftTick();
-const backToCust=step==='unlock'?`<div class="cust-foot"><button data-a="pin-to-cust">${ho?'처음으로':'손님 화면으로'}</button>${ho?`<div class="pin-ho-left" aria-live="off"><b id="handoffLeft">${hoLeft}</b>초 뒤 자동으로 처음 화면으로 돌아가요</div>`:''}</div>`:'';
+const backToCust=step==='unlock'?`<div class="cust-foot"><button data-a="pin-to-cust">${ho?'처음으로':'손님 화면으로'}</button>${ho?`<div class="pin-ho-left" aria-live="off"><b id="handoffLeft">${hoLeft}</b>초 뒤 자동으로 처음 화면으로 돌아가요</div>`:''}</div>`
+// beta.60: 백업 암호로 들어온 새 비밀번호 정하기는 그만둘 수 있다 — 그만두면 예전 비밀번호가 그대로다(아무것도 저장하지 않았다).
+:isReset?`<div class="cust-foot"><button data-a="pin-newpin-cancel">그만두기</button></div>`:'';
 // beta.55(C2): 태블릿 가로에서는 두 칸 — 왼쪽(제목·손님 요청·[처음으로]), 오른쪽(점·숫자판). 세로 화면에서는 묶음이 display:contents라 그대로다.
 return `<div class="pin-screen pin-main"><div class="pin-col pin-col-a"><div class="pin-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="pin-title">${titles[step]}</div><div class="pin-sub">${subs[step]}</div>${reqBlock}</div><div class="pin-col pin-col-b"><div class="pin-dots">${dots}</div><div class="pin-pad">${keys}<button class="pin-key fn" data-a="pin-key" data-key="back"${dis}>←</button><button class="pin-key" data-a="pin-key" data-key="0"${dis}>0</button><button class="pin-key fn" data-a="pin-key" data-key="clear"${dis}>C</button></div><div class="pin-msg">${esc(state.pinMsg)}</div>${delayBox}${forgotBtn}</div>${backToCust}</div>`}
 // 인계 요청 TTL 만료 시점의 1회성 재렌더. 재렌더가 handoffEmp를 다시 태우면 요청이 폐기되고
@@ -2889,18 +3058,57 @@ if(left<=0){stopRecoveryTick();if(state.loaded)render();return}
 const el=qs('pinRecoveryLeft');if(!el){stopRecoveryTick();return}
 el.textContent=String(left)},250)}
 // 복구 화면을 떠날 때(취소·손님 화면·잠금 해제·초기화) 남는 것이 없도록 한자리에서 정리한다.
-function leaveRecovery(){state.pinRecovery=false;state.pinRecoveryAt=0;state.allowLockedRestore=false;stopRecoveryTick()}
+function leaveRecovery(){state.pinRecovery=false;state.pinRecoveryAt=0;state.allowLockedRestore=false;state.recoveryPass='';stopRecoveryTick()}
 
-// PIN 분실 복구 안내(스펙 §4 항목3) — 백업 파일이 있으면 복구, 없으면 기존 전체 초기화 경로.
-// ⚠️ 이 화면의 두 버튼은 잠금(손님) 화면에서도 도달 가능한 유일한 파괴 경로다. 사장님의 PIN 분실 복구는 살려야 하므로
-//   버튼을 없애는 대신 "화면 진입 후 60초"를 지나야 눌리게 한다 — 손님·아이가 홧김에 3탭으로 장부를 날리는 길을 끊는다.
-//   (기존의 confirm 2회 + 삭제 전 강제 백업 다운로드는 그대로 유지된다.)
+// ══ [비밀번호를 잊으셨나요?] 복구 화면 (beta.60 재설계, 결정 1-가·가-1) ══════════════════════════════
+// 예전 화면은 ① 백업 파일로 복구 ② 초기화 두 갈래였고, 둘을 이어 누르면 세 번째 길이 생겼다:
+//   ② 초기화 → 잠긴 최종 백업 파일이 내려받아짐 → 마지막 확인에서 [취소] → ① 그 파일 고르기 → 새 비밀번호 → 장부 그대로.
+//   잠긴 파일은 "이 기기의 열쇠"로 열리는데 복구 화면이 비밀번호 없이 그 열쇠를 써 줬다 — 비밀번호도 백업 암호도 모르는 사람이
+//   계산대 태블릿을 2~3분 만지면 장부를 열 수 있었다(하니스가 이 순서를 '성공'으로 단언하고 있었다).
+// 이제 이 화면에서 장부를 지키는 길은 **백업 암호**(beta.59부터 기기가 검증자 backupPassCheck를 가진다)를 아는 사람에게만 열린다:
+//   ① [백업 암호로 비밀번호 다시 정하기] — 암호가 맞으면 장부·열쇠는 그대로 두고 새 화면잠금 비밀번호만 정한다.
+//   ② [백업 파일로 되찾기] — **먼저 같은 백업 암호**가 맞아야 파일 고르기가 열린다(잠긴 파일·평문·암호 건 파일·열쇠 파일 모두).
+//   ③ [전부 지우고 새로 시작] — 누구나 누를 수 있는 유일한 길. 60초 잘못 누름 방지 게이트는 ③에만 건다(파괴는 ③뿐이다.
+//      ①②는 비밀을 알아야 하고, ②의 덮어쓰기는 비교 확인창·안전 사본을 거친다 — 암호를 아는 사장님을 1분 세워 둘 이유가 없다).
+//   백업 암호를 정한 적 없는 기기에는 ③만 있다(이유 한 줄). PIN도 백업 암호도 모르는 사람이 여기서 얻을 수 있는 것은 "전부 지우기"뿐이다.
+// 백업 암호 오답은 화면잠금 오답과 **같은 지연 장치**(pinFails·pinDelayUntil, meta 영속)에 합산한다 — 둘을 번갈아 찍어 지연을 피하지 못하게.
+//   지연 중에는 ①② 대신 남은 초를 보여 준다(숫자판도 같은 지연으로 멈춰 있다).
+function backupPassSet(){const c=state.data.meta.backupPassCheck;return !!(c&&typeof c==='object'&&str(c.hash))}
 function pinRecoveryHtml(){
 const left=recoveryLeft();
 if(left>0)scheduleRecoveryTick();
+const has=backupPassSet();
+const delayLeft=pinDelayLeft();if(delayLeft>0&&has)schedulePinDelayTick();
 const dis=left>0?' disabled':'';
-const gate=left>0?`<div class="pin-delay">잘못 누름 방지를 위해 <span id="pinRecoveryLeft">${left}</span>초 후 활성화돼요.</div>`:'';
-return `<div class="pin-screen"><div class="pin-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="pin-title">PIN을 잊으셨나요?</div><div class="pin-sub">아래 방법 중 하나를 선택하세요.</div>${gate}<div class="section-actions" style="width:100%;max-width:340px"><button class="btn-primary action-btn" data-a="pin-forgot-restore"${dis}><span class="action-icon">📁</span><div><strong>① 백업 파일로 복구</strong><span>저장해둔 백업 파일이 있으면 선택하세요. 데이터를 확인한 뒤 새 비밀번호를 설정합니다.</span></div></button><button class="btn-danger action-btn" data-a="pin-reset"${dis}><span class="action-icon">②</span><div><strong>백업 파일이 없어요</strong><span>모든 데이터를 지우고 처음부터 다시 시작합니다.</span></div></button></div><div class="pin-reset"><button data-a="pin-forgot-cancel">돌아가기</button></div></div>`}
+const gate=left>0?`<div class="pin-delay rec-gate">잘못 누름 방지를 위해 <span id="pinRecoveryLeft">${left}</span>초 뒤에 [전부 지우고 새로 시작]을 누를 수 있어요.</div>`:'';
+const sub=has?'종이에 적어 둔 백업 암호가 있으면 장부는 그대로 두고 비밀번호만 새로 정할 수 있어요.':'백업 암호를 정해 둔 적이 없어 장부를 그대로 두고 비밀번호만 바꿀 수 없어요.';
+const keep=!has?'':delayLeft>0?`<div class="pin-delay rec-delay">비밀번호·백업 암호를 ${num(state.pinFails)}번 틀렸어요.<br><span id="pinDelayLeft">${delayLeft}</span>초 뒤에 다시 할 수 있어요.</div>`
+:`<button class="btn-primary action-btn" data-a="pin-recover-pass"><span class="action-icon">①</span><div><strong>백업 암호로 비밀번호 다시 정하기</strong><span>장부는 그대로예요.</span></div></button><button class="btn action-btn" data-a="pin-forgot-restore"><span class="action-icon">②</span><div><strong>백업 파일로 되찾기</strong><span>파일을 열 때도 백업 암호를 넣어요.</span></div></button>`;
+const wipe=`${gate}<button class="${has?'btn rec-wipe-soft':'btn-danger'} action-btn" data-a="pin-reset"${dis}><span class="action-icon">${has?'③':'⚠'}</span><div><strong>전부 지우고 새로 시작</strong><span>${has?'백업 암호도 파일도 없을 때만.':'이 기기의 장부를 모두 지우고 처음부터 시작해요.'}</span></div></button>`;
+return `<div class="pin-screen pin-recovery"><div class="pin-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="pin-title">비밀번호를 잊으셨나요?</div><div class="pin-sub" id="pinRecoverySub">${sub}</div><div class="section-actions" style="width:100%;max-width:340px">${keep}${wipe}</div><div class="pin-reset"><button data-a="pin-forgot-cancel">돌아가기</button></div></div>`}
+// ①·②의 백업 암호 확인. 맞으면 맞은 문자열, 틀리면 null(지연 장치에 1회 합산), 창을 닫았거나 화면을 떠났으면 ''.
+//   한 번 창을 열면 맞히거나 닫을 때까지 같은 창에서 다시 묻는다. 5번째 오답부터는 지연이 걸려 창을 닫고 남은 초를 보여 준다.
+//   검증(PBKDF2 60만 회) 중에 화면이 바뀌면(유휴 복귀 등) 결과를 버린다 — 진입 시각(pinRecoveryAt)이 이 복구 화면의 이름표다.
+async function recoveryPassCheck(purpose){if(!state.pinRecovery||!backupPassSet()||pinDelayLeft()>0)return '';
+const session=num(state.pinRecoveryAt);let err='';
+for(;;){const r=await askBackupPass({mode:'brecover',purpose,err,okLabel:'확인'});
+if(!r||!state.pinRecovery||num(state.pinRecoveryAt)!==session){if(state.loaded)render();return ''}
+setBusy('백업 암호를 확인하는 중이에요.');let p=null;try{p=await passVerifierMatch(r.pass,state.data.meta.backupPassCheck)}catch(e){p=null}clearBusy();
+if(!state.pinRecovery||num(state.pinRecoveryAt)!==session){render();return ''}
+if(p!=null){await clearPinGuard();return p}
+state.pinFails=num(state.pinFails)+1;if(state.pinFails>=5)state.pinDelayUntil=now()+TIMERS.pinDelay;await savePinGuard();
+if(pinDelayLeft()>0){render();return ''}
+err=`백업 암호가 맞지 않아요. (${state.pinFails}번 틀림 — 비밀번호와 합쳐 5번 틀리면 1분 기다려야 해요)`}}
+// ① 백업 암호가 맞으면 장부·열쇠는 그대로 두고 새 비밀번호 정하기 화면으로(pinMode='reset' — 메모리에만. 다 정해야 저장된다).
+async function recoverPinWithPass(){const p=await recoveryPassCheck('pin');if(!p)return;
+leaveRecovery();stopPinDelayTick();state.lockView='pin';state.pinContext='';state.pinInput='';state.pinSetup1='';state.pinMsg='';state.pinMode='reset';resetCustomerState();render()}
+// ② 백업 암호가 맞으면 파일 고르기를 연다. 검증이 몇 초 걸려 '누른 순간'의 허락(브라우저 사용자 활성)이 끝났을 수 있으므로
+//   [백업 파일 고르기] 버튼을 한 번 더 받는다(그 탭이 곧 파일 창을 연다). 맞힌 암호는 이 복구 화면 동안만 메모리에 둔다 —
+//   고른 파일이 같은 암호로 잠긴 암호 건 파일이면 다시 묻지 않고 연다(onRestoreFile이 진입 즉시 가져가고 지운다).
+async function recoverFileWithPass(){const session=num(state.pinRecoveryAt);const p=await recoveryPassCheck('file');if(!p)return;
+const v=await askChoice({title:'백업 암호가 맞아요',lines:['되찾을 <b>백업 파일</b>을 골라 주세요. 카톡·메일로 받아 둔 파일이나 다운로드 폴더의 파일이에요.','되돌리기 전에 백업 시각과 건수를 먼저 보여 드려요.'],buttons:[{val:'pick',label:'백업 파일 고르기',cls:'btn-primary'},{val:'cancel',label:'취소',cls:'btn'}]});
+if(v!=='pick'||!state.pinRecovery||num(state.pinRecoveryAt)!==session)return;
+state.allowLockedRestore=true;state.recoveryPass=p;armIdle();/* 파일 창이 열려 있는 동안은 120초(armIdle 복구 분기) */const inp=qs('restoreFile');inp.value='';inp.click()}
 
 async function handlePinKey(key){
 if(pinDelayLeft()>0)return;// 5회 실패 후 입력 지연 중 — 어떤 키도 받지 않는다
@@ -2911,12 +3119,13 @@ if(state.pinInput.length>=4)return;
 state.pinInput+=key;state.pinMsg='';render();
 if(state.pinInput.length<4)return;
 const pin=state.pinInput;const hasPin=!!state.data.meta.pinHash;
-const isSetup=!hasPin||state.pinMode==='change';
+const isSetup=!hasPin||pinSetupMode();
 if(isSetup){
 if(!state.pinSetup1){state.pinSetup1=pin;state.pinInput='';render();return}
 if(state.pinSetup1!==pin){state.pinSetup1='';state.pinInput='';state.pinMsg='비밀번호가 일치하지 않습니다. 다시 설정하세요.';render();return}
+const wasReset=state.pinMode==='reset'&&hasPin;
 await savePinHash(pin);
-state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();await clearPinGuard();resetCustomerState();render();toast('비밀번호가 설정되었습니다.')
+state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();await clearPinGuard();resetCustomerState();render();toast(wasReset?'새 비밀번호를 정했어요. 장부는 그대로예요.':'비밀번호가 설정되었습니다.')
 }else{
 if(await verifyPin(pin)){state.pinInput='';state.pinLocked=false;state.pinMsg='';state.pinContext='';leaveRecovery();stopPinDelayTick();await clearPinGuard();maybeAutoCloudBackup();flushPendingNotify();
 // 손님 인계: 손님이 요청을 넘긴 직후(120초 이내)라면 그 직원의 사용 모달을 바로 연다.
@@ -2945,7 +3154,11 @@ async function clearPinGuard(){state.pinFails=0;state.pinDelayUntil=0;await save
 async function pinReset(){
 // 잠금 화면에서 도달했다면 복구 화면의 60초 게이트를 반드시 통과했어야 한다(버튼 disabled와 별개인 2중 방어).
 if(lockScreenActive()&&!recoveryReady())return;
-const ok=await confirmWipeWithBackup('PIN만 따로 초기화할 수는 없어요(보안).\n\n모든 장부·직원 기록이 지워집니다. 계속할까요?',{locked:true});
+// beta.60(앱 2번): "PIN만 따로 초기화할 수는 없어요(보안)"는 사실이 아니었다(그 문구 옆의 버튼 두 개로 됐다). 이제는 사실이다 —
+//   백업 암호를 알면 ①로 비밀번호만 다시 정하고, 모르면 지우는 길뿐이다. 그대로 말한다.
+const intro=(backupPassSet()?'백업 암호를 알면 [백업 암호로 비밀번호 다시 정하기]로 장부를 그대로 두고 비밀번호만 새로 정할 수 있어요.':'백업 암호를 정해 둔 적이 없어 장부를 그대로 두고 비밀번호만 바꿀 수 없어요.')
++'\n\n전부 지우면 이 기기의 장부·직원 기록·가게 열쇠가 모두 지워져요. 계속할까요?';
+const ok=await confirmWipeWithBackup(intro,{locked:true});
 if(!ok)return;
 setBusy('앱을 초기화하는 중입니다.');
 try{await wipeLocalData();clearBusy();render();window.alert('✅ 초기화 완료\n\n모든 로컬 데이터가 삭제되었습니다. 새로 설정해 주세요.')}catch(err){console.error(err);clearBusy();toast('초기화 중 오류가 발생했습니다.')}}
@@ -2988,7 +3201,7 @@ resetCustomerState();clearPinGuard();render()}
 // 잠금 화면이 실제로 떠 있는 상태인가. ⚠️ pinLocked는 온보딩 중에도 true다(설정 화면이 먼저 렌더된다)
 //    — 게이트를 pinLocked만으로 걸면 초기 설정 화면의 모든 버튼이 막힌다.
 function lockScreenActive(){return !!(state.loaded&&state.data.meta.setupComplete&&state.pinLocked)}
-function customerViewAllowed(){return !!state.data.meta.pinHash&&state.pinMode!=='change'&&!state.pinRecovery}
+function customerViewAllowed(){return !!state.data.meta.pinHash&&!pinSetupMode()&&!state.pinRecovery}
 
 // 동명이인 병합 판정 — assignDuplicateSuffix()가 붙이는 구분 마커 '·2','·3'…을 떼어 기본 이름으로 묶는다.
 // ⚠️ 옛 규칙(이름 끝 라틴 소문자 1글자)은 Alex/Alec 같은 서로 다른 사람을 "동명이인"으로 오병합해 둘 다 조회를 막았다.
@@ -3254,15 +3467,110 @@ if(state.setupStep===2)return setupStep2Html();if(state.setupStep===3)return set
 //      "이거 잘못되면 내 돈은?"에서 설치가 멈춘다. 현장에서 가장 먼저 나오는 질문이다.
 //   ③ 완전 무료(뒤에 청구서가 없다)
 //   버튼은 하나다. 여기서 고를 것은 없다 — 고를 것이 생기는 순간 인사가 아니라 관문이 된다.
-function setupWelcomeHtml(){
-return '<div class="setup"><div class="setup-welcome">'
+// beta.60(A3b): 홈 화면 아이콘으로 설치되지 않은 폰·태블릿(installNeedsGuide)에서는 같은 인사 아래에 "먼저 홈 화면에 추가" 안내를 붙인다.
+//   설치된 앱(필드테스트 태블릿)·PC에서는 지금 화면과 **한 글자도 다르지 않다**(guide=false 분기 = 예전 문자열 그대로).
+function setupWelcomeHtml(){const env=installEnvNow(),guide=installNeedsGuide(env);
+return '<div class="setup"><div class="setup-welcome'+(guide?' install-mode':'')+'">'
 +'<div class="setup-welcome-logo" aria-hidden="true">🍚</div>'
-+'<div class="setup-head" style="margin-bottom:16px"><h1>밥장부에 오신 것을 환영합니다</h1></div>'
++'<div class="setup-head" style="margin-bottom:'+(guide?'10':'16')+'px"><h1>밥장부에 오신 것을 환영합니다</h1></div>'
 +'<div class="card">'
 +'<div class="setup-welcome-safe">이 앱은 돈을 받거나 보내지 않아요 — 선금 결제(제로페이, 카드 등)는 기관과 손님, 우리 가게가 앱 밖에서 직접 해요.</div>'
 +'</div>'
-+'<button class="btn-primary" data-a="setup-welcome-start" style="width:100%;min-height:60px;font-size:18px;font-weight:800;margin-top:18px">시작하기</button>'
++(guide?'<div id="welcomeInstall">'+welcomeInstallInner(env)+'</div>':WELCOME_START_BTN)
 +'</div></div>'}
+const WELCOME_START_BTN='<button class="btn-primary" data-a="setup-welcome-start" style="width:100%;min-height:60px;font-size:18px;font-weight:800;margin-top:18px">시작하기</button>';
+
+// ── 홈 화면에 추가(설치) 안내 (beta.60 A3b, 근거: .claude/reviews/beta60-install-research.md) ─────────────────────
+// 왜: 브라우저 탭 안의 장부는 "사이트 기록 지우기"·저장 공간 정리에 함께 지워질 수 있고, 아이폰은 홈 화면 앱과 사파리가 **저장소를 따로 쓴다**
+//   (사파리 탭에서 만든 장부는 홈 화면 앱에서 비어 보인다). 그래서 **처음 설정 전에** 홈 화면 아이콘으로 옮겨 쓰게 한다.
+// 판별은 순수 함수 하나(installEnv) — 하니스가 UA·display-mode·navigator.standalone·터치 수를 흉내 내 분기마다 검증한다.
+//   installed  : 홈 화면 아이콘으로 연 화면(display-mode standalone/fullscreen, iOS navigator.standalone, 안드로이드 감싸기 앱) → 안내 0
+//   inapp      : 카카오톡·네이버·인스타그램·페이스북·라인·다음 앱 안 화면, 안드로이드 웹뷰(; wv)), UA에 Safari가 없는 아이폰 웹뷰
+//   ios-safari / ios-other(크롬·파이어폭스·엣지·웨일 등 — 모두 WebKit) / android-chrome / android-other(삼성 인터넷 등) / desktop(PC → 안내 0)
+//   아이패드(iPadOS 13+)는 UA가 Mac과 같다 → Macintosh + 터치 2개 이상 + 크롬·파이어폭스·엣지 토큰 없음(헤드리스 크롬·터치 PC를 아이패드로 오인하지 않게).
+//   안드로이드 태블릿 크롬은 'PC 버전 사이트'가 기본이라 UA가 Linux로 온다 → UA-CH platform이 Android면 안드로이드로 본다(없으면 PC로 남는다 — 안내 0, 막지 않음).
+// ⚠️ manifest.json의 id·start_url·scope·이름은 바꾸지 않는다 — id가 없으면 start_url로 계산되고, 다른 값을 넣으면 이미 설치한 태블릿이 별개 앱이 된다.
+function installEnv(o){const src=o||{},ua=String(src.ua||''),touch=num(src.maxTouchPoints);
+if(src.standalone||src.navStandalone===true||src.bridge)return 'installed';
+const ipadMac=/Macintosh/.test(ua)&&touch>1&&!/Chrome\/|Chromium|Firefox\/|Edg\//.test(ua);
+const ios=/iPhone|iPad|iPod/.test(ua)||ipadMac;
+const android=/Android/i.test(ua)||(String(src.platform||'')==='Android'&&!ios);
+if(/KAKAOTALK|NAVER\(inapp|DaumApps|Instagram|FBAN|FBAV|FB_IAB|\bLine\/|BAND\//i.test(ua))return 'inapp';
+if(android&&/; ?wv\)/.test(ua))return 'inapp';
+if(ios){if(/CriOS|FxiOS|EdgiOS|OPiOS|Whale\//.test(ua))return 'ios-other';if(!/Safari\//.test(ua))return 'inapp';return 'ios-safari'}
+if(android){if(/SamsungBrowser|Whale\/|EdgA|OPR\/|Firefox\/|YaBrowser|MiuiBrowser|UCBrowser|HuaweiBrowser|HeyTapBrowser/i.test(ua))return 'android-other';return /Chrome\//.test(ua)?'android-chrome':'android-other'}
+return 'desktop'}
+// beta.60(보완): 설치된 앱은 display-mode가 standalone·fullscreen 말고도 minimal-ui·window-controls-overlay일 수 있다 — 모두 '설치됨'.
+const INSTALLED_DISPLAY_MODES=['standalone','fullscreen','minimal-ui','window-controls-overlay'];
+function installEnvNow(){let sa=false;try{sa=!!(window.matchMedia&&INSTALLED_DISPLAY_MODES.some(m=>window.matchMedia('(display-mode: '+m+')').matches))}catch(e){}
+let platform='';try{platform=str(navigator.userAgentData&&navigator.userAgentData.platform)}catch(e){}
+return installEnv({ua:navigator.userAgent,standalone:sa,navStandalone:navigator.standalone===true,maxTouchPoints:navigator.maxTouchPoints,platform,bridge:typeof AndroidBridge!=='undefined'})}
+function installNeedsGuide(env){return env!=='installed'&&env!=='desktop'}
+function installIsAndroidUa(){return /Android/i.test(navigator.userAgent)||str(navigator.userAgentData&&navigator.userAgentData.platform)==='Android'}
+function installIsIpad(){const ua=navigator.userAgent;return /iPad/.test(ua)||(/Macintosh/.test(ua)&&num(navigator.maxTouchPoints)>1)}
+// 이 앱 주소(검색어·#은 뗀다 — 하니스 표식(?e2e=1)이 복사되지 않게).
+function installAppUrl(){try{return location.origin+location.pathname}catch(e){return 'https://app.bapjangbu.com/'}}
+// 안드로이드에서 크롬으로 여는 진짜 링크(사용자 탭으로만 열린다). 크롬이 없으면 같은 주소로 넘어간다(browser_fallback_url).
+function installChromeHref(){const u=installAppUrl();const m=u.match(/^(https?):\/\/(.+)$/);if(!m)return u;return 'intent://'+m[2]+'#Intent;scheme='+m[1]+';package=com.android.chrome;S.browser_fallback_url='+encodeURIComponent(u)+';end'}
+const INSTALL_ICON_NAME="'선입금대장'";
+function installUrlRowHtml(){return `<div class="install-url"><span class="install-url-text" id="installUrlText">${esc(installAppUrl())}</span><button class="btn" data-a="install-copy-url">주소 복사</button></div>`}
+function installSkipHtml(label,warn){return `<div class="install-skip"><button class="link-btn" data-a="setup-welcome-start">${label}</button>${warn?`<div class="meta">${warn}</div>`:''}</div>`}
+function installChromeLinkHtml(){return `<a class="btn-primary install-go" id="installChromeLink" href="${esc(installChromeHref())}">크롬으로 열기</a>`}
+// 환영 화면 아래 칸 — 안내 상자 + 버튼. 비동기 신호(설치 창 준비·설치 완료)가 오면 이 칸(#welcomeInstall)만 갈아끼운다(paintInstallSlots).
+function welcomeInstallInner(env){const ipad=installIsIpad();
+const box=(title,body)=>`<div class="install-box" id="installBox" role="note"><b class="install-title">${title}</b>${body}</div>`;
+const startBtn=label=>`<button class="btn-primary" data-a="setup-welcome-start" style="width:100%;min-height:56px;font-size:18px;font-weight:800;margin-top:14px">${label}</button>`;
+if(env==='android-chrome'){
+if(state.installAccepted)return box('✓ 홈 화면에 아이콘을 만들었어요',`<div class="install-why">이 화면을 닫고 홈 화면의 <b>${INSTALL_ICON_NAME}</b> 아이콘으로 열어 주세요. 여기서 바로 시작해도 장부는 같아요.</div>`)+startBtn('여기서 바로 시작');
+if(installPromptReady())return box('📲 먼저 홈 화면에 추가해 주세요',`<div class="install-why">홈 화면의 <b>${INSTALL_ICON_NAME}</b> 아이콘으로 열면 장부가 더 안전하게 보관돼요.</div>`)
++'<button class="btn-primary" data-a="install-prompt" id="installPromptBtn" style="width:100%;min-height:56px;font-size:18px;font-weight:800;margin-top:14px">홈 화면에 추가</button>'+installSkipHtml('나중에 추가하고 지금 시작','');
+return box('📲 먼저 홈 화면에 추가해 주세요',`<div class="install-why">오른쪽 위 <b>⋮</b> 메뉴 → <b>[홈 화면에 추가]</b> 또는 <b>[앱 설치]</b>를 누르세요. 홈 화면의 <b>${INSTALL_ICON_NAME}</b> 아이콘으로 열면 장부가 더 안전하게 보관돼요.</div>`)+startBtn('시작하기')}
+if(env==='ios-safari')return box('📲 먼저 홈 화면에 추가해 주세요',`<ol class="install-steps"><li>화면 ${ipad?'위':'아래'}의 <b>공유 버튼</b>(네모에 위 화살표)을 누르세요. 안 보이면 <b>⋯</b>을 먼저 누르세요.</li><li><b>[홈 화면에 추가]</b>를 누르세요.</li><li>홈 화면에 생긴 <b>${INSTALL_ICON_NAME}</b> 아이콘으로 열어 주세요.</li></ol><div class="install-warn">여기(사파리)에서 만든 장부는 홈 화면 앱에서 보이지 않아요.</div>`)
++installSkipHtml('설치 없이 사파리에서 시작','');
+if(env==='ios-other')return box('📲 먼저 홈 화면에 추가해 주세요',`<div class="install-why">공유 버튼(또는 <b>⋯</b> 메뉴)에 <b>[홈 화면에 추가]</b>가 있으면 누르세요. 없으면 이 주소를 <b>사파리</b>로 열어 주세요.</div>${installUrlRowHtml()}<div class="install-warn">여기에서 만든 장부는 홈 화면 앱에서 보이지 않아요.</div>`)
++installSkipHtml('설치 없이 이 브라우저에서 시작','');
+if(env==='android-other')return box('📲 크롬으로 열어서 설치하는 것을 권해요',`<div class="install-why">크롬에서 홈 화면에 추가하고 <b>${INSTALL_ICON_NAME}</b> 아이콘으로 열면 장부가 더 안전하게 보관돼요.</div>`)
++installChromeLinkHtml()+installSkipHtml('이 브라우저에서 시작','나중에 크롬으로 옮기려면 백업 파일로 옮겨야 해요.');
+// inapp
+const and=installIsAndroidUa();
+return box(and?'📲 크롬으로 열어 주세요':'📲 사파리로 열어 주세요',`<div class="install-why">이 화면(카카오톡 등)에서는 장부가 안전하게 저장되지 않아요.</div><div class="install-how">${and?'오른쪽 위 <b>⋮</b> → <b>[다른 브라우저로 열기]</b>를 누르세요.':'아래(또는 위)의 <b>공유 버튼</b>이나 <b>⋯</b> → <b>[사파리로 열기]</b>를 누르세요.'}</div>${installUrlRowHtml()}`)
++(and?installChromeLinkHtml():'')+installSkipHtml('그래도 여기서 시작','여기서 만든 장부는 크롬·사파리로 옮기려면 백업 파일이 필요해요.')}
+// 홈 배너 — 장부가 있는데 아직 홈 화면 아이콘으로 쓰지 않는 기기. 등록·백업 배너보다 아래(banners()의 마지막). ✕는 이번 실행 동안만.
+//   beta.60(보완): 탭으로 여는 기기(삼성 인터넷 '바로가기' 등)는 열 때마다 뜨므로 [이 안내 그만 보기] — meta.installHintOff(기기 전용)에 남겨 그 기기에서 다시 띄우지 않는다.
+//   환영 화면(설정 전)의 설치 안내는 이 값과 무관하다(설정 전에는 장부가 없다).
+//   설치된 앱·PC에서는 칸 자체를 그리지 않는다(필드테스트 태블릿 화면 변화 0).
+function installHintIsOff(){return !!(state.data&&state.data.meta&&state.data.meta.installHintOff)}
+function installBanner(){if(state.installBannerDismissed||installHintIsOff())return '';const env=installEnvNow();if(!installNeedsGuide(env))return '';return `<div id="installBannerSlot">${installBannerInner(env)}</div>`}
+function installBannerInner(env){if(state.installBannerDismissed||installHintIsOff()||!installNeedsGuide(env))return '';
+const card=(head,body)=>`<div class="card banner install-banner" id="installBanner" style="position:relative"><button class="banner-x" data-a="dismiss-install-banner" aria-label="이 안내 닫기">✕</button><strong>${head}</strong>${body}<div style="margin-top:2px"><button class="link-btn install-hint-off" data-a="install-hint-off" style="padding-left:0;text-align:left;font-size:13px">이 안내 그만 보기</button></div></div>`;
+const moveSteps=(two)=>`<ol class="install-steps small"><li><button class="link-btn install-inline" data-a="backup-now">[지금 백업하기]</button>로 백업 파일을 남겨요.</li><li>${two}</li><li>거기서 [시작하기] → [직접 입력할게요] → <b>[예전 장부가 있어요 — 백업 파일로 되찾기]</b></li></ol>`;
+if(env==='android-chrome'){
+if(state.installAccepted)return card('✓ 홈 화면에 아이콘을 만들었어요',`<div class="meta">다음부터는 홈 화면의 ${INSTALL_ICON_NAME} 아이콘으로 열어 주세요. 장부는 같아요.</div>`);
+if(installPromptReady())return card('홈 화면에 추가해 두세요',`<div class="meta">홈 화면의 ${INSTALL_ICON_NAME} 아이콘으로 열면 장부가 더 안전하게 보관돼요.</div><button class="btn-primary small install-banner-btn" data-a="install-prompt" id="installPromptBtn">홈 화면에 추가</button>`);
+return card('홈 화면에 추가해 두세요',`<div class="meta">오른쪽 위 ⋮ 메뉴 → [홈 화면에 추가] 또는 [앱 설치]를 눌러 주세요. 이미 추가했다면 홈 화면의 ${INSTALL_ICON_NAME} 아이콘으로 열어 주세요.</div>`)}
+if(env==='ios-safari'||env==='ios-other')return card(env==='ios-safari'?'지금은 사파리 안에서 쓰고 계세요':'지금은 브라우저 안에서 쓰고 계세요',`<div class="meta">홈 화면 앱으로 옮기면 더 안전해요. 순서대로 해 주세요(바로 옮겨지지 않아요).</div>`+moveSteps(`공유 버튼 → <b>[홈 화면에 추가]</b> → 홈 화면의 ${INSTALL_ICON_NAME} 아이콘을 열어요.`));
+const and=installIsAndroidUa();
+return card(and?'크롬으로 옮겨 쓰는 것을 권해요':'사파리로 옮겨 쓰는 것을 권해요',`<div class="meta">이 화면에서 만든 장부는 ${and?'크롬':'사파리'}에서 보이지 않아요. 순서대로 옮겨 주세요.</div>`+moveSteps(and?`<a class="install-inline-link" href="${esc(installChromeHref())}">크롬으로 열기</a> → 홈 화면에 추가 → ${INSTALL_ICON_NAME} 아이콘을 열어요.`:`공유 버튼 → [사파리로 열기] → [홈 화면에 추가] → ${INSTALL_ICON_NAME} 아이콘을 열어요.`))}
+// 안드로이드 크롬의 설치 창(beforeinstallprompt) — 붙잡아 두었다가 사장님이 [홈 화면에 추가]를 누를 때 prompt()를 한 번 부른다.
+//   e.preventDefault()로 크롬이 스스로 띄우는 작은 막대를 막는다(같은 일을 두 번 묻지 않게). 이벤트 하나에 prompt()는 한 번뿐이다.
+let __installEvt=null;
+function installPromptReady(){return !!(__installEvt&&typeof __installEvt.prompt==='function')}
+// 비동기 신호가 오면 화면 전체가 아니라 **설치 칸만** 갈아끼운다(입력 중인 화면·서명·창을 건드리지 않는다 — 설계 원칙 ①).
+//   칸이 화면에 없으면(손님·잠금·복구·다른 화면) 아무것도 하지 않는다 — 다음 render가 최신 상태로 그린다.
+function paintInstallSlots(){const env=installEnvNow();
+const w=qs('welcomeInstall');if(w)w.innerHTML=installNeedsGuide(env)?welcomeInstallInner(env):WELCOME_START_BTN;
+const b=qs('installBannerSlot');if(b)b.innerHTML=installBannerInner(env)}
+async function installPromptRun(){const ev=__installEvt;
+if(!installPromptReady()){paintInstallSlots();toast('오른쪽 위 ⋮ 메뉴에서 [홈 화면에 추가]를 눌러 주세요.',5000);return}
+__installEvt=null;let outcome='';
+try{const p=ev.prompt();const c=await (ev.userChoice||p);outcome=str(c&&c.outcome)}catch(e){console.error('install prompt',e)}
+if(outcome==='accepted')state.installAccepted=true;paintInstallSlots();
+if(outcome==='accepted')toast(`홈 화면에 ${INSTALL_ICON_NAME} 아이콘을 만들었어요.`,5000)}
+async function installCopyUrl(){const u=installAppUrl();let ok=false;
+try{if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function'){await navigator.clipboard.writeText(u);ok=true}}catch(e){ok=false}
+if(!ok){try{const t=document.createElement('textarea');t.value=u;t.setAttribute('readonly','');t.style.cssText='position:fixed;left:-9999px;top:0;opacity:0';document.body.appendChild(t);t.select();ok=!!document.execCommand('copy');t.remove()}catch(e){ok=false}}
+const where=installIsAndroidUa()?'크롬':'사파리';
+toast(ok?`주소를 복사했어요. ${where}를 열고 주소창에 붙여 넣어 주세요.`:'복사가 안 됐어요. 위의 주소를 손가락으로 길게 눌러 복사해 주세요.',5000)}
 // 새 태블릿에서 예전 장부를 되찾는 길(beta.55 A3 → beta.57에서 자리 옮김, 사용자 결정).
 //   환영 화면은 인사 한 장으로 두고(제목·돈 안내·[시작하기]), 되찾기 글씨 링크는 **필요한 사람에게만** 보인다:
 //   ① 1/3 검색 결과에 '다른 기기에서 이미 등록됨' 가게가 있을 때(목록 아래) ② 그런 가게를 골랐을 때(확인 화면)
@@ -3318,7 +3626,7 @@ return '<div class="setup"><div class="setup-head"><div class="setup-step">2 / 3
 // 연락처(선택·권장) — 공공기관 담당자(서무)가 명단 파일을 보낼 곳. 반드시 건너뛰기 허용(스펙 §수정3-2)
 function setupStep3Html(){
 const agreed=!!state.setupTermsAgreed;const dis='';// beta.55(C4): 버튼은 늘 살아 있다 — 동의 전에 누르면 체크 칸 옆에 이유가 뜬다
-return '<div class="setup"><div class="setup-head"><div class="setup-step">3 / 3</div><h1>연락처 (선택·권장)</h1><p>공공기관 담당자(서무)가 명단 파일을 보낼 곳이에요.<br>지금 몰라도 돼요 — 나중에 설정에서 등록할 수 있어요.</p></div><div class="card"><div class="form"><div class="field"><label for="setupContactKakao">카카오톡 오픈채팅 링크</label><input id="setupContactKakao" type="url" placeholder="https://open.kakao.com/o/..." value="'+esc(state.data.meta.contactKakaoLink||'')+'"></div><div class="meta" style="font-size:11px;margin-top:-6px">카카오톡 &gt; 오픈채팅 만들기에서 링크를 복사해 붙여넣으세요. 전화번호가 드러나지 않아요.</div><div class="field"><label for="setupContactEmail">접수 이메일</label><input id="setupContactEmail" type="email" placeholder="예: office@restaurant.com" value="'+esc(state.data.meta.contactEmail||'')+'"></div></div></div>'+termsAgreeBlockHtml('setup-terms-toggle','setupTermsChk',agreed)+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back2" style="flex:1">이전</button><button class="btn" id="setupSkipBtn" data-a="setup-contact-skip" style="flex:1"'+dis+'>나중에 하기</button><button class="btn-primary" id="setupCompleteBtn" data-a="setup-complete" style="flex:1"'+dis+'>완료</button></div></div>'}
+return '<div class="setup"><div class="setup-head"><div class="setup-step">3 / 3</div><h1>연락처 (선택·권장)</h1><p>공공기관 담당자(서무)가 명단 파일을 보낼 곳이에요.<br>지금 몰라도 돼요 — 나중에 설정에서 등록할 수 있어요.</p></div><div class="card"><div class="form"><div class="field"><label for="setupContactKakao">카카오톡 오픈채팅 링크</label><input id="setupContactKakao" type="url" placeholder="https://open.kakao.com/o/..." value="'+esc(state.data.meta.contactKakaoLink||'')+'"></div><div class="meta" style="font-size:11px;margin-top:-6px">카카오톡 &gt; 오픈채팅 만들기에서 링크를 복사해 붙여넣으세요. 전화번호가 드러나지 않아요.</div><div class="field"><label for="setupContactEmail">접수 이메일</label><input id="setupContactEmail" type="email" placeholder="예: office@restaurant.com" value="'+esc(state.data.meta.contactEmail||'')+'"></div><div class="meta contact-email-hint" style="font-size:11px;margin-top:-6px">가게용 이메일을 넣어 주세요. 담당자 화면에 보여요.</div></div></div>'+termsAgreeBlockHtml('setup-terms-toggle','setupTermsChk',agreed)+'<div style="display:flex;gap:8px;margin-top:16px"><button class="btn" data-a="setup-back2" style="flex:1">이전</button><button class="btn" id="setupSkipBtn" data-a="setup-contact-skip" style="flex:1"'+dis+'>나중에 하기</button><button class="btn-primary" id="setupCompleteBtn" data-a="setup-complete" style="flex:1"'+dis+'>완료</button></div></div>'}
 
 // 이용약관·개인정보처리방침 동의 안내 블록 (온보딩·일회성 모달 공용). 링크는 새 탭(rel=noopener), 체크는 기본 미체크.
 function termsAgreeBlockHtml(action,chkId,checked){
@@ -3408,6 +3716,18 @@ const a=qs('useAmount'),n=qs('useNote'),dd=qs('useDate');
 if(a)m.amountDraft=String(a.value==null?'':a.value);
 if(n)m.noteDraft=String(n.value==null?'':n.value);
 if(dd)m.dateDraft=String(dd.value==null?'':dd.value)}
+// ── 충전·잔액 조정·직원 등록/수정 모달 입력값 흡수 (beta.60, 앱 10) ─────────────────────
+// 사용 모달과 같은 결함이 이 세 모달에 남아 있었다: 금액·날짜·사유·이름이 DOM에만 있어, 저장 실패(다시 해 주세요)·토스트·
+//   와이파이 끊김/연결·자동 백업 뒤의 render 한 번이면 충전 금액이 9,000원·오늘 날짜로, 조정 잔액이 지금 잔액으로 조용히 되돌아갔다.
+//   사장님이 그대로 다시 누르면 다른 금액·날짜가 저장된다. → 화면을 갈아엎기 직전에 값을 state.modal.drafts로 흡수하고, 새로 그린 칸에 되돌린다.
+//   흡수값은 그 모달 객체 안에만 산다 — 저장에 성공하거나 [취소]로 닫으면 모달과 함께 사라진다(다음에 열면 기본값부터).
+const MODAL_DRAFT_IDS={topup:['topupAmount','topupReason','topupDate'],adjust:['adjustBalance','adjustReason','adjustDate'],employee:['empOrg','empDept','empName','empOpen','empNote']};
+function captureModalDrafts(){const m=state.modal;if(!m||!MODAL_DRAFT_IDS[m.type])return;if(modalOpenKey!==modalKey(m))return;
+const dr=m.drafts||{};MODAL_DRAFT_IDS[m.type].forEach(id=>{const el=qs(id);if(el)dr[id]=String(el.value==null?'':el.value)});m.drafts=dr}
+function restoreModalDrafts(){const m=state.modal;if(!m||!MODAL_DRAFT_IDS[m.type]||!m.drafts)return;
+Object.keys(m.drafts).forEach(id=>{const el=qs(id);if(el&&el.value!==m.drafts[id]){try{el.value=m.drafts[id]}catch(e){}}});
+// 직원 모달의 부서 칩은 칸 값과 같은 것이 켜져 보여야 한다(되돌린 값과 칩 표시가 어긋나지 않게).
+if(m.type==='employee'){const dv=m.drafts.empDept;if(typeof dv==='string')document.querySelectorAll('.dept-pick:not(.org-pick)').forEach(c=>c.classList.toggle('on',c.dataset.dept===dv))}}
 // ── 설정 화면 입력 칸 흡수 (beta.55, C1) ──────────────────────────────────────
 // 설정의 빠른 등록(소속·부서·이름·금액)·가게 이름·연락처·새 부서 칸은 값이 DOM에만 있었다. 칸에서 손을 뗀 상태(키보드 닫힘)에서
 //   안내 토스트가 사라지거나 와이파이가 끊겼다 붙으면 전체 render가 돌아 **적어 둔 글자가 전부 지워졌다**(재현됨).
@@ -3421,7 +3741,7 @@ function restoreFormDrafts(){if(state.screen!=='settings')return;const dr=state.
 Object.keys(dr).forEach(id=>{const el=qs(id);if(el&&el.value!==dr[id]){try{el.value=dr[id]}catch(e){}}})}
 // 저장에 성공한 칸은 흡수값과 화면 값을 함께 비운다(저장된 값은 meta가 다시 그려 준다).
 function dropFormDrafts(ids,clearDom){(ids||[]).forEach(id=>{delete state.formDrafts[id];formDraftSkip.add(id);if(clearDom){const el=qs(id);if(el)el.value=''}})}
-function renderCore(){captureUsageInputs();captureFormDrafts();if(!state.loaded){qs('app').innerHTML='<div class="app"><div class="card empty">앱을 준비하는 중입니다.</div></div>';return}
+function renderCore(){captureUsageInputs();captureModalDrafts();captureFormDrafts();if(!state.loaded){qs('app').innerHTML='<div class="app"><div class="card empty">앱을 준비하는 중입니다.</div></div>';return}
 // 초기 설정 화면
 if(!state.data.meta.setupComplete){const fa=document.activeElement,fid=fa&&fa.tagName==='INPUT'&&fa.id;let ss=null,se=null;try{ss=fa&&fa.selectionStart;se=fa&&fa.selectionEnd}catch(e){}
 qs('app').innerHTML=setupScreenHtml()+overlaysHtml();
@@ -3453,7 +3773,7 @@ const fa=document.activeElement,fid=fa&&fa.id,ss=fa&&fa.selectionStart,se=fa&&fa
 //   → id가 없는 요소라 그룹 키(data-g)로 같은 헤더를 찾아 포커스를 되돌린다.
 const fgKey=(fa&&fa.classList&&fa.classList.contains('group-head')&&fa.dataset)?fa.dataset.g:'';
 const d=derive();qs('app').innerHTML=`<div class="app">${topBar()}<div class="stack">${banners()}${screenHtml(d)}</div>${navHtml()}</div>${modalHtml(d)}${overlaysHtml()}`;
-restoreFormDrafts();
+restoreFormDrafts();restoreModalDrafts();
 // 손님이 미리 서명해 온 모달에는 캔버스가 없다(그림을 보여줄 뿐) — 그때는 signPad 참조를 반드시 끊는다.
 if(state.modal&&state.modal.type==='usage'&&!str(state.modal.preSign))initSignPad();else signPad=null;
 if(state.modal&&state.modal.type==='qr-scan')initQrScan();else stopQrScan();
@@ -3527,7 +3847,7 @@ const deptOpts=['<option value="">전체 소속</option>',...groupOrder.map(g=>`
 const clearBtn=(state.search.trim()||state.deptFilter)?`<button class="btn" data-a="reset-filter" title="검색어와 소속 필터를 지웁니다" aria-label="검색 초기화" style="min-width:52px;font-size:18px;flex-shrink:0">✕</button>`:'';
 filters=`<div class="home-filters"><div class="filter-row"><input id="searchInput" type="text" placeholder="직원명 검색 (초성도 돼요 · 예: ㄱㅁㅅ)" aria-label="직원명 검색 — 초성 검색 가능" value="${esc(state.search)}">${clearBtn}</div><div class="filter-row"><select id="deptFilterSelect" aria-label="소속으로 거르기">${deptOpts}</select></div></div>`}else if(state.screen==='history'){filters=historyFilterHtml()}const shop=state.data.meta.shopName;const shopAddr=state.data.meta.shopAddr||'';const shopHtml=shop&&state.screen==='home'?`<div style="font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#1a5276,#2e86c1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px">${esc(shop)}${shopAddr?` <span style="font-size:13px;font-weight:600;letter-spacing:0">(${esc(shopAddr)})</span>`:''}</div>`:'';return `<div class="top">${shopHtml}<div class="title"><div><h1>${APP}</h1><div class="sub">${sub}</div></div><div class="tool">${homeBtn}${btns}</div></div>${filters}</div>`}
 function historyFilterHtml(){const d=derive();const tabStyle='flex:1;min-height:44px;border-radius:10px;font-size:14px;font-weight:700;';/* beta.55(C13): 44px·14px */const dateOn=state.historyTab==='date';const empOn=state.historyTab==='employee';const empFilter=empOn?`<select id="historyFilter" style="margin-top:8px">${['<option value="">전체 직원</option>',...d.employees.map(e=>`<option value="${esc(e.id)}"${state.historyEmployeeId===e.id?' selected':''}>${esc(e.name)} (${esc(e.deptKey||orgDeptLabel(e)||'부서 없음')})${e.isDeleted?' [숨김]':''}</option>`)].join('')}</select>`:'';return `<div style="display:flex;gap:8px"><button style="${tabStyle}${dateOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="date">일자별</button><button style="${tabStyle}${empOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="employee">직원별</button></div>${empFilter}`}
-function banners(){let h='';if(state.mode!=='IndexedDB')h+='<div class="card banner error"><strong>호환 모드 저장</strong><div class="meta">IndexedDB를 사용할 수 없어 localStorage에 저장합니다.</div></div>';if(state.screen==='home')h+=storeRegisterBanner()+guardBanner();return h}
+function banners(){let h='';if(state.mode!=='IndexedDB')h+='<div class="card banner error"><strong>호환 모드 저장</strong><div class="meta">IndexedDB를 사용할 수 없어 localStorage에 저장합니다.</div></div>';if(state.screen==='home')h+=storeRegisterBanner()+guardBanner()+installBanner();return h}
 // 온보딩에서 우리 가게 등록을 못 마친 경우에만 뜨는 지속 배너(등록에 성공하면 플래그가 해제돼 사라진다).
 // 가게 등록 마무리 안내 — ✕로 닫으면 이번 실행 동안만 숨김(재시작하면 다시 보인다).
 function storeRegisterBanner(){if(relayRegistered()||state.storeBannerDismissed)return '';
@@ -3644,7 +3964,7 @@ const actions=done
 :`<button class="btn-primary" data-a="relay-approve" data-sid="${esc(it.summary_id)}">결제 확인 후 승인</button><button class="btn-danger" data-a="relay-reject" data-sid="${esc(it.summary_id)}">거절</button>`;
 return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px"><div style="font-weight:700">${esc(combinedDeptLabel(it.summary.institution,it.summary.department))}</div><div class="meta">${esc(it.summary.restaurant_name||'')} · ${esc(it.summary.year_month||'')}</div><div class="meta">${esc(domainLine(it.summary.agency_domain))}${sentAt?' · 명단 전송 '+esc(dt(sentAt)):''}</div>${badge}<div style="margin:6px 0">총액 <b>${money(it.summary.total_amount)}</b> · ${num(it.summary.member_count)}명 <span class="meta">(승인 전에는 이름이 보이지 않습니다)</span></div><div style="display:flex;gap:8px">${actions}</div></div>`}).join(''):'<div class="empty">대기 중인 신청이 없습니다.<br>공공기관에서 신청을 보내면 여기에 나타나요.</div>';return `<div class="modal-back"><div class="modal"><h2>공공기관 명단 신청 수신함</h2><p class="help">결제 내역(카드 매출전표·통장 입금)과 금액을 대조한 뒤 승인하세요. 승인 시에만 명단이 열립니다.<br>기관명은 담당자가 직접 적는 값이라, 인증된 이메일 도메인과 함께 보고 판단하세요.</p>${body}<div class="modal-actions"><button class="btn" data-a="relay-inbox">새로고침</button><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 if(state.modal.type==='qr-scan'){return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>QR(사각 코드)로 받기</h2><p class="help">담당자가 보여주는 QR(사각 코드)를 카메라로 비춰주세요. 서버를 거치지 않고 바로 등록돼요.</p><video id="qrVideo" autoplay playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover"></video><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button></div></div></div>`}
-if(state.modal.type==='csv'){const rows=state.modal.rows||[];const dupWarn=state.modal.dupWarn||0;const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''} — 등록 가능</div>`;const hasOrg=rows.some(r=>str(r.org));const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th>${hasOrg?'<th>소속</th>':''}<th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td>${hasOrg?`<td>${esc(r.org||'')}</td>`:''}<td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error?esc(r.error):(r.mode==='topup'?'🔄 추가 충전':'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>엑셀 명단(CSV) 불러오기</h2><p class="help">엑셀에서 저장한 CSV 파일을 불러와요. 첫 줄(제목 줄)에 <b>소속·부서·이름·금액</b> 칸을 넣어 주세요.<br>· <b>소속</b> = 공공기관명·회사명, 개인 선금이면 <b>'개인'</b> (없으면 비워 두셔도 돼요)<br>· 이미 등록된 직원은 금액이 추가로 충전돼요.</p>${sm}${state.modal.renameFrom?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">기존 부서 '${esc(state.modal.renameFrom)}'의 이름을 파일의 소속·부서로 고쳐서 올려요(잔액 변동 없음).</div>`:''}${dupWarn?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">⚠️ 동명이인 ${dupWarn}건 감지 — 구분 마커(·2, ·3 …)를 자동 부여했습니다. 표에서 확인하세요.</div>`:''}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">등록하기</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
+if(state.modal.type==='csv'){const rows=state.modal.rows||[];const dupWarn=state.modal.dupWarn||0;const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''} — 등록 가능</div>`;const hasOrg=rows.some(r=>str(r.org));const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th>${hasOrg?'<th>소속</th>':''}<th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td>${hasOrg?`<td>${esc(r.org||'')}</td>`:''}<td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error?esc(r.error):(r.mode==='topup'?'🔄 추가 충전':'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>엑셀 명단(CSV) 불러오기</h2><p class="help">엑셀에서 저장한 CSV 파일을 불러와요. 첫 줄(제목 줄)에 <b>소속·부서·이름·금액</b> 칸을 넣어 주세요.<br>· <b>소속</b> = 공공기관명·회사명, 개인 선금이면 <b>'개인'</b> (없으면 비워 두셔도 돼요)<br>· 이미 등록된 직원은 금액이 추가로 충전돼요.</p>${sm}${state.modal.renameFrom?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">기존 부서 '${esc(state.modal.renameFrom)}'의 이름을 파일의 소속·부서로 고쳐서 올려요(잔액 변동 없음).</div>`:''}${dupWarn?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">⚠️ 동명이인 ${dupWarn}건 감지 — 구분 마커(·2, ·3 …)를 자동 부여했습니다. 표에서 확인하세요.</div>`:''}${num(state.modal.skippedTotals)?`<div class="csv-skip-note" style="color:var(--muted,#555);font-weight:700;margin:8px 0">합계·소계 줄 ${num(state.modal.skippedTotals)}개는 직원이 아니라서 건너뛰었어요.</div>`:''}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">등록하기</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
 // beta.54 직원 삭제 — 숨김(이름 입력 기본 팝업) 대신 앱 안 확인창. 돈 기록이 있는 직원은 기록을 남긴 채 삭제(복원 가능),
 //   기록이 없는 직원만 [기록까지 완전 삭제]가 보인다(거래가 달린 직원을 지우면 무결성 검사·백업 복원 검증이 "직원 없는 거래"로 실패한다).
 if(state.modal.type==='delete-emp'){const e=d.empMap.get(state.modal.id);if(!e||e.isDeleted)return '';const txN=state.data.transactions.filter(t=>str(t.employeeId)===str(e.id)).length;const bal=num(e.balance);
@@ -3722,7 +4042,13 @@ if(state.pinLocked){
 //   PIN 최초 설정·변경 중에는 돌아갈 손님 화면 자체가 없으므로 시계를 걸지 않는다.
 if(!lockScreenActive()||!state.data.meta.pinHash||state.pinMode==='change')return;
 // 복구 화면은 60초 활성화 게이트가 끝나고도 30초를 더 준다 — 게이트를 기다리는 동안 화면이 사라지면 사장님이 복구를 못 한다.
-if(state.pinRecovery){idleAt(recoveryLeft()*1000+TIMERS.custIdle,()=>{if(state.pinLocked&&state.pinRecovery)backToCustomerIdle()});return}
+// ⚠️ beta.60(지금 1): 예전 식 recoveryLeft()*1000+custIdle은 "마지막 조작 + 남은 게이트 + 30초"였다. 게이트가 끝나는 순간의 render가
+//   다시 걸면 남은 게이트가 0이라 "마지막 조작 + 30초" = 이미 지난 시각 → 안내대로 가만히 60초를 기다린 사장님 앞에서 화면이 닫혔다.
+//   이제 만료는 **절대 시각** max(마지막 조작, 게이트 끝) + 30초다. 백업 암호 창·선택창이 떠 있으면 60초(종이를 찾고 8자를 치는 시간),
+//   백업 암호를 맞혀 파일 창을 연 뒤에는 120초(파일 고르기 창 안의 조작은 이 앱이 셀 수 없다).
+if(state.pinRecovery){const gateEnd=num(state.pinRecoveryAt)+TIMERS.recoveryGate;
+const span=state.allowLockedRestore?TIMERS.ownerPinIdle:(state.passDialog||state.choiceDialog)?TIMERS.custComposeIdle:TIMERS.custIdle;
+idleAt(Math.max(lastInputAt,gateEnd)+span-lastInputAt,()=>{if(state.pinLocked&&state.pinRecovery)backToCustomerIdle()});return}
 // ⚠️ PIN 화면(lockView==='pin')에는 **언제나** 시계를 건다. 길이만 두 가지다.
 //   · 손님 흔적이 남아 있는 화면 — "사장님 확인"(handoff)이거나 인계 요청이 살아 있으면 60초(handoffPinIdle, beta.55 — 예전 30초).
 //     방치하면 앞 손님의 요청이 다음 손님에게 남는다(HIGH-3의 본체).
@@ -3759,7 +4085,7 @@ if(canAutoLock()){idleAt(TIMERS.autoLock,()=>{if(canAutoLock())lockToCustomer()}
 //   선택창을 띄운 채 자리를 비우면 영영 잠기지 않았다. 잠글 때 lockToCustomer가 창을 '취소'로 닫는다(저장 없음).
 if(canAutoLockBase()&&(state.modal||state.passDialog||state.choiceDialog||state.textDialog)){idleAt(TIMERS.modalIdleCap,()=>{if(canAutoLockBase()&&(state.modal||state.passDialog||state.choiceDialog||state.textDialog))lockToCustomer()})}}
 // PIN 화면 방치 → 손님 초기 화면으로. 잠금은 절대 풀리지 않고, 앞 손님의 흔적(인계 요청 포함)은 전부 사라진다.
-function backToCustomerIdle(){dismissPassDialog();dismissChoiceDialog();dismissTextDialog();state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
+function backToCustomerIdle(){dismissPassDialog();dismissChoiceDialog();dismissTextDialog();if(state.pinMode==='reset'){state.pinMode='';state.pinSetup1=''}state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();stopPinDelayTick();stopHandoffTtl();resetCustomerState();render()}
 // 조작이 있으면 시계를 다시 시작한다. 캡처 단계라 어떤 핸들러가 이벤트를 막아도 반드시 실행된다.
 ['click','input','change','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,markInput,true));
 
@@ -3827,6 +4153,9 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 // 자동 등록 카드의 열쇠 안내 → 장부 지키기 카드를 펼쳐 연다.
 'go-guard':()=>{state.screen='settings';state.settingsOpen['ledger']=true;render();const fh=document.querySelector('.fold-head[data-card="ledger"]');if(fh)fh.scrollIntoView({block:'start'})},
 'dismiss-guard-banner':()=>{state.guardBannerDismissed=true;render()},
+// beta.60(A3b): 홈 화면에 추가(설치) — 설치 창 한 번·주소 복사·배너 닫기(이번 실행 동안만).
+'install-prompt':()=>installPromptRun(),'install-copy-url':()=>installCopyUrl(),'dismiss-install-banner':()=>{state.installBannerDismissed=true;render()},
+'install-hint-off':async()=>{const t=now();state.data.meta.installHintOff=t;try{await repo.apply({meta:{installHintOff:t}})}catch(e){console.error('install hint off',e)}render();toast('이 안내를 다시 띄우지 않을게요.',5000)},
 // 홈 상단 [직원 목록 관리] — 설정 화면의 직원 목록 카드를 자동 펼침+스크롤로 연다(beta.29).
 //   모달이 아닌 이유: 이 앱의 모달은 한 번에 하나뿐이라, 목록 안의 [수정]·[충전]·[증표] 모달이 목록을 대체해 버린다.
 'go-employees':()=>{state.screen='settings';state.settingsOpen['employees']=true;render();const fh=document.querySelector('.fold-head[data-card="employees"]');if(fh)fh.scrollIntoView({block:'start'})},
@@ -3882,9 +4211,14 @@ try{await navigator.clipboard.writeText(u);toast('네이버 지도 링크를 복
 // 복구 화면 진입 — 진입 시각을 찍어 60초 활성화 게이트를 시작한다(이미 들어와 있으면 다시 찍지 않는다).
 'pin-forgot':()=>{if(!state.pinRecovery){state.pinRecovery=true;state.pinRecoveryAt=now();state.allowLockedRestore=false}render()},
 'pin-forgot-cancel':()=>{leaveRecovery();render()},
-// 정식 복구 경로 — 60초 게이트를 통과했을 때만 파일 선택창을 연다. 여기서만 잠금 중 복원을 1회 허용한다
-//   (state.allowLockedRestore: 화면을 떠나면 leaveRecovery()가 즉시 거둬가고, onRestoreFile이 진입 즉시 소비한다).
-'pin-forgot-restore':()=>{if(!recoveryReady())return;state.allowLockedRestore=true;qs('restoreFile').value='';qs('restoreFile').click()},
+// beta.60: ① 백업 암호로 비밀번호 다시 정하기 / ② 백업 파일로 되찾기 — 둘 다 **백업 암호가 맞아야** 다음으로 간다(recoveryPassCheck).
+//   잠금 중 복원을 1회 허용하는 state.allowLockedRestore는 ②에서 암호가 맞고 [백업 파일 고르기]를 누른 그 순간에만 선다
+//   (화면을 떠나면 leaveRecovery()가 즉시 거둬가고, onRestoreFile이 진입 즉시 소비한다). 누를 때마다 먼저 거둔다 — 앞서 파일 창을 닫은 허락이 남지 않게.
+//   60초 게이트는 ③(전부 지우기)에만 있다 — ①②는 비밀을 알아야 하고 파괴가 아니다.
+'pin-recover-pass':async()=>{state.allowLockedRestore=false;if(!state.pinRecovery||!backupPassSet())return;await recoverPinWithPass()},
+'pin-forgot-restore':async()=>{state.allowLockedRestore=false;state.recoveryPass='';if(!state.pinRecovery||!backupPassSet())return;await recoverFileWithPass()},
+// 새 비밀번호 정하기(reset)를 그만두면 아무것도 바뀌지 않는다 — 예전 비밀번호 그대로 손님 화면으로.
+'pin-newpin-cancel':()=>{if(state.pinMode!=='reset')return;state.pinMode='';state.pinSetup1='';state.pinInput='';state.pinMsg='';state.lockView='customer';state.pinContext='';resetCustomerState();render()},
 'toggle-auto-cloud':async()=>{await toggleAutoCloud()},
 'cloud-backup-restore':async()=>{await relayRestoreFromCloud()},
 'change-pin':()=>{state.pinMode='change';state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMsg='';clearPinGuard();render()},
@@ -3892,6 +4226,7 @@ try{await navigator.clipboard.writeText(u);toast('네이버 지도 링크를 복
 'setup-next':async()=>{if(!state.setupSelected){toast('우리 가게를 먼저 고르세요.');return}
 const telEl=qs('setupStoreTel');if(telEl){const t=str(telEl.value);state.setupSelected.tel=t;if(state.setupPickedStore)state.setupPickedStore.tel=t}
 state.data.meta.shopName=state.setupSelected.name;state.data.meta.shopAddr=state.setupSelected.addr;state.data.meta.shopTel=state.setupSelected.tel;state.setupDepts=[].concat(COMMON_DEPTS);if(!state.setupStoreQ)state.setupStoreQ=str(state.setupSelected.name);
+if(!state.agencyData){setBusy('공공기관 목록을 불러오는 중이에요.');try{await loadAgencyData(false)}catch(e){console.error('agency data',e)}clearBusy()}
 const matched=matchAgencyByRegion(state.setupSelected.addr);
 if(matched){state.regionSelected=matched.region.code;state.agencySelected=matched.agency.id;await ensureDeptsForRegion(matched.region.code)}
 // 구청까지는 못 찾아도 시·도만이라도 맞춰 두면 2/3의 기관 고르기가 헛돌지 않는다(세종처럼 구가 없는 시도 등).
@@ -3956,7 +4291,7 @@ catch(e){window.prompt('아래 내용을 길게 눌러 복사한 뒤 contact@bap
 'lock-to-pin':()=>{state.lockView='pin';state.pinContext='owner';state.pinInput='';state.pinMsg='';state.custQuery='';state.custStage='search';state.custSelectedId='';state.custVerify=null;clearCustCompose();clearPendingRequest();render()},
 // [손님 화면으로]/[처음으로] — 어느 맥락에서 눌렸든 손님 흔적을 전부 버리고 초기 손님 화면으로 돌아간다.
 //   ⚠️ 인계 요청(pendingCustomerId)도 여기서 버린다 — "사장님 확인" 화면의 [처음으로]는 취소를 뜻한다.
-'pin-to-cust':()=>{state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();resetCustomerState();render()},
+'pin-to-cust':()=>{if(state.pinMode==='reset'){state.pinMode='';state.pinSetup1=''}state.lockView='customer';state.pinContext='';state.pinInput='';state.pinMsg='';leaveRecovery();resetCustomerState();render()},
 // 새로 고른 손님이 이전 인계 요청을 덮어쓴다 — 남겨두면 엉뚱한 사람의 사용 모달이 열린다.
 'cust-pick':(el)=>{clearPendingRequest();clearCustCompose();state.custSelectedId=str(el.dataset.id);state.custStage='confirm';state.custVerify=null;render()},
 // [네, 맞아요] — beta.24부터 **곧바로 요청 작성(compose)** 이다(중간 잔액 화면을 거치지 않는다).
@@ -4057,7 +4392,9 @@ blurActiveInput();render()}
 // beta.55: choice-pick(앱 안 선택창의 버튼)을 더했다 — PIN 분실 복구 화면의 열쇠 복원(pin-forgot-restore → 열쇠 파일)이 이제
 //   "다른 열쇠로 바꿀까요?"·"짝이 안 맞아요"를 선택창으로 묻는다. 빼면 그 창이 눌리지 않아 복구가 막힌다.
 //   choice-pick은 '이미 열린 선택창'이 없으면 아무 일도 하지 않고, 잠금으로 넘어갈 때(lockToCustomer·손님 화면 복귀) 열린 창은 취소로 닫힌다.
-const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit','pass-ok','pass-cancel','pass-toggle','choice-pick']);
+// beta.60: pin-recover-pass(① 백업 암호로 비밀번호 다시 정하기)·pin-newpin-cancel(새 비밀번호 정하기 그만두기)을 더했다. 둘 다 원장을 쓰지 않는다 —
+//   ①은 백업 암호가 맞을 때만 '새 비밀번호 정하기' 화면(메모리 상태)으로 넘어가고, 그만두기는 그 상태를 버릴 뿐이다.
+const LOCK_ALLOWED=new Set(['pin-key','pin-reset','pin-forgot','pin-forgot-cancel','pin-forgot-restore','pin-recover-pass','pin-newpin-cancel','lock-to-pin','pin-to-cust','cust-pick','cust-confirm','cust-cancel','cust-clear','cust-back','cust-call-owner','cust-request','cust-history','cust-amt-quick','cust-sign-clear','cust-sign-submit','pass-ok','pass-cancel','pass-toggle','choice-pick']);
 async function onClick(e){const el=e.target.closest('[data-a]');if(!el)return;
 if(lockScreenActive()&&!LOCK_ALLOWED.has(el.dataset.a))return;// 잠금 게이트 — 손님 화면에서 원장 쓰기 경로는 구조적으로 도달 불가
 const fn=clickActions[el.dataset.a];if(fn)await fn(el)}
@@ -4228,7 +4565,7 @@ return withTxLock(async()=>{const tx=state.data.transactions.find(v=>v.id===id&&
 
 // ── 백업/복원 ──
 // pinFails/pinDelayUntil은 이 기기의 잠금 상태일 뿐 장부가 아니다 — 백업에 실어 나르면 복원과 함께 남의 지연이 따라온다.
-function backupCore(){const{deviceSecret,privKeyWrapped,pinHash,pinFails,pinDelayUntil,inboxCountCache,backupPassCheck,backupPassKeep,cloudBackupState,...metaSafe}=state.data.meta;return{schemaVersion:3,appName:APP,appVersion:APP_VERSION,exportedAt:now(),payload:{employees:state.data.employees,transactions:state.data.transactions,meta:metaSafe}}}
+function backupCore(){const{deviceSecret,privKeyWrapped,pinHash,pinFails,pinDelayUntil,inboxCountCache,backupPassCheck,backupPassKeep,ownBackupWhere,installHintOff,cloudBackupState,...metaSafe}=state.data.meta;return{schemaVersion:3,appName:APP,appVersion:APP_VERSION,exportedAt:now(),payload:{employees:state.data.employees,transactions:state.data.transactions,meta:metaSafe}}}
 function backupSummary(data){return{employeeCount:data.employees.filter(v=>!v.isDeleted).length,totalEmployeeCount:data.employees.length,transactionCount:data.transactions.length}}
 async function buildBackupPayload(){const core=backupCore();const checksum=await hash(JSON.stringify(core));return{...core,summary:backupSummary(core.payload),checksum}}
 function parseBackupPayload(parsed){if(!parsed||typeof parsed!=='object')throw new Error('형식 오류');if((parsed.schemaVersion===2||parsed.schemaVersion===3)&&parsed.payload&&Array.isArray(parsed.payload.employees)&&Array.isArray(parsed.payload.transactions)){const core={schemaVersion:parsed.schemaVersion,appName:parsed.appName,appVersion:parsed.appVersion,exportedAt:parsed.exportedAt,payload:parsed.payload};return{version:parsed.schemaVersion,checksum:parsed.checksum||'',core,data:parsed.payload}}if(Array.isArray(parsed.employees)&&Array.isArray(parsed.transactions)){const core={version:parsed.version,appName:parsed.appName,appVersion:parsed.appVersion,exportedAt:parsed.exportedAt,employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}};return{version:1,checksum:parsed.checksum||'',core,data:{employees:parsed.employees,transactions:parsed.transactions,meta:parsed.meta||{}}}}throw new Error('지원하지 않는 백업 형식')}
@@ -4295,9 +4632,9 @@ return fn;
 function backupFileName(isFinal){const d=new Date();const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;const ymd=`${ym}-${String(d.getDate()).padStart(2,'0')}`;return isFinal?`밥장부백업_최종_${ymd}.json`:`밥장부백업_${ym}.json`}
 function downloadBlob(blob,filename){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function downloadFile(content,filename,type){if(typeof AndroidBridge!=='undefined'&&AndroidBridge.saveBackup&&(!type||type.indexOf('json')>=0)){AndroidBridge.saveBackup(content,filename);return true}downloadBlob(new Blob([content],{type:type||'application/json'}),filename);return false}
-window.onBackupSaved=async function(fn){const t=now();const patch={lastBackupAt:t};if(state.pendingOwnHasKey)patch.myKeyBackedUpAt=t;state.pendingOwnHasKey=false;try{await repo.apply({meta:patch});Object.assign(state.data.meta,patch);state.backupConfirmed=true;render()}catch(e){console.error(e)}toast('백업 저장 완료: '+fn)};
+window.onBackupSaved=async function(fn){const t=now();const patch={lastBackupAt:t,ownBackupWhere:{how:'save',at:t}};if(state.pendingOwnHasKey)patch.myKeyBackedUpAt=t;state.pendingOwnHasKey=false;try{await repo.apply({meta:patch});Object.assign(state.data.meta,patch);state.backupConfirmed=true;render()}catch(e){console.error(e)}toast('백업 저장 완료: '+fn)};
 // 백업 복원(되찾기) — 파일·잠긴 파일·암호 건 파일·서버 백업이 모두 여기를 지난다. **장부를 덮어쓰는 유일한 길**이다.
-// opts.forgotPin=true 는 [PIN을 잊으셨나요?] → [백업 파일로 복구] 경로에서만 선다.
+// opts.forgotPin=true 는 [비밀번호를 잊으셨나요?] → [② 백업 파일로 되찾기](beta.60: 이 기기 백업 암호 확인 뒤) 경로에서만 선다.
 // ⚠️ 보안 민감 meta(META_DEVICE_KEYS)는 **백업에서 절대 들여오지 않는다**.
 //   예전에는 norm()이 meta를 통째로 병합해, 손으로 고친 백업 한 장으로 pinHash를 바꿔 잠금을 열고
 //   privKeyWrapped/deviceSecret까지 갈아끼울 수 있었다(실증됨). 이제 이 기기의 값을 그대로 유지한다.
@@ -4323,7 +4660,7 @@ return ''}
 async function restoreLedger(parsed,opts){opts=opts&&typeof opts==='object'?opts:{};const parsedBackup=parseBackupPayload(parsed);const checksum=parsedBackup.checksum,calc=await hash(JSON.stringify(parsedBackup.core));const data=norm(parsedBackup.data);
 const curMeta=(state.data&&state.data.meta)||{};
 META_DEVICE_KEYS.forEach(k=>{delete data.meta[k]});
-if(opts.forgotPin){['deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck','backupPassKeep'].forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
+if(opts.forgotPin){['deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck','backupPassKeep','ownBackupWhere','installHintOff'].forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
 else{META_DEVICE_KEYS.forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
 const validation=validateRestoreData(data);if(validation.errors.length){throw relayCodeErr('restore_invalid','복원 검증 실패: '+validation.errors.join(', '))}
 // 데이터 보존: 복원 데이터에 직원/거래가 있으면 설정 마법사로 되돌아가지 않도록 setupComplete 유지
@@ -4342,10 +4679,17 @@ if(replace){const secret=str(curMeta.deviceSecret)||bufToB64(randBytes(32));keyP
 else keyNote='kept'}}
 // ── 등록 정보: 이 기기가 등록된 가게이고 열쇠를 그대로 쓰면 이 기기 값이 이긴다 ──
 const keepDeviceReg=!keyPlan&&!!str(curMeta.restaurantId);
-if(keepDeviceReg)REG_META_KEYS.forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k];else delete data.meta[k]});
+// beta.60: 보관 칸(인수된 가게의 옛 백업)에서 되찾을 때는 등록 정보를 **언제나 이 기기 값**으로 둔다 — 지금 서버 등록은 새 주인 것이라
+//   옛 백업의 등록 정보를 들여오면 이 기기가 "등록됨"으로 보이지만 서버는 받아 주지 않는다.
+const archiveSrc=opts.source==='archive';
+if(keepDeviceReg||archiveSrc)REG_META_KEYS.forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k];else delete data.meta[k]});
 if(keyPlan){Object.assign(data.meta,keyPlan);data.meta.myKeyBackedUpAt=num(opts.when)||now()}
 // 마지막 백업 시각은 이 기기 기록과 백업 기록 중 늦은 쪽 — 옛 백업을 되돌려도 "백업한 적 없음"으로 돌아가지 않는다.
 ['lastBackupAt','lastCloudBackupAt'].forEach(k=>{const v=Math.max(num(curMeta[k]),num(data.meta[k]));data.meta[k]=v>0?v:null});
+if(archiveSrc)data.meta.lastCloudBackupAt=num(curMeta.lastCloudBackupAt)||null;
+// beta.60(결정 2): 서버로 가는 백업(서버 백업·보관 칸·잠긴 파일)에는 가게 전화가 없다(키 자체가 없다). 그런 백업으로 되찾으면
+//   같은 기기는 지금 가게 전화를 그대로 두고, 새 기기는 빈 칸으로 둔다(설정 > 가게 정보에서 다시 적으면 된다). 예전 백업처럼 키가 있으면 그 값을 쓴다.
+if(!Object.prototype.hasOwnProperty.call(data.meta,'shopTel')){if(str(curMeta.shopTel))data.meta.shopTel=curMeta.shopTel;else data.meta.shopTel=''}
 // beta.55(A3): 등록 정보는 파일에서 왔는데(이 기기는 미등록) 이 기기 열쇠가 그 파일을 만든 기기의 열쇠와 다르면, 파일의 '서버 백업 시각'·'열쇠 보관 시각'은
 //   **다른 열쇠**의 기록이다. 그대로 들여오면 이 기기는 서버에 소유 증명도 못 하는데 상태 상자는 "✓ 서버 백업 1일 전"이라고 말하고
 //   주 1회 자동 백업도 한 주 동안 시도조차 않는다(그 시도가 '열쇠가 달라요'를 화면에 올려 줄 유일한 길이다). → 이 기기 값으로 둔다.
@@ -4398,23 +4742,28 @@ if(opts.noSig)done.push('서명 그림은 이 백업에 없어요. 이력에는 
 if(phoneKept)done.push(`이 기기에 있던 직원 전화번호 ${phoneKept}건은 그대로 두었어요.`);
 if(keyNote==='import')done.push('가게 열쇠도 함께 가져왔어요.');
 else if(!keyPlan&&!keepDeviceReg&&str(data.meta.restaurantId))done.push((keyNote==='kept'?'파일의 가게 열쇠는 가져오지 않았어요(이 기기 열쇠를 그대로 두었어요).':keyNote==='bad'?'파일 안의 가게 열쇠는 짝이 맞지 않아 가져오지 않았어요.':'이 파일에는 가게 열쇠가 없어요.')+' 명단 받기·서버 되찾기를 쓰려면 예전 폰에서 만든 <b>암호 건 백업 파일</b>(또는 예전 \'내 열쇠 백업\' 파일)도 [되찾기]로 가져와 주세요.');
+if(archiveSrc)done.push('지금 서버의 가게 등록은 <b>다른 기기(다른 열쇠)</b>로 되어 있어서, 이 기기는 공공기관 명단을 받을 수 없어요. 우리 가게가 맞는데 남이 등록한 것 같으면 contact@bapjangbu.com으로 알려 주세요.');
 if(!str(data.meta.pinHash))done.push('[확인]을 누르면 화면을 여는 <b>숫자 비밀번호 4자리</b>를 새로 정해요.');
 await askChoice({title:'되찾기를 마쳤어요',lines:done,buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});
 return true}catch(re){console.error('relay restore apply',re);try{await repo.replaceAll(safety);state.data=safety}catch(e2){console.error('롤백 실패:',e2)}clearBusy();render();toast('되돌리지 못했어요. 장부는 이전 상태 그대로예요.');return false}}
 function restoreFromParsed(parsed,opts){return restoreLedger(parsed,opts)}
 // ⚠️ 잠금 중 파일 경로 차단(CRITICAL-2) — 다른 두 파일 핸들러(csv·직접전달)와 같은 가드다.
-//   단 하나의 예외가 [PIN을 잊으셨나요?] → 60초 게이트 통과 → [① 백업 파일로 복구]로, 그때만 allowLockedRestore가 선다.
+//   단 하나의 예외가 [비밀번호를 잊으셨나요?] → [② 백업 파일로 되찾기] → **이 기기의 백업 암호가 맞음** → [백업 파일 고르기]로, 그때만 allowLockedRestore가 선다
+//   (beta.60 — 예전에는 60초 게이트만 지나면 됐다: 초기화를 취소하며 받은 잠긴 파일로 비밀번호 없이 장부를 여는 길이었다).
 //   플래그는 여기서 즉시 소비한다(1회용) — 파일 선택을 취소했다가 나중에 몰래 change를 쏘는 길을 남기지 않는다.
 // 받는 파일: 평문 백업(schemaVersion 2·3·옛 v1, .json/.txt) · 잠긴 백업(prepaid-locked-backup) · 암호 건 백업(prepaid-pass-backup) · 옛 열쇠 백업(prepaid-key-backup).
 async function onRestoreFile(e){const file=e.target.files&&e.target.files[0];
-const allowed=!!state.allowLockedRestore;state.allowLockedRestore=false;
+const allowed=!!state.allowLockedRestore,rpass=allowed?str(state.recoveryPass):'';state.allowLockedRestore=false;state.recoveryPass='';
 if(!file)return;
 if(lockScreenActive()&&!allowed){qs('restoreFile').value='';return}
 if(allowed)leaveRecovery();
-setBusy('백업 파일을 읽는 중이에요.');try{const text=await file.text(),parsed=JSON.parse(String(text).replace(/^﻿/,''));if(parsed&&parsed.type==='prepaid-key-backup'){const ok=await importKeyBackup(parsed);clearBusy();render();toast(ok?'내 열쇠를 복원했습니다.':'내 열쇠 복원 취소됨')}else if(parsed&&parsed.type==='prepaid-locked-backup'){await restoreLockedBackup(parsed,{forgotPin:allowed})}else if(parsed&&parsed.type==='prepaid-pass-backup'){await restorePassBackup(parsed,{forgotPin:allowed})}else{await restoreLedger(parsed,{forgotPin:allowed})}}catch(err){console.error('relay restore file',err);clearBusy();toast('파일을 읽을 수 없어요. '+relayErrMsg(err,'백업 파일이 맞는지 확인해 주세요.'))}finally{qs('restoreFile').value=''}}
+setBusy('백업 파일을 읽는 중이에요.');try{const text=await file.text(),parsed=JSON.parse(String(text).replace(/^﻿/,''));if(parsed&&parsed.type==='prepaid-key-backup'){const ok=await importKeyBackup(parsed);clearBusy();render();toast(ok?'내 열쇠를 복원했습니다.':'내 열쇠 복원 취소됨')}else if(parsed&&parsed.type==='prepaid-locked-backup'){await restoreLockedBackup(parsed,{forgotPin:allowed})}else if(parsed&&parsed.type==='prepaid-pass-backup'){await restorePassBackup(parsed,{forgotPin:allowed,tryPass:rpass})}else{await restoreLedger(parsed,{forgotPin:allowed})}}catch(err){console.error('relay restore file',err);clearBusy();toast('파일을 읽을 수 없어요. '+relayErrMsg(err,'백업 파일이 맞는지 확인해 주세요.'))}finally{qs('restoreFile').value=''}}
 // 암호 건 백업(prepaid-pass-backup) — 백업 암호로 열고(틀리면 같은 창에서 다시) 장부(+가게 열쇠)를 되돌린다.
 async function restorePassBackup(parsed,opts){clearBusy();let opened=null,err='';
-for(;;){const r=await askBackupPass({mode:'bopen',err});if(!r){toast('되찾기를 취소했어요. 장부는 그대로예요.');return false}
+// beta.60: 복구 화면에서 방금 맞힌 백업 암호로 먼저 열어 본다(같은 암호로 만든 파일이면 다시 묻지 않는다). 안 열리면 예전처럼 묻는다.
+const tp=str(opts&&opts.tryPass);if(tp){setBusy('파일을 여는 중이에요.');try{opened=await openPassBackup(parsed,tp)}catch(e){opened=null}clearBusy()}
+if(opts&&'tryPass' in opts){opts={...opts};delete opts.tryPass}
+for(;!opened;){const r=await askBackupPass({mode:'bopen',err});if(!r){toast('되찾기를 취소했어요. 장부는 그대로예요.');return false}
 setBusy('파일을 여는 중이에요.');opened=await openPassBackup(parsed,r.pass);if(opened)break;clearBusy();err='암호가 맞지 않아요. 이 파일을 만들 때 정한 백업 암호를 다시 넣어 주세요. (계속 안 열리면 파일이 손상됐을 수 있어요 — 다른 백업 파일을 골라 주세요)'}
 const inner=opened.inner||{};if(!inner.core){clearBusy();throw relayCodeErr('bad_file')}
 const key=(inner.key&&typeof inner.key==='object')?{pubKey:str(inner.key.pubKey),pkcs8:str(inner.key.pkcs8)}:null;
@@ -4441,6 +4790,12 @@ window.onRestoreData=async function(json){setBusy('백업 데이터를 읽는 �
 function csvCellForMsg(v){return String(v==null?'':v).replace(/[<>&"'`]/g,' ').replace(/\s+/g,' ').trim().slice(0,20)}
 function parseCsvLine(line){const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===','&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
 function parseAmount(raw){const n=parseWon(raw);return isNaN(n)||n<=0||wonTooBig(n)?null:n}
+// beta.60(A2 — 지금 2): 합계 줄은 이름·부서·첫 칸 중 하나가 **칸 전체로** '합계'·'소계'·'총계'·'total'(앞뒤·가운데 공백 허용)일 때만.
+//   예전에는 세 칸을 이어 붙여 부분 일치로 봐서 '통합계획과'·'총괄합계팀' 직원이 아무 말 없이 빠졌다. 건너뛴 줄 수는 미리보기에 알린다.
+//   beta.60(보완): 꾸밈이 붙은 합계 줄('합계(2명)'·'합계:'·'소계 - 3건')도 합계 줄이다 — 공백을 지운 뒤 그 낱말로 **시작하고**, 뒤에는 숫자·괄호·구두점·
+//   단위 글자(명·건·원·인·개)만 올 때. 앞에 다른 글자가 있거나('통합계획과') 뒤에 그 밖의 글자가 오면('합계팀'·'소계동'·'총계약과') 정상 부서·이름이다.
+const CSV_TOTAL_RE=/^(합계|소계|총계|total)[0-9０-９()（）\[\]［］{}〔〕【】<>〈〉:：;；.。,，、\-–—~～·・•\/／'"!?#*=+%명건원인개]*$/i;
+function isCsvTotalRow(cells){return (cells||[]).some(c=>CSV_TOTAL_RE.test(cleanRosterText(c).replace(/\s+/g,'')))}
 // 동명이인 자동 보완 (스펙 §2.4-나): 화면 라벨(소속·부서)+이름이 같은 중복 그룹에 구분 마커 '·2','·3'…을 붙인다.
 //   첫 번째 사람은 이름 그대로 두고 두 번째부터 마커를 받는다(김철수 / 김철수·2 / 김철수·3).
 // ⚠️ 옛 규칙은 이름 뒤에 라틴 소문자 a/b/c를 붙였다 — 'Alex' 같은 라틴 이름은 이미 소문자로 끝나 마커를 못 받아
@@ -4448,11 +4803,19 @@ function parseAmount(raw){const n=parseWon(raw);return isNaN(n)||n<=0||wonTooBig
 // 마이그레이션: 실사용자 0명(필드테스트 전)이라 기존 a/b 이름을 변환하는 코드는 넣지 않는다.
 //   손으로 a/b가 붙은 이름이 남아 있다면 사장님이 직원 정보 수정에서 고치면 된다.
 // 공공기관 명단(plain.items)에는 org가 없고 한 배치의 소속이 하나이므로 그룹핑 결과는 예전과 동일하다.
+// beta.60(A2 — 지금 3·앱 5): ① 들어온 이름에 이미 붙은 '·N'은 **그대로 지킨다**. ② 같은 묶음(소속·부서)에 **완전히 같은 이름**이
+//   두 줄 이상일 때만 두 번째 줄부터 비어 있는 번호(이 명단에 이미 적힌 번호는 피함)를 순서대로 붙인다.
+//   예전에는 '·N'을 떼고 줄 순서로 다시 매겨 ['김민수·2' 18만, '김민수' 9만]이 '김민수'에 18만·'김민수·2'에 9만으로 뒤바뀌었다
+//   (합계가 같아 총액 대조로도 안 보였다). 기존 직원 매칭은 호출부가 **이 함수 뒤에** 한다 — 확인창·미리보기에 보인 이름 = 충전 대상.
+//   한 번 처리한 명단은 이름이 모두 달라지므로 두 번 처리해도 결과가 같다. batch_hash는 호출부가 이 함수 **전에** 계산한다(불변).
 function assignDuplicateSuffix(rows){const groups=new Map();
-// 이미 마커가 붙은 이름도 기본 이름으로 되돌려 묶는다 — 같은 배치를 두 번 처리해도 결과가 흔들리지 않는다.
 rows.forEach(r=>{const k=orgDeptLabel(r)+'|'+custDupBase(r&&r.name);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(r)});
 let changed=0;
-groups.forEach(list=>{if(list.length<2)return;list.forEach((r,i)=>{const base=custDupBase(r.name);const want=i===0?base:base+'·'+(i+1);if(r.name!==want){r.name=want;changed++}})});
+groups.forEach(list=>{if(list.length<2)return;
+const used=new Set();list.forEach(r=>{const m=/·(\d+)$/.exec(str(r.name));if(m)used.add(Number(m[1]))});
+const seen=new Set();
+list.forEach(r=>{const nm=str(r.name);if(!seen.has(nm)){seen.add(nm);return}
+const base=custDupBase(nm);let k=2;while(used.has(k)||seen.has(base+'·'+k))k++;used.add(k);r.name=base+'·'+k;seen.add(r.name);changed++})});
 return changed}
 async function onCsvFile(e){const file=e.target.files&&e.target.files[0];if(!file)return;if(lockScreenActive()){qs('csvFile').value='';return}// 잠금 중 파일 경로 차단(2중 안전장치)
 try{
@@ -4493,21 +4856,21 @@ for(const l of nonEmpty){const m=l.match(/부서\s*[:：]\s*(.+)/);if(m){metaDep
 
 // 데이터 행 파싱
 // 동일인 판정 키 = 소속·부서 표시 라벨|이름(empMatchKey) — 소속 칸이 없는 기존 CSV는 부서 라벨만으로 예전과 동일하게 매칭된다.
-const ex=new Set(state.data.employees.filter(v=>!v.isDeleted).map(empMatchKey));
-const rows=[];
+// beta.60(A2 — 앱 5): 기존 직원 매칭은 동명이인 번호를 정한 **뒤에** 한다(아래). 예전에는 여기서 먼저 매칭해, 같은 이름 두 줄이
+//   미리보기에는 '김철수'·'김철수·2'로 보이면서 저장은 둘 다 첫 '김철수'에게 들어갔다.
+const rows=[];let skippedTotals=0;
 for(let i=headerIdx+1;i<nonEmpty.length;i++){const f=parseCsvLine(nonEmpty[i]);
 // beta.55(B-13): 제어·방향 문자는 걷어 낸다(화면에서 이름이 뒤집혀 보이는 위장 방지). 정상 파일에서는 아무것도 바뀌지 않는다.
 const org=cleanRosterText(oi>=0?(f[oi]||''):'');
 const dept=cleanRosterText(hasDeptCol?(f[di]||''):metaDept);
 const name=cleanRosterText(f[ni]||'');const ar=f[ai]||'';
-if(/합계|소계|총계|total|합\s*계/i.test(name+dept+(f[0]||'')))continue;
+if(isCsvTotalRow([name,dept,f[0]])){skippedTotals++;continue}
 if(!name)continue;
 const amount=parseAmount(ar);let error='',mode='new',existId='';
 if(!dept)error='부서명 없음 (부서 칸이 없고, 파일 앞부분에서도 부서 이름을 찾지 못했어요)';
 else if(name.length>ROSTER_MAX_NAME)error=`이름이 너무 길어요(${ROSTER_MAX_NAME}자까지)`;
 else if(dept.length>ROSTER_MAX_LABEL||org.length>ROSTER_MAX_LABEL)error=`부서·소속 이름이 너무 길어요(${ROSTER_MAX_LABEL}자까지)`;
 else if(!amount)error=(wonTooBig(parseWon(ar))?'금액이 너무 커요(1억 원까지): "':'금액 오류: "')+csvCellForMsg(ar)+'"';
-else if(ex.has(empMatchKey({org,dept,name}))){mode='topup';const existEmp=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===empMatchKey({org,dept,name}));if(existEmp)existId=existEmp.id}
 rows.push({org,dept:dept||'(없음)',name,amount,error,line:i+1,mode:error?'error':mode,existId})}
 if(!rows.length){toast('등록할 직원이 없습니다.');return}
 if(rows.length>ROSTER_MAX_ITEMS){toast(`한 파일에 ${ROSTER_MAX_ITEMS.toLocaleString('ko-KR')}명까지만 불러올 수 있어요(${rows.length.toLocaleString('ko-KR')}명). 파일을 나눠 주세요.`,6000);return}
@@ -4520,8 +4883,9 @@ const same=rows.filter(x=>!x.error&&orgDeptLabel({org:str(x.org),dept:str(x.dept
 const nd=await askNearDuplicate(rec,same.map(x=>x.name),same.length);
 if(nd.choice==='cancel'){toast('불러오기를 취소했어요.');return}
 if(nd.choice==='rename'){renamePatches=renamePatches.concat(relabelGroupPatches(nd.group.label,rec.org,rec.dept,null));renameFrom=renameFrom?renameFrom+', '+nd.group.label:nd.group.label}}
-if(renamePatches.length){const idx=activeEmployeeIndex(renamePatches);rows.forEach(r=>{if(r.error)return;const ex2=idx.get(empMatchKey({org:r.org,dept:r.dept,name:r.name}));if(ex2){r.mode='topup';r.existId=ex2.id}})}
-state.modal={type:'csv',rows,dupWarn,renamePatches,renameFrom};render()}catch(err){console.error(err);toast('파일을 읽지 못했어요. '+relayErrMsg(err,'엑셀에서 CSV로 저장한 파일인지 확인해 주세요.'))}finally{qs('csvFile').value=''}}
+// 매칭은 여기서 한 번 — 번호가 정해진 이름(표에 보이는 이름)으로, 이름 고치기를 골랐다면 고친 모습으로(beta.54와 같은 색인).
+{const idx=activeEmployeeIndex(renamePatches);rows.forEach(r=>{if(r.error)return;const ex2=idx.get(empMatchKey({org:r.org,dept:r.dept,name:r.name}));if(ex2){r.mode='topup';r.existId=ex2.id}else{r.mode='new';r.existId=''}})}
+state.modal={type:'csv',rows,dupWarn,skippedTotals,renamePatches,renameFrom};render()}catch(err){console.error(err);toast('파일을 읽지 못했어요. '+relayErrMsg(err,'엑셀에서 CSV로 저장한 파일인지 확인해 주세요.'))}finally{qs('csvFile').value=''}}
 async function executeCsvImport(){return withTxLock(async()=>{const rows=(state.modal&&state.modal.rows||[]).filter(r=>!r.error);if(!rows.length)return;const renamePatches=(state.modal&&Array.isArray(state.modal.renamePatches))?state.modal.renamePatches:[];const newRows=rows.filter(r=>r.mode!=='topup');const topupRows=rows.filter(r=>r.mode==='topup');const msg=[];if(newRows.length)msg.push('신규 '+newRows.length+'명');if(topupRows.length)msg.push('추가 충전 '+topupRows.length+'명');if(!window.confirm(`${renamePatches.length?`기존 부서 '${str(state.modal.renameFrom)}'의 이름을 고치고, `:''}${msg.join(' + ')}을 처리하시겠습니까?`))return;setBusy('처리하는 중입니다.');try{const t=now();const emps=[],txs=[];
 const ymD=new Date(t),yearMonth=ymD.getFullYear()+'-'+String(ymD.getMonth()+1).padStart(2,'0');let tip=chainTip();
 for(const r of newRows){const eid=uid();emps.push({id:eid,org:str(r.org),orgKind:orgKindFor(r.org),dept:r.dept,name:r.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth,createdAt:t,updatedAt:t});if(r.amount>0){const tx=await makeTx({employeeId:eid,type:'open',amount:r.amount,beforeBalance:0,afterBalance:r.amount,reason:'CSV 임포트',note:'',createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}
@@ -4565,9 +4929,12 @@ else lockedNoKey=true}
 else{try{await exportBackup(true,{silent:true,skipConfirm:true});backupOk=true}catch(e){console.error('final backup failed:',e)}}
 // beta.55(A-5): 다운로드는 **시작**만 확인할 수 있다 — "저장했습니다"라고 단정하지 않고, 파일이 보이는지 확인하라고 묻는다.
 const tail=lockedNoKey?'\n\n⚠️ 이 기기에는 열쇠가 없어 백업 없이 지웁니다.'
-:backupOk?(opts.locked?'\n\n🔒 잠긴 백업 파일 다운로드가 시작됐어요(가게 열쇠가 있어야 열려요).\n다운로드 폴더에 파일이 보이는지 먼저 확인해 주세요.':'\n\n📥 최종 백업 파일 다운로드가 시작됐어요.\n다운로드 폴더에 파일이 보이는지 먼저 확인해 주세요.')
+:backupOk?(opts.locked?'\n\n🔒 잠긴 백업 파일 다운로드가 시작됐어요.\n이 파일은 예전에 만든 암호 건 백업 파일(또는 내 열쇠 백업)이 있어야만 열려요. 없으면 되살릴 수 없어요.':'\n\n📥 최종 백업 파일 다운로드가 시작됐어요.\n다운로드 폴더에 파일이 보이는지 먼저 확인해 주세요.')
 :'\n\n⚠️ 자동 백업에 실패했습니다. 그래도 계속할까요?';
-const second='정말 지울까요? 지운 기록은 되돌릴 수 없어요.\n(백업 파일이 있으면 나중에 되살릴 수 있어요)'+tail+(backupOk?'\n\n파일이 보이나요? 보이면 [확인]을 눌러 지워요. 안 보이면 [취소]를 누르고 설정 > 장부 지키기에서 백업부터 해 주세요.':'');
+// beta.60(앱 2번): 잠긴 최종 백업은 이 기기의 가게 열쇠로 잠긴다 — 지우면 그 열쇠도 사라지므로, 예전에 따로 남긴 열쇠(암호 건 백업 파일·
+//   예전 '내 열쇠 백업')가 없으면 아무도 못 연다. "나중에 되살릴 수 있어요"라고 말하지 않는다. (설정의 초기화 문구는 그대로다.)
+const second=opts.locked?('정말 지울까요? 지운 기록은 되돌릴 수 없어요.'+tail+(backupOk?'\n\n파일이 보이나요? 보이면 [확인]을 눌러 지워요.':''))
+:'정말 지울까요? 지운 기록은 되돌릴 수 없어요.\n(백업 파일이 있으면 나중에 되살릴 수 있어요)'+tail+(backupOk?'\n\n파일이 보이나요? 보이면 [확인]을 눌러 지워요. 안 보이면 [취소]를 누르고 설정 > 장부 지키기에서 백업부터 해 주세요.':'');
 if(!window.confirm(second))return false;
 return true}
 // 완전초기화 직전, 열쇠가 아직 살아 있는 마지막 순간에 서버의 우리 가게 등록을 해제한다.
@@ -4858,6 +5225,7 @@ const contactCard=relayRegistered()?foldCard('contact','가게 연락처 등록 
 <div class="field"><label for="contactKakao">카카오톡 오픈채팅 링크</label><input id="contactKakao" type="url" value="${esc(state.data.meta.contactKakaoLink||'')}" placeholder="https://open.kakao.com/o/..."></div>
 <div class="meta" style="font-size:11px;margin-top:-6px">오픈채팅 링크는 전화번호가 드러나지 않아요. 카카오톡 &gt; 오픈채팅 만들기에서 링크를 복사해 붙여넣으세요.</div>
 <div class="field"><label for="contactEmail">접수 이메일</label><input id="contactEmail" type="email" value="${esc(state.data.meta.contactEmail||'')}" placeholder="예: office@restaurant.com"></div>
+<div class="meta contact-email-hint" style="font-size:11px;margin-top:-6px">가게용 이메일을 넣어 주세요. 담당자 화면에 보여요.</div>
 </div>
 <div class="section-actions">
 <button class="btn-primary action-btn" data-a="contact-save"><span class="action-icon">✓</span><div><strong>저장</strong><span>공공기관 담당자(서무)에게 연락처를 공개해요</span></div></button>
@@ -4913,6 +5281,10 @@ return `${enrollGroup}${employeeCard}${deptsCard}${guardCard}${basicHead}${basic
 
 // ── Service Worker 등록 ──
 if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(()=>{})}
+// beta.60(A3b): 설치 신호 — 스크립트가 읽히는 즉시 붙인다(크롬은 첫 화면이 뜨기 전에 보낼 수도 있다). 화면은 설치 칸만 갈아끼운다.
+window.addEventListener('beforeinstallprompt',e=>{try{e.preventDefault()}catch(x){}__installEvt=e;if(state.loaded)paintInstallSlots()});
+window.addEventListener('appinstalled',()=>{__installEvt=null;state.installAccepted=true;if(state.loaded)paintInstallSlots()});
+try{const mq=window.matchMedia&&window.matchMedia('(display-mode: standalone)');if(mq){const f=()=>{if(state.loaded)paintInstallSlots()};if(typeof mq.addEventListener==='function')mq.addEventListener('change',f);else if(typeof mq.addListener==='function')mq.addListener(f)}}catch(e){}
 
 // ── 초기화 ──
 async function init(){
@@ -4927,7 +5299,12 @@ setBusy('저장소를 준비하는 중입니다.');repo=await makeRepo();if(!rep
 state.pinFails=num(state.data.meta.pinFails);state.pinDelayUntil=num(state.data.meta.pinDelayUntil);
 // 마지막으로 확인한 신청 배지를 되살린다(beta.46) — 오프라인 재시작에서도 배지가 사라지지 않게.
 if(state.data.meta.inboxCountCache!=null&&relayRegistered())state.inboxCount=num(state.data.meta.inboxCountCache);state.inboxNotified=state.inboxCount==null?0:num(state.inboxCount);
-try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectQrSupport();await loadAgencyData(false);if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}
+try{await ensureKeyPair()}catch(e){console.error('keygen:',e)}detectQrSupport();
+// beta.60(앱 11): 기관 자료는 짧게(1.5초)만 기다리고 장부부터 연다. 늦게 오면 그때 화면을 한 번 다시 그린다(입력 중이면 다음 render가 맡는다).
+{let agencyDone=false;const ag=loadAgencyData(false).catch(e=>{console.error('agency data',e);return false}).then(r=>{agencyDone=true;return r});
+await Promise.race([ag,sleepMs(AGENCY_BOOT_WAIT_MS)]);
+if(!agencyDone)ag.then(()=>{if(state.loaded&&!renderIsDisruptive())render()})}
+if(!state.data.meta.setupComplete&&(state.data.employees.length||state.data.transactions.length)){state.data.meta.setupComplete=true;await repo.apply({meta:{setupComplete:true}})}
 // 1회성 마이그레이션(D1): 이 기능이 생기기 전에 설정을 마친 기존 사용자는 pending 플래그가 없어 등록 안내를 못 받는다.
 if(state.data.meta.setupComplete&&!relayRegistered()&&state.data.meta.storeRegisterPending===undefined){state.data.meta.storeRegisterPending=true;try{await repo.apply({meta:{storeRegisterPending:true}})}catch(e){console.error('pending migration',e)}}
 state.loaded=true;clearBusy();render();maybeAutoCloudBackup();refreshInboxCount();relayDistrictSyncSilent();flushPendingNotify();requestPersistentStorage()}
