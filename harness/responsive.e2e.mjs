@@ -1987,6 +1987,52 @@ async function runInstallWelcomeProfile(browser, url, w, h, kind) {
   }
 }
 
+// ── beta.60b: 가게 찾기 1/3 — 찾기가 오래 걸려 진행 표시 + [그만두기]가 들어와도 [가게 찾기]·[직접 입력할게요]가 가려지지 않는다 ──
+//   계약: 두 칸(가게 이름·지역)만 있고, [가게 찾기]·[직접 입력할게요]·[그만두기]가 초기 뷰포트(스크롤 0) 안에 있으며
+//   서로 겹치지 않고(가운데 점에서 elementFromPoint가 자기 자신), 터치 표적 44px 이상. 하니스만 15초를 0.6초로 줄인다.
+async function runStoreStopProfile(browser, url, w, h) {
+  const context = await browser.newContext({ viewport: { width: w, height: h }, isMobile: w <= 640, hasTouch: true, deviceScaleFactor: 2 });
+  const cors = { 'Access-Control-Allow-Origin': '*' };
+  await context.addInitScript(() => { window.__storeStopAfterMs = 600; });
+  await context.route('**/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
+  const held = [];
+  await context.route('**/api/restaurants**', route => { held.push(route); });   // 응답하지 않는다 — 찾기가 끝나지 않는 날
+  const page = await context.newPage();
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-a="setup-welcome-start"], #setupStoreName', { timeout: 8000 });
+    if (await page.locator('[data-a="setup-welcome-start"]').count()) await page.locator('[data-a="setup-welcome-start"]').click();
+    await page.waitForSelector('#setupStoreName', { timeout: 8000 });
+    await page.locator('#setupStoreName').fill('하네스김밥');
+    await page.locator('#setupStoreRegion').fill('광진구 구의동');
+    await page.locator('[data-a="setup-store-search"]').click();
+    await page.waitForSelector('[data-a="store-search-stop"]', { timeout: 6000 });
+    await noHorizontalOverflow(page, '온보딩 1/3(그만두기)', `${w}px`);
+    const m = await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      const vh = window.innerHeight, cw = document.documentElement.clientWidth;
+      const one = sel => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const hit = (cy >= 0 && cy <= vh) ? document.elementFromPoint(cx, cy) : null;
+        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, own: !!hit && (hit === el || el.contains(hit)) }; };
+      return { vh, cw, scrollY: window.scrollY, fields: [...document.querySelectorAll('.setup .form input')].map(e => e.id),
+        search: one('[data-a="setup-store-search"]'), manual: one('[data-a="setup-manual-toggle"]'), stop: one('[data-a="store-search-stop"]'), busy: one('.store-search-busy') };
+    });
+    check(m.scrollY === 0, `${w}×${h} 가게 찾기(그만두기): 검사는 초기 뷰포트(스크롤 0)에서 이뤄져야 한다`);
+    check(JSON.stringify(m.fields) === JSON.stringify(['setupStoreName', 'setupStoreRegion']), `${w}×${h} 가게 찾기: 입력 칸은 가게 이름·지역 두 개뿐이어야 한다 (got ${JSON.stringify(m.fields)})`);
+    [['[가게 찾기]', m.search], ['[직접 입력할게요]', m.manual], ['[그만두기]', m.stop], ['진행 표시', m.busy]].forEach(([nm, r]) => {
+      check(Boolean(r), `${w}×${h} 가게 찾기(그만두기): ${nm}이(가) 렌더되지 않았다`);
+      check(Boolean(r) && r.top >= -1 && r.bottom <= m.vh + 1, `${w}×${h} 가게 찾기(그만두기): ${nm}이(가) 스크롤 없이 보이지 않는다 (아래로 ${r ? Math.max(0, Math.round(r.bottom - m.vh)) : '?'}px / vh ${m.vh})`);
+      check(Boolean(r) && r.left >= -1 && r.right <= m.cw + 1, `${w}×${h} 가게 찾기(그만두기): ${nm}이(가) 화면 밖으로 나갔다`);
+      if (nm !== '진행 표시') {
+        check(Boolean(r) && r.own, `${w}×${h} 가게 찾기(그만두기): ${nm}이(가) 다른 요소에 가려졌다(가운데 점이 자기 자신이 아님)`);
+        check(Boolean(r) && r.height >= 44, `${w}×${h} 가게 찾기(그만두기): ${nm} 터치 타겟이 44px 미만 (${r ? Math.round(r.height) : '?'}px)`);
+      }
+    });
+    if (m.search && m.stop && m.manual) check(m.search.bottom <= m.stop.top + 1 && m.stop.bottom <= m.manual.top + 1, `${w}×${h} 가게 찾기(그만두기): [가게 찾기] → [그만두기] → [직접 입력할게요] 순서로 겹치지 않아야 한다`);
+    if (w === 360) await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `responsive-store-stop-${w}.png`) }).catch(() => {});
+  } finally { held.forEach(r => r.abort().catch(() => {})); await context.close(); }
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -2015,6 +2061,10 @@ async function main() {
     // beta.60: 비밀번호 분실 복구 화면(①②③ / ③만) — 폰 4폭 + 태블릿 6종
     for (const { w, h } of [...VIEWPORTS, ...TABLET_PROFILES]) {
       try { await runRecoveryProfile(browser, url, w, h); } catch (err) { check(false, `복구 화면 ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
+    }
+    // beta.60b: 가게 찾기 1/3 — 진행 표시 + [그만두기]가 들어와도 버튼이 가려지지 않는다(폰 4폭 + 태블릿 6종)
+    for (const { w, h } of [...VIEWPORTS, ...TABLET_PROFILES]) {
+      try { await runStoreStopProfile(browser, url, w, h); } catch (err) { check(false, `가게 찾기(그만두기) ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
     }
     // beta.55(A2): 장부 지키기 카드·창 4종 기하
     for (const { w, h } of GUARD_PROFILES) {

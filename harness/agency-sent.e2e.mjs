@@ -216,6 +216,38 @@ const safe=async(f,label)=>{try{return await f()}catch(e){console.log('  ('+labe
   ok(!(await q.$('.group-card a[data-act="mail"]')),'D8-3 ?·& 가 든 이메일은 mailto 링크로 만들지 않음');
   await q.context().close();
 }
+// ════ beta.60b (카카오톡 오픈채팅 숨김 · 이름 '밥장부') — 전부 수정 전 코드에서 실패한다 ════
+// ── K-1: 서버가 오픈채팅 링크를 줘도 [카톡으로 보내기]·오픈채팅 안내가 없다. [이메일로 보내기]는 그대로 ──
+{
+  const m={contact:{email:'boss@shop.kr',kakao_link:'https://open.kakao.com/o/abcDEF12'}};const q=await mkPage(m);await setup(q,['r1'],false);
+  await upq(q,rosterOf(['r1']));await q.click('.mode-card[data-mode="direct"]');await q.click('#submitBtn');await q.check('#agree');await q.click('#okC');
+  await q.waitForSelector('.group-card',{timeout:10000});
+  const g=await q.$eval('.group-card',e=>({t:e.innerText,kakao:!!e.querySelector('[data-act="kakao"],a[href*="open.kakao.com"]'),mail:(e.querySelector('a[data-act="mail"]')||{}).href||''}));
+  const card=await q.$eval('#submitCard',e=>e.innerText);
+  ok(!g.kakao&&!/카톡|카카오|오픈채팅/.test(card),'K1-1 오픈채팅 링크가 있어도 카톡 버튼·안내 없음 '+JSON.stringify(g.t.slice(0,200)));
+  ok(/^mailto:boss@shop\.kr\?subject=/.test(g.mail)&&/이메일로 보내기/.test(g.t),'K1-2 [이메일로 보내기]는 그대로 '+g.mail);
+  ok(/subject=%EB%B0%A5%EC%9E%A5%EB%B6%80/.test(g.mail)&&!/%EC%84%A0%EC%9E%85%EA%B8%88%EB%8C%80%EC%9E%A5/.test(g.mail),'K1-3 메일 제목 앞머리 = 밥장부 '+decodeURIComponent(g.mail));
+  const dl=await safe(async()=>{const [d]=await Promise.all([q.waitForEvent('download',{timeout:5000}),q.click('.group-card [data-act="save"]')]);return d.suggestedFilename()},'파일 저장');
+  ok(/^밥장부_명단_/.test(dl||'')&&/\.senggeum\.json$/.test(dl||''),'K1-4 직접 전달 파일 이름 앞머리 = 밥장부 '+dl);
+  await q.context().close();
+}
+// ── K-2: 오픈채팅 링크만 있고 이메일이 없으면 → 버튼 없이 '접수 이메일 없음' 안내(파일·QR로 전하기) ──
+{
+  const m={contact:{email:'',kakao_link:'https://open.kakao.com/o/abcDEF12'}};const q=await mkPage(m);await setup(q,['r1'],false);
+  await upq(q,rosterOf(['r1']));await q.click('.mode-card[data-mode="direct"]');await q.click('#submitBtn');await q.check('#agree');await q.click('#okC');
+  await q.waitForSelector('.group-card',{timeout:10000});
+  const g=await q.$eval('.group-card',e=>({t:e.innerText,links:e.querySelectorAll('a').length}));
+  ok(g.links===0&&!/카톡|카카오|오픈채팅/.test(g.t)&&/접수 이메일/.test(g.t),'K2-1 오픈채팅만 있으면 버튼 없이 접수 이메일 없음 안내 '+JSON.stringify(g));
+  await q.context().close();
+}
+// ── K-3: 화면 이름 = 밥장부, 직접 전달 카드 설명에 카카오톡 없음 ──
+{
+  const m={};const q=await mkPage(m);
+  const h=await q.evaluate(()=>({title:document.title,h1:document.querySelector('h1').innerText,mode:document.querySelector('.mode-card[data-mode="direct"]').innerText,log:''}));
+  ok(/^밥장부/.test(h.title)&&/^밥장부/.test(h.h1)&&!/선입금대장/.test(h.title+h.h1),'K3-1 탭 제목·머리글 = 밥장부 '+JSON.stringify(h));
+  ok(!/카카오|카톡/.test(h.mode)&&/이메일/.test(h.mode),'K3-2 직접 전달 카드에 카카오톡 언급 없음 '+h.mode);
+  await q.context().close();
+}
 // ════ beta.60 (W-3 보내는 중 편집 잠금 · W-4 만료 재시도 · W-5 재시도 때 공개키 다시 받기) — 전부 수정 전 코드에서 실패한다 ════
 // ── W-3: 보내는 중에는 파일·단가를 바꿀 수 없고, 완료 잠금은 보낸(시작할 때의) 명단에 걸린다 ──
 {

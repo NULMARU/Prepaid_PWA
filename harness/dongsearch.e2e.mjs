@@ -34,6 +34,8 @@ const ok = (c, m) => { if (c) { pass++; console.log('✅ ' + m); } else { fail++
 const cors = { 'Access-Control-Allow-Origin': '*' };
 
 async function newPage(ctx, calls, respond, opts = {}) {
+  // 안전망: 목이 없는 중계 API 호출은 전부 500으로 끊는다(라이브 서버에 닿지 않게). 나중에 건 라우트가 이기므로 맨 먼저 건다.
+  await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
   await ctx.route('**/api/restaurants**', async route => {
     const u = new URL(route.request().url());
     calls.push({ q: u.searchParams.get('q') || '', zip: u.searchParams.get('zip') || '', wait: u.searchParams.get('wait') || '' });
@@ -88,9 +90,14 @@ const browser = await chromium.launch();
   await page.click('[data-a="setup-store-search"]');
   await page.waitForFunction(() => /동\(읍·면\) 이름까지/.test(document.body.textContent), null, { timeout: 8000 });
   ok((await page.textContent('.setup')).includes('"광진구" 뒤에 동(읍·면) 이름까지'), '구만 적으면 그 입력을 짚어 "동까지 붙여 달라"고 안내한다');
-  const labels = await page.$$eval('.setup label', els => els.map(e => e.textContent));
-  ok(labels.indexOf(labels.find(t => t.includes('지역'))) < labels.indexOf(labels.find(t => t.includes('우편번호'))), '지역 칸이 우편번호 칸보다 앞(기본)이다');
-  ok(labels.some(t => t.includes('우편번호(선택)')), '우편번호는 "(선택)" 보조 칸이다');
+  // beta.60b: 입력 칸은 [가게 이름]·[지역 (구·군과 동)] 두 개뿐 — 우편번호 칸·우편번호 안내문은 사장님 눈에 없다(내부 구역 순회는 그대로).
+  const labels = await page.$$eval('.setup label', els => els.map(e => e.textContent.trim()));
+  const setupInputs = await page.$$eval('.setup .form input', els => els.map(e => e.id));
+  ok(JSON.stringify(labels) === JSON.stringify(['가게 이름', '지역 (구·군과 동)']) && JSON.stringify(setupInputs) === JSON.stringify(['setupStoreName', 'setupStoreRegion']),
+    '1/3 입력 칸은 가게 이름·지역 두 개뿐(우편번호 칸 없음) — ' + JSON.stringify({ labels, setupInputs }));
+  const setupVisible = await page.evaluate(() => document.querySelector('.setup').innerText);
+  ok(!/우편번호/.test(setupVisible) && setupVisible.includes('이름으로 안 나오면 지역(구·군과 동)을 함께 적어 주세요 — 동네 전체에서 자동으로 찾아봐요.'),
+    '1/3 화면 글자에 "우편번호"가 없고 도움말은 계약 문장 그대로다');
 
   // 동만 적으면(구의동) 자동 검색이 시작돼도 전국을 뒤지지 않고, 안내가 화면에 남는다(토스트 아님)
   await page.fill('#setupStoreRegion', '구의동');
@@ -130,7 +137,8 @@ const browser = await chromium.launch();
   await page.click('[data-a="setup-store-search"]');
   // 순회 중간: 진행률·[그만 찾기]가 보인다
   await page.waitForSelector('[data-a="dong-scan-stop"]', { timeout: 20000 });
-  ok(true, '순회 중 [그만 찾기] 버튼이 보인다');
+  ok((await page.locator('[data-a="dong-scan-stop"]').innerText()).trim() === '그만두기', '순회가 시작되면 곧바로 [그만두기] 버튼이 보인다(beta.60b: 예전 [그만 찾기])');
+  ok(!/우편번호/.test(await page.evaluate(() => document.querySelector('.setup').innerText)), '순회 진행 문구에도 "우편번호"가 없다');
   ok((await page.textContent('.setup')).includes('동네 전체에서 찾는 중'), '진행 문구("동네 전체에서 찾는 중… n/N 구역")가 보인다');
   // 21번째 구역의 가게 — 옛 자동 상한(18구역)이었다면 못 찾았을 자리. 탭 없이 발견돼야 한다.
   await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 30000 });
@@ -474,6 +482,134 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const fc2 = await Promise.all([page.waitForEvent('filechooser', { timeout: 5000 }), page.click('[data-a="welcome-restore"]')]).then(() => true, () => false);
   ok(fc2, 'K: 직접 입력 화면에서도 누르면 곧바로 파일 고르기가 열린다');
   ok(errors.length === 0, 'K: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 L(beta.60b): [가게 찾기]를 누른 뒤 15초가 지나도 끝나지 않으면 진행 표시 자리에 [그만두기]가 **나타난다**.
+//    그 전에는 DOM에 없다(흐린 버튼 없음). 나타날 때도 진행 조각만 갈아끼워 입력 노드·포커스·커서가 그대로다.
+//    누르면 찾기를 멈추고(늦게 온 응답은 버림) 결과 자리에 계약 문장을 남긴다. 하니스만 window.__storeStopAfterMs로 15초를 줄인다. ──
+const STOP_SETUP_MSG = '찾기를 그만뒀어요. 가게 이름이나 지역을 고쳐 다시 찾거나, [직접 입력할게요]로 먼저 시작할 수 있어요.';
+const STOP_MODAL_MSG = '찾기를 그만뒀어요. 가게 이름이나 지역을 고쳐 다시 찾아 주세요.';
+{
+  const ctx = await browser.newContext();
+  await ctx.addInitScript(() => { window.__storeStopAfterMs = 1500; });
+  const calls = [];
+  let mode = 'slow';
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => {
+    if (zip) { await sleep(10); return { body: [] }; }
+    if (mode === 'slow') { await sleep(2600); return { body: mkRow(EARLY_ZIP, '늦게온가게') }; }   // 그만둔 뒤에 도착하는 응답
+    await sleep(100); return { body: mkRow(EARLY_ZIP, '서울김밥') };
+  });
+  const setupText = () => page.evaluate(() => document.querySelector('.setup').innerText);
+  ok(await page.evaluate(() => { const f = window.__prepaidTestHooks && window.__prepaidTestHooks.storeStopDefaultMs; return typeof f === 'function' ? f() : 0; }) === 15000, 'L: 배포본 기준 시간은 15초다(STORE_STOP_AFTER_MS)');
+  await page.fill('#setupStoreName', '서울');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.store-search-busy', { timeout: 3000 });
+  await page.click('#setupStoreName');
+  await page.keyboard.press('End');
+  await page.evaluate(() => { window.__nameNode = document.getElementById('setupStoreName'); });
+  await page.keyboard.type('김', { delay: 60 });
+  ok(await page.locator('[data-a="store-search-stop"]').count() === 0, 'L: 기준 시간 전에는 [그만두기] 버튼이 DOM에 없다(흐린 버튼도 없음)');
+  await page.keyboard.type('밥', { delay: 60 });
+  const shown = await page.waitForSelector('#storeBusy-setup [data-a="store-search-stop"]', { timeout: 4000 }).then(() => true, () => false);
+  const st = await page.evaluate(() => { const n = document.getElementById('setupStoreName'); return { same: n === window.__nameNode, focus: document.activeElement === n, value: n.value, caret: n.selectionStart, label: (document.querySelector('[data-a="store-search-stop"]') || {}).innerText }; });
+  ok(shown && st.label && st.label.trim() === '그만두기', 'L: 기준 시간이 지나면 진행 표시 자리에 [그만두기]가 나타난다');
+  ok(st.same && st.focus && st.value === '서울김밥' && st.caret === 4, 'L: 버튼이 나타나도 이름 입력 노드·포커스·커서가 그대로다(진행 조각만 갈아끼움) — ' + JSON.stringify(st));
+  const nameCallsAtStop = calls.filter(c => !c.zip).length;
+  await page.click('[data-a="store-search-stop"]');
+  await page.waitForSelector('.store-search-err[data-code="stopped"]', { timeout: 3000 }).catch(() => {});
+  let t = await setupText();
+  ok(t.includes(STOP_SETUP_MSG), 'L: 누르면 결과 자리에 "찾기를 그만뒀어요 … [직접 입력할게요]로 먼저 시작할 수 있어요."가 남는다');
+  ok(await page.locator('.store-search-busy').count() === 0 && await page.locator('[data-a="store-search-stop"]').count() === 0 && (await page.locator('[data-a="setup-store-search"]').innerText()).trim() === '가게 찾기',
+    'L: 멈추면 진행 표시·[그만두기]가 사라지고 [가게 찾기]가 다시 살아 있다');
+  ok(await page.inputValue('#setupStoreName') === '서울김밥', 'L: 멈춘 뒤에도 그 사이 고쳐 친 가게 이름이 남는다');
+  await sleep(3200);   // 그만둔 검색의 늦은 응답이 도착할 시간
+  t = await setupText();
+  ok(await page.locator('[data-a="setup-store-pick"]').count() === 0 && !t.includes('늦게온가게') && t.includes(STOP_SETUP_MSG), 'L: 그만둔 뒤 늦게 온 응답은 버린다(결과가 화면을 덮지 않음)');
+  ok(calls.filter(c => !c.zip).length === nameCallsAtStop && calls.filter(c => c.zip).length === 0, 'L: 그만둔 뒤에는 다시 찾기·동네 순회를 하지 않는다 — 이름 ' + calls.filter(c => !c.zip).length + '/' + nameCallsAtStop);
+  await sleep(4000);
+  ok(calls.filter(c => !c.zip).length === nameCallsAtStop, 'L: 시간이 더 지나도 그만둔 검색은 다시 묻지 않는다');
+  // 다시 찾으면 안내는 사라지고 결과가 나온다
+  mode = 'fast';
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 5000 }).catch(() => {});
+  ok(await page.locator('.store-search-err').count() === 0 && (await setupText()).includes('서울김밥'), 'L: 다시 찾으면 그만둔 안내는 사라지고 결과가 나온다');
+  await sleep(1800);
+  ok(await page.locator('[data-a="store-search-stop"]').count() === 0, 'L: 빨리 끝난 검색에는 [그만두기]가 나타나지 않는다');
+  ok(errors.length === 0, 'L: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 L2(beta.60b): 동네 순회 단계 — 이름 찾기가 기준 시간 안에 0건으로 끝나 순회로 넘어가면 [그만두기]는 순회 블록에 곧바로 있고,
+//    누르면 예전처럼 "검색 결과가 없습니다. (n/N 구역 확인) 남은 구역을 더 찾아보시겠습니까?" + [계속 찾기]다(동작 그대로). ──
+{
+  const ctx = await browser.newContext();
+  await ctx.addInitScript(() => { window.__storeStopAfterMs = 60000; });
+  const calls = [];
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => { await sleep(zip ? 300 : 50); return { body: [] }; });
+  await page.fill('#setupStoreName', '없는가게');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('#dongBlock-setup [data-a="dong-scan-stop"]', { timeout: 8000 });
+  ok((await page.locator('[data-a="dong-scan-stop"]').innerText()).trim() === '그만두기' && await page.locator('[data-a="store-search-stop"]').count() === 0,
+    'L2: 순회 단계의 버튼은 [그만두기] 하나(이름 찾기용 버튼과 겹치지 않음)');
+  await page.click('[data-a="dong-scan-stop"]');
+  await page.waitForSelector('[data-a="dong-scan"][data-resume="1"]', { timeout: 10000 });
+  const t = await page.evaluate(() => document.querySelector('.setup').innerText);
+  ok(/검색 결과가 없습니다\. \(\d+\/\d+ 구역 확인\) 남은 구역을 더 찾아보시겠습니까\?/.test(t) && !t.includes('찾기를 그만뒀어요'), 'L2: 순회 중 [그만두기]는 예전 멈춤 문구 + [계속 찾기] 그대로');
+  ok(errors.length === 0, 'L2: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  await ctx.close();
+}
+
+// ── 시나리오 L3(beta.60b): 설정의 가게 찾기 창 — 우편번호 칸 없음, [그만두기]가 나타나고 누르면 창 안에 "…다시 찾아 주세요."가 남는다.
+//    기준 시간은 배포본 그대로 15초(훅 없음)로 한 번 실제로 잰다. ──
+{
+  const ctx = await browser.newContext();
+  const calls = [];
+  let slow = false;
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => {
+    if (zip) { await sleep(10); return { body: [] }; }
+    if (slow) { await sleep(9000); return { status: 503, body: { error: 'public_api_timeout' } }; }
+    return { body: [] };
+  });
+  page.on('dialog', d => d.accept().catch(() => {}));
+  const pin = async () => { for (const k of '1234') { await page.locator(`[data-a="pin-key"][data-key="${k}"]`).click(); await page.waitForTimeout(250); } };
+  await page.click('[data-a="setup-manual-toggle"]');
+  await page.fill('#setupManualName', '창검사식당'); await page.fill('#setupManualAddr', '서울특별시 광진구 구의동 1');
+  await page.click('[data-a="setup-manual-save"]'); await page.waitForSelector('[data-a="setup-next"]'); await page.click('[data-a="setup-next"]');
+  await page.waitForSelector('[data-a="setup-to-contact"]'); await page.click('[data-a="setup-to-contact"]');
+  await page.waitForSelector('#setupTermsChk'); await page.check('#setupTermsChk'); await page.click('[data-a="setup-contact-skip"]');
+  await page.waitForSelector('[data-a="pin-key"]'); await pin(); await page.waitForTimeout(400); await pin();
+  await page.waitForFunction(() => !document.querySelector('.pin-screen'), null, { timeout: 20000 }); await page.waitForTimeout(800);
+  if (await page.locator('[data-a="guide-dismiss"]').count()) await page.locator('[data-a="guide-dismiss"]').click();
+  await page.waitForSelector('[data-a="go-register-store"]', { timeout: 8000 });
+  await page.locator('[data-a="go-register-store"]').first().click();
+  await page.waitForSelector('#storeName', { timeout: 8000 });
+  const mlabels = await page.$$eval('.modal label', els => els.map(e => e.textContent.trim()));
+  const mtext = await page.evaluate(() => document.querySelector('.modal').innerText);
+  ok(JSON.stringify(mlabels) === JSON.stringify(['가게 이름', '지역 (구·군과 동)']) && await page.locator('#storeZip').count() === 0 && !/우편번호/.test(mtext),
+    'L3: 설정의 가게 찾기 창도 칸은 가게 이름·지역 두 개, "우편번호" 글자 없음 — ' + JSON.stringify(mlabels));
+  ok(mtext.includes('이름으로 안 나오면 지역(구·군과 동)을 함께 적어 주세요 — 동네 전체에서 자동으로 찾아봐요.'), 'L3: 창의 도움말도 계약 문장 그대로');
+  slow = true; calls.length = 0;
+  await page.fill('#storeName', '느린가게');
+  const t0 = Date.now();
+  await page.click('[data-a="relay-search-stores"]');
+  await page.waitForSelector('#storeBusy-modal .store-search-busy', { timeout: 3000 });
+  await sleep(12000);
+  ok(await page.locator('[data-a="store-search-stop"]').count() === 0, 'L3: 12초째에도 [그만두기]는 아직 없다(배포본 15초)');
+  await page.click('#storeName'); await page.keyboard.press('End');
+  await page.evaluate(() => { window.__mNode = document.getElementById('storeName'); });
+  const appeared = await page.waitForSelector('#storeBusy-modal [data-a="store-search-stop"]', { timeout: 6000 }).then(() => Date.now() - t0, () => 0);
+  ok(appeared >= 14500 && appeared <= 18500, 'L3: 누른 뒤 15초 무렵 창 안 진행 표시 자리에 [그만두기]가 나타난다 — ' + appeared + 'ms');
+  ok(await page.evaluate(() => document.getElementById('storeName') === window.__mNode && document.activeElement === window.__mNode), 'L3: 창에서도 버튼이 나타날 때 입력 노드·포커스가 그대로다');
+  await page.click('[data-a="store-search-stop"]');
+  await page.waitForSelector('.modal .store-search-err[data-code="stopped"]', { timeout: 3000 }).catch(() => {});
+  const mt2 = await page.evaluate(() => document.querySelector('.modal').innerText);
+  ok(mt2.includes(STOP_MODAL_MSG) && !mt2.includes('직접 입력할게요') && await page.locator('.modal .store-search-busy').count() === 0, 'L3: 창에서는 "찾기를 그만뒀어요. 가게 이름이나 지역을 고쳐 다시 찾아 주세요."가 남는다');
+  const nAt = calls.filter(c => !c.zip).length;
+  await sleep(10000);
+  ok(calls.filter(c => !c.zip).length === nAt && (await page.evaluate(() => document.querySelector('.modal').innerText)).includes(STOP_MODAL_MSG), 'L3: 그만둔 뒤 늦게 온 503에도 다시 찾지 않고 안내가 그대로다 — 이름 ' + calls.filter(c => !c.zip).length + '/' + nAt);
+  ok(errors.length === 0, 'L3: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
 }
 

@@ -146,7 +146,7 @@ employeeId | amount | afterBalance | prevHash | createdAt
 
 ### 잠긴 백업 파일 `prepaid-locked-backup` (beta.48)
 
-**평문 백업이 나가면 안 되는 유일한 경로**를 위한 별도 파일 형식이다. 생성 함수 `exportLockedBackup()`, 파일명 `선입금대장_잠긴백업_YYYYMMDD.json`.
+**평문 백업이 나가면 안 되는 유일한 경로**를 위한 별도 파일 형식이다. 생성 함수 `exportLockedBackup()`, 파일명 `밥장부_잠긴백업_YYYY-MM-DD.json`(beta.60에서 앞머리를 밥장부로 — 파일 안의 `appName` 값은 그대로 '선입금대장').
 
 ```jsonc
 {

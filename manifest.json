@@ -1,6 +1,7 @@
 {
-  "name": "선입금대장",
-  "short_name": "선입금대장",
+  "name": "밥장부",
+  "short_name": "밥장부",
+  "description": "밥장부(선입금대장) — 단체·직원 식대 선금을 적는 음식점 장부",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#f4f6f8",

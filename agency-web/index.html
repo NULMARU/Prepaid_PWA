@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>선입금대장 — 공공기관 담당자(서무) 업로드</title>
+<title>밥장부 — 공공기관 담당자(서무) 업로드</title>
 <style>
 :root{--line:#e5e7eb;--muted:#6b7280;--primary:#2e86c1;--danger:#e74c3c;--ok:#27ae60;--warn:#b7791f}
 *{box-sizing:border-box}
@@ -93,10 +93,10 @@ td{overflow-wrap:anywhere}
 <div class="wrap">
 <div id="srvWarn" class="hide" role="alert"></div>
 <div class="topbar">
-<h1>선입금대장 — 공공기관 담당자(서무) 업로드</h1>
+<h1>밥장부 — 공공기관 담당자(서무) 업로드</h1>
 <button type="button" id="logoutBtn" class="hide" title="이 브라우저에 남은 인증을 폐기하고 1단계로 돌아갑니다">인증 해제</button>
 </div>
-<div class="meta"><b>이 웹은 암호화된 직원 명단만 전달합니다.</b> 이 웹에는 결제·정산 기능이 없고, 결제는 기관과 음식점이 <b>직접(제로페이, 카드 등)</b> 해야 합니다.</div>
+<div class="meta"><b>이 웹은 음식점의 밥장부(선입금대장) 앱으로 암호화된 직원 명단만 전달합니다.</b> 이 웹에는 결제·정산 기능이 없고, 결제는 기관과 음식점이 <b>직접(제로페이, 카드 등)</b> 해야 합니다.</div>
 <ol class="stepper" id="stepper">
 <li data-n="1" id="step-1">인증</li>
 <li data-n="2" id="step-2">소속 기관·음식점</li>
@@ -224,7 +224,7 @@ td{overflow-wrap:anywhere}
 </div>
 <div class="mode-card" data-mode="direct" tabindex="0" role="button" aria-pressed="false">
 <h3>직접 전달</h3>
-<p>암호화된 파일·QR을 만들어 이메일·카카오톡 등으로 직접 전합니다. 서버에 저장되지 않아요.</p>
+<p>암호화된 파일·QR을 만들어 이메일 등으로 직접 전합니다. 서버에 저장되지 않아요.</p>
 </div>
 </div>
 <button class="btn-primary" id="submitBtn" disabled style="margin-top:12px">전송 방법을 선택하세요</button>
@@ -1561,7 +1561,7 @@ $('unitPrice').addEventListener('input',e=>{
 });
 $('unitPrice').addEventListener('blur',e=>{if(S.unitPrice>0)e.target.value=S.unitPrice.toLocaleString()});
 $('csvTemplateBtn').addEventListener('click',()=>{
-  downloadBlob(buildXlsx(TEMPLATE_COLS,templateRows()),'선입금대장_명단양식.xlsx');
+  downloadBlob(buildXlsx(TEMPLATE_COLS,templateRows()),'밥장부_명단양식.xlsx');
 });
 // CSV 칸이 = + - @ 탭·줄바꿈으로 시작하면 엑셀이 수식으로 읽는다(수식 주입, D-5). 미리 채운 칸(가게 이름 등)
 // 앞에 ' 를 붙여 글자로만 보이게 하고, 올릴 때는 같은 ' 를 떼어 원래 이름과 맞춘다(stripCsvGuard).
@@ -1573,7 +1573,7 @@ $('csvTemplateCsvLink').addEventListener('click',e=>{
   // 엑셀이 없거나 CSV가 꼭 필요할 때만. 같은 줄을 미리 채운다(UTF-8 BOM — 엑셀 한글 깨짐 방지).
   const q=v=>/[",\r\n]/.test(v)?'"'+String(v).replace(/"/g,'""')+'"':v;
   const csv=[TEMPLATE_COLS].concat(templateRows().map(r=>r.map(csvGuard))).map(r=>r.map(q).join(',')).join('\r\n')+'\r\n';
-  downloadBlob(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}),'선입금대장_명단양식.csv');
+  downloadBlob(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}),'밥장부_명단양식.csv');
 });
 function parseLine(line,delim){delim=delim||',';const f=[];let c='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&!q)q=true;else if(ch==='"'&&q){if(line[i+1]==='"'){c+='"';i++}else q=false}else if(ch===delim&&!q){f.push(c);c=''}else c+=ch}f.push(c);return f.map(s=>s.trim())}
 // 금액 읽기(D-4): ₩ ￦ 원 쉼표 공백만 떼고 **숫자만** 남아야 한다. 예전에는 Number()에 맡겨 0x2328(16진수)·1e4(지수)·
@@ -2528,6 +2528,9 @@ async function getPubKey(restaurant_id,cache,pace,onRetry){
 }
 // 연락처 형식 재검증(서버 응답을 그대로 신뢰하지 않음) — kakao_link는 open.kakao.com 시작만, email은 단순 형식만 허용
 function isValidKakaoLink(v){return typeof v==='string'&&/^https:\/\/open\.kakao\.com\//.test(v)}
+// 카카오톡 오픈채팅 링크 [카톡으로 보내기] — beta.60에서 숨김(사용자 결정 2026-11-22). 서버가 contact.kakao_link를 줘도
+// 버튼·안내를 그리지 않는다. 다시 켜려면 true로(코드는 그대로 둔다). 직접 전달 = 파일 저장·QR·[이메일로 보내기].
+const KAKAO_LINK_ENABLED=false;
 // mailto 링크에 그대로 붙으므로 ? & # 같은 문자가 든 값은 받지 않는다(D-8 — '?cc=' 등으로 받는 사람·제목이 바뀌는 것 방지).
 function isValidEmail(v){return typeof v==='string'&&v.length<=254&&/^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(v)}
 // 접수번호(submission_id)·직접 전달 파일 식별자(transfer_id)에 쓰는 UUID v4.
@@ -2891,7 +2894,7 @@ function safeFileName(s){return String(s==null?'':s).replace(/[\\/:*?"<>|]/g,'_'
 // (기존 사용자는 소속이 항상 2단계 기관과 같으므로 파일명이 예전과 완전히 동일하다.)
 function orgFilePart(org){return (org&&(!S.agency||org!==S.agency.name))?'_'+safeFileName(org):''}
 function fileNameFor(restaurantName,department,ym,org){
-  return '선입금대장_명단_'+safeFileName(restaurantName)+orgFilePart(org)+(department?'_'+safeFileName(department):'')+'_'+ym+'.senggeum.json';
+  return '밥장부_명단_'+safeFileName(restaurantName)+orgFilePart(org)+(department?'_'+safeFileName(department):'')+'_'+ym+'.senggeum.json';
 }
 function triggerDownload(blob,filename){
   const url=URL.createObjectURL(blob);
@@ -2899,7 +2902,7 @@ function triggerDownload(blob,filename){
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function qrFileNameFor(restaurantName,department,ym,org){
-  return '선입금대장_명단QR_'+safeFileName(restaurantName)+orgFilePart(org)+(department?'_'+safeFileName(department):'')+'_'+ym+'.gif';
+  return '밥장부_명단QR_'+safeFileName(restaurantName)+orgFilePart(org)+(department?'_'+safeFileName(department):'')+'_'+ym+'.gif';
 }
 function dataUrlToBlob(dataUrl){
   const m=/^data:([^;]+);base64,(.*)$/.exec(dataUrl);
@@ -2912,10 +2915,10 @@ function dataUrlToBlob(dataUrl){
 function renderDirectGroup(g,total,json,bytes,ym,contact){
   const filename=fileNameFor(g.restaurant_name,g.department,ym,g.institution);
   const hasEmail=isValidEmail(contact&&contact.email);
-  const hasKakao=isValidKakaoLink(contact&&contact.kakao_link);
+  const hasKakao=KAKAO_LINK_ENABLED&&isValidKakaoLink(contact&&contact.kakao_link);
   let contactBtns='',contactNotes='';
   if(hasEmail){
-    const subject=encodeURIComponent('선입금대장 명단 파일 – '+g.restaurant_name+' '+ym);
+    const subject=encodeURIComponent('밥장부 명단 파일 – '+g.restaurant_name+' '+ym);
     const mailtoHref='mailto:'+contact.email+'?subject='+subject;
     contactBtns+=`<a href="${esc(mailtoHref)}" data-act="mail">이메일로 보내기</a>`;
     contactNotes+='<div class="contact-note">먼저 [파일로 저장]한 뒤 메일에 첨부해 보내세요.</div>';
@@ -2924,7 +2927,7 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
     contactBtns+=`<a href="${esc(contact.kakao_link)}" target="_blank" rel="noopener noreferrer" data-act="kakao">카톡으로 보내기</a>`;
     contactNotes+='<div class="contact-note">먼저 [파일로 저장]한 뒤 오픈채팅에 파일을 첨부해 보내세요. 카카오톡 이용은 소속 기관 내규를 확인하세요.</div>';
   }
-  const noContactNote=(!hasEmail&&!hasKakao)?'<div class="meta">이 가게는 아직 연락처를 등록하지 않았어요.</div>':'';
+  const noContactNote=(!hasEmail&&!hasKakao)?'<div class="meta">이 가게는 아직 접수 이메일을 등록하지 않았어요. [파일로 저장]이나 QR로 전해 주세요.</div>':'';
   const card=document.createElement('div');card.className='group-card';
   const orgTag=orgTagOf(g)?` · 소속 ${esc(g.institution)}`:'';
   card.innerHTML=`<b>${esc(g.restaurant_name)}</b> · ${esc(g.department)}${orgTag} · ${g.items.length}명 · ${total.toLocaleString()}원`+
@@ -2954,7 +2957,7 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
         const cell=Math.max(3,Math.min(8,Math.floor(600/(n+8))));
         const url=qr.createDataURL(cell,cell*4);
         qrWrap.innerHTML='<img src="'+url+'" alt="선입금 명단 QR 코드">'+
-          '<div class="meta">음식점 앱의 [② QR(사각 코드)로 받기]로 찍어 주세요</div>'+
+          '<div class="meta">음식점 밥장부 앱의 [QR(사각 코드)로 받기]로 찍어 주세요</div>'+
           '<div class="btns" style="justify-content:center">'+
             '<button type="button" data-act="qr-save">QR 이미지로 저장</button>'+
             '<button type="button" data-act="qr-print">인쇄</button>'+
@@ -2986,7 +2989,7 @@ function renderDirectGroup(g,total,json,bytes,ym,contact){
             '<p>'+esc(g.institution||'')+(g.department?' · '+esc(g.department):'')+'</p>'+
             '<p>'+esc(ym)+'</p>'+
             '<img src="'+hiUrl+'" alt="선입금 명단 QR 코드">'+
-            '<div class="instr">선입금대장 앱의 [② QR(사각 코드)로 받기]로 찍어 주세요</div>'+
+            '<div class="instr">음식점 밥장부 앱의 [QR(사각 코드)로 받기]로 찍어 주세요</div>'+
             '</body></html>'
           );
           w.document.close();
@@ -3052,7 +3055,7 @@ async function prepareDirect(){
   }
   prog.classList.add('hide');prog.innerHTML='';
   $('sendResult').innerHTML=skipResultHtml(); // 보내지 않은 가게 목록(기관 내부 증빙)
-  log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.'+skipLogText()+'\n\n다음 할 일: 위 카드에서 파일 저장 또는 이메일·카톡·QR로 음식점에 전달한 뒤, 전달 사실을 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.'+
+  log('\n완료: 준비 '+okN+' · 실패 '+failN+'\n이 명단은 서버에 저장되지 않았습니다.'+skipLogText()+'\n\n다음 할 일: 위 카드에서 파일 저장(이메일 첨부) 또는 QR로 음식점에 전달한 뒤, 전달 사실을 기관 내부 기록으로 보관하세요.\n직원 안내 팁: 음식점 태블릿의 잠금 화면(손님 셀프 조회)에서 본인 이름을 검색하면(초성 가능) 잔액과 최근 사용 내역을 직접 확인할 수 있고, 식사할 때 [사용 요청하기]로 금액 입력·서명까지 직접 할 수 있습니다(장부 기록은 사장님이 금액을 확인해 저장합니다). 직원들에게 알려 주시면 잔액 문의가 줄어듭니다.'+
     (groups.length>1?'\n※ 파일·QR은 음식점(부서)별로 각각 만들어졌습니다. 카드마다 따로 전달하세요 — 결제도 같은 단위로 나누시면 대조가 쉽습니다(필수는 아닙니다).':''));
 }
 // 홑따옴표(&#39;)까지 반드시 이스케이프한다 — 이 파일은 속성값을 홑따옴표로 감싸는 곳이 있고,

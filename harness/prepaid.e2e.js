@@ -449,7 +449,7 @@ async function runSearchOnboarding(browser, url, cors) {
     await assert((await page.locator('#agencySelectSetup').inputValue()) === 'gwangjin', 'the picked store address should auto-select the 광진구청 agency');
     await page.locator('[data-a="agency-add-all"][data-ctx="setup"]').click();
     await page.locator('[data-a="setup-to-contact"]').click();
-    await page.waitForSelector('#setupContactKakao');
+    await page.waitForSelector('#setupContactEmail');
     await assert((await page.locator('.setup-step').innerText()).includes('3 / 3'), 'contact + terms should be the last (3rd) onboarding step');
     await assert(registerBodies.length === 0, 'no register-key call may happen before the terms are agreed');
     await page.locator('#setupTermsChk').check();
@@ -2824,6 +2824,8 @@ async function runBeta55c(browser, url, cors) {
       await check(!!snapDl && /^밥장부_되돌리기전_잠긴사본_\d{4}-\d{2}-\d{2}\.json$/.test(snapDl.suggestedFilename()), `a locked safety snapshot must be downloaded before overwriting (got ${snapDl && snapDl.suggestedFilename()})`);
       const snap = await dlJson(snapDl);
       const snapCore = await page.evaluate(b => window.__prepaidTestHooks.decryptBlob(b), snap.blob);
+      // beta.60b(이름): 화면 이름은 '밥장부'로 바뀌어도 파일 **안의** appName은 예전 값 그대로다(파일 형식 불변).
+      await check(snap.appName === '선입금대장' && snapCore.appName === '선입금대장', `the locked file keeps the in-file appName 선입금대장 (got ${JSON.stringify({ outer: snap.appName, inner: snapCore && snapCore.appName })})`);
       await check(snap.type === 'prepaid-locked-backup' && snapCore.payload.transactions.length === 10, `the safety snapshot must hold the ledger as it was BEFORE the restore (10 transactions, got ${snapCore && snapCore.payload.transactions.length})`);
       const B = await readDb(page);
       const txDiff = diffRecs(ledgerA.transactions, B.transactions, ['signatureData']);
@@ -2954,6 +2956,7 @@ async function runBeta55c(browser, url, cors) {
       const raw = await fsp.readFile(await d.path(), 'utf8'); passFile1 = JSON.parse(raw);
       await check(passFile1.type === 'prepaid-pass-backup' && passFile1.kdf && passFile1.kdf.it === 600000 && passFile1.kdf.name === 'PBKDF2' && passFile1.z === 1 && !raw.includes('김지킴') && !raw.includes('pkcs8'),
         `the file must be a password-locked backup (PBKDF2 600k, gzip) with no plaintext names or key (got ${JSON.stringify({ type: passFile1.type, kdf: passFile1.kdf, z: passFile1.z })})`);
+      await check(passFile1.appName === '선입금대장', `the password-locked file keeps the in-file appName 선입금대장 (got ${JSON.stringify(passFile1.appName)})`);
       ledgerAtPass1 = await readDb(page);
       const m0 = await metaOf(page);
       await pick(page, 'yes');
@@ -2994,6 +2997,7 @@ async function runBeta55c(browser, url, cors) {
       const d = A.downloads[dl0]; const f = await dlJson(d);
       await check(/^밥장부백업_암호없음_/.test(d.suggestedFilename()) && f.schemaVersion === 3 && Array.isArray(f.payload.transactions) && !JSON.stringify(f).includes('pkcs8') && !('privKeyWrapped' in f.payload.meta) && !('backupPassCheck' in f.payload.meta) && !('backupPassKeep' in f.payload.meta) && !('cloudBackupState' in f.payload.meta),
         'an unpassworded backup must be today\'s plain schemaVersion 3 file without the key or device-only meta');
+      await check(f.appName === '선입금대장', `the plain backup keeps the in-file appName 선입금대장 (got ${JSON.stringify(f.appName)})`);
       await pick(page, 'yes');
       await check((await metaOf(page)).myKeyBackedUpAt === k0, 'a plain backup must not count as a key backup');
     });
@@ -3360,6 +3364,11 @@ async function runBeta55c(browser, url, cors) {
       // 예전 서버 v1 blob(서명 그림 포함)
       relay.st.reg.set(cloudFx.restaurant_id, cloudFx.pubKey);
       relay.st.head.set(cloudFx.restaurant_id, { blob: cloudFx.blob, blob_hash: cloudFx.blob_hash, updated_at: cloudFx.updated_at, gen: null });
+      // 고정 자료(fixture)의 '마지막 서버 백업'은 만든 날(2026-11-13)에 묶여 있다. 그날로부터 7일이 지나면 잠금을 푸는 순간 주 1회 자동 백업이
+      //   돌아, 방금 목 서버에 놓은 예전 v1 사본을 새 형식(서명 그림 제외)으로 바꿔 버린다 — 이 검사가 2026-11-21부터 날짜만으로 실패했다.
+      //   '방금 서버 백업을 한 기기'로 맞춰 자동 백업이 끼어들지 않게 한다(검사하려는 것은 v1 사본을 그대로 되찾는 길이다).
+      await p.evaluate(t => new Promise((resolve, reject) => { const req = indexedDB.open('prepaid-ledger-db'); req.onerror = () => reject(req.error);
+        req.onsuccess = () => { const tx = req.result.transaction(['meta'], 'readwrite'); tx.objectStore('meta').put({ key: 'lastCloudBackupAt', value: t }); tx.oncomplete = () => resolve(true); tx.onerror = () => reject(tx.error); }; }), Date.now());
       await p.reload({ waitUntil: 'load' }); await unlockPin(p); await awaitUnlocked(p);
       await goGuard(p);
       await p.locator('[data-a="guard-restore"]').click(); await choiceTitle(p); await pick(p, 'cloud');
@@ -4477,6 +4486,295 @@ async function runBeta60c(browser, url, cors) {
   return { passed, fails };
 }
 
+// ═════════════════════════════════════════════════════════════════════════════════════
+// beta.60b A-ui — 카카오톡 오픈채팅 링크 숨김(앱)·홈 [손님 셀프 조회] 주황 버튼·가게 찾기 우편번호 칸 없음.
+//   E2E_ONLY=beta60d 로 이 블록만, E2E_SOFT=1 로 단언별 실패 목록. [그만두기] 동작은 harness/dongsearch.e2e.mjs(시나리오 L·L2·L3)가 본다.
+// ═════════════════════════════════════════════════════════════════════════════════════
+async function runBeta60d(browser, url, cors) {
+  const soft = !!process.env.E2E_SOFT;
+  const fails = [];
+  let passed = 0;
+  const check = async (cond, msg) => {
+    if (cond) { passed += 1; return true; }
+    if (soft) { fails.push(msg); console.log('  ✗ ' + msg); return false; }
+    throw new Error('[beta.60d] ' + msg);
+  };
+  const guard = async (label, fn) => {
+    if (process.env.E2E_VERBOSE) console.log('  · ' + label);
+    try { await fn(); } catch (err) { if (!soft) throw err; fails.push(`${label}: ${String(err && err.message || err).slice(0, 300)}`); console.log(`  ✗ ${label}: ${String(err && err.message || err).slice(0, 300)}`); }
+  };
+  const KAKAO_RE = /카톡|카카오|오픈채팅/;
+  const LEAD = '접수 이메일을 등록해 두면, 담당자 화면에 [이메일로 보내기] 버튼이 생겨요.';
+  const HINT = '가게용 이메일을 넣어 주세요. 담당자 화면에 보여요';
+  const legacyPin = crypto.createHash('sha256').update('1234').digest('hex');
+  const relay = makeBackupRelay(cors);
+  const RID = 'rid-b60d', KEEP = 'https://open.kakao.com/o/keepMe60d';
+  const contactBodies = [];
+  const newCtx = async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
+    await ctx.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }));
+    await ctx.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
+    await ctx.route('**/api/registered**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
+    await ctx.route('**/api/challenge**', relay.handle);
+    await ctx.route('**/api/ledger-backup**', relay.handle);
+    await ctx.route('**/api/register-key**', relay.handle);
+    await ctx.route('**/api/contact**', async route => {
+      let b = {}; try { b = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
+      contactBodies.push(b);
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true}' });
+    });
+    const page = await ctx.newPage();
+    const D = { ctx, page, dialogs: [], problems: [] };
+    page.on('dialog', async d => { D.dialogs.push(d.type() + ': ' + d.message()); await d.accept().catch(() => {}); });
+    page.on('pageerror', e => D.problems.push(String(e && e.message || e)));
+    return D;
+  };
+  const putMeta = (page, meta) => page.evaluate(m => new Promise((resolve, reject) => {
+    const req = indexedDB.open('prepaid-ledger-db');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => { const t = req.result.transaction(['meta'], 'readwrite'); Object.entries(m).forEach(([k, v]) => t.objectStore('meta').put({ key: k, value: v })); t.oncomplete = () => resolve(true); t.onerror = () => reject(t.error); };
+  }), meta);
+  const metaOf = async page => (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+  const awaitUnlocked = page => page.waitForFunction(() => { const H = window.__prepaidTestHooks; return !!H && H.lockState && H.lockState().locked === false; }, null, { timeout: 20000 });
+
+  // ── (1) 처음 설정: 1/3 우편번호 칸 없음 → 3/3 오픈채팅 칸 없음, 접수 이메일 하나 ──
+  const A = await newCtx();
+  try {
+    await guard('onboarding', async () => {
+      const page = A.page;
+      await page.goto(url, { waitUntil: 'load' });
+      await passWelcome(page);
+      const s1 = await page.evaluate(() => ({ ids: [...document.querySelectorAll('.setup input')].map(e => e.id), t: document.querySelector('.setup').innerText }));
+      await check(!s1.ids.includes('setupStoreZip') && s1.ids.includes('setupStoreName') && s1.ids.includes('setupStoreRegion') && !/우편번호/.test(s1.t),
+        `1/3: no postcode field or postcode wording (inputs ${JSON.stringify(s1.ids)})`);
+      await page.locator('[data-a="setup-manual-toggle"]').click();
+      await page.locator('#setupManualName').fill('카톡숨김식당'); await page.locator('#setupManualAddr').fill('서울특별시 광진구 구의동 1');
+      await page.locator('[data-a="setup-manual-save"]').click(); await page.waitForSelector('[data-a="setup-next"]'); await page.locator('[data-a="setup-next"]').click();
+      await page.waitForSelector('[data-a="setup-to-contact"]'); await page.locator('[data-a="setup-to-contact"]').click();
+      await page.waitForSelector('#setupContactEmail');
+      const s3 = await page.evaluate(() => ({ kakao: !!document.getElementById('setupContactKakao'), t: document.querySelector('.setup').innerText, inputs: [...document.querySelectorAll('.setup .form input')].map(e => e.id) }));
+      await check(!s3.kakao && JSON.stringify(s3.inputs) === JSON.stringify(['setupContactEmail']), `3/3: the only contact field is the intake email (inputs ${JSON.stringify(s3.inputs)})`);
+      await check(!KAKAO_RE.test(s3.t), `3/3: no KakaoTalk / open-chat wording on screen (got ${JSON.stringify(s3.t.slice(0, 240))})`);
+      await check(s3.t.includes(LEAD) && s3.t.includes(HINT), '3/3: says the intake email turns on [이메일로 보내기] and asks for a shop email');
+      await page.locator('#setupContactEmail').fill('owner@b60d.example');
+      await page.locator('#setupTermsChk').check();
+      await page.locator('[data-a="setup-complete"]').click();
+      await typePin(page, ['1', '2', '3', '4', '1', '2', '3', '4']);
+      await page.waitForSelector('[data-a="guide-dismiss"]', { timeout: 15000 });
+      const m = await metaOf(page);
+      await check(m.contactEmail === 'owner@b60d.example' && !m.contactKakaoLink, `onboarding saves the email and no open-chat link (got ${JSON.stringify({ e: m.contactEmail, k: m.contactKakaoLink })})`);
+      await check(A.problems.length === 0, `onboarding: no page errors (${JSON.stringify(A.problems.slice(0, 2))})`);
+    });
+  } finally { await A.ctx.close().catch(() => {}); }
+
+  // ── (2) 등록된 가게: 설정의 가게 연락처 카드 · 이메일 저장 때 이미 저장된 오픈채팅 값 보존 · 홈 주황 버튼 ──
+  const B = await newCtx();
+  try {
+    const page = B.page;
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await page.waitForTimeout(200);
+    const now0 = Date.now();
+    await putMeta(page, { setupComplete: true, welcomeSeen: true, termsAgreedAt: now0, pinHash: legacyPin, shopName: '보존식당', shopAddr: '서울특별시 광진구 구의동 1', departments: ['세무과'], orgName: '광진구청',
+      storeRegisterPending: false, restaurantId: RID, relayStoreName: '보존식당', relayRegisteredAt: now0, districtSyncedAt: now0, myKeyBackedUpAt: now0, autoCloudBackup: false,
+      contactKakaoLink: KEEP, contactEmail: 'old@b60d.example' });
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page); await awaitUnlocked(page);
+    const pub = (await metaOf(page)).pubKey;
+    relay.st.reg.set(RID, pub); relay.st.names.set(RID, '보존식당');
+    await check(!!pub, 'setup: the device must have its shop key');
+
+    await guard('home-customer-button', async () => {
+      await page.locator('[data-a="screen"][data-screen="home"]').click().catch(() => {});
+      await page.waitForSelector('[data-a="hand-to-customer"]', { timeout: 8000 });
+      const c = await page.evaluate(() => {
+        const lum = rgb => { const v = rgb.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number).map(x => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+        const ratio = (a, b) => { const la = lum(a), lb = lum(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05); };
+        const h = document.querySelector('[data-a="hand-to-customer"]'), e = document.querySelector('[data-a="go-employees"]');
+        const hs = getComputedStyle(h), es = getComputedStyle(e);
+        return { bg: hs.backgroundColor, img: hs.backgroundImage, fg: hs.color, ratio: ratio(hs.backgroundColor, hs.color), empBg: es.backgroundColor, empFg: es.color, cls: h.className };
+      });
+      await check(c.bg === 'rgb(194, 65, 12)' && c.img === 'none' && c.fg === 'rgb(255, 255, 255)', `[손님 셀프 조회] is orange (#c2410c) with white text (got ${JSON.stringify(c)})`);
+      await check(c.ratio >= 4.5, `[손님 셀프 조회] text contrast must be at least 4.5:1 (got ${c.ratio.toFixed(2)})`);
+      await check(c.empBg === 'rgb(255, 255, 255)', `[직원 목록 관리] stays white (got ${c.empBg})`);
+      // 눌렀을 때(:active)·키보드 초점(:focus-visible)도 같은 주황 계열·흰 글씨로 대비 4.5:1 이상 — 규칙을 직접 읽는다(누르는 순간 화면이 바뀌므로).
+      const rules = await page.evaluate(() => {
+        const out = [];
+        for (const sh of document.styleSheets) { let rs; try { rs = sh.cssRules; } catch (_) { continue; } for (const r of rs) if (r.selectorText && /\.handoff:(active|focus-visible)/.test(r.selectorText)) out.push({ sel: r.selectorText, bg: r.style.backgroundColor, fg: r.style.color }); }
+        return out;
+      });
+      const lumHex = rgb => { const v = rgb.match(/\d+/g).slice(0, 3).map(Number).map(x => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+      const okRule = sel => { const r = rules.find(x => x.sel.includes(sel)); return !!r && /rgb/.test(r.bg) && /rgb\(255, 255, 255\)/.test(r.fg) && (1.05 / (lumHex(r.bg) + 0.05)) >= 4.5; };
+      await check(okRule(':active') && okRule(':focus-visible'), `pressed / focused states keep white text on dark orange, 4.5:1 or more (got ${JSON.stringify(rules)})`);
+    });
+
+    await guard('settings-contact-card', async () => {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      const head = await page.locator('.fold-head[data-card="contact"]').innerText();
+      await check(!KAKAO_RE.test(head) && head.includes('접수 이메일'), `the contact card summary must not mention KakaoTalk (got ${JSON.stringify(head)})`);
+      await openSettingsCard(page, 'contact');
+      const card = await page.evaluate(() => { const h = document.querySelector('.fold-head[data-card="contact"]'); const box = h.closest('.card') || h.parentElement; return { t: box.innerText, kakao: !!document.getElementById('contactKakao'), inputs: [...box.querySelectorAll('input')].map(e => e.id) }; });
+      await check(!card.kakao && JSON.stringify(card.inputs) === JSON.stringify(['contactEmail']), `the contact card has only the intake email field (got ${JSON.stringify(card.inputs)})`);
+      await check(!KAKAO_RE.test(card.t), `the contact card has no KakaoTalk / open-chat wording (got ${JSON.stringify(card.t.slice(0, 300))})`);
+      await check(card.t.includes(LEAD) && card.t.includes(HINT), 'the contact card says the intake email turns on [이메일로 보내기]');
+      await page.locator('#contactEmail').fill('new@b60d.example');
+      contactBodies.length = 0;
+      await page.locator('[data-a="contact-save"]').click();
+      await page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(400);
+      const b = contactBodies[contactBodies.length - 1] || {};
+      await check(!card.kakao && contactBodies.length === 1 && b.email === 'new@b60d.example' && b.kakao_link === KEEP && b.restaurant_id === RID,
+        `with the open-chat field hidden, saving the email must send the already-saved open-chat link unchanged so the server keeps it (got ${JSON.stringify(contactBodies)})`);
+      const m = await metaOf(page);
+      await check(m.contactKakaoLink === KEEP && m.contactEmail === 'new@b60d.example', `the device keeps the saved open-chat link (got ${JSON.stringify({ k: m.contactKakaoLink, e: m.contactEmail })})`);
+      await check(B.dialogs.length === 0 && B.problems.length === 0, `no native dialog or page error (${JSON.stringify([...B.dialogs, ...B.problems].slice(0, 3))})`);
+    });
+
+    await guard('settings-store-search-no-postcode', async () => {
+      // 설정의 가게 찾기 창(등록된 가게의 [변경])에도 우편번호 칸이 없다.
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator('[data-a="relay-find-store"]').first().click();
+      await page.waitForSelector('#storeName', { timeout: 8000 });
+      const mt = await page.evaluate(() => ({ t: document.querySelector('.modal').innerText, ids: [...document.querySelectorAll('.modal input')].map(e => e.id) }));
+      await check(JSON.stringify(mt.ids) === JSON.stringify(['storeName', 'storeRegion']) && !/우편번호/.test(mt.t), `the settings store-search window has no postcode field or wording (got ${JSON.stringify(mt.ids)})`);
+      await page.locator('[data-a="close-modal"]').first().click();
+    });
+  } finally { await B.ctx.close().catch(() => {}); }
+
+  console.log(`beta.60d: ${passed} checks passed${fails.length ? `, ${fails.length} failed` : ''}`);
+  return { passed, fails };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════
+// beta.60b A-brand — 대표 이름 "밥장부"(홈 화면 아이콘 이름·탭 제목·머리글·앱을 부르는 말·내려받는 파일 이름).
+//   "선입금대장"은 풀이말(manifest description·앱 정보 맨 아래 "밥장부(선입금대장)")과 백업 파일 **안의** 값(appName)에만 남는다.
+//   ⚠️ 파일 형식 불변 — 새로 만든 백업의 appName은 예전 값('선입금대장') 그대로다(beta55c가 새 파일 3종의 appName을 본다).
+//   예전 파일(harness/fixtures/beta54-*.json, appName '선입금대장')이 계속 열리는지는 beta55c, 예전 앱으로 만든 장부는 upgrade-check.sh가 본다.
+//   E2E_ONLY=beta60e 로 이 블록만, E2E_SOFT=1 로 단언별 실패 목록.
+// ═════════════════════════════════════════════════════════════════════════════════════
+async function runBeta60e(browser, url, cors) {
+  const soft = !!process.env.E2E_SOFT;
+  const fails = [];
+  let passed = 0;
+  const check = async (cond, msg) => {
+    if (cond) { passed += 1; return true; }
+    if (soft) { fails.push(msg); console.log('  ✗ ' + msg); return false; }
+    throw new Error('[beta.60e] ' + msg);
+  };
+  const guard = async (label, fn) => {
+    if (process.env.E2E_VERBOSE) console.log('  · ' + label);
+    try { await fn(); } catch (err) { if (!soft) throw err; fails.push(`${label}: ${String(err && err.message || err).slice(0, 300)}`); console.log(`  ✗ ${label}: ${String(err && err.message || err).slice(0, 300)}`); }
+  };
+
+  // ── (a) manifest — 이름만 바뀌고 설치 정체성(start_url·display·아이콘)은 그대로, id·scope 키는 새로 생기지 않는다 ──
+  await guard('manifest', async () => {
+    const m = JSON.parse(await fsp.readFile(path.join(root, 'manifest.json'), 'utf8'));
+    await check(m.name === '밥장부' && m.short_name === '밥장부', `manifest name/short_name must be 밥장부 (got ${JSON.stringify({ name: m.name, short_name: m.short_name })})`);
+    await check(m.start_url === '.' && m.display === 'standalone' && !('id' in m) && !('scope' in m),
+      `manifest start_url/display unchanged and no new id/scope key — a different id makes installed tablets a separate app (got ${JSON.stringify({ start_url: m.start_url, display: m.display, id: m.id, scope: m.scope })})`);
+    const icons = JSON.stringify(m.icons);
+    await check(icons === JSON.stringify([
+      { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+      { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }]), `manifest icons unchanged (got ${icons})`);
+    await check(typeof m.description === 'string' && m.description.includes('밥장부(선입금대장)'), `manifest description carries the 선입금대장 explanation (got ${JSON.stringify(m.description)})`);
+    const twa = JSON.parse(await fsp.readFile(path.join(root, 'twa', 'twa-manifest.json'), 'utf8'));
+    await check(twa.name === '밥장부' && twa.launcherName === '밥장부' && twa.packageId === 'kr.nulmaru.prepaid', `twa draft name/launcherName = 밥장부, packageId unchanged (got ${JSON.stringify({ n: twa.name, l: twa.launcherName, p: twa.packageId })})`);
+  });
+
+  // ── (a') 소스 — 화면 문구에는 '선입금대장'이 풀이말 "밥장부(선입금대장)"로만 남는다. 파일 안의 값(APP)은 그대로. ──
+  await guard('source', async () => {
+    const src = await fsp.readFile(path.join(root, 'index.html'), 'utf8');
+    await check(/<title>밥장부<\/title>/.test(src) && /<meta name="apple-mobile-web-app-title" content="밥장부">/.test(src), 'index.html: tab title and iOS home-screen title are 밥장부');
+    await check(/const APP='선입금대장',BRAND='밥장부',/.test(src), 'the in-file value APP stays 선입금대장 (backup appName — file format unchanged) and BRAND is 밥장부');
+    await check(!/\$\{APP\}|\|\|APP;/.test(src), 'APP (the in-file value) must not be used as on-screen text');
+    const shown = src.split('\n').filter(l => !/^\s*\/\//.test(l) && !/const APP='선입금대장'/.test(l)).join('\n');
+    const left = (shown.match(/.{0,4}선입금대장.{0,1}/g) || []);
+    await check(left.length === 1 && left[0].includes('밥장부(선입금대장)'), `outside comments and the APP constant, 선입금대장 appears only as the explanation 밥장부(선입금대장) (got ${JSON.stringify(left)})`);
+    await check(!/선입금대장_|선입금장부_/.test(src), 'no download file name starts with 선입금대장_ / 선입금장부_');
+  });
+
+  // ── (b)(d) 앱 — 탭 제목·머리글·손님 화면 기본 이름·앱 정보의 풀이말·내려받는 파일 이름·전달 파일 안내 ──
+  const legacyPin = crypto.createHash('sha256').update('1234').digest('hex');
+  const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
+  await ctx.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }));
+  await ctx.route('**/api/restaurants**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
+  await ctx.route('**/api/registered**', route => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '[]' }));
+  const page = await ctx.newPage();
+  const problems = [], dialogs = [], downloads = [];
+  page.on('pageerror', e => problems.push(String(e && e.message || e)));
+  page.on('dialog', async d => { dialogs.push(d.type() + ': ' + d.message()); await d.accept().catch(() => {}); });
+  page.on('download', d => downloads.push(d));
+  const putMeta = meta => page.evaluate(m => new Promise((resolve, reject) => {
+    const req = indexedDB.open('prepaid-ledger-db');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => { const t = req.result.transaction(['meta'], 'readwrite'); Object.entries(m).forEach(([k, v]) => t.objectStore('meta').put({ key: k, value: v })); t.oncomplete = () => resolve(true); t.onerror = () => reject(t.error); };
+  }), meta);
+  const visible = () => page.evaluate(() => document.getElementById('app').innerText);
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await check((await page.title()) === '밥장부', `the browser tab title is 밥장부 from the first screen (got ${JSON.stringify(await page.title())})`);
+    await page.waitForTimeout(200);
+    const now0 = Date.now();
+    // 가게 이름이 비어 있으면 앱 이름이 대신 나오는 자리(손님 화면 머리)를 보려고 shopName을 비워 둔다.
+    await putMeta({ setupComplete: true, welcomeSeen: true, termsAgreedAt: now0, pinHash: legacyPin, shopName: '', departments: ['세무과'], orgName: '광진구청', storeRegisterPending: false, autoCloudBackup: false });
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await page.waitForSelector('[data-a="hand-to-customer"]', { timeout: 10000 });
+
+    await guard('home-header', async () => {
+      const h1 = (await page.locator('.top .title h1').innerText()).trim();
+      await check(h1 === '밥장부', `the home header title is 밥장부 (got ${JSON.stringify(h1)})`);
+      await check((await page.title()) === '밥장부', 'the tab title stays 밥장부 after unlocking');
+      const t = await visible();
+      await check(!/선입금대장/.test(t), `the home screen does not call the app 선입금대장 (got ${JSON.stringify(t.slice(0, 200))})`);
+    });
+
+    await guard('settings-about', async () => {
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await page.waitForSelector('.fold-head[data-card="info"]', { timeout: 8000 });
+      const h1 = (await page.locator('.top .title h1').innerText()).trim();
+      await check(h1 === '밥장부', `the settings header title is 밥장부 (got ${JSON.stringify(h1)})`);
+      await openSettingsCard(page, 'info');
+      const t = await visible();
+      const all = t.match(/.{0,4}선입금대장.{0,1}/g) || [];
+      await check(all.length === 1 && all[0].includes('밥장부(선입금대장)'), `settings shows 선입금대장 only once, as the explanation 밥장부(선입금대장) in 앱 정보 (got ${JSON.stringify(all)})`);
+    });
+
+    await guard('history-csv-name', async () => {
+      await page.locator('[data-a="screen"][data-screen="history"]').click();
+      await page.waitForSelector('[data-a="export-csv"]', { timeout: 8000 });
+      await check((await page.locator('.top .title h1').innerText()).trim() === '밥장부', 'the history header title is 밥장부');
+      const d0 = downloads.length;
+      await page.locator('[data-a="export-csv"]').click();
+      for (let i = 0; i < 40 && downloads.length === d0; i++) await page.waitForTimeout(100);
+      const name = downloads[d0] ? downloads[d0].suggestedFilename() : '';
+      await check(/^밥장부_.+_\d{4}-\d{2}-\d{2}\.csv$/.test(name), `the ledger CSV file name starts with 밥장부_ (got ${JSON.stringify(name)})`);
+    });
+
+    await guard('direct-transfer-wrong-file', async () => {
+      await page.locator('#directTransferFile').setInputFiles({ name: 'not-a-transfer.json', mimeType: 'application/json', buffer: Buffer.from('{"hello":1}') });
+      let tt = '';
+      for (let i = 0; i < 40 && !/전달 형식/.test(tt); i++) { await page.waitForTimeout(100); tt = (await page.locator('.toast').count()) ? await page.locator('.toast').innerText() : ''; }
+      await check(tt.includes('밥장부 전달 형식이 아닙니다') && !tt.includes('선입금대장'), `a wrong transfer file is called "not a 밥장부 transfer file" (got ${JSON.stringify(tt)})`);
+    });
+
+    await guard('customer-screen-name', async () => {
+      await page.locator('[data-a="screen"][data-screen="home"]').click();
+      await page.locator('[data-a="hand-to-customer"]').click();
+      await page.waitForSelector('.cust-screen .cust-shop', { timeout: 8000 });
+      const shop = (await page.locator('.cust-screen .cust-shop').innerText()).trim();
+      await check(shop === '밥장부', `with no shop name the customer screen head shows 밥장부 (got ${JSON.stringify(shop)})`);
+    });
+    await check(problems.length === 0 && dialogs.length === 0, `no page error or native dialog (${JSON.stringify([...problems, ...dialogs].slice(0, 3))})`);
+  } finally { await ctx.close().catch(() => {}); }
+
+  console.log(`beta.60e: ${passed} checks passed${fails.length ? `, ${fails.length} failed` : ''}`);
+  return { passed, fails };
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -4522,6 +4820,22 @@ async function main() {
   if (process.env.E2E_ONLY === 'beta60c') {
     try {
       const r = await runBeta60c(browser, url, { 'Access-Control-Allow-Origin': '*' });
+      process.exitCode = r.fails.length ? 1 : 0;
+    } finally { await browser.close(); server.close(); }
+    return;
+  }
+  // E2E_ONLY=beta60d — beta.60b A-ui(오픈채팅 숨김·[손님 셀프 조회] 색·우편번호 칸 없음) 블록만.
+  if (process.env.E2E_ONLY === 'beta60d') {
+    try {
+      const r = await runBeta60d(browser, url, { 'Access-Control-Allow-Origin': '*' });
+      process.exitCode = r.fails.length ? 1 : 0;
+    } finally { await browser.close(); server.close(); }
+    return;
+  }
+  // E2E_ONLY=beta60e — beta.60b A-brand(대표 이름 '밥장부'·파일 이름·manifest) 블록만.
+  if (process.env.E2E_ONLY === 'beta60e') {
+    try {
+      const r = await runBeta60e(browser, url, { 'Access-Control-Allow-Origin': '*' });
       process.exitCode = r.fails.length ? 1 : 0;
     } finally { await browser.close(); server.close(); }
     return;
@@ -4607,6 +4921,8 @@ async function main() {
     { const r60a = await runBeta60a(browser, url, cors); if (r60a.fails.length) throw new Error('[beta.60a] ' + r60a.fails[0]); }
     { const r60b = await runBeta60b(browser, url, cors); if (r60b.fails.length) throw new Error('[beta.60b] ' + r60b.fails[0]); }
     { const r60c = await runBeta60c(browser, url, cors); if (r60c.fails.length) throw new Error('[beta.60c] ' + r60c.fails[0]); }
+    { const r60d = await runBeta60d(browser, url, cors); if (r60d.fails.length) throw new Error('[beta.60d] ' + r60d.fails[0]); }
+    { const r60e = await runBeta60e(browser, url, cors); if (r60e.fails.length) throw new Error('[beta.60e] ' + r60e.fails[0]); }
 
     await page.goto(url, { waitUntil: 'load' });
 
@@ -4688,9 +5004,10 @@ async function main() {
     await assert(await page.locator('.dept-tag', { hasText: '보건의료과' }).count() === 0, 'health-centre departments must not be listed under the district office any more');
     await assert(await page.locator('#agencySelectSetup option', { hasText: '광진구보건소' }).count() === 1, 'the agency list must offer the health centre as its own agency');
     await page.locator('[data-a="setup-to-contact"]').click();
-    await page.waitForSelector('#setupContactKakao');
+    await page.waitForSelector('#setupContactEmail');
     await assert((await page.locator('.setup-step').innerText()).includes('3 / 3'), 'contact + terms should be the last (3rd) onboarding step');
-    await page.locator('#setupContactKakao').fill('https://open.kakao.com/o/sHarness');
+    // beta.60b: 오픈채팅 링크 칸은 숨김(KAKAO_LINK_ENABLED=false) — 연락처는 접수 이메일 하나.
+    await assert(await count(page, '#setupContactKakao') === 0, 'the open-chat link field must be hidden in onboarding 3/3 (beta.60b)');
     await page.locator('#setupContactEmail').fill('owner@harness-shop.example');
     // 약관 동의 게이트: 미체크 시 완료 버튼 비활성, 체크 시 활성화되어야 한다
     // beta.55(C4): 예전에는 동의 전 [완료]가 disabled였다(살아 보이는데 눌러도 무반응). 이제 버튼은 늘 눌리고,
@@ -4726,7 +5043,7 @@ async function main() {
 
     const setupMeta = await readDb(page);
     const setupMetaMap = (setupMeta.meta || []).reduce((a, r) => (a[r.key] = r.value, a), {});
-    await assert(setupMetaMap.contactKakaoLink === 'https://open.kakao.com/o/sHarness', 'contact kakao link entered during onboarding should be saved locally');
+    await assert(!setupMetaMap.contactKakaoLink, 'no open-chat link may be saved from onboarding while the field is hidden (beta.60b)');
     await assert(setupMetaMap.contactEmail === 'owner@harness-shop.example', 'contact email entered during onboarding should be saved locally');
     await assert(typeof setupMetaMap.termsAgreedAt === 'number' && setupMetaMap.termsAgreedAt > 0, 'terms agreement timestamp should be saved after onboarding');
     // 약관 동의 이력이 있으므로 홈 진입 시 일회성 약관 모달이 뜨지 않아야 한다
@@ -6720,7 +7037,7 @@ async function main() {
     page.off('download', onLockedDl);
     await assert(lockedDl.length === 1, `the un-authenticated reset must still save exactly one final backup file (got ${lockedDl.length})`);
     const lockedName = lockedDl[0].suggestedFilename();
-    await assert(/^선입금대장_잠긴백업_\d{4}-\d{2}-\d{2}\.json$/.test(lockedName), `the PIN-recovery final backup must be a locked file (got ${lockedName})`);
+    await assert(/^밥장부_잠긴백업_\d{4}-\d{2}-\d{2}\.json$/.test(lockedName), `the PIN-recovery final backup must be a locked file (got ${lockedName})`);
     const lockedRaw = await fsp.readFile(await lockedDl[0].path(), 'utf8');
     const lockedJson = JSON.parse(lockedRaw);
     await assert(lockedJson.type === 'prepaid-locked-backup' && lockedJson.v === 1, `the locked backup must declare its own type (got ${JSON.stringify(lockedJson.type)})`);

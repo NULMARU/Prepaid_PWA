@@ -63,7 +63,7 @@ await p.locator('#og').screenshot({path:'docs/marketing/sns/밥장부-og-1200x63
 운영자는 어떤 자금도 받거나 보관하지 않습니다. 광고도 유료 기능도 없습니다.
 장부 원본은 가게 기기에 저장되어 인터넷이 끊겨도 열립니다.
 
-설치는 주소를 여는 것으로 끝납니다 → app.bapjangbu.com
+주소를 열고 ‘홈 화면에 추가’ → ‘밥장부’ 아이콘으로 엽니다 → app.bapjangbu.com
 소개와 사용 매뉴얼 → bapjangbu.com
 문의 → contact@bapjangbu.com
 ```

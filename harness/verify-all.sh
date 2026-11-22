@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 선입금대장 전체 재점검 — 한 번에 모든 것을 검증한다.
+# 밥장부(선입금대장) 전체 재점검 — 한 번에 모든 것을 검증한다.
 #   사용법:  bash harness/verify-all.sh
 #   (선택) 다른 배포를 가리키려면: RELAY=... PAGES=... APP=... bash harness/verify-all.sh
 set -u
@@ -11,7 +11,7 @@ pass=0; fail=0
 ok(){ if [ "$1" = "0" ]; then echo "  ✅ $2"; pass=$((pass+1)); else echo "  ❌ $2"; fail=$((fail+1)); fi; }
 
 echo "=================================================="
-echo " 선입금대장 전체 재점검  $(date '+%Y-%m-%d %H:%M')"
+echo " 밥장부 전체 재점검  $(date '+%Y-%m-%d %H:%M')"
 echo "=================================================="
 
 echo; echo "[1] 로컬 자동 테스트"

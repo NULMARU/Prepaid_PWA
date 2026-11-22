@@ -71,9 +71,10 @@
 ### 2.2 자동 등록 — 「직접 전달」(서버 무보관)
 
 ```
- [담당자 웹] ──암호화──▶ .json 파일 / QR / 이메일 첨부 / 카톡 오픈채팅 ──▶ [음식점 PWA]
+ [담당자 웹] ──암호화──▶ .json 파일 / QR / 이메일 첨부 ──▶ [음식점 PWA]
                      (서버를 경유하지 않음 — D1에 아무 흔적도 남지 않음)
 ```
+카톡 오픈채팅 경로([카톡으로 보내기]·가게 연락처의 오픈채팅 링크)는 beta.60(2026-11-22)부터 화면에서 숨겼다 — 스위치 상수 `KAKAO_LINK_ENABLED=false`, 나중에 다시 켤 후보([09](09-open-items.md) B8).
 파일 객체는 `{v:1, type:'direct-transfer', restaurant_id, restaurant_name, institution, department, year_month, summary:{total_amount, member_count, batch_hash}, ciphertext}`
 (`agency-web/index.html`, 직접전달 생성부). 음식점 앱이 같은 복호화·`batch_hash` 대조를 수행한다.
 

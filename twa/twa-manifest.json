@@ -1,8 +1,8 @@
 {
   "packageId": "kr.nulmaru.prepaid",
   "host": "nulmaru.github.io",
-  "name": "선입금대장",
-  "launcherName": "선입금대장",
+  "name": "밥장부",
+  "launcherName": "밥장부",
   "display": "standalone",
   "themeColor": "#1F4E79",
   "themeColorDark": "#1F4E79",

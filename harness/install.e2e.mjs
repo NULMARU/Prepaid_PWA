@@ -173,7 +173,7 @@ for (const outcome of ['accepted', 'dismissed']) {
   try {
   await page.goto(base); await page.waitForSelector('.setup-welcome');
   let t = await welcomeText(page);
-  ok(t.includes('먼저 홈 화면에 추가해 주세요') && t.includes('⋮') && t.includes('[홈 화면에 추가]') && t.includes("'선입금대장'"), `${tag}: 설치 창 전 — 메뉴(⋮) 안내와 아이콘 이름 '선입금대장' (got ${t.slice(0, 200)})`);
+  ok(t.includes('먼저 홈 화면에 추가해 주세요') && t.includes('⋮') && t.includes('[홈 화면에 추가]') && t.includes("'밥장부'"), `${tag}: 설치 창 전 — 메뉴(⋮) 안내와 아이콘 이름 '밥장부' (got ${t.slice(0, 200)})`);
   ok((await page.locator('#welcomeInstall [data-a="setup-welcome-start"].btn-primary').count()) === 1 && !(await page.locator('#installPromptBtn').count()), `${tag}: 설치 창 전 — 진한 버튼은 [시작하기](막지 않음)`);
   ok(t.includes('밥장부에 오신 것을 환영합니다') && t.includes('돈을 받거나 보내지 않아요'), `${tag}: 인사·돈 안내는 그대로`);
   ok(!/PWA|standalone|install|브라우저 저장소/i.test(t), `${tag}: 영어·개발 용어 없음`);
@@ -194,7 +194,7 @@ for (const outcome of ['accepted', 'dismissed']) {
   ok((await page.evaluate(() => window.__promptCalls)) === 1, `${tag}: [홈 화면에 추가]를 누르면 설치 창 prompt() 1회`);
   t = await welcomeText(page);
   if (outcome === 'accepted') {
-    ok(t.includes('홈 화면에 아이콘을 만들었어요') && t.includes("'선입금대장' 아이콘으로 열어 주세요") && (await page.locator('#welcomeInstall [data-a="setup-welcome-start"]').innerText()).includes('여기서 바로 시작'), `${tag}: 수락 뒤 — "아이콘으로 열어 주세요" + [여기서 바로 시작] (got ${t.slice(0, 200)})`);
+    ok(t.includes('홈 화면에 아이콘을 만들었어요') && t.includes("'밥장부' 아이콘으로 열어 주세요") && (await page.locator('#welcomeInstall [data-a="setup-welcome-start"]').innerText()).includes('여기서 바로 시작'), `${tag}: 수락 뒤 — "아이콘으로 열어 주세요" + [여기서 바로 시작] (got ${t.slice(0, 200)})`);
   } else {
     ok(!(await page.locator('#installPromptBtn').count()) && t.includes('⋮') && (await page.locator('#welcomeInstall [data-a="setup-welcome-start"]').count()) === 1, `${tag}: 거절 뒤 — 같은 창을 다시 띄우지 않고 메뉴 안내 + [시작하기]`);
   }
@@ -211,7 +211,7 @@ for (const [tag, opt, where] of [['아이폰 사파리', { ua: UA.iphoneSafari }
   try {
   await page.goto(base); await page.waitForSelector('.setup-welcome');
   const t = await welcomeText(page);
-  ok((await page.locator('.install-steps li').count()) === 3 && t.includes(where) && t.includes('공유 버튼') && t.includes('[홈 화면에 추가]') && t.includes("'선입금대장' 아이콘으로 열어 주세요"), `${tag}: 3단계 글(${where}의 공유 버튼 → [홈 화면에 추가] → '선입금대장' 아이콘) (got ${t.slice(0, 260)})`);
+  ok((await page.locator('.install-steps li').count()) === 3 && t.includes(where) && t.includes('공유 버튼') && t.includes('[홈 화면에 추가]') && t.includes("'밥장부' 아이콘으로 열어 주세요"), `${tag}: 3단계 글(${where}의 공유 버튼 → [홈 화면에 추가] → '밥장부' 아이콘) (got ${t.slice(0, 260)})`);
   ok(t.includes('여기(사파리)에서 만든 장부는 홈 화면 앱에서 보이지 않아요'), `${tag}: 사파리 장부는 홈 화면 앱에서 안 보인다는 경고`);
   ok((await page.locator('.setup-welcome .btn-primary').count()) === 0, `${tag}: 진한 버튼 없음(안내가 주인공)`);
   ok(t.includes('설치 없이 사파리에서 시작') && (await page.locator('.install-skip [data-a="setup-welcome-start"]').count()) === 1, `${tag}: 작은 글씨 탈출구 "설치 없이 사파리에서 시작"`);
@@ -315,7 +315,7 @@ for (const [tag, opt, kind] of [
     const b = await page.locator('#installBanner').innerText();
     ok((await page.locator('#installBanner [data-a="install-hint-off"]').count()) === 1 && b.includes('이 안내 그만 보기'), `${tag}: 배너에 작은 글씨 [이 안내 그만 보기]`);
     if (kind === 'android') {
-      ok(b.includes('홈 화면에 추가해 두세요') && b.includes('⋮') && b.includes("'선입금대장'"), `${tag}: 배너 — 메뉴 안내·아이콘 이름 (got ${b.replace(/\s+/g, ' ')})`);
+      ok(b.includes('홈 화면에 추가해 두세요') && b.includes('⋮') && b.includes("'밥장부'"), `${tag}: 배너 — 메뉴 안내·아이콘 이름 (got ${b.replace(/\s+/g, ' ')})`);
       await page.evaluate(() => { document.querySelector('#searchInput').__keep = 'alive'; });
       await page.evaluate(() => window.__fireInstallPrompt());
       await page.waitForSelector('#installBanner #installPromptBtn', { timeout: 3000 }).catch(() => {});

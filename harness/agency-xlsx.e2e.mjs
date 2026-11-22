@@ -42,7 +42,9 @@ await p.evaluate(([R1,R2])=>{const S=window.__S;S.authed=true;S.agency={name:'�
 // 1 엑셀 양식 다운로드 — 진짜 zip, 첫 줄 '소속기관', 고른 가게(가나다순)×3줄 미리 채움
 let [dl]=await Promise.all([p.waitForEvent('download'),p.click('#csvTemplateBtn')]);
 const xf=path.join(tmp,'t.xlsx');await dl.saveAs(xf);
-ok(dl.suggestedFilename()==='선입금대장_명단양식.xlsx','1 파일 이름 '+dl.suggestedFilename());
+ok(dl.suggestedFilename()==='밥장부_명단양식.xlsx','1 파일 이름 '+dl.suggestedFilename());
+{const [dc]=await Promise.all([p.waitForEvent('download'),p.click('#csvTemplateCsvLink')]);
+  ok(dc.suggestedFilename()==='밥장부_명단양식.csv','1 CSV 양식 파일 이름 '+dc.suggestedFilename());}
 const listing=execFileSync('unzip',['-Z1',xf]).toString();
 ok(/\[Content_Types\]\.xml/.test(listing)&&/xl\/worksheets\/sheet1\.xml/.test(listing)&&/xl\/styles\.xml/.test(listing),'1 xlsx 구성 파일 '+listing);
 execFileSync('unzip',['-tq',xf]); // CRC 오류면 예외
