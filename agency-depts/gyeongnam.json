@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-11-07",
-  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
+  "updatedAt": "2026-11-22",
+  "source": "행정표준코드 기관코드(2026-11-20 제공) + 보건소 등재(2026-11-07 규칙, 과 목록 없음)",
   "depts": {
     "gyeongnam-city": [
       "농업정책과",
@@ -109,6 +109,7 @@
       "산림과",
       "공원과"
     ],
+    "gyeongnam-geoje-health": [],
     "gyeongnam-geochang": [
       "행정과",
       "인구교육과",
@@ -125,6 +126,7 @@
       "문화예술과",
       "관광진흥과"
     ],
+    "gyeongnam-geochang-health": [],
     "gyeongnam-goseong": [
       "행정과",
       "재무과",
@@ -144,6 +146,7 @@
       "문화예술과",
       "관광진흥과"
     ],
+    "gyeongnam-goseong-health": [],
     "gyeongnam-gimhae": [
       "도시계획과",
       "도시개발과",
@@ -184,6 +187,7 @@
       "통합돌봄과",
       "교통정책과"
     ],
+    "gyeongnam-gimhae-health": [],
     "gyeongnam-namhae": [
       "주민복지과",
       "민원지적과",
@@ -208,6 +212,7 @@
       "상하수도과",
       "산림공원과"
     ],
+    "gyeongnam-namhae-health": [],
     "gyeongnam-miryang": [
       "세무과",
       "회계과",
@@ -235,6 +240,7 @@
       "허가과",
       "상하수도과"
     ],
+    "gyeongnam-miryang-health": [],
     "gyeongnam-sacheon": [
       "주민생활지원과",
       "우주항공과",
@@ -263,6 +269,7 @@
       "도시재생과",
       "주민돌봄과"
     ],
+    "gyeongnam-sacheon-health": [],
     "gyeongnam-sancheong": [
       "한방항노화과",
       "문화체육과",
@@ -274,14 +281,19 @@
       "지역발전과",
       "민원과",
       "재무과",
-      "경제교통과",
       "안전총괄과",
-      "건설과",
       "상하수도과",
       "환경위생과",
       "경제기업과",
-      "건설교통과"
+      "건설교통과",
+      "관광서비스산업과",
+      "문화스포츠산업과",
+      "투자창업과",
+      "산업경제과",
+      "건설과",
+      "민원소통과"
     ],
+    "gyeongnam-sancheong-health": [],
     "gyeongnam-yangsan": [
       "자원순환과",
       "산림과",
@@ -319,6 +331,7 @@
       "AI스마트시티과",
       "복지정책과"
     ],
+    "gyeongnam-yangsan-health": [],
     "gyeongnam-uiryeong": [
       "행정과",
       "재무과",
@@ -334,6 +347,7 @@
       "주민생활지원과",
       "건설교통과"
     ],
+    "gyeongnam-uiryeong-health": [],
     "gyeongnam-jinju": [
       "기획예산과",
       "회계과",
@@ -372,6 +386,7 @@
       "건설하천과",
       "기후환경과"
     ],
+    "gyeongnam-jinju-health": [],
     "gyeongnam-changnyeong": [
       "행정과",
       "재무과",
@@ -389,6 +404,7 @@
       "문화예술과",
       "우포생태따오기과"
     ],
+    "gyeongnam-changnyeong-health": [],
     "gyeongnam-changwon": [
       "행정과",
       "세무과",
@@ -441,6 +457,7 @@
       "시설공사2과",
       "도시개발사업과"
     ],
+    "gyeongnam-changwon-health": [],
     "gyeongnam-tongyeong": [
       "도시과",
       "건설과",
@@ -472,6 +489,7 @@
       "자원순환과",
       "평생교육과"
     ],
+    "gyeongnam-tongyeong-health": [],
     "gyeongnam-hadong": [
       "기획예산과",
       "행정과",
@@ -502,6 +520,7 @@
       "산림과",
       "경제통상과"
     ],
+    "gyeongnam-hadong-health": [],
     "gyeongnam-haman": [
       "안전총괄과",
       "건설교통과",
@@ -515,8 +534,14 @@
       "환경과",
       "산림녹지과",
       "복지정책과",
-      "관광교육과"
+      "관광교육과",
+      "세계유산관광과",
+      "세정과",
+      "회계과",
+      "문화체육과",
+      "행복지원과"
     ],
+    "gyeongnam-haman-health": [],
     "gyeongnam-hamyang": [
       "행정과",
       "재무과",
@@ -534,6 +559,7 @@
       "안전총괄과",
       "도시건축과"
     ],
+    "gyeongnam-hamyang-health": [],
     "gyeongnam-hapcheon": [
       "행정과",
       "주민복지과",
@@ -551,23 +577,6 @@
       "환경위생과",
       "상하수도과"
     ],
-    "gyeongnam-geoje-health": [],
-    "gyeongnam-geochang-health": [],
-    "gyeongnam-goseong-health": [],
-    "gyeongnam-gimhae-health": [],
-    "gyeongnam-namhae-health": [],
-    "gyeongnam-miryang-health": [],
-    "gyeongnam-sacheon-health": [],
-    "gyeongnam-sancheong-health": [],
-    "gyeongnam-yangsan-health": [],
-    "gyeongnam-uiryeong-health": [],
-    "gyeongnam-jinju-health": [],
-    "gyeongnam-changnyeong-health": [],
-    "gyeongnam-changwon-health": [],
-    "gyeongnam-tongyeong-health": [],
-    "gyeongnam-hadong-health": [],
-    "gyeongnam-haman-health": [],
-    "gyeongnam-hamyang-health": [],
     "gyeongnam-hapcheon-health": []
   }
 }

@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-11-07",
-  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
+  "updatedAt": "2026-11-22",
+  "source": "행정표준코드 기관코드(2026-11-20 제공) + 보건소 등재(2026-11-07 규칙, 과 목록 없음)",
   "depts": {
     "jeonnam-city": [],
     "jeonnam-gangjin": [
@@ -28,6 +28,7 @@
       "관광과",
       "문화예술과"
     ],
+    "jeonnam-gangjin-health": [],
     "jeonnam-goheung": [
       "주민복지과",
       "행정과",
@@ -43,8 +44,13 @@
       "환경정책과",
       "재난안전과",
       "산림정원과",
-      "건설과"
+      "건설과",
+      "홍보소통과",
+      "가족행복과",
+      "인재육성과",
+      "사회복지과"
     ],
+    "jeonnam-goheung-health": [],
     "jeonnam-gokseong": [
       "행정과",
       "재무과",
@@ -60,6 +66,7 @@
       "도시경제과",
       "산림과"
     ],
+    "jeonnam-gokseong-health": [],
     "jeonnam-gwangyang": [
       "총무과",
       "세정과",
@@ -95,6 +102,7 @@
       "시설관리과",
       "휴양림과"
     ],
+    "jeonnam-gwangyang-health": [],
     "jeonnam-gurye": [
       "총무과",
       "재무과",
@@ -109,6 +117,7 @@
       "산림과",
       "환경과"
     ],
+    "jeonnam-gurye-health": [],
     "jeonnam-naju": [
       "총무과",
       "세무과",
@@ -138,8 +147,10 @@
       "농업정책과",
       "배원예유통과",
       "농식품산업과",
-      "축산과"
+      "축산과",
+      "복지급여과"
     ],
+    "jeonnam-naju-health": [],
     "jeonnam-damyang": [
       "행정과",
       "재무과",
@@ -158,6 +169,7 @@
       "환경과",
       "민원과"
     ],
+    "jeonnam-damyang-health": [],
     "jeonnam-mokpo": [
       "자치행정과",
       "사회복지과",
@@ -194,6 +206,7 @@
       "교통행정과",
       "대중교통과"
     ],
+    "jeonnam-mokpo-health": [],
     "jeonnam-muan": [
       "미래성장과",
       "인구정책과",
@@ -216,6 +229,7 @@
       "지역개발과",
       "안전총괄과"
     ],
+    "jeonnam-muan-health": [],
     "jeonnam-boseong": [
       "총무과",
       "사회복지과",
@@ -233,6 +247,7 @@
       "종합민원과",
       "문화관광과"
     ],
+    "jeonnam-boseong-health": [],
     "jeonnam-suncheon": [
       "신성장산업과",
       "첨단산업과",
@@ -281,6 +296,7 @@
       "농식품유통과",
       "동물자원과"
     ],
+    "jeonnam-suncheon-health": [],
     "jeonnam-sinan": [
       "민원봉사과",
       "교육복지과",
@@ -303,17 +319,16 @@
       "신재생에너지과",
       "교통지원과",
       "기획예산과",
-      "귀촌지원과",
       "투자유치과",
       "경제유통과",
       "인구정책과",
       "대외협력과",
       "해상풍력과",
       "태양광과",
-      "에너지연금과",
       "렌터카지원과",
       "에너지연금교육과"
     ],
+    "jeonnam-sinan-health": [],
     "jeonnam-yeosu": [
       "총무과",
       "회계과",
@@ -358,6 +373,7 @@
       "도로과",
       "도로시설관리과"
     ],
+    "jeonnam-yeosu-health": [],
     "jeonnam-yeonggwang": [
       "민원지적과",
       "일자리경제과",
@@ -377,8 +393,17 @@
       "총무과",
       "인구교육정책과",
       "스포츠산업과",
-      "해양수산과"
+      "해양수산과",
+      "인구일자리과",
+      "관광과",
+      "문화예술과",
+      "어르신행복과",
+      "통합돌봄과",
+      "에너지소득과",
+      "농정과",
+      "축산과"
     ],
+    "jeonnam-yeonggwang-health": [],
     "jeonnam-yeongam": [
       "기획감사과",
       "자치행정과",
@@ -407,25 +432,29 @@
       "인구청년과",
       "인재육성체육과"
     ],
+    "jeonnam-yeongam-health": [],
     "jeonnam-wando": [
-      "행정지원과",
       "세무회계과",
       "민원봉사과",
       "주민복지과",
-      "가족행복과",
-      "경제교통과",
       "관광과",
       "문화예술과",
       "체육진흥과",
-      "농업축산과",
-      "해양정책과",
-      "수산경영과",
       "산림휴양과",
-      "환경수질관리과",
       "지역개발과",
       "건설과",
-      "안전총괄과"
+      "미래전략과",
+      "수산식품산업과",
+      "예산감사과",
+      "인구일자리과",
+      "가족돌봄과",
+      "경제산업과",
+      "해양수산과",
+      "환경수질과",
+      "재난안전과",
+      "자치행정과"
     ],
+    "jeonnam-wando-health": [],
     "jeonnam-jangseong": [
       "총무과",
       "민원봉사과",
@@ -443,6 +472,7 @@
       "산림편백과",
       "교통에너지과"
     ],
+    "jeonnam-jangseong-health": [],
     "jeonnam-jangheung": [
       "총무과",
       "재난안전과",
@@ -460,6 +490,7 @@
       "농산유통과",
       "축산과"
     ],
+    "jeonnam-jangheung-health": [],
     "jeonnam-jindo": [
       "주민복지과",
       "안전생활지원과",
@@ -478,6 +509,7 @@
       "관광과",
       "문화예술과"
     ],
+    "jeonnam-jindo-health": [],
     "jeonnam-hampyeong": [
       "총무과",
       "재무과",
@@ -494,6 +526,7 @@
       "안전관리과",
       "건설교통과"
     ],
+    "jeonnam-hampyeong-health": [],
     "jeonnam-haenam": [
       "미래공동체과",
       "복지정책과",
@@ -513,44 +546,25 @@
       "환경과",
       "산림공원과"
     ],
+    "jeonnam-haenam-health": [],
     "jeonnam-hwasun": [
-      "인구청년정책과",
       "주민안전과",
-      "지역경제과",
       "행복민원과",
       "인허가과",
-      "자치행정과",
-      "재무과",
       "사회복지과",
       "통합돌봄과",
-      "문화예술과",
       "농업정책과",
       "농촌활력과",
       "산림과",
       "환경과",
-      "도시과"
+      "도시과",
+      "민생경제과",
+      "총무과",
+      "세무회계과",
+      "관광체육과",
+      "문화유산과",
+      "건설교통과"
     ],
-    "jeonnam-gangjin-health": [],
-    "jeonnam-goheung-health": [],
-    "jeonnam-gokseong-health": [],
-    "jeonnam-gwangyang-health": [],
-    "jeonnam-gurye-health": [],
-    "jeonnam-naju-health": [],
-    "jeonnam-damyang-health": [],
-    "jeonnam-mokpo-health": [],
-    "jeonnam-muan-health": [],
-    "jeonnam-boseong-health": [],
-    "jeonnam-suncheon-health": [],
-    "jeonnam-sinan-health": [],
-    "jeonnam-yeosu-health": [],
-    "jeonnam-yeonggwang-health": [],
-    "jeonnam-yeongam-health": [],
-    "jeonnam-wando-health": [],
-    "jeonnam-jangseong-health": [],
-    "jeonnam-jangheung-health": [],
-    "jeonnam-jindo-health": [],
-    "jeonnam-hampyeong-health": [],
-    "jeonnam-haenam-health": [],
     "jeonnam-hwasun-health": []
   }
 }

@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-11-07",
-  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
+  "updatedAt": "2026-11-22",
+  "source": "행정표준코드 기관코드(2026-11-20 제공) + 보건소 등재(2026-11-07 규칙, 과 목록 없음)",
   "depts": {
     "gangwon-city": [
       "예산과",
@@ -108,6 +108,7 @@
       "항만물류과",
       "ITS추진과"
     ],
+    "gangwon-gangneung-health": [],
     "gangwon-goseong": [
       "허가민원과",
       "복지과",
@@ -123,6 +124,7 @@
       "교육문화과",
       "관광과"
     ],
+    "gangwon-goseong-health": [],
     "gangwon-donghae": [
       "행정과",
       "복지과",
@@ -152,32 +154,36 @@
       "무릉전략과",
       "평생학습과"
     ],
+    "gangwon-donghae-health": [],
     "gangwon-samcheok": [
+      "재난안전과",
+      "건설과",
+      "도시과",
+      "교통과",
+      "건축과",
+      "문화예술과",
+      "관광정책과",
+      "관광개발과",
+      "에너지과",
+      "경제과",
+      "전략사업과",
+      "체육진흥과",
+      "체육시설과",
+      "석탄산업전환지역사업과",
+      "농정과",
+      "축산과",
+      "산림과",
+      "해양수산과",
+      "환경과",
       "총무과",
       "세무과",
       "회계과",
       "복지정책과",
       "사회복지과",
-      "민원과",
-      "재난안전과",
-      "산림과",
-      "건설과",
-      "도시과",
-      "교통과",
-      "건축과",
-      "환경과",
       "아동청소년과",
-      "문화예술과",
-      "관광정책과",
-      "관광개발과",
-      "체육과",
-      "에너지과",
-      "경제과",
-      "전략사업과",
-      "농정과",
-      "축산과",
-      "해양수산과"
+      "민원과"
     ],
+    "gangwon-samcheok-health": [],
     "gangwon-sokcho": [
       "자치행정과",
       "기획예산과",
@@ -214,6 +220,7 @@
       "도시개발과",
       "재난안전과"
     ],
+    "gangwon-sokcho-health": [],
     "gangwon-yanggu": [
       "자치행정과",
       "민원서비스과",
@@ -228,24 +235,24 @@
       "도시교통과",
       "건설과"
     ],
+    "gangwon-yanggu-health": [],
     "gangwon-yangyang": [
       "기획예산과",
       "허가민원과",
       "복지정책과",
       "세무회계과",
-      "스마트정보과",
       "관광문화과",
       "경제에너지과",
       "교육체육과",
       "해양수산과",
       "도시계획과",
       "건설과",
-      "안전교통과",
       "산림녹지과",
       "환경과",
       "스마트교통과",
       "재난안전과"
     ],
+    "gangwon-yangyang-health": [],
     "gangwon-yeongwol": [
       "신속허가과",
       "주민복지과",
@@ -261,6 +268,7 @@
       "전략산업과",
       "경제과"
     ],
+    "gangwon-yeongwol-health": [],
     "gangwon-wonju": [
       "경제진흥과",
       "기업지원일자리과",
@@ -306,6 +314,7 @@
       "기획과",
       "지방세입과"
     ],
+    "gangwon-wonju-health": [],
     "gangwon-inje": [
       "종합민원과",
       "주민복지과",
@@ -321,6 +330,7 @@
       "산림정원과",
       "안전교통과"
     ],
+    "gangwon-inje-health": [],
     "gangwon-jeongseon": [
       "회계과",
       "세무과",
@@ -339,22 +349,26 @@
       "농업정책과",
       "유통축산과"
     ],
+    "gangwon-jeongseon-health": [],
     "gangwon-cheorwon": [
-      "자치행정과",
-      "안전총괄과",
-      "민군협력과",
-      "주민생활지원과",
-      "경제진흥과",
-      "문화체육과",
-      "인재육성과",
-      "세무과",
-      "청정환경과",
-      "회계지적과",
-      "녹색성장과",
-      "건설도시과",
+      "기획예산과",
+      "복지정책과",
+      "가족복지과",
       "민원허가과",
-      "인구정책과"
+      "세무과",
+      "회계지적과",
+      "일자리정책과",
+      "기업지원과",
+      "관광정책과",
+      "문화체육과",
+      "건설과",
+      "안전총괄과",
+      "도시정책과",
+      "교육도시과",
+      "산림녹지과",
+      "환경정책과"
     ],
+    "gangwon-cheorwon-health": [],
     "gangwon-chuncheon": [
       "기획예산과",
       "회계과",
@@ -393,6 +407,7 @@
       "녹지정원과",
       "토지정보과"
     ],
+    "gangwon-chuncheon-health": [],
     "gangwon-taebaek": [
       "총무과",
       "세무과",
@@ -401,7 +416,6 @@
       "복지정책과",
       "사회복지과",
       "경제과",
-      "탄소중립과",
       "문화관광과",
       "스포츠과",
       "교육과",
@@ -415,8 +429,19 @@
       "건축과",
       "기획감사과",
       "예산정책과",
-      "국가정책과"
+      "국가정책과",
+      "탄소중립과",
+      "시설관리과",
+      "통합돌봄과",
+      "석탄산업유산과",
+      "평생학습과",
+      "농업과",
+      "산림과",
+      "축산과",
+      "SOC과",
+      "공사과"
     ],
+    "gangwon-taebaek-health": [],
     "gangwon-pyeongchang": [
       "행정과",
       "올림픽체육과",
@@ -441,11 +466,11 @@
       "안전교통과",
       "건설과",
       "도시과",
-      "현안사업추진과",
       "기획예산과",
       "관광정책과",
       "문화예술과"
     ],
+    "gangwon-pyeongchang-health": [],
     "gangwon-hongcheon": [
       "민원과",
       "교육체육과",
@@ -464,6 +489,7 @@
       "환경과",
       "토지주택과"
     ],
+    "gangwon-hongcheon-health": [],
     "gangwon-hwacheon": [
       "자치행정과",
       "교육복지과",
@@ -474,8 +500,22 @@
       "지역경제과",
       "환경과",
       "안전건설과",
-      "산림녹지과"
+      "산림녹지과",
+      "기획예산과",
+      "전략정책과",
+      "소득지원과",
+      "세무경영과",
+      "행정과",
+      "민원봉사과",
+      "복지정책과",
+      "교육지원과",
+      "안전총괄과",
+      "도시주택과",
+      "기후환경과",
+      "건설과",
+      "산림경영과"
     ],
+    "gangwon-hwacheon-health": [],
     "gangwon-hoengseong": [
       "자치행정과",
       "허가민원과",
@@ -495,23 +535,6 @@
       "환경과",
       "토지재산과"
     ],
-    "gangwon-gangneung-health": [],
-    "gangwon-goseong-health": [],
-    "gangwon-donghae-health": [],
-    "gangwon-samcheok-health": [],
-    "gangwon-sokcho-health": [],
-    "gangwon-yanggu-health": [],
-    "gangwon-yangyang-health": [],
-    "gangwon-yeongwol-health": [],
-    "gangwon-wonju-health": [],
-    "gangwon-inje-health": [],
-    "gangwon-jeongseon-health": [],
-    "gangwon-cheorwon-health": [],
-    "gangwon-chuncheon-health": [],
-    "gangwon-taebaek-health": [],
-    "gangwon-pyeongchang-health": [],
-    "gangwon-hongcheon-health": [],
-    "gangwon-hwacheon-health": [],
     "gangwon-hoengseong-health": []
   }
 }

@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-11-07",
-  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
+  "updatedAt": "2026-11-22",
+  "source": "행정표준코드 기관코드(2026-11-20 제공) + 보건소 등재(2026-11-07 규칙, 과 목록 없음)",
   "depts": {
     "jeonbuk-city": [
       "일자리민생경제과",
@@ -78,10 +78,11 @@
       "산림녹지과",
       "종합민원과",
       "안전총괄과",
-      "환경위생과",
       "도시디자인과",
-      "건설과"
+      "건설과",
+      "환경에너지과"
     ],
+    "jeonbuk-gochang-health": [],
     "jeonbuk-gunsan": [
       "문화예술과",
       "관광진흥과",
@@ -123,6 +124,7 @@
       "하수과",
       "어업정책과"
     ],
+    "jeonbuk-gunsan-health": [],
     "jeonbuk-gimje": [
       "행정지원과",
       "문화관광과",
@@ -147,6 +149,7 @@
       "교통행정과",
       "산림녹지과"
     ],
+    "jeonbuk-gimje-health": [],
     "jeonbuk-namwon": [
       "도시과",
       "건설과",
@@ -175,6 +178,7 @@
       "축산과",
       "산림녹지과"
     ],
+    "jeonbuk-namwon-health": [],
     "jeonbuk-muju": [
       "자치행정과",
       "관광진흥과",
@@ -191,6 +195,7 @@
       "상하수도과",
       "태권문화과"
     ],
+    "jeonbuk-muju-health": [],
     "jeonbuk-buan": [
       "관광과",
       "문화예술과",
@@ -209,6 +214,7 @@
       "건설교통과",
       "안전총괄과"
     ],
+    "jeonbuk-buan-health": [],
     "jeonbuk-sunchang": [
       "행정과",
       "주민복지과",
@@ -225,6 +231,7 @@
       "환경위생과",
       "상하수도과"
     ],
+    "jeonbuk-sunchang-health": [],
     "jeonbuk-wanju": [
       "자원순환과",
       "환경위생과",
@@ -249,6 +256,7 @@
       "하천기반과",
       "경로장애인과"
     ],
+    "jeonbuk-wanju-health": [],
     "jeonbuk-iksan": [
       "기획예산과",
       "시민안전과",
@@ -295,6 +303,7 @@
       "장애인복지과",
       "여성청소년과"
     ],
+    "jeonbuk-iksan-health": [],
     "jeonbuk-imsil": [
       "주민복지과",
       "환경보호과",
@@ -314,6 +323,7 @@
       "종합민원과",
       "여성가족과"
     ],
+    "jeonbuk-imsil-health": [],
     "jeonbuk-jangsu": [
       "행정지원과",
       "주민복지과",
@@ -330,6 +340,7 @@
       "물관리과",
       "산림과"
     ],
+    "jeonbuk-jangsu-health": [],
     "jeonbuk-jeonju": [
       "주력산업과",
       "신성장산업과",
@@ -385,6 +396,7 @@
       "공원녹지과",
       "건설과"
     ],
+    "jeonbuk-jeonju-health": [],
     "jeonbuk-jeongeup": [
       "감사과",
       "총무과",
@@ -414,6 +426,7 @@
       "시설운영과",
       "도서관운영과"
     ],
+    "jeonbuk-jeongeup-health": [],
     "jeonbuk-jinan": [
       "행정지원과",
       "사회복지과",
@@ -431,19 +444,6 @@
       "농축산유통과",
       "농촌활력과"
     ],
-    "jeonbuk-gochang-health": [],
-    "jeonbuk-gunsan-health": [],
-    "jeonbuk-gimje-health": [],
-    "jeonbuk-namwon-health": [],
-    "jeonbuk-muju-health": [],
-    "jeonbuk-buan-health": [],
-    "jeonbuk-sunchang-health": [],
-    "jeonbuk-wanju-health": [],
-    "jeonbuk-iksan-health": [],
-    "jeonbuk-imsil-health": [],
-    "jeonbuk-jangsu-health": [],
-    "jeonbuk-jeonju-health": [],
-    "jeonbuk-jeongeup-health": [],
     "jeonbuk-jinan-health": []
   }
 }

@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-11-07",
-  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
+  "updatedAt": "2026-11-22",
+  "source": "행정표준코드 기관코드(2026-11-20 제공) + 보건소 등재(2026-11-07 규칙, 과 목록 없음)",
   "depts": {
     "gyeongbuk-city": [
       "문화예술과",
@@ -60,7 +60,22 @@
       "지역개발과",
       "신도시조성지원과",
       "APEC유산과",
-      "APEC시설과"
+      "APEC시설과",
+      "사회재난과",
+      "자연재난과",
+      "식품정책과",
+      "식품산업과",
+      "식품한류과",
+      "지방정부정책과",
+      "저출생대책과",
+      "대학청년과",
+      "인공지능정책과",
+      "인공지능산업과",
+      "첨단산업과",
+      "바이오산업과",
+      "농업유통과",
+      "동물방역복지과",
+      "통합돌봄과"
     ],
     "gyeongbuk-gyeongsan": [
       "총무과",
@@ -69,35 +84,33 @@
       "교통행정과",
       "환경과",
       "자원순환과",
-      "복지정책과",
-      "사회복지과",
-      "문화관광과",
-      "체육진흥과",
       "새마을민원과",
       "허가과",
       "토지정보과",
       "산림과",
       "공원녹지과",
       "기획예산과",
-      "미래전략과",
       "세무과",
       "징수과",
-      "평생학습과",
-      "가족정책과",
       "디지털정책과",
       "건설과",
       "안전총괄과",
       "도시과",
       "도로철도과",
       "건축과",
-      "어르신복지과",
-      "아동청소년과",
       "주택과",
       "기업정책과",
+      "복지정책과",
+      "어르신복지과",
+      "사회복지과",
+      "아동청소년과",
       "교육도시과",
       "청년정책과",
+      "문화관광과",
+      "체육진흥과",
       "신성장산업과"
     ],
+    "gyeongbuk-gyeongsan-health": [],
     "gyeongbuk-gyeongju": [
       "도로과",
       "교통행정과",
@@ -141,6 +154,7 @@
       "미래사업과",
       "디지털정책과"
     ],
+    "gyeongbuk-gyeongju-health": [],
     "gyeongbuk-goryeong": [
       "가족행복과",
       "투자유치과",
@@ -160,6 +174,7 @@
       "건축과",
       "기획예산과"
     ],
+    "gyeongbuk-goryeong-health": [],
     "gyeongbuk-gumi": [
       "문화예술과",
       "체육진흥과",
@@ -204,8 +219,25 @@
       "어르신복지과",
       "장애인복지과",
       "건축디자인과",
-      "주택과"
+      "주택과",
+      "스마트정보과",
+      "창업경제과",
+      "노동일자리과",
+      "AI로봇산업과",
+      "에너지산업과",
+      "골목경제과",
+      "시장상권지원과",
+      "식품위생과",
+      "철도도로시설과",
+      "주택개선과",
+      "도로정비과",
+      "기후환경정책과",
+      "선산민원과",
+      "농촌활력과",
+      "축산과",
+      "산림과"
     ],
+    "gyeongbuk-gumi-health": [],
     "gyeongbuk-gimcheon": [
       "경제정책과",
       "미래혁신전략과",
@@ -233,6 +265,7 @@
       "가족행복과",
       "인구정책과"
     ],
+    "gyeongbuk-gimcheon-health": [],
     "gyeongbuk-mungyeong": [
       "총무과",
       "종합민원과",
@@ -260,6 +293,7 @@
       "지역활력과",
       "허가과"
     ],
+    "gyeongbuk-mungyeong-health": [],
     "gyeongbuk-bonghwa": [
       "재정과",
       "총무과",
@@ -274,6 +308,7 @@
       "건설교통과",
       "도시계획과"
     ],
+    "gyeongbuk-bonghwa-health": [],
     "gyeongbuk-sangju": [
       "총무과",
       "문화예술과",
@@ -298,6 +333,7 @@
       "스마트농업과",
       "행복민원과"
     ],
+    "gyeongbuk-sangju-health": [],
     "gyeongbuk-seongju": [
       "재무과",
       "농정과",
@@ -317,6 +353,7 @@
       "기업지원과",
       "건축허가과"
     ],
+    "gyeongbuk-seongju-health": [],
     "gyeongbuk-andong": [
       "건축과",
       "건설과",
@@ -355,6 +392,7 @@
       "하수도과",
       "맑은물관리과"
     ],
+    "gyeongbuk-andong-health": [],
     "gyeongbuk-yeongdeok": [
       "자치행정과",
       "주민복지과",
@@ -373,6 +411,7 @@
       "건설과",
       "안전재난과"
     ],
+    "gyeongbuk-yeongdeok-health": [],
     "gyeongbuk-yeongyang": [
       "자치행정과",
       "재무과",
@@ -387,6 +426,7 @@
       "산림녹지과",
       "농촌경제과"
     ],
+    "gyeongbuk-yeongyang-health": [],
     "gyeongbuk-yeongju": [
       "도시과",
       "건설과",
@@ -415,6 +455,7 @@
       "관광진흥과",
       "영주호개발과"
     ],
+    "gyeongbuk-yeongju-health": [],
     "gyeongbuk-yeongcheon": [
       "총무과",
       "세정과",
@@ -440,6 +481,7 @@
       "건축디자인과",
       "지적정보과"
     ],
+    "gyeongbuk-yeongcheon-health": [],
     "gyeongbuk-yecheon": [
       "총무과",
       "재무과",
@@ -459,6 +501,7 @@
       "건축과",
       "환경관리과"
     ],
+    "gyeongbuk-yecheon-health": [],
     "gyeongbuk-ulleung": [
       "주민복지과",
       "해양수산과",
@@ -470,6 +513,7 @@
       "미래전략과",
       "총무과"
     ],
+    "gyeongbuk-ulleung-health": [],
     "gyeongbuk-uljin": [
       "재무과",
       "복지정책과",
@@ -490,32 +534,27 @@
       "원전에너지과",
       "체육진흥과"
     ],
+    "gyeongbuk-uljin-health": [],
     "gyeongbuk-uiseong": [
       "재난방재과",
-      "안전건설과",
-      "관광문화과",
-      "총무과",
       "재무과",
-      "복지과",
-      "새마을교육과",
-      "청년정책과",
-      "농업정책과",
-      "유통정책과",
-      "환경축산과",
-      "농촌활력과",
-      "신공항지원과",
-      "산림녹지과",
       "기획예산과",
-      "홍보소통과",
       "민원과",
-      "미래산업과",
-      "건축허가과",
       "홍보과",
       "총무새마을과",
+      "관광문화과",
+      "청년정책과",
+      "미래산업과",
       "통합돌봄과",
       "사회보장과",
-      "건축과"
+      "안전건설과",
+      "농촌활력과",
+      "신공항지원과",
+      "환경축산과",
+      "건축과",
+      "산림녹지과"
     ],
+    "gyeongbuk-uiseong-health": [],
     "gyeongbuk-cheongdo": [
       "총무과",
       "주민복지과",
@@ -534,6 +573,7 @@
       "새마을경제과",
       "환경산림과"
     ],
+    "gyeongbuk-cheongdo-health": [],
     "gyeongbuk-cheongsong": [
       "재무과",
       "총무과",
@@ -551,6 +591,7 @@
       "농촌활력과",
       "유통정책과"
     ],
+    "gyeongbuk-cheongsong-health": [],
     "gyeongbuk-chilgok": [
       "총무과",
       "세무과",
@@ -573,6 +614,7 @@
       "지역활력과",
       "문화관광과"
     ],
+    "gyeongbuk-chilgok-health": [],
     "gyeongbuk-pohang": [
       "평생교육과",
       "건설과",
@@ -619,27 +661,6 @@
       "마이스산업과",
       "컨벤션건립과"
     ],
-    "gyeongbuk-gyeongsan-health": [],
-    "gyeongbuk-gyeongju-health": [],
-    "gyeongbuk-goryeong-health": [],
-    "gyeongbuk-gumi-health": [],
-    "gyeongbuk-gimcheon-health": [],
-    "gyeongbuk-mungyeong-health": [],
-    "gyeongbuk-bonghwa-health": [],
-    "gyeongbuk-sangju-health": [],
-    "gyeongbuk-seongju-health": [],
-    "gyeongbuk-andong-health": [],
-    "gyeongbuk-yeongdeok-health": [],
-    "gyeongbuk-yeongyang-health": [],
-    "gyeongbuk-yeongju-health": [],
-    "gyeongbuk-yeongcheon-health": [],
-    "gyeongbuk-yecheon-health": [],
-    "gyeongbuk-ulleung-health": [],
-    "gyeongbuk-uljin-health": [],
-    "gyeongbuk-uiseong-health": [],
-    "gyeongbuk-cheongdo-health": [],
-    "gyeongbuk-cheongsong-health": [],
-    "gyeongbuk-chilgok-health": [],
     "gyeongbuk-pohang-health": []
   }
 }

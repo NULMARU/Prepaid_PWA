@@ -4,6 +4,13 @@
 //
 //   node harness/build-agencies.mjs <org0_utf8.txt> [outDir]
 //
+// 원자료 받기(2026-11-22 확인, 로그인 없음): code.go.kr → 기관코드 화면(/stdcode/orgCodeL.do)의 [기관코드 전체자료]
+//   = POST /etc/codeFullDown.do (codeseId=기관코드) → "기관코드 전체자료.zip"(약 18MB). 안에 두 파일이 있고,
+//   이 스크립트의 열 번호는 **"기관코드 전체자료(유형분류 의미추가).txt"(27열)** 기준이다(다른 하나는 의미 열이 빠진 24열).
+//   zip 안 파일은 **CP949·CRLF**다 → UTF-8로 바꿔서 넘길 것(예: python3 -I로 decode('cp949')). 압축 안 파일명도
+//   cp949라 macOS unzip은 실패한다 — python3 zipfile로 풀 것.
+//   outDir을 주면 거기에 쓰고, 서울 큐레이션(agency-departments.json)도 outDir에서 읽는다(먼저 사본을 두고 돌려 볼 것).
+//
 // 산출물(파일 계약, 앱이 이미 이 계약으로 구현됨 — 변경 금지):
 //   <outDir>/agency-index.json
 //   <outDir>/agency-depts/{region}.json   (17개)
@@ -31,15 +38,19 @@ if (!SRC || !fs.existsSync(SRC)) {
   console.error('사용법: node harness/build-agencies.mjs <org0_utf8.txt> [outDir]');
   process.exit(1);
 }
-const UPDATED_AT = '2026-07-14';
-const SOURCE = '행정표준코드 기관코드(2026-07)';
+const UPDATED_AT = '2026-11-22';
+const SOURCE = '행정표준코드 기관코드(2026-11-20 제공) + 보건소 등재(2026-11-07 규칙, 과 목록 없음)';
+// 기준일(YYYYMMDD). 원자료에는 **앞으로 생길 조직**이 미리 등록돼 있다(생성일자가 미래, 존폐여부 0 — 2026-11-20 자료에서
+//   성북구 2026-12-28·양평군 2027-01-01 개편분). 그 행을 넣으면 아직 없는 과와 지금 있는 과가 한 목록에 섞인다 →
+//   생성일자가 기준일보다 뒤인 행은 뺀다. 원자료 제공일로 맞출 것(재생성 때 함께 바꾼다).
+const AS_OF = '20261120';
 
 // ── 컬럼 인덱스(0-base) ──
 const C = {
   code: 0, fullName: 1, shortName: 2, level: 3, order: 4,
   parent: 6, top: 7, rep: 8,
   daeCode: 9, daeName: 10, jungCode: 11, jungName: 12, soCode: 13, soName: 14,
-  abolishDate: 23, status: 25,
+  createDate: 22, abolishDate: 23, status: 25,
 };
 
 // ── 로마자 슬러그(개정 로마자 표기) : 최하위기관명 → 슬러그 ──
@@ -125,9 +136,10 @@ const rows = [];
 for (let i = 1; i < lines.length; i++) {
   const ln = lines[i];
   if (!ln) continue;
-  const f = ln.split('\t');
+  const f = ln.replace(/\r$/, '').split('\t');
   if (f.length < 26) continue;
   if (f[C.status] !== '0') continue; // 존속만
+  if (/^\d{8}$/.test(f[C.createDate]) && f[C.createDate] > AS_OF) continue; // 기준일 뒤에 생길 조직(미리 등록분)은 제외
   rows.push(f);
 }
 
@@ -201,10 +213,10 @@ function splitHealth(g) { const h = healthOf(g.id, g.name); return { ...h, keep:
 // ── 서울 큐레이션 로드 ──
 const curationPath = path.join(OUT, 'agency-departments.json');
 const curation = JSON.parse(fs.readFileSync(curationPath, 'utf8'));
-const seoulIds = curation.agencies.map(a => ({ id: a.id, name: a.name, departments: a.departments }));
+const seoulIds = curation.agencies.map(a => ({ id: a.id, name: a.name, district: a.district, departments: a.departments }));
 
 // ── 지역별 조립 ──
-const index = { schemaVersion: 2, updatedAt: UPDATED_AT, scope: '전국 광역·기초 자치단체(중앙정부 제외)', regions: [] };
+const index = { schemaVersion: 2, updatedAt: UPDATED_AT, scope: '전국 광역·기초 자치단체(중앙정부 제외) · 시군구 보건소 별도 등재(2026-11-07)', regions: [] };
 const deptFiles = {}; // code -> {updatedAt, source, depts:{}}
 const report = { regionBasicCount: {}, deptCoverage: {}, notes: [] };
 
@@ -224,7 +236,10 @@ for (const R of REGIONS) {
     const gu = seoulIds.filter(a => a.id !== city.id && !a.id.endsWith('-health')).slice().sort((a, b) => kcol.compare(a.name, b.name));
     const curatedHealth = new Map(seoulIds.filter(a => a.id.endsWith('-health')).map(a => [a.id, a]));
     for (const g of gu) {
-      const h = curatedHealth.get(g.id + '-health') || splitHealth(g);
+      // 큐레이션에 보건소 항목이 이미 있으면 구청 과 목록은 그대로(keep = 구청 과 전부) — 2026-11-22 수정:
+      //   예전에는 큐레이션 항목에 keep이 없어 재생성이 TypeError로 멈췄다(2026-11-07 이후 첫 재실행에서 발견).
+      const ch = curatedHealth.get(g.id + '-health');
+      const h = ch ? { id: ch.id, name: ch.name, district: ch.district, departments: ch.departments, keep: g.departments } : splitHealth(g);
       agencies.push({ id: g.id, name: g.name });
       depts[g.id] = h.keep.slice();
       if (depts[g.id].length) filled++;
@@ -232,7 +247,8 @@ for (const R of REGIONS) {
       depts[h.id] = h.departments.slice();
       if (depts[h.id].length) filled++;
     }
-    deptFiles[R.code] = { updatedAt: '2026-06-16', source: '큐레이션(2026-06-16)', depts };
+    // 기준일·출처는 큐레이션 파일이 말하는 대로(예전에는 '2026-06-16'이 박혀 있어 큐레이션을 고쳐도 기준일이 그대로였다).
+    deptFiles[R.code] = { updatedAt: curation.updatedAt || UPDATED_AT, source: curation.source || `큐레이션(${curation.updatedAt || '?'})`, depts };
     report.regionBasicCount[R.code] = gu.length;
     index.regions.push({ code: R.code, name: R.name, deptsFile: `agency-depts/${R.code}.json`, agencies });
     report.deptCoverage[R.code] = { filled, total: agencies.length };

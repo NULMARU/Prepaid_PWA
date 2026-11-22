@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-11-07",
-  "source": "행정표준코드 기관코드(2026-07) + 보건소 등재(2026-11-07, 과 목록 없음)",
+  "updatedAt": "2026-11-22",
+  "source": "행정표준코드 기관코드(2026-11-20 제공) + 보건소 등재(2026-11-07 규칙, 과 목록 없음)",
   "depts": {
     "chungbuk-city": [
       "국제통상과",
@@ -72,6 +72,7 @@
       "문화관광과",
       "체육진흥과"
     ],
+    "chungbuk-goesan-health": [],
     "chungbuk-danyang": [
       "관광정책과",
       "자치행정과",
@@ -96,6 +97,7 @@
       "통합돌봄과",
       "복지정책과"
     ],
+    "chungbuk-danyang-health": [],
     "chungbuk-boeun": [
       "미래전략과",
       "재난안전과",
@@ -113,6 +115,7 @@
       "지역개발과",
       "스포츠산업과"
     ],
+    "chungbuk-boeun-health": [],
     "chungbuk-yeongdong": [
       "환경과",
       "건설교통과",
@@ -133,6 +136,7 @@
       "산림녹지과",
       "재난안전과"
     ],
+    "chungbuk-yeongdong-health": [],
     "chungbuk-okcheon": [
       "주민복지과",
       "종합민원과",
@@ -150,6 +154,7 @@
       "산림과",
       "도시교통과"
     ],
+    "chungbuk-okcheon-health": [],
     "chungbuk-eumseong": [
       "기획감사과",
       "자치행정과",
@@ -175,6 +180,7 @@
       "도시과",
       "건축과"
     ],
+    "chungbuk-eumseong-health": [],
     "chungbuk-jecheon": [
       "문화예술과",
       "체육진흥과",
@@ -205,6 +211,7 @@
       "도시디자인과",
       "시민안전과"
     ],
+    "chungbuk-jecheon-health": [],
     "chungbuk-jeungpyeong": [
       "재무과",
       "환경위생과",
@@ -223,6 +230,7 @@
       "기획예산과",
       "미래전략과"
     ],
+    "chungbuk-jeungpyeong-health": [],
     "chungbuk-jincheon": [
       "행정지원과",
       "인구정책과",
@@ -245,6 +253,7 @@
       "건설하천과",
       "건축디자인과"
     ],
+    "chungbuk-jincheon-health": [],
     "chungbuk-cheongju": [
       "농업정책과",
       "친환경농산과",
@@ -269,9 +278,6 @@
       "안전정책과",
       "재난대응과",
       "하천방재과",
-      "기업지원과",
-      "미래산업과",
-      "세정과",
       "아동복지과",
       "문화유산과",
       "도시계획과",
@@ -286,8 +292,12 @@
       "공동주택과",
       "공공시설과",
       "경제일자리과",
-      "예산과"
+      "예산과",
+      "기업지원과",
+      "세정과",
+      "통합돌봄과"
     ],
+    "chungbuk-cheongju-health": [],
     "chungbuk-chungju": [
       "농정과",
       "친환경농산과",
@@ -328,16 +338,6 @@
       "대기환경과",
       "자원순환과"
     ],
-    "chungbuk-goesan-health": [],
-    "chungbuk-danyang-health": [],
-    "chungbuk-boeun-health": [],
-    "chungbuk-yeongdong-health": [],
-    "chungbuk-okcheon-health": [],
-    "chungbuk-eumseong-health": [],
-    "chungbuk-jecheon-health": [],
-    "chungbuk-jeungpyeong-health": [],
-    "chungbuk-jincheon-health": [],
-    "chungbuk-cheongju-health": [],
     "chungbuk-chungju-health": []
   }
 }
