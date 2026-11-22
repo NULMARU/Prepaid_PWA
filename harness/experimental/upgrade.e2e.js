@@ -273,8 +273,9 @@ async function drawSignature(page) {
     await page.waitForTimeout(200);
     await page.locator('[data-a="setup-to-contact"]').click();
     // 3/3 연락처 + 약관
-    await page.waitForSelector('#setupContactKakao', { timeout: 8000 });
-    await page.locator('#setupContactKakao').fill('https://open.kakao.com/o/sUpgrade');
+    // beta.60부터 오픈채팅 링크 칸이 숨겨졌다 — 구버전에 그 칸이 있을 때만 채운다(접수 이메일 칸은 어느 버전에나 있다).
+    await page.waitForSelector('#setupContactEmail', { timeout: 8000 });
+    if (await page.locator('#setupContactKakao').count()) await page.locator('#setupContactKakao').fill('https://open.kakao.com/o/sUpgrade');
     await page.locator('#setupContactEmail').fill('shop@example.com');
     await page.locator('#setupTermsChk').check();
     await page.locator('[data-a="setup-complete"]').click();
@@ -459,12 +460,15 @@ async function drawSignature(page) {
 
     // ── 가게 연락처(카톡 링크) 저장 — 서버 소유증명 경유(목 200) ──────────────────
     await openSettingsCard(page, 'contact');
-    await page.locator('#contactKakao').fill('https://open.kakao.com/o/sUpgradeSaved');
+    // beta.60부터는 오픈채팅 칸이 없다 — 그 버전에서는 접수 이메일로 같은 경로(소유 증명 → 200)를 본다.
+    const hasKakaoField = (await page.locator('#contactKakao').count()) > 0;
+    if (hasKakaoField) await page.locator('#contactKakao').fill('https://open.kakao.com/o/sUpgradeSaved');
+    else await page.locator('#contactEmail').fill('saved@example.com');
     await page.locator('[data-a="contact-save"]').click();
     await page.waitForTimeout(1200);
     const lastContact = contactBodies[contactBodies.length - 1];
     check('S4', '연락처 저장이 서버 소유증명(challenge)을 타고 200으로 완료', !!lastContact
-      && issuedNonces.has(lastContact.auth_token) && lastContact.kakao_link === 'https://open.kakao.com/o/sUpgradeSaved',
+      && issuedNonces.has(lastContact.auth_token) && (hasKakaoField ? lastContact.kakao_link === 'https://open.kakao.com/o/sUpgradeSaved' : lastContact.email === 'saved@example.com'),
       `contact 호출 ${contactBodies.length}회 (${contactBodies.map(b => b.kakao_link).join(' , ')}), 마지막 auth_token이 발급 nonce와 일치=${!!lastContact && issuedNonces.has(lastContact.auth_token)}`);
 
     // ── 로컬 백업(장부 안전 저장) 1회 ───────────────────────────────────────────

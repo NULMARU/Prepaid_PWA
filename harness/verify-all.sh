@@ -58,8 +58,9 @@ test -n "$V" && test "$V" = "$LOCALV"; ok $? "음식점 앱 (라이브 ${V:-?} =
 test "$(curl -s -o /dev/null -w '%{http_code}' "$PAGES/")" = "200"; ok $? "담당자 웹 (200)"
 # 중계 서버 접속 확인 — 앞선 라이브 하니스가 짧은 시간에 요청을 몰아 분당 레이트리밋(60)에
 # 걸릴 수 있다. 서버가 살아 있는지 보는 검사이므로 한 번 실패하면 잠깐 쉬고 재시도한다.
-RC=$(curl -s -o /dev/null -w '%{http_code}' "$RELAY/api/restaurants?q=x")
-if [ "$RC" != "200" ]; then sleep 45; RC=$(curl -s -o /dev/null -w '%{http_code}' "$RELAY/api/restaurants?q=x"); fi
+# (2026-11-22) 공공데이터에 기대지 않는 경로로 본다 — /api/restaurants는 공공데이터가 무응답인 날 503이라 우리 서버가 멀쩡해도 실패로 읽혔다.
+RC=$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$RELAY/api/registered?ids=x")
+if [ "$RC" != "200" ]; then sleep 45; RC=$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$RELAY/api/registered?ids=x"); fi
 test "$RC" = "200"; ok $? "중계 서버 (200)"
 
 echo; echo "=================================================="
