@@ -74,6 +74,7 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - **D1 마이그레이션**: `wrangler d1 execute --remote --file`은 OAuth 토큰과 import API 비호환(오류 2036) → **`--command`로 문 단위 실행**할 것. 마이그레이션 파일은 월별 append-only(`server/migrations-2026-07.sql`·`-08.sql`·`-09.sql`·`-10.sql`·`-11.sql`) — 새 릴리스는 새 파일을 만든다.
 - **beta.60 서버는 `migrations-2026-11b.sql` 7문이 먼저 적용돼 있어야 한다** — 문 1(`ALTER TABLE auth_challenge ADD COLUMN pk TEXT`)이 빠지면 챌린지 발급이 500이라 승인·수신함·백업·해제가 전부 막힌다. 배포 직전 `SELECT pk FROM auth_challenge LIMIT 0`으로 확인. 문 1 재실행의 duplicate column은 정상. cron은 매시 17분 한 개(UTC 18시 회차만 전체 정리, 나머지는 72시간 만료만). 모든 기기가 beta.60 이상이 되면 `REACTIVATE_COMPAT="0"`(구버전 앱의 토큰 없는 같은 키 재등록 허용을 끔).
 - **beta.55 서버는 `migrations-2026-11.sql` 3문(`ledger_backup_seg` 테이블, `public_key_registry.taken_over_at`·`ledger_backup.gen` 컬럼)이 먼저 적용돼 있어야 한다** — 컬럼이 없으면 등록·챌린지·백업이 500. 순서: 마이그레이션 → `wrangler deploy` → 앱.
+- **가게 색인은 리포에 없다**(`/storeidx/`는 gitignore) — `pages.yml`이 아티팩트에만 싣는다. push 런은 라이브 색인을 그대로 가져오고(라이브에 없을 때만 새로 만듦), 예약(주 1회)·수동 실행(`gh workflow run pages.yml`)은 새로 만든다. 수동 실행의 `storeidx_only=true`는 배포 없이 색인만 만들어 본다. 받는 주소는 브라우저 UA + Referer가 없으면 403. 색인 형식(v1)을 바꾸면 앱·담당자 웹·개인용 앱 셋이 함께 깨진다(`docs/storeidx-pipeline.md`, 계약 C17).
 - **GitHub Pages 배포 실패 시**: 실패한 런을 rerun하면 중복 아티팩트 오류 → **rerun 금지, `gh workflow run pages.yml --ref main`으로 새 런**. 배포 성공 판정은 상태가 아니라 **라이브 콘텐츠 문자열**로 확인(verify-all의 앱 체크는 버전 문자열만 봐서 구버전에서도 통과함).
 - **secret 등록**: `npx wrangler secret put <이름>` 실행 후 **프롬프트에** 값 입력(명령줄에 값 쓰면 이름으로 등록+노출됨). 현재 secrets: `PUBLIC_API_KEY`, `RESEND_API_KEY`, `ADMIN_TOKEN`. 선택: `EMAIL_PEPPER`(기관 이메일 해시 HMAC 키 — 미등록이면 예전 해시 방식으로 동작하며, 라이브 등록 여부는 확인 필요).
 - **CORS**: `server/wrangler.toml`의 `ALLOW_ORIGIN` 콤마 목록. 새 프론트 도메인 추가 시 여기 먼저 넣고 deploy.
@@ -163,10 +164,14 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 
 ## 현재 상태 (2026-11-22)
 
-- **beta.61(2026-11-22, 베타로 배포 — 정식 버전은 현장 점검 뒤 결정)** — 가게 찾기 정적 색인 + [이력]>[월별] 탭 + 부서를 옮긴 분 + 담당자 인증 90일 +
+- **라이브 = beta.61(2026-11-22 밤 배포, 태그 `live-beta61` = 커밋 0b79f26, 서버 Version 4d3abd7d, 개인용 앱 ba34ad7 — 베타. 정식 버전은 현장 점검 뒤 결정)** — 가게 찾기 정적 색인 + [이력]>[월별] 탭 + 부서를 옮긴 분 + 담당자 인증 90일 +
   밥장부 개인용 앱(옛 직원용). 앱·서버·담당자 웹·개인용 앱·홈페이지·안내서. D1 마이그레이션 없음. 배포 순서: 서버 → 앱·docs push(색인은 Pages 런이 만든다) →
   담당자 웹 → 홈페이지 → 개인용 앱 → 태그 `live-beta61`. 아래 완료 기록 참조.
   **현장·실기기 점검표와 1.0 판단 기준은 `docs/handover/13-beta61-field-checklist.md`**, 남은 문제는 `09-open-items.md`(사용자: "beta61 테스트 결과를 보면서 같이 결정").
+  배포 확인: 서버(라이브 스모크 17/17) → 앱·문서(라이브 11파일 = 리포 바이트 일치) → 담당자 웹·개인용 앱(라이브 = 리포) → 홈페이지("(베타)" 0건).
+  라이브 색인 `storeidx/meta.json` 2026-11-22 기준 673,448곳·CORS `*`·gzip, 두 가게 포함. 라이브 앱에서 폰 프로파일로 "육회 + 광진구 구의동" 0.8초·서버 검색 호출 0.
+  두 가게의 등록·서버 백업 행(확인값·세대·크기·시각)은 배포 전 기록과 같다. Pages 런의 `Deploy to GitHub Pages` 단계가 두 번 연속 GitHub 쪽 일시 오류
+  ("Deployment failed, try again later" / "No artifacts named github-pages")로 실패 → rerun하지 않고 `gh workflow run pages.yml --ref main` 새 런 세 번째에 성공.
   결정 대기: 서명 그림 서버 보관(09 D10), 약관 제7조 출처 표기(A5). 상표 출원은 하지 않기로 함(설명적 이름·무료 서비스 — 제휴·유료 요소가 생기면 재검토).
 - **그 전 라이브 = beta.60(2026-11-22 배포, 태그 `live-beta60`)** — 외부 리뷰(ChatGPT 아스트라) 반영 + 비밀번호 분실 복구 재설계 + 홈 화면 설치 안내 +
   오프라인 백업 안내 + 이름 통일(대표 이름 "밥장부") + 가게 찾기 정리 + 오픈채팅 숨김 + 약관·방침 보완. 앱·서버·담당자 웹·직원 앱·홈페이지·안내서.
