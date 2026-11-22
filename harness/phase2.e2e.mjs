@@ -739,6 +739,124 @@ async function beta55Suite(label, store, tw) {
 // beta.55 묶음과 같이 ① 메모리 store ② 실제 D1 store + node:sqlite 어댑터에 같은 시나리오를 돌린다(새 store 인스턴스).
 // 새 단언은 전부 수정 전 코드(git HEAD의 worker.js·schema.sql·wrangler.toml)에서 실패하는지 확인했다.
 // ══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+// beta.61 — 담당자 인증 90일 고정(AGENCY_TOKEN_TTL_MS) + POST /api/agency/logout(멱등)
+// 메모리 store와 실제 D1 store(node:sqlite 어댑터)에 같은 시나리오를 돌린다(새 store 인스턴스).
+// 시간 이동은 Date.now만 잠시 바꿔 흉내 낸다(레이트리밋은 CF-Connecting-IP가 없으면 대상 밖이라 영향 없음).
+// 새 단언은 수정 전 코드(git HEAD의 worker.js)에서 실패하는지 확인했다.
+// ══════════════════════════════════════════════════════════════════════════
+async function beta61Suite(label, store) {
+  const T = (m) => '[beta.61 ' + label + '] ' + m;
+  const DAY = 24 * 60 * 60 * 1000;
+  const TTL = 90 * DAY;
+  const env = {
+    ALLOW_ORIGIN: '*', AUTH_MODE: 'dev', REQUIRE_AGENCY_AUTH: '1',
+    searchRestaurants: async (_env, region, q) => {
+      const kw = String(q || '').trim();
+      return [...publicCatalog].map(([restaurant_id, name]) => ({ restaurant_id, name, address: '서울 광진구', status: '영업/정상' }))
+        .filter(x => !kw || x.name.includes(kw));
+    }
+  };
+  const P = label === '메모리' ? 'B61M-' : 'B61D-';
+  const E = label === '메모리' ? 'm' : 'd';
+  const jsonOf = async (resp) => { try { return await resp.json(); } catch (_) { return {}; } };
+  const realNow = Date.now;
+  const at = async (offsetMs, fn) => { Date.now = () => realNow() + offsetMs; try { return await fn(); } finally { Date.now = realNow; } };
+  const login = async (email) => {
+    const r1 = await call(store, env, 'POST', '/api/agency/request-otp', { email });
+    const r2 = await call(store, env, 'POST', '/api/agency/verify-otp', { email, otp: (await jsonOf(r1)).dev_otp });
+    return (await jsonOf(r2)).token || '';
+  };
+  const H = (t) => ({ 'X-Agency-Token': t });
+  const KCQ = '/api/agency/keychecks?institution=' + encodeURIComponent('서울특별시 광진구') + '&department=' + encodeURIComponent('세무과');
+  const kcs = (t) => callH(store, env, 'GET', KCQ, undefined, H(t));
+  const logout = (headers) => handle(new Request('http://x/api/agency/logout', { method: 'POST', headers: headers || {} }), env, store);
+  const rowOf = async (t) => store.getAgencyToken(await sha256hex(t));
+  const section = async (name, fn) => { try { await fn(); } catch (e) { ok(false, T(name + ' 구역이 예외로 중단됨: ' + ((e && e.message) || e))); } };
+  // 제출(REQUIRE_AGENCY_AUTH=1)도 같은 토큰 수명을 따르는지 — 토큰을 쓰는 세 길(제출·keycheck·keychecks) 중 둘을 본다.
+  const RS = P + 'SUB';
+  const kp = await genKeyPair();
+  const spki = b64(await subtle.exportKey('spki', kp.publicKey));
+  await call(store, env, 'POST', '/api/register-key', { restaurant_id: RS, restaurant_name: '시험식당' + RS, public_key: spki });
+  let sidN = 0;
+  const submit = (t) => callH(store, env, 'POST', '/api/submit', {
+    summary: { institution: '서울특별시 광진구', department: '세무과', restaurant_id: RS, restaurant_name: '시험식당' + RS, year_month: '2026-11', total_amount: 10000, member_count: 1, batch_hash: 'h61-' + label + '-' + (++sidN), submission_id: 'b61-submit-' + E + '-' + sidN },
+    blob: { restaurant_id: RS, ciphertext: { encKey: 'QQ==', iv: 'QQ==', ct: 'QQ==' } }
+  }, H(t));
+
+  await section('수명', async () => {
+    const before = realNow();
+    const tA = await login('b61-a-' + E + '@gwangjin.go.kr');
+    const after = realNow();
+    ok(!!tA, T('수명: 인증번호 확인으로 토큰 발급'));
+    const row0 = await rowOf(tA);
+    ok(!!row0 && row0.expires_at >= before + TTL && row0.expires_at <= after + TTL, T('수명: 토큰 만료 = 인증한 때 + 90일'));
+    let r = await at(89 * DAY, () => kcs(tA));
+    ok(r.status === 200, T('수명: 89일 뒤에도 keychecks 200'));
+    r = await at(89 * DAY, () => submit(tA));
+    ok(r.status === 200 && !!(await jsonOf(r)).summary_id, T('수명: 89일 뒤에도 제출 200(REQUIRE_AGENCY_AUTH=1)'));
+    const row1 = await rowOf(tA);
+    ok(!!row1 && row1.expires_at === row0.expires_at, T('수명: 쓰는 동안 만료가 늘지 않음(인증한 때부터 고정)'));
+    r = await at(TTL + 60 * 1000, () => kcs(tA));
+    ok(r.status === 401 && (await jsonOf(r)).error === 'agency_auth_required', T('수명: 90일이 지나면 keychecks 401 agency_auth_required'));
+    r = await at(TTL + 60 * 1000, () => submit(tA));
+    ok(r.status === 401 && (await jsonOf(r)).error === 'agency_auth_required', T('수명: 90일이 지나면 제출 401'));
+    r = await at(TTL + 60 * 1000, () => callH(store, env, 'POST', '/api/agency/keycheck', { institution: '서울특별시 광진구', department: '세무과', restaurant_id: RS, fingerprint: 'AAAA-BBBB' }, H(tA)));
+    ok(r.status === 401, T('수명: 90일이 지나면 keycheck(기록) 401'));
+    // 일일 정리(cron)는 만료된 토큰만 지운다 — 89일째 정리에서는 남고, 90일 넘어 정리하면 사라진다.
+    let cr = await store.cleanupTTL(realNow() + 89 * DAY);
+    ok(!!(await rowOf(tA)) && !!cr && (!Array.isArray(cr.errors) || cr.errors.length === 0), T('cron: 89일째 일일 정리는 살아 있는 90일 토큰을 지우지 않음'));
+    cr = await store.cleanupTTL(realNow() + TTL + 60 * 1000);
+    ok(!(await rowOf(tA)), T('cron: 90일이 지난 뒤의 일일 정리는 그 토큰을 지움'));
+  });
+
+  await section('로그아웃', async () => {
+    const emB = 'b61-b-' + E + '@gwangjin.go.kr';
+    const tB = await login(emB);
+    const tB2 = await at(2 * 60 * 1000, () => login(emB)); // 같은 이메일, 다른 PC(재요청 60초 간격 뒤)
+    const tC = await login('b61-c-' + E + '@korea.kr');    // 다른 담당자
+    ok(!!tB && !!tB2 && !!tC && tB !== tB2, T('로그아웃: 토큰 셋 발급(같은 이메일 둘·다른 담당자 하나)'));
+    let r = await logout(H(tB));
+    const jb = await jsonOf(r);
+    ok(r.status === 200 && jb.ok === true && Object.keys(jb).join(',') === 'ok', T('로그아웃: 200 {ok:true}'));
+    ok(!(await rowOf(tB)), T('로그아웃: 그 토큰 행이 지워짐'));
+    r = await kcs(tB);
+    ok(r.status === 401, T('로그아웃: 그 토큰으로는 keychecks 401'));
+    r = await submit(tB);
+    ok(r.status === 401, T('로그아웃: 그 토큰으로는 제출 401'));
+    r = await kcs(tB2);
+    ok(r.status === 200 && !!(await rowOf(tB2)), T('로그아웃: 같은 이메일로 다른 PC에서 받은 토큰은 그대로(200)'));
+    r = await kcs(tC);
+    ok(r.status === 200 && !!(await rowOf(tC)), T('로그아웃: 다른 담당자의 토큰은 그대로(200)'));
+    r = await logout(H(tB));
+    ok(r.status === 200 && (await jsonOf(r)).ok === true, T('로그아웃 멱등: 이미 로그아웃한 토큰도 200 {ok:true}'));
+    r = await logout();
+    ok(r.status === 200 && (await jsonOf(r)).ok === true, T('로그아웃 멱등: 머리(X-Agency-Token)가 없어도 200 {ok:true}'));
+    r = await logout(H('unknown-token-' + 'x'.repeat(30)));
+    ok(r.status === 200 && (await jsonOf(r)).ok === true && !!(await rowOf(tC)), T('로그아웃 멱등: 모르는 토큰도 200, 남의 토큰 무변경'));
+    r = await logout(H('y'.repeat(5000)));
+    ok(r.status === 200 && (await jsonOf(r)).ok === true, T('로그아웃 멱등: 지나치게 긴 토큰도 200(저장소를 건드리지 않음)'));
+    // 만료됐지만 아직 정리 전인 토큰: 로그아웃하면 200이고 행도 지워진다.
+    const tE = await login('b61-e-' + E + '@seoul.go.kr');
+    r = await at(TTL + 60 * 1000, () => logout(H(tE)));
+    ok(r.status === 200 && (await jsonOf(r)).ok === true && !(await rowOf(tE)), T('로그아웃 멱등: 만료된 토큰도 200, 남은 행은 지움'));
+    // 머리 모양: 보안 머리·CORS가 새 길에도 붙고, 미리 묻기(OPTIONS)가 통과한다.
+    r = await logout(H(tC + 'z'));
+    ok(r.headers.get('X-Content-Type-Options') === 'nosniff' && /no-store/.test(r.headers.get('Cache-Control') || '') && r.headers.get('Access-Control-Allow-Origin') === '*',
+      T('로그아웃: 응답에 보안 머리(nosniff·no-store)와 CORS 머리'));
+    r = await handle(new Request('http://x/api/agency/logout', { method: 'OPTIONS', headers: { Origin: 'https://agency.bapjangbu.com', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'X-Agency-Token' } }), env, store);
+    ok(r.status === 204 && /\bPOST\b/.test(r.headers.get('Access-Control-Allow-Methods') || '') && /X-Agency-Token/i.test(r.headers.get('Access-Control-Allow-Headers') || ''),
+      T('로그아웃: 미리 묻기(OPTIONS) 204 — POST·X-Agency-Token 허용'));
+    r = await handle(new Request('http://x/api/agency/logout', { method: 'GET', headers: H(tC) }), env, store);
+    ok(r.status !== 200 && !!(await rowOf(tC)), T('로그아웃: GET으로는 지우지 않음'));
+    // 레이트리밋: 새 길도 전역 한도(IP당 분당 60회) 안에 있다.
+    const ip = label === '메모리' ? '203.0.113.61' : '203.0.113.62';
+    let last = null;
+    for (let i = 0; i < 61; i++) last = await logout({ 'CF-Connecting-IP': ip });
+    ok(last && last.status === 429 && (await jsonOf(last)).error === 'rate_limited', T('로그아웃: 같은 IP 분당 60회를 넘으면 429 rate_limited'));
+  });
+}
+
 async function beta60Suite(label, store, tw, D1) {
   const T = (m) => '[beta.60 ' + label + '] ' + m;
   const ADMH = { 'X-Admin-Token': 'b60-admin-token' };
@@ -3314,6 +3432,14 @@ async function beta60Suite(label, store, tw, D1) {
   await runSuite60('메모리', memStore60, memoryTweak(memStore60), null);
   const sq60 = await makeSqliteD1();
   if (sq60) await runSuite60('D1', makeD1Store(sq60.D1), d1Tweak(sq60.db, sq60.hooks), sq60.D1);
+  // beta.61 묶음(담당자 인증 90일·로그아웃): 새 store 인스턴스로 메모리·D1 양쪽.
+  const runSuite61 = async (label, st) => {
+    try { await beta61Suite(label, st); }
+    catch (e) { ok(false, '[beta.61 ' + label + '] 묶음이 예외로 중단됨: ' + (e && e.message)); }
+  };
+  await runSuite61('메모리', makeMemoryStore());
+  const sq61 = await makeSqliteD1();
+  if (sq61) await runSuite61('D1', makeD1Store(sq61.D1));
 
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);

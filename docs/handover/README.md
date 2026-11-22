@@ -15,6 +15,7 @@
   | 사용자 관점 사용법 | `docs/manual-restaurant.html` · `docs/manual-agency.html` · `docs/manual-staff.html` |
   | 개인정보처리방침·이용약관 확정본 | `docs/privacy.html` · `docs/terms.html` |
   | 기관 데이터 재생성 절차 | `docs/agency-data-pipeline.md` |
+  | 가게 색인(`storeidx/`) 생성·배포 | `docs/storeidx-pipeline.md` |
 - **코드를 읽고 확인한 것만 쓴다.** 확인 못 한 것은 `미확인`으로 표기했다.
 - **라인 번호를 쓰지 않는다.** 특정은 `파일:함수명` 단위로 한다.
 
@@ -37,7 +38,7 @@ bash harness/verify-all.sh     # 12/12 기대 (약 2~4분)
 ### 10~20분 — 구조와 절대 조건
 3. [02-architecture.md](02-architecture.md) — 구성요소 5개와 **데이터 흐름도**. §2.1 다이어그램 하나가 서비스의 전부다.
 4. [05-invariants.md](05-invariants.md) — 절대 불변식 6개. **읽지 않고 코드를 고치면 안 되는 유일한 문서.**
-5. [04-contracts.md](04-contracts.md) — 깨면 조용히 망가지는 계약 14개. 특히 **C1(`batch_hash`)·C2(`district`)** 는 실제 라이브 장애 이력이 있고, **C9~C14**(2026-09)는 "같은 돈이 두 번 들어가는 길"을 막는 것들이다.
+5. [04-contracts.md](04-contracts.md) — 깨면 조용히 망가지는 계약 17개(C16·C17은 beta.61). 특히 **C1(`batch_hash`)·C2(`district`)** 는 실제 라이브 장애 이력이 있고, **C9~C14**(2026-09)는 "같은 돈이 두 번 들어가는 길"을 막는 것들이다.
 
 ### 20~30분 — 손대기 전 마지막
 6. 고칠 곳이 **음식점 앱**이면 → [08-frontend-conventions.md](08-frontend-conventions.md) (전면 재렌더 구조·렌더 규칙 2대 원칙·캔버스 3중 보호). **이 문서 없이 `index.html`을 고치면 높은 확률로 사고가 난다.**
@@ -112,3 +113,4 @@ cd server && npx wrangler deploy                  # 중계 서버
 
 - [`11-security-review-2026-08.md`](11-security-review-2026-08.md) — **보안 점검 보고서(2026-08-06)**. OWASP Top 10·STRIDE·NIST 기준 4개 독립 조사 종합. 초보자용 서술 + 우선순위. 🔴 6건은 필드테스트 전 조치 권장.
 - [`12-external-review-2026-09.md`](12-external-review-2026-09.md) — **외부 검토 반영 기록(2026-09-12~13, beta.48)**. 외부 코드 리뷰 2건을 소스로 재검토한 판정표(동의/반박/격상), 사용자 결정 3건과 감수한 것, 구현·검증·배포 기록, 배운 것 5가지. 같은 지적이 다시 나오면 여기부터.
+- [`13-beta61-field-checklist.md`](13-beta61-field-checklist.md) — **beta.61 현장·실기기 점검표와 정식 버전(1.0) 판단 기준**. 배포 뒤 무엇을 확인해야 1.0이라 부를 수 있는지.

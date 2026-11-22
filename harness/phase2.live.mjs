@@ -114,5 +114,10 @@ ok(arcR.status === 404 && arcJ && arcJ.error === 'not_found', 'beta.60 S-5: /api
 const { r: fbR, j: fbJ } = await post('/api/feedback', { role: '기타', message: '라이브 스모크 owner@example.org' });
 ok(fbR.status === 400 && fbJ && fbJ.error === 'no_personal_info', 'beta.60 S-D2: 이메일이 든 의견 400 no_personal_info');
 
+// 10) beta.61: 담당자 로그아웃 길이 배포됐는가 — 모르는 토큰도 200 {ok:true}(멱등). 저장된 토큰과 맞지 않는 값이라
+//     라이브 데이터는 아무것도 지워지지 않는다(구서버는 경로가 없어 404).
+const { r: loR, j: loJ } = await jf('/api/agency/logout', { method: 'POST', headers: { 'X-Agency-Token': 'live-smoke-not-a-real-token' } });
+ok(loR.status === 200 && loJ && loJ.ok === true, 'beta.61: /api/agency/logout 경로 존재(모르는 토큰도 200 {ok:true})');
+
 console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
 process.exit(fail ? 1 : 0);

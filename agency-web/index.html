@@ -71,7 +71,10 @@ tr.sub td{background:#eef2f7;font-weight:700}
 .contact-note{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5}
 .topbar{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}
 .topbar h1{flex:1 1 240px}
-#logoutBtn{flex:0 0 auto;min-height:34px;font-size:13px;padding:0 12px;margin-top:10px}
+/* 인증 상태 줄(beta.61): "○○@기관 으로 인증됨 · [로그아웃]"을 화면 위에 늘 보인다(90일 기억 — 누가 인증해 둔 컴퓨터인지 보이게). */
+#authBar{flex:0 0 auto;display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:10px;font-size:13px;color:#1f2937;min-width:0;max-width:100%}
+#authWho{font-weight:700;overflow-wrap:anywhere;min-width:0}
+#logoutBtn{flex:0 0 auto;min-height:34px;font-size:13px;padding:0 12px}
 .banner-danger{background:#fdecea;border:2px solid var(--danger);color:#8e2418;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px;line-height:1.6}
 .banner-danger b{color:#c0392b}
 /* 열쇠 지문 확인 카드 */
@@ -94,7 +97,8 @@ td{overflow-wrap:anywhere}
 <div id="srvWarn" class="hide" role="alert"></div>
 <div class="topbar">
 <h1>밥장부 — 공공기관 담당자(서무) 업로드</h1>
-<button type="button" id="logoutBtn" class="hide" title="이 브라우저에 남은 인증을 폐기하고 1단계로 돌아갑니다">인증 해제</button>
+<div id="authBar" class="hide" role="status"><span id="authWho"></span><span id="authWhoTail">으로 인증됨 ·</span><button type="button" id="logoutBtn" title="이 컴퓨터에 남은 인증을 지우고 1단계로 돌아갑니다">로그아웃</button></div>
+<div id="logoutWait" class="warn hide" role="status" style="flex:1 0 100%;font-size:13px">전송이 끝난 뒤에 로그아웃해 주세요.</div>
 </div>
 <div class="meta"><b>이 웹은 음식점의 밥장부(선입금대장) 앱으로 암호화된 직원 명단만 전달합니다.</b> 이 웹에는 결제·정산 기능이 없고, 결제는 기관과 음식점이 <b>직접(제로페이, 카드 등)</b> 해야 합니다.</div>
 <ol class="stepper" id="stepper">
@@ -129,6 +133,7 @@ td{overflow-wrap:anywhere}
 </div>
 </div>
 <div class="meta" id="authMsg">공공기관 이메일(<b>go.kr · korea.kr</b>)이 주 대상이며, 복지관·공단 등 공공성 기관(<b>or.kr</b>)과 학교(<b>ac.kr</b>) 이메일도 사용할 수 있습니다.</div>
+<div class="meta" id="authKeepNote" style="margin-top:6px">한 번 인증하면 이 컴퓨터에서 90일 동안 다시 묻지 않아요. 자리를 옮기거나 함께 쓰는 컴퓨터라면 [로그아웃]을 눌러 주세요.</div>
 <div class="meta" style="margin-top:6px">※ 무료로 운영되는 서비스라 <b>이용이 몰리는 날에는 인증번호 이메일 발송이 하루 한도에 걸릴 수 있습니다.</b> 그때는 잠시 후 다시 시도하시고, 계속 안 되면 다음 날 다시 시도해 주십시오.</div>
 </div>
 
@@ -457,22 +462,61 @@ function submitErrMsg(code,status){
   if(st===400||k)return '보낸 명단 형식을 서버가 받지 않았어요. 화면을 새로 고친 뒤 다시 보내 주세요. 계속되면 contact@bapjangbu.com으로 알려 주세요.';
   return '보내지 못했어요('+(st||'연결 오류')+'). 잠시 후 다시 시도해 주세요.';
 }
-// ── 인증 토큰 보존(sessionStorage) ──
-// 새로고침·탭 복귀마다 OTP 메일을 다시 보내는 것은 담당자 대기시간 낭비이자 발송 한도(무료 100통/일)
-// 낭비다. 서버 토큰 수명은 24시간이므로 23시간을 넘긴 값은 스스로 폐기한다. sessionStorage라
-// 브라우저(탭)를 닫으면 사라진다 — 공용 PC에 토큰이 남지 않는다.
-const TOKEN_KEY='agency-token',TOKEN_MAX_AGE=23*60*60*1000;
-function saveToken(token,email){try{sessionStorage.setItem(TOKEN_KEY,JSON.stringify({token,email,at:Date.now()}))}catch(e){}}
-function clearToken(){try{sessionStorage.removeItem(TOKEN_KEY)}catch(e){}}
+// ── 인증 토큰 보존(beta.61: localStorage 90일) ──
+// 인증 메일(하루 80통 한도)을 줄이려고, 한 번 인증하면 이 컴퓨터에서 90일 동안 다시 묻지 않는다(사용자 결정 2026-11-22 —
+// 공공기관 서무 자리는 개인 PC이고 자주 바뀌지 않는다). 서버 토큰 수명은 인증한 때부터 고정 90일이라, 기기에 둔 값은
+// 하루 앞선 89일이 지나면 스스로 버린다(서버보다 먼저 — 만료된 값을 들고 보내다 막히지 않게).
+// · 저장소가 막힌 PC(기관 보안 정책)에서는 예전처럼 이 창(탭) 동안만 기억한다 — 조용히 폴백하고, 안내 문구만 바꾼다.
+// · 예전(beta.60까지)에는 sessionStorage에 두었다. 배포 순간 쓰고 있던 담당자가 다시 인증하지 않게 그 값도 읽어
+//   이어 쓰고, localStorage로 옮겨 둔다(그 토큰이 예전 24시간짜리면 서버가 401을 주고 그때 다시 인증한다).
+// · 여기에는 토큰·이메일·인증 시각만 둔다. 직원명·금액 등 명단 내용은 localStorage에 두지 않는다.
+// · 공용 컴퓨터는 [로그아웃](화면 위 상태 줄)으로 지운다 — 서버의 토큰도 함께 지운다(doLogout).
+const TOKEN_KEY='agency-token',TOKEN_MAX_AGE=89*24*60*60*1000;
+let tokenWhere='';   // 'local' | 'session' | ''(어디에도 못 둠 — 이 화면 메모리에만)
+function parseTokenRec(s){
+  let o=null;try{o=JSON.parse(s||'null')}catch(e){o=null}
+  if(!o||typeof o!=='object'||typeof o.token!=='string'||!o.token||!(Number(o.at)>0))return null;
+  const age=Date.now()-Number(o.at);
+  // 89일이 지났거나, 시각이 하루 넘게 미래(시계가 틀렸던 기록)면 믿지 않는다.
+  if(age>TOKEN_MAX_AGE||age<-24*60*60*1000)return 'old';
+  return {token:o.token,email:typeof o.email==='string'?o.email:'',at:Number(o.at)};
+}
+function saveToken(token,email,at){
+  const rec=JSON.stringify({token,email,at:at||Date.now()});
+  if(lsSet(TOKEN_KEY,rec)){ssDel(TOKEN_KEY);tokenWhere='local';return}
+  tokenWhere=ssSet(TOKEN_KEY,rec)?'session':'';
+}
+function clearToken(){lsDel(TOKEN_KEY);ssDel(TOKEN_KEY);tokenWhere=''}
+function readSavedToken(){
+  let o=parseTokenRec(lsGet(TOKEN_KEY));
+  if(o==='old'){lsDel(TOKEN_KEY);o=null}
+  if(o){tokenWhere='local';return o}
+  o=parseTokenRec(ssGet(TOKEN_KEY));   // 예전 판(sessionStorage) 값 · 저장소가 막혀 세션에만 둔 값
+  if(o==='old'){ssDel(TOKEN_KEY);o=null}
+  if(o)saveToken(o.token,o.email,o.at); // 옮길 수 있으면 localStorage로(인증 시각은 그대로)
+  return o;
+}
+function authKeepText(){
+  if(tokenWhere==='local')return '(이 컴퓨터에서 90일 동안 다시 인증하지 않아도 돼요)';
+  if(tokenWhere==='session')return '(이 창을 닫기 전까지 다시 인증하지 않아도 돼요)';
+  return '(이 컴퓨터는 인증을 기억할 수 없어, 새로 고치면 다시 인증해야 해요)';
+}
+// 화면 위 상태 줄 — 인증된 동안 늘 보인다.
+function renderAuthBar(){
+  const bar=$('authBar');if(!bar)return;
+  if(!S.authed){bar.classList.add('hide');return}
+  $('authWho').textContent=S.email||'';
+  $('authWhoTail').textContent=S.otpMode==='server'?'으로 인증됨 ·':'(이메일 형식만 확인) ·';
+  bar.classList.remove('hide');
+}
 function restoreToken(){
-  let o=null;try{o=JSON.parse(sessionStorage.getItem(TOKEN_KEY)||'null')}catch(e){o=null}
-  if(!o||!o.token||!o.at){return false}
-  if(Date.now()-o.at>TOKEN_MAX_AGE){clearToken();return false}
+  const o=readSavedToken();
+  if(!o)return false;
   S.token=o.token;S.email=o.email||'';S.authed=true;S.otpMode='server';
   if($('email')&&S.email)$('email').value=S.email; // 만료 시 재인증을 바로 누를 수 있게
   $('authStep1').classList.add('hide');
   $('authStep2').classList.add('hide');
-  $('authMsg').innerHTML='<span class="good">✅ 인증됨 · '+esc(S.email)+'</span> <span class="meta">(이 창을 닫기 전까지 다시 인증하지 않아도 돼요)</span>';
+  $('authMsg').innerHTML='<span class="good">✅ 인증됨 · '+esc(S.email)+'</span> <span class="meta">'+authKeepText()+'</span>';
   unlockAfterAuth();
   return true;
 }
@@ -485,10 +529,8 @@ function expireToken(){
   const wasAuthed=S.authed;
   S.token=null;S.authed=false;S.otpMode=null;clearToken();
   kcLoadSeq++; // 진행 중인 확인 기록 조회 결과는 버린다
-  // 무조작 폐기 타이머는 **멈추지 않는다**(W-7). 인증이 끝나도 화면 메모리에는 올린 명단이 남아 있으므로, 30분 동안 아무도
-  //   만지지 않으면 인증 해제와 똑같이 지운다(resetIdle이 '남은 명단'만으로도 타이머를 다시 건다).
-  resetIdle();
-  $('logoutBtn').classList.add('hide');
+  // (beta.61) 30분 무조작 자동 해제는 없앴다 — 90일 인증과 함께, 공용 컴퓨터는 [로그아웃]으로 지운다.
+  renderAuthBar();
   // 인증 없이 2단계 이후 화면·명단 표를 볼 수 없게 카드를 감춘다(W-7). 다시 인증하면 unlockAfterAuth·revalidate가 되살린다.
   ['searchCard','csvCard','keycheckCard','confirmCard','submitCard'].forEach(id=>{const el=$(id);if(el)el.classList.add('hide')});
   $('authStep1').classList.remove('hide');
@@ -504,34 +546,33 @@ function expireToken(){
 }
 function unlockAfterAuth(){
   $('searchCard').classList.remove('hide');$('csvCard').classList.remove('hide');
-  $('logoutBtn').classList.remove('hide');
-  resetIdle();          // 무조작 30분 자동 인증 폐기 타이머 시작
-  loadKeychecks();      // 이 기관+부서가 이미 확인해 둔 가게 목록
+  renderAuthBar();      // "○○@기관 으로 인증됨 · [로그아웃]"
+  loadKeychecks();     // 이 기관+부서가 이미 확인해 둔 가게 목록
   revalidate();
   // 인증 만료로 멈췄던 전송이 있으면 결과표를 '다시 보내기' 버튼이 있는 모습으로 다시 그린다(D-1).
   if(relayResults.size&&S.relaySig===sendSig()&&S.valid)renderRelayResults(true);
 }
-// ── 인증 해제(로그아웃) ─────────────────────────────────────────────────────
-// 공용 PC·공용 태블릿에서 자리를 뜰 때 토큰과 화면에 남은 명단을 즉시 지운다.
-// 30분 무조작이면 같은 일이 자동으로 일어난다.
-const IDLE_MS=30*60*1000;
-let idleTimer=null;
-// 인증이 없어도 화면 메모리에 명단·선택·보낸 결과가 남아 있으면 타이머를 건다(W-7 — 인증 만료 뒤 방치된 공용 PC).
-function heldData(){return S.rawRows!=null||!!S.pendingCsv||S.restaurants.length>0||relayResults.size>0}
-function resetIdle(){
-  if(idleTimer){clearTimeout(idleTimer);idleTimer=null}
-  if(!S.authed&&!heldData())return;
-  idleTimer=setTimeout(function fire(){
-    if(sending){idleTimer=setTimeout(fire,60*1000);return} // 보내는 중이면 끝난 뒤에 지운다
-    idleTimer=null;
-    if(S.authed||heldData())doLogout(true);
-  },IDLE_MS);
+// ── 로그아웃 ─────────────────────────────────────────────────────────────────
+// 자리를 옮기거나 함께 쓰는 컴퓨터에서 토큰과 화면에 남은 명단을 즉시 지운다. (beta.61) 30분 무조작 자동 해제는 없앴다 —
+// 인증을 90일 기억하므로 '가만히 두면 풀린다'는 약속을 하지 않고, 상태 줄의 [로그아웃]을 늘 보이게 한다.
+// 서버 길(POST /api/agency/logout, 머리 X-Agency-Token)로 서버의 토큰 행도 지운다. 그 응답을 기다리지 않는다 —
+// 요청을 먼저 내보낸 뒤 기기 값을 바로 지운다(서버가 404(예전 서버)·5xx·끊김이어도 기기 값은 반드시 지워지고,
+// 느린 망에서 화면이 멈춰 있지 않게). keepalive라 창을 바로 닫아도 요청은 나간다.
+const LOGOUT_TIMEOUT_MS=8000;
+function serverLogout(token){
+  if(!token||!srv())return;
+  try{
+    const ac=typeof AbortController==='function'?new AbortController():null;
+    const t=ac?setTimeout(()=>{try{ac.abort()}catch(e){}},LOGOUT_TIMEOUT_MS):null;
+    fetch(srv()+'/api/agency/logout',{method:'POST',headers:{'X-Agency-Token':token},keepalive:true,signal:ac?ac.signal:undefined})
+      .catch(()=>{}).then(()=>{if(t)clearTimeout(t)});
+  }catch(e){}
 }
-function doLogout(idle){
-  if(sending&&!idle){alert('전송이 끝난 뒤에 인증을 해제해 주세요.');return}
-  const wasAuthed=S.authed;
+function doLogout(){
+  // 보내는 중에는 로그아웃하지 않는다 — 기본 팝업 대신 상태 줄 아래 한 줄(전송이 끝나면 paintEditLock이 스스로 거둔다).
+  if(sending){$('logoutWait').classList.remove('hide');return}
+  serverLogout(S.token);
   S.token=null;S.authed=false;S.otpMode=null;clearToken();
-  if(idleTimer){clearTimeout(idleTimer);idleTimer=null}
   // 화면·메모리에 남은 명단과 선택을 함께 폐기한다(다음 사람이 볼 수 없게).
   S.restaurants=[];S.rows=null;S.rawRows=null;S.csvFormat=null;S.fileErrors=[];S.fileWarnings=[];
   S.pendingCsv=null;S.lastAppend=null;
@@ -550,18 +591,13 @@ function doLogout(idle){
   ['searchCard','csvCard','keycheckCard','confirmCard','submitCard'].forEach(id=>$(id).classList.add('hide'));
   stepMax=1;stepSeen=1;setView(1);   // 인증 폐기 → 1단계 화면으로 돌아가고 뒤 단계 탭을 다시 잠긴다.
   $('authStep1').classList.remove('hide');$('authStep2').classList.add('hide');
-  $('logoutBtn').classList.add('hide');
-  $('authMsg').innerHTML=idle
-    ?(wasAuthed
-      ?'<span class="warn">⏱ 30분 동안 사용이 없어 인증을 해제했어요. 계속하려면 다시 인증해 주세요.</span>'
-      :'<span class="warn">⏱ 30분 동안 사용이 없어 화면에 남아 있던 명단을 지웠어요. 계속하려면 다시 인증해 주세요.</span>')
-    :'<span class="good">인증을 해제했어요.</span> 다시 이용하시려면 인증번호를 받아 주세요.';
+  renderAuthBar();
+  $('authMsg').innerHTML='<span class="good">로그아웃했어요.</span> 다시 이용하시려면 인증번호를 받아 주세요.';
   $('modeCards').querySelectorAll('.mode-card').forEach(x=>{x.classList.remove('sel');x.setAttribute('aria-pressed','false')});
   renderSelected();renderJurisList();updateStepper(); // 관할 목록의 체크 표시도 비운 선택과 맞춘다
   if($('authCard')&&$('authCard').scrollIntoView)$('authCard').scrollIntoView({block:'start'});
 }
-$('logoutBtn').addEventListener('click',()=>doLogout(false));
-['click','keydown','pointerdown','scroll','input'].forEach(ev=>document.addEventListener(ev,resetIdle,{passive:true}));
+$('logoutBtn').addEventListener('click',()=>doLogout());
 // 정직성 원칙(감사 항목 1): 서버가 실제로 이메일 소유를 확인하지 못한 상태(구서버 호환
 // fallback, 또는 pilot 모드에서 이메일 발송 인프라 부재로 OTP를 받을 방법이 없는 경우)를
 // "✅ 인증됨"이라고 표시하면 사용자를 오도한다. 이 경우 공통으로 아래 문구를 사용한다.
@@ -647,10 +683,10 @@ async function verifyOtp(){
     let j={};try{j=await r.json()}catch{}
     if(!r.ok){$('authMsg').innerHTML='<span class="bad">'+esc(j.error==='rate_limited'?rateLimitMsg(j,r):authErrMsg(j.error))+'</span>';return}
     S.token=j.token||null;S.authed=true;
-    if(S.token)saveToken(S.token,S.email); // 새로고침 시 OTP 재발송 방지(B4)
+    if(S.token)saveToken(S.token,S.email); // 새로고침·새 탭에서 OTP 재발송 방지(B4) — beta.61부터 90일
     $('authStep1').classList.add('hide');
     $('authStep2').classList.add('hide');
-    $('authMsg').innerHTML='<span class="good">✅ 인증됨 · '+esc(S.email)+'</span>';
+    $('authMsg').innerHTML='<span class="good">✅ 인증됨 · '+esc(S.email)+'</span>'+(S.token?' <span class="meta">'+authKeepText()+'</span>':'');
     unlockAfterAuth();
   }catch(err){$('authMsg').innerHTML='<span class="bad">인증번호를 확인하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.</span>'}
   finally{$('otpBtn').disabled=false}
@@ -1271,6 +1307,106 @@ $('deptInput').addEventListener('change',applyDept);
 let deptTimer=null;
 $('deptInput').addEventListener('input',()=>{if(deptTimer)clearTimeout(deptTimer);deptTimer=setTimeout(applyDept,600)});
 
+// ── 2-B'. 가게 색인(beta.61) — 공공데이터 전체 파일로 만든 정적 색인에서 찾기 ──────────────────────
+// 색인: https://app.bapjangbu.com/storeidx/meta.json + 시군구별 파일(영업 중인 가게만, 계약서 2절 형식 v1).
+// 담당자가 고른 기관의 관할(시·도 + 시·군·구)이 색인의 지역 키와 정확히 맞을 때만 그 구의 파일을 받아 이 브라우저에서
+// 이름으로 찾는다(이름 정규화 부분 일치 — 서버 normalizeStoreName과 같은 규칙: 띄어쓰기·괄호 무시). 결과는 지금과 같은
+// 모양({restaurant_id,name,address,status})으로 같은 뒤 흐름(등록 여부 /api/registered → 선택 → 지문 확인)에 싣는다.
+// · 관할을 알 수 없거나(기관 미선택·시·도 전체 기관), 키가 안 맞거나, 색인을 못 받으면(404·끊김·형식 다름) **지금 방식 그대로**.
+// · 시·도는 추측하지 않는다 — 기관 자료가 준 시·도 안에서만 키를 찾는다(동명 구: 중구 등).
+// · 색인 파일은 받은 뒤 이 화면이 열려 있는 동안 메모리에만 둔다(저장소에 두지 않는다).
+const STOREIDX_BASE='https://app.bapjangbu.com/storeidx/';
+const STOREIDX_TIMEOUT_MS=10000;
+const STOREIDX_MAX_FILES=6;          // 일반구가 있는 시(수원·고양·용인·화성 등)는 그 시의 구 파일을 모두 합친다 — 그 이상이면 지금 방식
+const STOREIDX_REG_CHECK_MAX=100;    // /api/registered는 한 번에 100개까지
+// 기관 목록(agency-index.json)의 시·도 이름 → 색인(zipmap 표기)의 시·도 이름. 행정구역이 합쳐진 곳만(색인 만드는 쪽과 같은 표).
+// 색인에 원래 이름이 있으면 그것을 먼저 쓴다.
+const STOREIDX_SIDO_ALIAS={'광주광역시':'전남광주통합특별시','전라남도':'전남광주통합특별시'};
+const storeIdx={meta:null,metaP:null,files:new Map()};
+async function idxFetchJson(url){
+  const ac=typeof AbortController==='function'?new AbortController():null;
+  const t=ac?setTimeout(()=>{try{ac.abort()}catch(e){}},STOREIDX_TIMEOUT_MS):null;
+  try{
+    const r=await fetch(url,{credentials:'omit',signal:ac?ac.signal:undefined});
+    if(!r.ok)throw new Error('status '+r.status);
+    return await r.json();
+  }finally{if(t)clearTimeout(t)}
+}
+function loadStoreIdxMeta(){
+  if(storeIdx.meta)return Promise.resolve(storeIdx.meta);
+  if(storeIdx.metaP)return storeIdx.metaP;
+  storeIdx.metaP=(async()=>{
+    try{
+      const j=await idxFetchJson(STOREIDX_BASE+'meta.json');
+      if(!j||j.v!==1||!j.regions||typeof j.regions!=='object'||Array.isArray(j.regions))return null;
+      storeIdx.meta={built:/^\d{4}-\d{2}-\d{2}$/.test(String(j.built||''))?String(j.built):'',regions:j.regions};
+      return storeIdx.meta;
+    }catch(e){return null}
+    finally{storeIdx.metaP=null} // 실패하면 다음 검색 때 다시 받아 본다
+  })();
+  return storeIdx.metaP;
+}
+const STOREIDX_FILE_RE=/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\.json$/;
+async function loadStoreIdxFile(f){
+  if(!STOREIDX_FILE_RE.test(String(f||'')))throw new Error('bad path');
+  if(storeIdx.files.has(f))return storeIdx.files.get(f);
+  const j=await idxFetchJson(STOREIDX_BASE+f);
+  if(!j||j.v!==1||!Array.isArray(j.rows))throw new Error('bad shape');
+  const rows=[];
+  for(const r of j.rows){
+    if(!Array.isArray(r)||typeof r[0]!=='string'||!r[0]||typeof r[1]!=='string'||!r[1])continue;
+    rows.push([r[0],r[1],String(r[2]==null?'':r[2]),String(r[3]==null?'':r[3]),String(r[4]==null?'':r[4])]);
+  }
+  storeIdx.files.set(f,rows);
+  return rows;
+}
+// 관할(시·도, 시·군·구) → 색인의 {시·도, 키 목록}. 정확히 맞출 수 없으면 null(= 지금 방식). 키 맞추기는 이 함수 하나에만 둔다.
+//   · 시·군·구가 없는 시(세종): 색인 키가 시·도 이름 하나 → 그 키.
+//   · 시·군·구 이름과 같은 키, 그리고 "그 이름 + 공백 + 일반구" 키(고양시 → 고양시 덕양구·일산동구·일산서구)를 모두.
+//   · 시·도 전체(광역 기관)는 파일이 많아 색인을 쓰지 않는다.
+function storeIdxKeys(meta,sido,sigungu){
+  if(!meta||!meta.regions||!sido)return null;
+  let sd=String(sido),reg=meta.regions[sd];
+  if(!reg&&STOREIDX_SIDO_ALIAS[sd]){sd=STOREIDX_SIDO_ALIAS[sd];reg=meta.regions[sd]}
+  if(!reg||typeof reg!=='object')return null;
+  const keys=Object.keys(reg).filter(k=>reg[k]&&typeof reg[k]==='object'&&typeof reg[k].f==='string');
+  if(keys.length===1&&keys[0]===sd)return {sido:sd,keys,label:String(sido)};
+  const sg=normName(sigungu||'');
+  if(!sg)return null;
+  const hit=keys.filter(k=>k===sg||k.startsWith(sg+' '));
+  if(!hit.length||hit.length>STOREIDX_MAX_FILES)return null;
+  return {sido:sd,keys:hit,label:sg};
+}
+// 담당자가 고른 기관의 관할 — 관할 목록 조회(jurisQuery)와 같은 규칙.
+function agencyIdxRegion(){
+  const a=S.agency;if(!a||!a.sido)return null;
+  return {sido:a.sido,sigungu:a.isRegional?'':(a.district||String(a.name||'').replace(/청$/,''))};
+}
+function idxNorm(v){return String(v==null?'':v).normalize('NFC').replace(/[\s()[\]{}（）［］｛｝]/g,'').toLowerCase()}
+// → null(색인을 쓸 수 없음 — 지금 방식으로) | {built,label,nameHits,rows:[{restaurant_id,name,address,status}]}
+async function storeIdxSearch(q,rg,tokens){
+  const qn=idxNorm(q);if(!qn||!rg)return null;
+  const meta=await loadStoreIdxMeta();if(!meta)return null;
+  const pick=storeIdxKeys(meta,rg.sido,rg.sigungu);if(!pick)return null;
+  let all=[];
+  try{for(const k of pick.keys)all=all.concat(await loadStoreIdxFile(meta.regions[pick.sido][k].f))}catch(e){return null}
+  const named=all.filter(r=>idxNorm(r[1]).includes(qn));
+  const toks=(tokens||[]).filter(Boolean);
+  const hits=toks.length?named.filter(r=>toks.every(t=>(r[2]+' '+r[3]).includes(t))):named;
+  if(pick.keys.length>1)hits.sort((a,b)=>a[1].localeCompare(b[1],'ko'));
+  return {built:meta.built,label:pick.label,nameHits:named.length,
+    rows:hits.map(r=>({restaurant_id:r[0],name:r[1],address:r[2]||r[3],status:'영업/정상'}))};
+}
+// 색인에서 0건일 때 — 느린 공공데이터 검색으로 저절로 넘어가지 않고, 글씨 버튼 하나로 부를 수 있게 둔다.
+function idxEmptyHtml(ix,q,regionText){
+  const what=ix.nameHits&&regionText
+    ?'『'+esc(ix.label)+'』에 \''+esc(q)+'\' 이름의 가게는 있지만 \''+esc(regionText)+'\' 주소에는 없어요. 지역 칸을 비우고 다시 검색해 보세요.'
+    :'『'+esc(ix.label)+'』에서 \''+esc(q)+'\' 이름의 영업 중인 가게를 찾지 못했어요. 이름을 줄여 보거나(예: \'육회바른연어 구의역점\' → \'육회\'), 다른 지역 가게라면 아래 [공공데이터에서 다시 찾기]를 눌러 주세요.';
+  return '<div class="meta" id="idxEmpty">'+what+'</div>'+
+    (ix.built?'<div class="meta" id="idxBuilt" style="margin-top:4px">'+esc(ix.built)+' 기준 공공데이터</div>':'')+
+    '<button type="button" data-a="idx-old" style="min-height:auto;border:none;background:none;color:var(--primary);padding:6px 0 0;font-weight:600;text-decoration:underline">공공데이터에서 다시 찾기</button>';
+}
+
 // ── 2-B. 음식점 이름 검색 (보조 경로 — 이름 필수 + 지역(구·동) 텍스트로 결과 좁히기, 미등록 가게는 표시하지 않음) ──
 // 이름 검색 실패 안내(D-2): 서버 코드·영문 오류를 그대로 보이지 않고, '없어요'와 '못 찾아봤어요'를 구분한다.
 function searchFailMsg(status,code){
@@ -1286,7 +1422,8 @@ function searchFailHtml(msg){
     '<button type="button" data-a="search-retry" style="margin-top:8px">다시 검색</button>';
 }
 let searchSeq=0;
-async function runNameSearch(){
+async function runNameSearch(opts){
+  const forceOld=!!(opts&&opts.old===true); // [공공데이터에서 다시 찾기] — 색인을 건너뛰고 지금 방식으로
   if(!navigator.onLine){alert('인터넷 연결을 확인해 주세요.');return}
   const q=($('q').value||'').trim(),regionText=($('region').value||'').trim();
   if(!srv()){alert('서버 주소를 입력하세요.');return}
@@ -1294,18 +1431,36 @@ async function runNameSearch(){
   if(!q&&!zipText){alert('음식점 이름이나 우편번호를 입력하세요.');return}
   const my=++searchSeq; // 검색을 연달아 누르면 마지막 검색의 응답만 반영한다
   const fail=msg=>{if(my!==searchSeq)return;S.lastList=[];$('results').innerHTML=searchFailHtml(msg);
-    const rb=$('results').querySelector('[data-a="search-retry"]');if(rb)rb.addEventListener('click',runNameSearch)};
+    const rb=$('results').querySelector('[data-a="search-retry"]');if(rb)rb.addEventListener('click',()=>runNameSearch(forceOld?{old:true}:null))};
   $('results').innerHTML='<div class="meta">검색 중…</div>';
-  // 공공데이터가 한글 조건 검색을 못 받는 상태(2026-08)에서는 우편번호로 후보를 받고
+  S.resultNote='';
+  // ① 색인(beta.61): 이름만 적었고(우편번호는 관할 밖일 수 있어 지금 방식), 기관 관할이 색인 키와 맞을 때.
+  const tokens=regionText.split(/\s+/).filter(Boolean);
+  let list=null,ix=null;
+  if(!forceOld&&q&&!zipText){
+    const rg=agencyIdxRegion();
+    if(rg){ix=await storeIdxSearch(q,rg,tokens);if(my!==searchSeq)return}
+  }
+  if(ix){
+    list=ix.rows;
+    if(!list.length){
+      S.lastList=[];$('results').innerHTML=idxEmptyHtml(ix,q,regionText);
+      const ob=$('results').querySelector('[data-a="idx-old"]');if(ob)ob.addEventListener('click',()=>runNameSearch({old:true}));
+      return;
+    }
+  }else{
+  // ② 지금 방식: 공공데이터가 한글 조건 검색을 못 받는 상태(2026-08)에서는 우편번호로 후보를 받고
   // 이름은 서버가 걸러 준다. 우편번호가 없으면 기존 이름 검색을 그대로 시도한다.
   const qsParts=[];if(q)qsParts.push('q='+encodeURIComponent(q));if(zipText)qsParts.push('zip='+zipText);
-  let r,list;
+  let r;
   try{r=await fetch(srv()+'/api/restaurants?'+qsParts.join('&'))}catch(e){return fail(searchFailMsg(0))}
   try{list=await r.json()}catch(e){list=null}
   if(my!==searchSeq)return;
   if(!r.ok||!Array.isArray(list))return fail(searchFailMsg(r.ok?500:r.status,list&&list.error));
   if(!list.length){$('results').innerHTML='<div class="meta">'+(zipText?'검색 결과가 없습니다. 우편번호와 음식점 이름을 다시 확인해 주세요.':'이름만으로는 찾지 못했습니다. 음식점의 <b>우편번호 5자리</b>를 함께 넣고 다시 검색해 보세요.')+'</div>';S.lastList=[];return}
-  const capped=list.slice(0,50);
+  }
+  const capped=list.slice(0,ix?STOREIDX_REG_CHECK_MAX:50);
+  if(ix&&list.length>capped.length)S.resultNote='찾은 가게가 많아 앞의 '+capped.length+'곳만 확인했어요. 이름을 더 자세히 적어 주세요.';
   // 등록 여부 조회가 실패하면 '등록된 음식점이 없어요'가 아니라 '확인하지 못했어요'다.
   let reg=null,rs=0;
   try{const rr=await fetch(srv()+'/api/registered?ids='+encodeURIComponent(capped.map(x=>x.restaurant_id).join(',')));rs=rr.status;if(rr.ok)reg=await rr.json()}catch(e){reg=null}
@@ -1319,10 +1474,9 @@ async function runNameSearch(){
     $('results').innerHTML='<div class="meta">이 지역에 아직 등록된 음식점이 없어요. 음식점에 앱 설치를 안내해 주세요.</div>';
     return;
   }
-  // 지역(구·동) 텍스트 필터 — 입력한 모든 낱말이 주소에 포함되는 항목만
-  const tokens=regionText.split(/\s+/).filter(Boolean);
+  // 지역(구·동) 텍스트 필터 — 입력한 모든 낱말이 주소에 포함되는 항목만(색인 결과는 도로명·지번 주소로 이미 걸렀다)
   let filtered=registeredOnly;
-  if(tokens.length){
+  if(tokens.length&&!ix){
     filtered=registeredOnly.filter(x=>tokens.every(t=>(x.address||'').includes(t)));
     if(!filtered.length){
       S.lastList=[];
@@ -1333,11 +1487,11 @@ async function runNameSearch(){
   S.lastList=filtered;
   renderResults();
 }
-$('searchBtn').addEventListener('click',runNameSearch);
+$('searchBtn').addEventListener('click',()=>runNameSearch());
 function renderResults(){
   if(!S.lastList.length){$('results').innerHTML='';return}
   const counts=nameCounts(S.lastList,'name');
-  $('results').innerHTML=S.lastList.map(x=>{
+  $('results').innerHTML=(S.resultNote?'<div class="meta" id="resultNote">'+esc(S.resultNote)+'</div>':'')+S.lastList.map(x=>{
     const rid=x.restaurant_id,isEx=S.excluded.has(rid),isSel=!!S.restaurants.find(r=>r.restaurant_id===rid);
     const isDup=(counts.get(normName(x.name))||0)>1;
     const badge=isEx?'<span class="pill" style="background:#fdecea;color:#c0392b">우리 기관 제외</span>':'<span class="pill" style="background:#e7f8ee;color:#1a7f43">✅ 명단 받기 가능</span>';
@@ -2401,6 +2555,8 @@ function showTermsGate(){
     $('modalRoot').innerHTML='';
     document.removeEventListener('keydown',termsTrap);
     if($('authBtn'))$('authBtn').disabled=false;
+    // 저장소가 막힌 PC: 새로 고치면 동의를 다시 묻는다 — 이 창(세션)에 둔 인증이 있으면 동의 뒤 이어 쓴다.
+    if(!S.authed&&restoreToken())return;
     $('email').focus();
   });
   document.addEventListener('keydown',termsTrap);
@@ -2642,6 +2798,7 @@ let sending=false;
 const EDIT_LOCK_IDS=['csv','unitPrice','sidoSel','agencySel','deptInput','selAllBtn','selNoneBtn','searchBtn','customAgencyBtn','customAgencyName','customSigunguSel','customAgencyOk'];
 function paintEditLock(){
   const on=sending;
+  if(!on&&$('logoutWait'))$('logoutWait').classList.add('hide'); // "전송이 끝난 뒤에 로그아웃해 주세요"는 전송이 끝나면 거둔다
   EDIT_LOCK_IDS.forEach(id=>{const el=$(id);if(el)el.disabled=on});
   document.querySelectorAll('#csvResult button,#jurisList input,#jurisList button,#selected button,#results button').forEach(el=>{el.disabled=on});
   document.querySelectorAll('.edit-lock-note').forEach(el=>el.classList.toggle('hide',!on));

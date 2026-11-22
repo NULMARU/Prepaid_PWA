@@ -2,6 +2,7 @@
 
 전국 광역·기초 자치단체와 각 본청의 '과' 목록을 담은 `agency-index.json` /
 `agency-depts/{region}.json` 를 생성·갱신하는 절차를 정리한다.
+가게 찾기용 음식점 색인(`storeidx/`)은 따로 — [storeidx-pipeline.md](storeidx-pipeline.md).
 
 ## 출처
 

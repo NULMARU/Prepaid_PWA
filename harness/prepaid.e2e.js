@@ -4775,6 +4775,769 @@ async function runBeta60e(browser, url, cors) {
   return { passed, fails };
 }
 
+// ═════════════════════════════════════════════════════════════════════════════════════
+// beta.61 M — [이력] > [월별] 탭(읽기 전용). 계약서 .claude/reviews/beta61-contract.md 1절.
+//   달 넘기기(첫 거래 달 ~ 이번 달), 이 달 요약(쓴 금액·들어온 선금, 취소 제외, 발생일 기준, 조정은 따로 한 줄),
+//   소속·부서별 표(홈 그룹 순서), 지금 남은 선금(= 설정 > 직원 목록 관리의 잔액 합계), 오래 안 온 손님(60일).
+//   시간에 기대는 값은 전부 검사 안의 "지금"으로 만든다(고정 날짜 금지 — beta.60 fixture 교훈).
+//   E2E_ONLY=beta61a 로 이 블록만, E2E_SOFT=1 로 단언별 실패 목록.
+// ═════════════════════════════════════════════════════════════════════════════════════
+async function runBeta61a(browser, url, cors) {
+  const soft = !!process.env.E2E_SOFT;
+  const fails = [];
+  let passed = 0;
+  const check = async (cond, msg) => {
+    if (cond) { passed += 1; return true; }
+    if (soft) { fails.push(msg); console.log('  ✗ ' + msg); return false; }
+    throw new Error('[beta.61a] ' + msg);
+  };
+  const guard = async (label, fn) => {
+    if (process.env.E2E_VERBOSE) console.log('  · ' + label);
+    try { await fn(); } catch (err) { if (!soft) throw err; fails.push(`${label}: ${String(err && err.message || err).slice(0, 300)}`); console.log(`  ✗ ${label}: ${String(err && err.message || err).slice(0, 300)}`); }
+  };
+  const legacyPin = crypto.createHash('sha256').update('1234').digest('hex');
+  const DAY = 86400000;
+  const NOW = Date.now();
+  const nowD = new Date(NOW);
+  const mIdx = ts => { const x = new Date(ts); return x.getFullYear() * 12 + x.getMonth(); };
+  const mTitle = i => `${Math.floor(i / 12)}년 ${i % 12 + 1}월`;
+  const CM = mIdx(NOW);
+  const monthStart = new Date(nowD.getFullYear(), nowD.getMonth(), 1).getTime();
+  // 이번 달 거래의 입력 시각(createdAt) — 1분 전부터 0.1초 간격. 달이 막 바뀐 직후라도 이번 달 안에 머물게 한다.
+  let clock = Math.max(NOW - 60000, monthStart + 10);
+  const nextAt = () => (clock += 100);
+  const noonOf = (y, m, d) => new Date(y, m, d, 12, 0, 0, 0).getTime();
+  const lastMonthMid = noonOf(nowD.getFullYear(), nowD.getMonth() - 1, 15);
+  const sixAgo = noonOf(nowD.getFullYear(), nowD.getMonth() - 6, 15);
+  const ago = n => NOW - n * DAY;
+  const T0 = NOW - 300 * DAY;
+  const emp = (id, name, org, dept, orgKind) => ({ id, org, orgKind: orgKind || '', dept, name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: T0, updatedAt: T0 });
+  // occurredAt(발생일)이 있는 거래는 소급 입력 — 입력 시각(createdAt)은 지금, 화면 날짜는 발생일이다(beta.42).
+  const tx = (id, employeeId, type, amount, occurredAt, extra) => Object.assign({ id, employeeId, type, amount, beforeBalance: 0, afterBalance: 0,
+    reason: type === 'use' ? '서명 확인' : type === 'adjust' ? '오입력 정정' : type === 'void' ? '사용 취소' : '초기 선입금 등록', note: '', targetTransactionId: null,
+    signatureData: '', signatureHash: '', createdAt: nextAt() }, occurredAt ? { occurredAt } : {}, extra || {});
+  const employees = [
+    emp('m-a', '김가나', '광진구청', '세무과', 'public'),
+    emp('m-b', '이다라', '광진구청', '재무과', 'public'),
+    emp('m-c', '박마바', '튼튼상사', '영업팀'),
+    emp('m-d', '최사아', '튼튼상사', '총무팀'),
+    emp('m-e', '정자차', '개인', ''),
+    emp('m-f', '한카타', '개인', ''),
+    emp('m-g', '오래전', '', '기타'),
+  ];
+  const transactions = [
+    // 6달 전(첫 거래 달) — 0원으로 끝나는 직원 G. 5달 전은 비어 있다(-100일 기록은 3~4달 전).
+    tx('g-open', 'm-g', 'open', 1000, sixAgo),
+    tx('g-use', 'm-g', 'use', 1000, sixAgo + DAY),
+    // 예전 기록(소급) — 오래 안 온 손님 판정용
+    tx('c-open', 'm-c', 'open', 30000, ago(100)),
+    tx('c-use', 'm-c', 'use', 5000, ago(61)),        // 61일 전 마지막 사용 + 잔액 25,000 → 나온다
+    tx('d-open', 'm-d', 'open', 20000, ago(100)),
+    tx('d-use', 'm-d', 'use', 3000, ago(59)),        // 59일 전 → 안 나온다
+    tx('f-open', 'm-f', 'open', 5000, ago(90)),
+    tx('f-use', 'm-f', 'use', 5000, ago(80)),        // 잔액 0 → 안 나온다
+    tx('e-open', 'm-e', 'open', 15000, ago(70)),     // 사용 기록 없음 + 70일 → 나온다
+    // 이번 달
+    tx('a-open', 'm-a', 'open', 100000),
+    tx('a-use1', 'm-a', 'use', 9000),
+    tx('a-use2', 'm-a', 'use', 8000),
+    tx('a-void2', 'm-a', 'void', 8000, 0, { targetTransactionId: 'a-use2' }),   // 취소된 사용·취소 기록은 빠진다
+    tx('a-use3', 'm-a', 'use', 7000, lastMonthMid),  // 오늘 입력했지만 발생일은 지난달 → 지난달에 잡힌다
+    tx('a-adj', 'm-a', 'adjust', -500),
+    tx('b-top', 'm-b', 'topup', 50000),
+    tx('b-use', 'm-b', 'use', 12000),
+  ];
+  // 기대값은 같은 씨앗에서 따로 센다(앱 함수를 부르지 않는다).
+  const voidedIds = new Set(transactions.filter(t => t.type === 'void').map(t => t.targetTransactionId));
+  const disp = t => t.occurredAt || t.createdAt;
+  const expectMonth = i => {
+    const r = { use: 0, useN: 0, inn: 0, innN: 0, adj: 0 };
+    transactions.forEach(t => {
+      if (t.type === 'void' || voidedIds.has(t.id) || mIdx(disp(t)) !== i) return;
+      if (t.type === 'use') { r.use += t.amount; r.useN += 1; } else if (t.type === 'adjust') r.adj += t.amount; else { r.inn += t.amount; r.innN += 1; }
+    });
+    return r;
+  };
+  const FIRST = mIdx(sixAgo);
+  const page0 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await page0.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
+  await page0.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }));
+  const page = await page0.newPage();
+  const problems = [], dialogs = [];
+  page.on('pageerror', e => problems.push(String(e && e.message || e)));
+  page.on('dialog', async d => { dialogs.push(d.type() + ': ' + d.message()); await d.dismiss().catch(() => {}); });
+  const seed = async (emps, txs) => {
+    await page.evaluate(({ hash, t, emps, txs }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const x = req.result.transaction(['meta', 'employees', 'transactions'], 'readwrite');
+        const ms = x.objectStore('meta');
+        Object.entries({ setupComplete: true, welcomeSeen: true, termsAgreedAt: t, pinHash: hash, shopName: '월별식당', departments: ['세무과'], orgName: '광진구청', storeRegisterPending: false, autoCloudBackup: false, lastBackupAt: t })
+          .forEach(([k, v]) => ms.put({ key: k, value: v }));
+        x.objectStore('employees').clear(); x.objectStore('transactions').clear();
+        emps.forEach(e => x.objectStore('employees').put(e));
+        txs.forEach(v => x.objectStore('transactions').put(v));
+        x.oncomplete = () => resolve(true); x.onerror = () => reject(x.error);
+      };
+    }), { hash: legacyPin, t: NOW, emps, txs });
+    if (txs.length) await resealChain(page);
+  };
+  const ledgerSnap = () => page.evaluate(() => new Promise(res => {
+    const r = indexedDB.open('prepaid-ledger-db');
+    r.onsuccess = () => {
+      const x = r.result.transaction(['transactions', 'meta', 'employees'], 'readonly');
+      const out = {};
+      const q1 = x.objectStore('transactions').getAll(); q1.onsuccess = () => { out.tx = q1.result.length; out.txJson = JSON.stringify(q1.result.map(v => [v.id, v.txHash, v.amount]).sort()); };
+      const q2 = x.objectStore('meta').get('chainTip'); q2.onsuccess = () => { out.tip = q2.result && q2.result.value; };
+      const q3 = x.objectStore('meta').get('txCount'); q3.onsuccess = () => { out.count = q3.result && q3.result.value; };
+      const q4 = x.objectStore('employees').getAll(); q4.onsuccess = () => { out.emp = JSON.stringify(q4.result); };
+      x.oncomplete = () => res(out);
+    };
+  }));
+  const goMonthTab = async () => {
+    await page.locator('[data-a="screen"][data-screen="history"]').click();
+    await page.waitForSelector('[data-a="history-tab"][data-tab="month"]', { timeout: 8000 });
+    await page.locator('[data-a="history-tab"][data-tab="month"]').click();
+    await page.waitForSelector('#monthNav', { timeout: 8000 });
+  };
+  const navInfo = () => page.evaluate(() => ({ title: (document.getElementById('monthTitle') || {}).innerText || '', prev: !!document.querySelector('[data-a="month-prev"]'), next: !!document.querySelector('[data-a="month-next"]') }));
+  const sumOf = id => page.evaluate(i => { const el = document.getElementById(i); return el ? { v: Number(el.dataset.v), n: Number(el.dataset.n), text: el.innerText } : null; }, id);
+  const clickNav = async which => {
+    const before = (await navInfo()).title;
+    await page.locator(`[data-a="month-${which}"]`).click();
+    await page.waitForFunction(b => ((document.getElementById('monthTitle') || {}).innerText || '') !== b, before, { timeout: 8000 });
+  };
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await seed(employees, transactions);
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await page.waitForSelector('[data-a="hand-to-customer"]', { timeout: 10000 });
+    const snap0 = await ledgerSnap();
+
+    await guard('tabs', async () => {
+      await page.locator('[data-a="screen"][data-screen="history"]').click();
+      await page.waitForSelector('[data-a="history-tab"]', { timeout: 8000 });
+      const tabs = await page.locator('[data-a="history-tab"]').allInnerTexts();
+      await check(JSON.stringify(tabs.map(s => s.trim())) === JSON.stringify(['일자별', '직원별', '월별']), `the history screen has three tabs 일자별·직원별·월별 (got ${JSON.stringify(tabs)})`);
+      const allowed = await page.evaluate(() => window.__prepaidTestHooks.lockAllowed());
+      await check(!allowed.some(a => /^month-|history-tab/.test(a)), `month actions are not in LOCK_ALLOWED (got ${JSON.stringify(allowed.filter(a => /month|history/.test(a)))})`);
+      const keys = await page.evaluate(() => window.__prepaidTestHooks.clickActionKeys());
+      await check(keys.includes('month-prev') && keys.includes('month-next'), 'month-prev / month-next click actions exist');
+    });
+
+    await guard('this-month', async () => {
+      await goMonthTab();
+      const nv = await navInfo();
+      await check(nv.title === mTitle(CM), `the month tab opens on this month (got ${JSON.stringify(nv.title)}, want ${mTitle(CM)})`);
+      await check(nv.prev && !nv.next, `this month: ◀ shown, ▶ not drawn (no future months) (got ${JSON.stringify(nv)})`);
+      const u = await sumOf('monthUse'), i = await sumOf('monthIn');
+      const ex = expectMonth(CM);
+      await check(ex.use === 21000 && ex.useN === 2 && ex.inn === 150000 && ex.innN === 2 && ex.adj === -500, `harness self-check of this month's expected values (${JSON.stringify(ex)})`);
+      await check(u && u.v === 21000 && u.n === 2, `this month 쓴 금액 = 21,000원 · 2건 — the voided 8,000 and the back-dated 7,000 are excluded (got ${JSON.stringify(u)})`);
+      await check(u && /쓴 금액/.test(u.text) && u.text.includes('21,000원') && u.text.includes('2건'), `쓴 금액 card text (got ${JSON.stringify(u && u.text)})`);
+      await check(i && i.v === 150000 && i.n === 2 && i.text.includes('들어온 선금') && i.text.includes('150,000원') && i.text.includes('2건'), `this month 들어온 선금 = 150,000원 · 2건 (open + topup) (got ${JSON.stringify(i)})`);
+      const adj = await page.evaluate(() => { const el = document.getElementById('monthAdj'); return el ? el.innerText.trim() : null; });
+      await check(adj === '잔액 조정 -500원', `an adjust shows as one line "잔액 조정 -500원", not in 쓴 금액/선금 (got ${JSON.stringify(adj)})`);
+      const rows = await page.evaluate(() => [...document.querySelectorAll('#monthTable tbody tr')].map(r => ({ label: r.dataset.label, use: Number(r.dataset.use), inn: Number(r.dataset.in), text: r.innerText.replace(/\s+/g, ' ').trim() })));
+      await check(JSON.stringify(rows.map(r => [r.label, r.use, r.inn])) === JSON.stringify([['광진구청 세무과', 9000, 100000], ['광진구청 재무과', 12000, 50000]]),
+        `the 소속·부서 table lists only groups with activity this month, in home-group order (got ${JSON.stringify(rows)})`);
+      await check(rows.reduce((s, r) => s + r.use, 0) === u.v && rows.reduce((s, r) => s + r.inn, 0) === i.v, 'table columns add up to the summary');
+      const head = await page.evaluate(() => [...document.querySelectorAll('#monthTable thead th')].map(t => t.innerText.trim()));
+      await check(JSON.stringify(head) === JSON.stringify(['소속·부서', '쓴 금액', '들어온 선금']), `table header (got ${JSON.stringify(head)})`);
+    });
+
+    await guard('remain', async () => {
+      const r = await page.evaluate(() => { const c = document.getElementById('monthRemain'); const t = document.getElementById('monthRemainTotal'); return c ? { h: c.querySelector('.month-h').innerText.trim(), total: Number(t.dataset.v), totalText: t.innerText, rows: [...c.querySelectorAll('.month-remain-row')].map(x => [x.querySelector('span').innerText.trim(), Number(x.dataset.v)]) } : null; });
+      const expected = 83500 + 38000 + 25000 + 17000 + 15000;
+      await check(r && r.h === '지금 남은 선금', `the remaining-balance card is titled 지금 남은 선금 (got ${JSON.stringify(r && r.h)})`);
+      await check(r && r.total === expected && r.totalText.includes('178,500원'), `지금 남은 선금 total = ${expected} (got ${JSON.stringify(r && { t: r.total, s: r.totalText })})`);
+      await check(r && JSON.stringify(r.rows) === JSON.stringify([['광진구청 세무과', 83500], ['광진구청 재무과', 38000], ['개인', 15000], ['튼튼상사', 42000]]),
+        `remaining by group follows the home groups (0원 groups left out) (got ${JSON.stringify(r && r.rows)})`);
+      await check(r && r.rows.reduce((s, x) => s + x[1], 0) === r.total, 'group lines add up to the total');
+      // 설정 > 직원 목록 관리의 "잔액 합계"와 같은 값
+      await page.locator('[data-a="screen"][data-screen="settings"]').click();
+      await openSettingsCard(page, 'employees');
+      const setTxt = (await page.locator('.mgr-summary .v').innerText()).trim();
+      await check(setTxt === `잔액 합계 ${r.total.toLocaleString('ko-KR')}원`, `settings 잔액 합계 equals 지금 남은 선금 (settings ${JSON.stringify(setTxt)}, month tab ${r && r.total})`);
+      await goMonthTab();
+    });
+
+    await guard('idle', async () => {
+      const idle = await page.evaluate(() => { const c = document.getElementById('monthIdle'); return c ? { h: c.querySelector('.month-h').innerText.trim(), rows: [...c.querySelectorAll('.month-idle-row')].map(x => ({ id: x.dataset.id, text: x.innerText.replace(/\s+/g, ' ').trim() })), more: !!document.getElementById('monthIdleMore') } : null; });
+      await check(idle && idle.h === '오래 안 온 손님', `the idle-customer card is shown (got ${JSON.stringify(idle && idle.h)})`);
+      const ids = idle ? idle.rows.map(r => r.id) : [];
+      await check(JSON.stringify(ids) === JSON.stringify(['m-c', 'm-e']), `idle list = 61 days since last use (박마바) + never used for 70 days (정자차), biggest balance first; 59 days (최사아) and 0원 (한카타) are not listed (got ${JSON.stringify(ids)})`);
+      const d61 = new Date(ago(61));
+      const lastTxt = (d61.getFullYear() === nowD.getFullYear() ? '' : `${d61.getFullYear()}년 `) + `${d61.getMonth() + 1}월 ${d61.getDate()}일`;
+      const c = idle && idle.rows.find(r => r.id === 'm-c'), e = idle && idle.rows.find(r => r.id === 'm-e');
+      await check(c && c.text.includes('박마바') && c.text.includes('튼튼상사 영업팀') && c.text.includes('25,000원') && c.text.includes(`마지막 사용 ${lastTxt}`), `idle row shows name, 소속 부서, balance and "마지막 사용 ${lastTxt}" (got ${JSON.stringify(c && c.text)})`);
+      await check(e && e.text.includes('정자차') && e.text.includes('15,000원') && e.text.includes('사용 기록 없음'), `a never-used customer reads "사용 기록 없음" (got ${JSON.stringify(e && e.text)})`);
+      await check(idle && !idle.more, 'no "외 N명" line when 20 or fewer');
+    });
+
+    await guard('navigate', async () => {
+      await clickNav('prev');
+      let nv = await navInfo();
+      await check(nv.title === mTitle(CM - 1) && nv.prev && nv.next, `◀ goes to last month and ▶ appears (got ${JSON.stringify(nv)})`);
+      const u = await sumOf('monthUse'); const ex = expectMonth(CM - 1);
+      await check(u && u.v === ex.use && u.n === ex.useN && ex.use >= 7000, `last month counts the back-dated 7,000 use by its 발생일 (got ${JSON.stringify(u)}, want ${JSON.stringify(ex)})`);
+      // 첫 거래 달까지 넘긴다. 5달 전은 빈 달이다.
+      for (let i = CM - 2; i >= FIRST; i -= 1) {
+        await clickNav('prev');
+        nv = await navInfo();
+        await check(nv.title === mTitle(i), `◀ steps one month back (${mTitle(i)}) (got ${JSON.stringify(nv.title)})`);
+        const ex2 = expectMonth(i);
+        const empty = await page.evaluate(() => { const el = document.getElementById('monthEmpty'); return el ? el.innerText.trim() : null; });
+        const hasTable = await page.evaluate(() => !!document.getElementById('monthTable') || !!document.getElementById('monthUse'));
+        if (!ex2.useN && !ex2.innN && !ex2.adj) {
+          await check(empty === '이 달에는 기록이 없어요.' && !hasTable, `an empty month (${mTitle(i)}) says "이 달에는 기록이 없어요." and draws no 0원 table (got ${JSON.stringify({ empty, hasTable })})`);
+        } else {
+          const u2 = await sumOf('monthUse'), i2 = await sumOf('monthIn');
+          await check(empty === null && u2 && i2 && u2.v === ex2.use && u2.n === ex2.useN && i2.v === ex2.inn && i2.n === ex2.innN, `${mTitle(i)} matches the ledger (got ${JSON.stringify({ u2, i2 })}, want ${JSON.stringify(ex2)})`);
+        }
+      }
+      await check(expectMonth(CM - 5).useN === 0 && expectMonth(CM - 5).innN === 0, 'harness self-check: 5 months ago is empty');
+      nv = await navInfo();
+      await check(nv.title === mTitle(FIRST) && !nv.prev && nv.next, `the first-transaction month draws no ◀ (got ${JSON.stringify(nv)})`);
+      // 앞으로 끝까지 — 이번 달에서 ▶가 사라진다
+      for (let i = FIRST + 1; i <= CM; i += 1) await clickNav('next');
+      nv = await navInfo();
+      await check(nv.title === mTitle(CM) && !nv.next, `▶ walks back to this month and stops (got ${JSON.stringify(nv)})`);
+    });
+
+    await guard('read-only', async () => {
+      // 탭 오가기 + 달 넘기기 뒤에도 장부는 그대로
+      await page.locator('[data-a="history-tab"][data-tab="date"]').click();
+      await page.locator('[data-a="history-tab"][data-tab="month"]').click();
+      await page.waitForSelector('#monthNav');
+      await clickNav('prev');
+      await page.locator('[data-a="history-tab"][data-tab="employee"]').click();
+      await page.locator('[data-a="history-tab"][data-tab="month"]').click();
+      await page.waitForSelector('#monthNav');
+      await check((await navInfo()).title === mTitle(CM - 1), 'the chosen month stays while switching tabs (session state)');
+      await page.waitForTimeout(300);
+      const snap1 = await ledgerSnap();
+      await check(snap1.tx === snap0.tx && snap1.tip === snap0.tip && snap1.count === snap0.count && snap1.txJson === snap0.txJson && snap1.emp === snap0.emp,
+        `switching tabs and months does not touch the ledger (tx ${snap0.tx}→${snap1.tx}, tip same=${snap1.tip === snap0.tip}, count ${snap0.count}→${snap1.count})`);
+      await check(snap0.tx === transactions.length, `seed ledger has ${transactions.length} transactions (got ${snap0.tx})`);
+      const shown = await page.evaluate(() => document.getElementById('app').innerText);
+      await check(!/undefined|NaN/.test(shown), 'no undefined/NaN on the month tab');
+    });
+
+    // 20명 넘는 오래 안 온 손님 → 20명 + "외 N명"
+    await guard('idle-cap', async () => {
+      const many = [], mtx = [];
+      for (let k = 0; k < 23; k += 1) {
+        const id = 'z-' + String(k).padStart(2, '0');
+        many.push(emp(id, '손님' + String(k).padStart(2, '0'), '개인', ''));
+        mtx.push(tx(id + '-open', id, 'open', 1000 + k * 100, ago(70)));
+      }
+      await seed(many, mtx);
+      await page.reload({ waitUntil: 'load' });
+      await unlockPin(page);
+      await page.waitForSelector('[data-a="hand-to-customer"]', { timeout: 10000 });
+      await goMonthTab();
+      const r = await page.evaluate(() => ({ ids: [...document.querySelectorAll('#monthIdle .month-idle-row')].map(x => x.dataset.id), more: (document.getElementById('monthIdleMore') || {}).innerText || '', empty: (document.getElementById('monthEmpty') || {}).innerText || '' }));
+      await check(r.ids.length === 20 && r.ids[0] === 'z-22' && r.ids[19] === 'z-03', `the idle list stops at 20, biggest balance first (got ${r.ids.length}: ${r.ids[0]}…${r.ids[19]})`);
+      await check(r.more.trim() === '외 3명', `"외 3명" follows the 20 rows (got ${JSON.stringify(r.more)})`);
+      await check(r.empty.trim() === '이 달에는 기록이 없어요.', `this month has no records here → the empty line (got ${JSON.stringify(r.empty)})`);
+    });
+    await check(problems.length === 0 && dialogs.length === 0, `no page error or native dialog (${JSON.stringify([...problems, ...dialogs].slice(0, 3))})`);
+  } finally { await page0.close().catch(() => {}); }
+
+  console.log(`beta.61a: ${passed} checks passed${fails.length ? `, ${fails.length} failed` : ''}`);
+  return { passed, fails };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════
+// beta.61 D — 부서 이동(계약서 .claude/reviews/beta61-contract.md 5절). E2E_ONLY=beta61b 로 이 블록만, E2E_SOFT=1 로 단언별 실패 목록.
+//   ㉡ 명단을 받을 때(승인·직접 전달·CSV) "같은 소속의 다른 부서에 같은 이름이 정확히 한 명"이면 앱 안 창에서 한 사람씩 묻는다.
+//      기본값은 '다른 사람 — 새로 등록'. '옮기기'를 고른 사람만 같은 id의 부서 글자를 바꾸고 그 id에 충전(한 번의 apply).
+//      동명이인 두 명·같은 명단에 옛 부서 줄·갈림길에서 이미 물은 부서·소속 없음/개인·다른 소속이면 묻지 않는다.
+//   ㉠ [직원 정보 수정]: 안내 한 줄 + 공공기관 직원이 부서만 바꿀 때 orgKind 유지.
+//   받은 명단 되돌리기: 옮긴 분의 충전은 되돌리되 부서는 그대로, 확인 창에 한 줄.
+// ═════════════════════════════════════════════════════════════════════════════════════
+async function runBeta61b(browser, url, cors) {
+  const soft = !!process.env.E2E_SOFT;
+  const fails = [];
+  let passed = 0;
+  const check = async (cond, msg) => {
+    if (cond) { passed += 1; return true; }
+    if (soft) { fails.push(msg); console.log('  ✗ ' + msg); return false; }
+    throw new Error('[beta.61b] ' + msg);
+  };
+  const guard = async (label, fn) => {
+    if (process.env.E2E_VERBOSE) console.log('  · ' + label);
+    try { await fn(); } catch (err) { if (!soft) throw err; fails.push(`${label}: ${String(err && err.message || err).slice(0, 300)}`); console.log(`  ✗ ${label}: ${String(err && err.message || err).slice(0, 300)}`); }
+  };
+  const RID = 'rid-b61b';
+  const T0 = Date.now() - 5 * 86400000;
+  const ORG = '광진구청';
+  const emp = (id, name, dept, org) => ({ id, org: org === undefined ? ORG : org, orgKind: (org === undefined || org === ORG || org === '광진구보건소') ? 'public' : '', dept, name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: T0, updatedAt: T0 });
+  const seedEmps = [
+    emp('m-hong', '홍길동', '재무과'), emp('m-kang', '강감찬', '재무과'), emp('m-lee', '이순신', '재무과'), emp('m-han', '한석봉', '재무과'),
+    emp('m-yoon', '윤봉길', '총무과'), emp('m-seo', '서희', '총무과'),
+    emp('m-kim1', '김영희', '총무과'), emp('m-kim2', '김영희', '회계과'),
+    emp('m-ga', '가나', '보건과'), emp('m-da', '다라', '보건과'), emp('m-ma', '마바', '보건과'),
+    emp('m-park', '박민수·2', '기획과'),
+    emp('m-bo', '보건이', '보건과', '광진구보건소'),
+    // 보완 F1: 동명이인 번호가 붙은 두 사람 / F2: 예전 형식(소속 칸 비고 부서 칸에 결합 라벨) 직원
+    emp('m-dong1', '최동명', '재무과'), emp('m-dong2', '최동명·2', '재무과'),
+    emp('m-leg', '노레거시', '광진구청 총무과', ''),
+    emp('m-nam1', '남궁민', '재무과'), emp('m-nam2', '남궁민', '광진구청 총무과', ''),
+    emp('m-per', '최단골', '단골', '개인'), emp('m-noorg', '정빈칸', '재무과', ''), emp('m-oth', '한다른', '재무과', '성동구청')
+  ];
+  const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
+  await ctx.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }));
+  const page = await ctx.newPage();
+  const dialogs = [];
+  const problems = [];
+  page.on('dialog', async d => {
+    dialogs.push({ type: d.type(), message: d.message() });
+    const m = d.message();
+    if (d.type() === 'confirm' && !(m.includes('받으실 금액') || m.includes('처리하시겠습니까'))) await d.dismiss().catch(() => {});
+    else await d.accept().catch(() => {});
+  });
+  page.on('pageerror', e => problems.push(String(e && e.message || e)));
+  const byId = (db, id) => db.employees.find(e => e.id === id);
+  const live = (db, dept, name) => db.employees.filter(e => e.dept === dept && e.name === name && !e.isDeleted);
+  const txSum = (db, id) => db.transactions.filter(t => t.employeeId === id && (t.type === 'topup' || t.type === 'open')).reduce((s, t) => s + Number(t.amount || 0), 0);
+  const balOf = (db, id) => db.transactions.filter(t => t.employeeId === id && t.type !== 'void').reduce((s, t) => s + Number(t.amount || 0) * (t.type === 'use' ? -1 : 1), 0);
+  const lastTx = (db, id) => db.transactions.filter(t => t.employeeId === id).sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0] || {};
+  const waitTx = async n0 => { for (let i = 0; i < 80; i += 1) { if ((await readDb(page)).transactions.length > n0) return; await page.waitForTimeout(150); } };
+  const closeModals = async () => {
+    for (let i = 0; i < 4 && await count(page, '.modal-back:not(.choice-back)'); i += 1) {
+      await page.locator('.modal-back [data-a="close-modal"]').first().click({ timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(150);
+    }
+  };
+  const goSettings = async () => { await closeModals(); await page.locator('[data-a="screen"][data-screen="settings"]').click(); await page.waitForTimeout(150); };
+  const csvBuf = body => Buffer.from('﻿' + body, 'utf8');
+  const csvPreview = () => page.evaluate(() => {
+    const heads = [...document.querySelectorAll('.csv-table thead th')].map(th => th.innerText.trim());
+    return [...document.querySelectorAll('.csv-table tbody tr')].map(tr => { const o = {}; [...tr.querySelectorAll('td')].forEach((td, i) => { o[heads[i]] = td.innerText.trim(); }); return o; });
+  });
+  const moveDlg = () => page.evaluate(() => {
+    const m = document.querySelector('.choice-modal.move-modal');
+    if (!m) return null;
+    return {
+      title: (m.querySelector('#choiceTitle') || {}).innerText || '',
+      rows: [...m.querySelectorAll('.move-row')].map(r => ({ q: r.querySelector('.move-q').innerText.trim(), opts: [...r.querySelectorAll('[data-a="move-pick"]')].map(b => ({ val: b.dataset.val, label: b.innerText.replace(/^✓\s*/, '').trim(), on: b.getAttribute('aria-checked') === 'true' })) })),
+      primary: [...m.querySelectorAll('.btn-primary')].map(b => b.innerText.trim()),
+      buttons: [...m.querySelectorAll('.choice-actions [data-a="choice-pick"]')].map(b => b.dataset.val + ':' + b.innerText.trim()),
+      busy: document.querySelectorAll('.busy').length
+    };
+  });
+  const pickRow = async (i, val) => { await page.locator(`.move-row[data-i="${i}"] [data-a="move-pick"][data-val="${val}"]`).click(); await page.waitForTimeout(80); };
+  const finishDlg = async val => { await page.locator(`.move-modal .choice-actions [data-a="choice-pick"][data-val="${val}"]`).click(); await page.waitForTimeout(150); };
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    const legacyPin = crypto.createHash('sha256').update('1234').digest('hex');
+    await page.evaluate(({ hash, t, emps, rid }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const tx = req.result.transaction(['meta', 'employees'], 'readwrite');
+        const ms = tx.objectStore('meta');
+        const put = (k, v) => ms.put({ key: k, value: v });
+        put('setupComplete', true); put('welcomeSeen', true); put('termsAgreedAt', t); put('pinHash', hash);
+        put('shopName', '이동식당'); put('departments', ['재무과', '총무과']); put('storeRegisterPending', false);
+        put('restaurantId', rid); put('relayStoreName', '이동식당'); put('relayRegisteredAt', t); put('districtSyncedAt', t);
+        put('autoCloudBackup', false); put('orgName', '광진구청');
+        emps.forEach(e => tx.objectStore('employees').put(e));
+        tx.oncomplete = () => resolve(true); tx.onerror = () => reject(tx.error);
+      };
+    }), { hash: legacyPin, t: Date.now(), emps: seedEmps, rid: RID });
+    await page.reload({ waitUntil: 'load' });
+    await unlockPin(page);
+    await page.waitForFunction(() => { const H = window.__prepaidTestHooks; return !!H && H.lockState && H.lockState().locked === false; }, null, { timeout: 15000 });
+    let meta = {};
+    for (let i = 0; i < 40 && !meta.pubKey; i += 1) { meta = (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {}); if (!meta.pubKey) await page.waitForTimeout(200); }
+    await check(Boolean(meta.pubKey), 'the device must own a store key before the roster scenarios');
+
+    // ── 후보 판정(함수 단위) — 4갈래 + 경계 ──
+    await guard('candidate rule unit', async () => {
+      const r = await page.evaluate(ORG2 => {
+        const f = window.__prepaidTestHooks.deptMoveCandidates;
+        if (typeof f !== 'function') return { missing: true };
+        const R = (dept, name, org) => ({ org: org === undefined ? ORG2 : org, dept, name });
+        return {
+          one: f([R('세무과', '홍길동')]),
+          exact: f([R('재무과', '홍길동')]),
+          two: f([R('민원과', '김영희')]),
+          oldRowInRoster: f([R('세무과', '홍길동'), R('재무과', '홍길동')]),
+          personal: f([R('다른단골', '최단골', '개인')]),
+          noOrg: f([R('세무과', '정빈칸', '')]),
+          otherOrg: f([R('세무과', '한다른')]),
+          skipAsked: f([R('세무과', '홍길동')], [], ['광진구청 재무과']),
+          twoRowsOnePerson: f([R('세무과', '홍길동'), R('감사과', '홍길동')]),
+          suffixSame: f([R('세무과', '박민수·2')]),
+          suffixDiff: f([R('세무과', '박민수')]),
+          dupNumbered: f([R('세무과', '최동명')]),
+          dupPaired: f([R('세무과', '최동명'), R('세무과', '최동명·2')]),
+          twoPlainRows: f([R('세무과', '홍길동'), R('민원과', '홍길동')]),
+          legacyOnly: f([R('세무과', '노레거시')]),
+          legacyCounts: f([R('세무과', '남궁민')]),
+          renamedAsked: f([R('질병관리과', '마바')], [{ id: 'm-ma', org: ORG2, orgKind: 'public', dept: '보건정책과', name: '마바', isDeleted: false }], ['광진구청 보건과']),
+          afterRename: f([R('세무과', '홍길동')], [{ id: 'm-hong', org: ORG2, orgKind: 'public', dept: '세무과', name: '홍길동', isDeleted: false }])
+        };
+      }, ORG);
+      await check(!r.missing, 'the candidate rule must exist (deptMoveCandidates)');
+      if (r.missing) return;
+      await check(r.one.length === 1 && r.one[0].empId === 'm-hong' && r.one[0].fromDept === '재무과' && r.one[0].toDept === '세무과', `same org, other dept, exactly one same name → a candidate (got ${JSON.stringify(r.one)})`);
+      await check(r.exact.length === 0, 'the same org·dept·name already exists → a plain top-up, not a candidate');
+      await check(r.two.length === 0, `two same-name people in other departments → do not ask (got ${JSON.stringify(r.two)})`);
+      await check(r.oldRowInRoster.length === 0, `the roster also carries the old dept row with that name → two people, do not ask (got ${JSON.stringify(r.oldRowInRoster)})`);
+      await check(r.personal.length === 0 && r.noOrg.length === 0, `'개인' and an empty org are never candidates (got ${JSON.stringify([r.personal, r.noOrg])})`);
+      await check(r.otherOrg.length === 0, 'a same name in another org is not a candidate');
+      await check(r.skipAsked.length === 0, 'a department already asked by the near-duplicate prompt is not asked again');
+      await check(r.twoRowsOnePerson.length === 0, 'two roster rows pointing at the same person → do not ask');
+      // 보완 F1: 동명이인 번호(·N)는 명단 순서일 뿐 같은 사람이라는 뜻이 없다 — 번호가 끼면 묻지 않는다.
+      await check(r.suffixSame.length === 0 && r.suffixDiff.length === 0, `a numbered name ('박민수·2') is never asked, in either direction (got ${JSON.stringify([r.suffixSame, r.suffixDiff])})`);
+      await check(r.dupNumbered.length === 0, `재무과 has 최동명 and 최동명·2 → one incoming 최동명 is not asked (who moved is unknown) (got ${JSON.stringify(r.dupNumbered)})`);
+      await check(r.dupPaired.length === 0, `incoming 최동명 + 최동명·2 must not be paired number-to-number with 재무과's two (got ${JSON.stringify(r.dupPaired)})`);
+      await check(r.twoPlainRows.length === 0, `the same plain name on two incoming rows → do not ask (got ${JSON.stringify(r.twoPlainRows)})`);
+      // 보완 F2: 예전 형식 직원은 셈에는 넣고, 그 사람이 유일한 후보면 묻지 않는다.
+      await check(r.legacyOnly.length === 0, `a legacy-format employee (org empty, dept '광진구청 총무과') alone is not a candidate (got ${JSON.stringify(r.legacyOnly)})`);
+      await check(r.legacyCounts.length === 0, `a legacy-format same name counts → two people → do not ask (got ${JSON.stringify(r.legacyCounts)})`);
+      // 보완 F3: 갈림길에서 물은 부서는 이름 고치기가 반영된 뒤에도 원래 장부의 라벨로 걸러진다.
+      await check(r.renamedAsked.length === 0, `a person in the department the near-duplicate prompt asked about is skipped even after its rename (got ${JSON.stringify(r.renamedAsked)})`);
+      await check(r.afterRename.length === 0, 'after the near-duplicate rename the person matches exactly → not a candidate');
+    });
+
+    // ── 준비: CSV로 잔액을 넣는다(같은 부서·이름 = 보통의 충전, 묻는 창 없음) ──
+    await guard('seed balances via CSV', async () => {
+      await goSettings();
+      await page.locator('#csvFile').setInputFiles({ name: 'seed.csv', mimeType: 'text/csv', buffer: csvBuf(['소속,부서,이름,금액', `${ORG},재무과,홍길동,12000`, `${ORG},재무과,강감찬,6000`, `${ORG},총무과,윤봉길,4000`].join('\r\n') + '\r\n') });
+      await page.waitForSelector('.csv-table, #choiceTitle', { timeout: 8000 });
+      await check(await count(page, '#choiceTitle') === 0, 'exact matches must not open any prompt');
+      const n0 = (await readDb(page)).transactions.length;
+      await page.locator('[data-a="exec-csv"]').click();
+      await waitTx(n0);
+      const db = await readDb(page);
+      await check(balOf(db, 'm-hong') === 12000 && balOf(db, 'm-kang') === 6000 && balOf(db, 'm-yoon') === 4000, 'seed balances must land');
+    });
+
+    await page.evaluate(async ({ pubKey }) => {
+      const b2u = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+      const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+      const pub = await crypto.subtle.importKey('spki', b2u(pubKey).buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+      window.__b61Seal = async items => {
+        const aes = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(JSON.stringify({ v: 1, items })));
+        const raw = await crypto.subtle.exportKey('raw', aes);
+        return { alg: 'RSA-OAEP-2048+AES-256-GCM', encKey: u2b(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw)), iv: u2b(iv), ct: u2b(ct) };
+      };
+      window.__b61Hash = async items => { const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(items.map(i => i.name + '|' + i.dept + '|' + Number(i.amount)).sort().join('\n'))); return Array.from(new Uint8Array(d)).map(x => x.toString(16).padStart(2, '0')).join(''); };
+      window.__b61Inbox = [];
+      const orig = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        const s = String(u);
+        const J = (b, st) => new Response(JSON.stringify(b), { status: st || 200, headers: { 'Content-Type': 'application/json' } });
+        if (s.includes('/api/challenge')) return J({ challenge_ct: u2b(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, new TextEncoder().encode('B61BTOKEN'))) });
+        if (s.includes('/api/inbox?')) return J(window.__b61Inbox);
+        if (s.includes('/api/approve')) return J({ ok: true });
+        return orig(u, o);
+      };
+    }, { pubKey: meta.pubKey });
+    const openInbox = async (sid, dept, items) => {
+      await page.evaluate(async ({ sid2, dept2, items2, rid, org }) => {
+        window.__b61Inbox = [{ summary_id: sid2, summary: { institution: org, department: dept2, restaurant_id: rid, restaurant_name: '이동식당', year_month: '2026-11', total_amount: items2.reduce((s, i) => s + i.amount, 0), member_count: items2.length, batch_hash: await window.__b61Hash(items2) }, ciphertext: await window.__b61Seal(items2), status: 'PENDING' }];
+      }, { sid2: sid, dept2: dept, items2: items, rid: RID, org: ORG });
+      await goSettings();
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator('[data-a="relay-inbox"]').click();
+      await page.waitForSelector('[data-a="relay-approve"]', { timeout: 10000 });
+    };
+    const reviewAfter = before => dialogs.slice(before).find(d => d.type === 'confirm' && d.message.includes('받으실 금액'));
+
+    // ── 승인: 창 모양·기본값·[취소] = 장부 무변경 ──
+    const itemsA = [{ name: '홍길동', dept: '세무과', amount: 9000 }, { name: '신입', dept: '세무과', amount: 9000 }];
+    await guard('approve — prompt, default, cancel', async () => {
+      await openInbox('sid-b61-a', '세무과', itemsA);
+      const db0 = await readDb(page);
+      const d0 = dialogs.length;
+      await page.locator('[data-a="relay-approve"]').click();
+      await page.waitForSelector('.move-modal', { timeout: 10000 });
+      const m = await moveDlg();
+      await check(m.title === '부서를 옮긴 분인가요?', `title (got ${JSON.stringify(m.title)})`);
+      await check(m.rows.length === 1 && m.rows[0].q === '홍길동 — 재무과에 같은 이름이 있어요(잔액 12,000원). 세무과로 옮긴 분인가요?', `the question names the old dept, its balance and the new dept (got ${JSON.stringify(m.rows)})`);
+      const o = m.rows[0] ? m.rows[0].opts : [];
+      await check(o.length === 2 && o[0].label === '다른 사람이에요 — 새로 등록' && o[1].label === '옮긴 분이에요 — 세무과로 옮기기', `the two choices (got ${JSON.stringify(o)})`);
+      await check(o[0] && o[0].on === true && o[1].on === false, 'the default is "different person — register new"');
+      await check(JSON.stringify(m.primary) === JSON.stringify(['이대로 받기']) && JSON.stringify(m.buttons) === JSON.stringify(['ok:이대로 받기', 'cancel:취소']), `one dark button [이대로 받기] + [취소] (got ${JSON.stringify(m)})`);
+      await check(m.busy === 0, 'the busy overlay must be cleared before the prompt (it would cover it)');
+      await check(dialogs.length === d0, `no native popup may be used for this question (got ${JSON.stringify(dialogs.slice(d0))})`);
+      await finishDlg('cancel');
+      await page.waitForTimeout(300);
+      const db1 = await readDb(page);
+      await check(db1.transactions.length === db0.transactions.length && db1.employees.length === db0.employees.length && byId(db1, 'm-hong').dept === '재무과', 'cancel must leave the ledger untouched');
+      await check(!reviewAfter(d0), 'cancel must stop before the review confirm');
+      await check(await count(page, '.move-modal') === 0, 'the prompt closes on cancel');
+    });
+
+    // ── 승인: '옮기기' → 같은 id·부서 변경·잔액 합산·note·확인창 문구 ──
+    await guard('approve — move', async () => {
+      if (!(await count(page, '[data-a="relay-approve"]'))) await openInbox('sid-b61-a', '세무과', itemsA);
+      const d0 = dialogs.length;
+      const n0 = (await readDb(page)).transactions.length;
+      await page.locator('[data-a="relay-approve"]').click();
+      await page.waitForSelector('.move-modal', { timeout: 10000 });
+      await pickRow(0, 'move');
+      const m = await moveDlg();
+      await check(m.rows[0].opts[1].on === true && m.rows[0].opts[0].on === false, 'tapping a choice marks only that choice');
+      await finishDlg('ok');
+      await waitTx(n0);
+      await page.waitForTimeout(300);
+      const rev = reviewAfter(d0);
+      const msg = rev ? rev.message : '';
+      await check(msg.includes('이미 있는 직원 충전 1명') && msg.includes('그중 부서를 옮긴 분 1명은 지금 카드의 부서를 바꿔서 충전해요.') && msg.includes('· 홍길동: 12,000원 → 21,000원 (재무과 → 세무과 부서 이동)'), `the review shows the move as a top-up with the balance change (got ${JSON.stringify(msg.slice(0, 700))})`);
+      await check(msg.includes('새 직원 등록 1명') && msg.includes('· 신입: 9,000원'), 'the other row stays a new employee in the review');
+      const db = await readDb(page);
+      const h = byId(db, 'm-hong');
+      await check(h.dept === '세무과' && h.org === ORG && h.orgKind === 'public' && !h.isDeleted, `the same id now carries the new dept (got ${JSON.stringify(h)})`);
+      await check(db.employees.filter(e => e.name === '홍길동' && !e.isDeleted).length === 1, 'no second 홍길동 card');
+      await check(balOf(db, 'm-hong') === 21000, `the balance adds up on the same id (got ${balOf(db, 'm-hong')})`);
+      const lt = lastTx(db, 'm-hong');
+      await check(lt.type === 'topup' && String(lt.note).startsWith('광진구청 세무과') && String(lt.note).includes('부서 이동 재무과 → 세무과'), `the top-up note carries "부서 이동 재무과 → 세무과" (got ${JSON.stringify(lt.note)})`);
+      await check(live(db, '세무과', '신입').length === 1, '신입 is registered new');
+      const done = dialogs.slice(d0).find(d => d.type === 'alert' && d.message.includes('등록 완료'));
+      await check(Boolean(done) && done.message.includes('기존 충전 1명') && done.message.includes('부서를 옮긴 분 1명은 부서를 바꿨어요.'), `the done message counts the move (got ${JSON.stringify(done && done.message)})`);
+      const v = await page.evaluate(async () => { const H = window.__prepaidTestHooks; const c = await H.verifyChain(); const b = await H.verifyBalanceFor('m-hong'); return { ok: c.ok, b: !!(b && b.integrityOk && b.crossOk) }; });
+      await check(v.ok && v.b, `the chain and 홍길동's balance stay consistent (got ${JSON.stringify(v)})`);
+    });
+
+    // ── 받은 명단 되돌리기: 충전은 빼고 부서는 그대로 + 확인 창 한 줄 ──
+    await guard('undo keeps the moved dept', async () => {
+      await goSettings();
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator('[data-a="undo-batch"]').first().click();
+      await page.waitForSelector('#choiceTitle', { timeout: 5000 });
+      const txt = await page.locator('.choice-modal').innerText();
+      await check(txt.includes('부서를 옮긴 분의 부서는 그대로 둬요.'), `the undo prompt says the moved person's dept stays (got ${JSON.stringify(txt.slice(0, 500))})`);
+      const n0 = (await readDb(page)).transactions.length;
+      await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
+      await waitTx(n0);
+      await page.waitForTimeout(200);
+      const db = await readDb(page);
+      await check(byId(db, 'm-hong').dept === '세무과' && balOf(db, 'm-hong') === 12000, `undo takes the top-up back but keeps 세무과 (got ${byId(db, 'm-hong').dept}, ${balOf(db, 'm-hong')})`);
+      await check(live(db, '세무과', '신입').length === 0, 'the new employee of that roster is removed by undo');
+    });
+
+    // ── 승인: 기본값 그대로 [이대로 받기] = 새로 등록(옛 카드 그대로) + 이동 없는 명단의 되돌리기 창에는 그 줄이 없다 ──
+    await guard('approve — keep default', async () => {
+      await openInbox('sid-b61-b', '감사과', [{ name: '이순신', dept: '감사과', amount: 5000 }]);
+      const d0 = dialogs.length;
+      const n0 = (await readDb(page)).transactions.length;
+      await page.locator('[data-a="relay-approve"]').click();
+      await page.waitForSelector('.move-modal', { timeout: 10000 });
+      await finishDlg('ok');
+      await waitTx(n0);
+      await page.waitForTimeout(300);
+      const msg = (reviewAfter(d0) || {}).message || '';
+      await check(msg.includes('새 직원 등록 1명') && msg.includes('· 이순신: 5,000원') && !msg.includes('부서 이동'), `default keeps him a new employee in the review (got ${JSON.stringify(msg.slice(0, 500))})`);
+      const db = await readDb(page);
+      await check(byId(db, 'm-lee').dept === '재무과' && txSum(db, 'm-lee') === 0 && live(db, '감사과', '이순신').length === 1 && txSum(db, live(db, '감사과', '이순신')[0].id) === 5000, 'the old card is untouched and a new 이순신 is created in 감사과');
+      await goSettings();
+      await openSettingsCard(page, 'enroll-auto');
+      await page.locator('[data-a="undo-batch"]').first().click();
+      await page.waitForSelector('#choiceTitle', { timeout: 5000 });
+      const txt = await page.locator('.choice-modal').innerText();
+      await check(!txt.includes('부서를 옮긴 분'), 'a roster without a move does not show the move line on undo');
+      await page.locator('.choice-modal [data-a="choice-pick"][data-val="cancel"]').click();
+      await page.waitForTimeout(150);
+    });
+
+    // ── 직접 전달: 같은 규칙 ──
+    await guard('direct — move', async () => {
+      await goSettings();
+      const items = [{ name: '윤봉길', dept: '민원과', amount: 7000 }];
+      const json = await page.evaluate(async ({ items2, rid, org }) => JSON.stringify({
+        v: 1, type: 'direct-transfer', transfer_id: 'tid-b61b-yoon', restaurant_id: rid, restaurant_name: '이동식당', institution: org, department: '민원과', year_month: '2026-11',
+        summary: { total_amount: items2.reduce((s, i) => s + i.amount, 0), member_count: items2.length, batch_hash: await window.__b61Hash(items2) },
+        ciphertext: await window.__b61Seal(items2)
+      }), { items2: items, rid: RID, org: ORG });
+      const d0 = dialogs.length;
+      const n0 = (await readDb(page)).transactions.length;
+      await page.locator('#directTransferFile').setInputFiles({ name: 'yoon.json', mimeType: 'application/json', buffer: Buffer.from(json, 'utf8') });
+      await page.waitForSelector('.move-modal', { timeout: 10000 });
+      const m = await moveDlg();
+      await check(m.rows.length === 1 && m.rows[0].q === '윤봉길 — 총무과에 같은 이름이 있어요(잔액 4,000원). 민원과로 옮긴 분인가요?', `direct transfer asks the same question (got ${JSON.stringify(m.rows)})`);
+      await check(dialogs.length === d0, 'no native popup for the question (direct)');
+      await pickRow(0, 'move');
+      await finishDlg('ok');
+      await waitTx(n0);
+      await page.waitForTimeout(300);
+      const msg = (reviewAfter(d0) || {}).message || '';
+      await check(msg.includes('· 윤봉길: 4,000원 → 11,000원 (총무과 → 민원과 부서 이동)'), `the direct review shows the move (got ${JSON.stringify(msg.slice(0, 500))})`);
+      const db = await readDb(page);
+      const y = byId(db, 'm-yoon');
+      await check(y.dept === '민원과' && y.orgKind === 'public' && balOf(db, 'm-yoon') === 11000 && db.employees.filter(e => e.name === '윤봉길' && !e.isDeleted).length === 1, `direct: same id, new dept, balance added (got ${JSON.stringify(y)}, ${balOf(db, 'm-yoon')})`);
+      await check(String(lastTx(db, 'm-yoon').note).includes('부서 이동 총무과 → 민원과'), 'direct: the note carries the move');
+    });
+
+    // ── CSV: 후보 두 명을 한 창에서 줄마다 고른다(한 명은 옮기기, 한 명은 기본값) ──
+    await guard('CSV — two candidates, per-row choice', async () => {
+      await goSettings();
+      const d0 = dialogs.length;
+      await page.locator('#csvFile').setInputFiles({ name: 'move.csv', mimeType: 'text/csv', buffer: csvBuf(['소속,부서,이름,금액', `${ORG},교통과,강감찬,3000`, `${ORG},교통과,서희,2000`].join('\r\n') + '\r\n') });
+      await page.waitForSelector('.move-modal, .csv-table', { timeout: 8000 });
+      const m = await moveDlg();
+      await check(Boolean(m) && m.rows.length === 2 && m.rows.every(r => r.opts[0].on), `both candidates are listed in one prompt with the default on (got ${JSON.stringify(m && m.rows)})`);
+      await check(dialogs.length === d0, 'no native popup for the question (CSV)');
+      if (!m) return;
+      await pickRow(0, 'move');
+      await finishDlg('ok');
+      await page.waitForSelector('.csv-table', { timeout: 8000 });
+      const rows = await csvPreview();
+      const shown = rows.map(r => `${r['이름']}|${r['상태']}`);
+      await check(JSON.stringify(shown) === JSON.stringify(['강감찬|🔄 추가 충전 · 부서 이동(재무과 → 교통과)', '서희|✅ 신규']), `the preview shows the chosen move and the default (got ${JSON.stringify(shown)})`);
+      const sum = await page.locator('.modal').first().innerText();
+      await check(sum.includes('기존 충전 1명 (부서 이동 1명)'), 'the preview summary counts the move');
+      await check(byId(await readDb(page), 'm-kang').dept === '재무과', 'nothing is saved before [등록하기]');
+      const n0 = (await readDb(page)).transactions.length;
+      await page.locator('[data-a="exec-csv"]').click();
+      await waitTx(n0);
+      await page.waitForTimeout(200);
+      const conf = dialogs.slice(d0).find(d => d.type === 'confirm' && d.message.includes('처리하시겠습니까'));
+      await check(Boolean(conf) && conf.message.includes('추가 충전 1명(부서 이동 1명 포함)'), `the CSV confirm counts the move (got ${JSON.stringify(conf && conf.message)})`);
+      const db = await readDb(page);
+      const k = byId(db, 'm-kang');
+      await check(k.dept === '교통과' && k.orgKind === 'public' && balOf(db, 'm-kang') === 9000 && db.employees.filter(e => e.name === '강감찬' && !e.isDeleted).length === 1, `CSV move: same id, new dept, 6,000 + 3,000 (got ${JSON.stringify(k)}, ${balOf(db, 'm-kang')})`);
+      await check(String(lastTx(db, 'm-kang').note).includes('부서 이동 재무과 → 교통과'), 'CSV move: the note carries the move');
+      await check(byId(db, 'm-seo').dept === '총무과' && live(db, '교통과', '서희').length === 1, 'the default row registers a new 서희 and leaves the old card');
+    });
+
+    // ── CSV: 동명이인 두 명이면 묻지 않는다 ──
+    await guard('CSV — two same-name people → no prompt', async () => {
+      await goSettings();
+      await page.locator('#csvFile').setInputFiles({ name: 'kim.csv', mimeType: 'text/csv', buffer: csvBuf(['소속,부서,이름,금액', `${ORG},민원과,김영희,1000`].join('\r\n') + '\r\n') });
+      await page.waitForSelector('.csv-table, #choiceTitle', { timeout: 8000 });
+      await check(await count(page, '#choiceTitle') === 0 && await count(page, '.csv-table') === 1, 'two 김영희 in other depts → no prompt');
+      const rows = await csvPreview();
+      await check(rows.length === 1 && rows[0]['상태'] === '✅ 신규', `the row is a plain new employee (got ${JSON.stringify(rows)})`);
+      await closeModals();
+    });
+
+    // ── 보완 F1: 재무과에 최동명·최동명·2가 있으면 세무과 명단의 최동명 한 줄은 묻지 않는다(CSV 실제 경로) ──
+    await guard('CSV — numbered namesakes → no prompt', async () => {
+      await goSettings();
+      await page.locator('#csvFile').setInputFiles({ name: 'dong.csv', mimeType: 'text/csv', buffer: csvBuf(['소속,부서,이름,금액', `${ORG},세무과,최동명,1000`].join('\r\n') + '\r\n') });
+      await page.waitForSelector('.csv-table, #choiceTitle', { timeout: 8000 });
+      await check(await count(page, '#choiceTitle') === 0 && await count(page, '.csv-table') === 1, '재무과 최동명·최동명·2 → incoming 최동명 is not asked');
+      const rows = await csvPreview();
+      await check(rows.length === 1 && rows[0]['상태'] === '✅ 신규', `the row registers new (got ${JSON.stringify(rows)})`);
+      await closeModals();
+      await page.locator('#csvFile').setInputFiles({ name: 'dong2.csv', mimeType: 'text/csv', buffer: csvBuf(['소속,부서,이름,금액', `${ORG},세무과,최동명,1000`, `${ORG},세무과,최동명,2000`].join('\r\n') + '\r\n') });
+      await page.waitForSelector('.csv-table, #choiceTitle', { timeout: 8000 });
+      await check(await count(page, '#choiceTitle') === 0, 'two incoming 최동명 rows (second becomes ·2) are not paired with 재무과 by number');
+      await closeModals();
+    });
+
+    // ── 보완 F3: CSV [이름 고치고 받기] 뒤에도 그 부서 사람은 다시 묻지 않는다 ──
+    await guard('CSV — rename at the fork, then no second ask', async () => {
+      await goSettings();
+      await page.locator('#csvFile').setInputFiles({ name: 'rename.csv', mimeType: 'text/csv', buffer: csvBuf(['소속,부서,이름,금액', `${ORG},보건정책과,가나,1000`, `${ORG},보건정책과,다라,1000`, `${ORG},질병관리과,마바,1000`].join('\r\n') + '\r\n') });
+      await page.waitForSelector('#choiceTitle', { timeout: 8000 });
+      await check((await page.locator('#choiceTitle').innerText()) === '비슷한 부서가 이미 있어요', 'the near-duplicate prompt comes first');
+      await page.locator('.choice-modal [data-a="choice-pick"][data-val="rename"]').click();
+      await page.waitForSelector('.csv-table, .move-modal', { timeout: 8000 });
+      await check(await count(page, '.move-modal') === 0, `마바 (보건과, already asked at the fork) is not asked again after the rename`);
+      const rows = await csvPreview();
+      await check(JSON.stringify(rows.map(r => `${r['이름']}|${r['상태']}`)) === JSON.stringify(['가나|🔄 추가 충전', '다라|🔄 추가 충전', '마바|✅ 신규']), `renamed group tops up, 마바 stays new (got ${JSON.stringify(rows)})`);
+      await closeModals();
+    });
+
+    // ── CSV: 같은 명단에 옛 부서·같은 이름 줄이 있으면 두 사람 ──
+    await guard('CSV — old dept row in the same file → no prompt', async () => {
+      await goSettings();
+      await page.locator('#csvFile').setInputFiles({ name: 'han.csv', mimeType: 'text/csv', buffer: csvBuf(['소속,부서,이름,금액', `${ORG},재무과,한석봉,1000`, `${ORG},법무과,한석봉,2000`].join('\r\n') + '\r\n') });
+      await page.waitForSelector('.csv-table, #choiceTitle', { timeout: 8000 });
+      await check(await count(page, '#choiceTitle') === 0, 'the file also has 재무과 한석봉 → two people, no prompt');
+      const rows = await csvPreview();
+      await check(JSON.stringify(rows.map(r => `${r['부서']}|${r['상태']}`)) === JSON.stringify(['재무과|🔄 추가 충전', '법무과|✅ 신규']), `old dept tops up, new dept is new (got ${JSON.stringify(rows)})`);
+      await closeModals();
+    });
+
+    // ── CSV: 갈림길(비슷한 부서)에서 이미 물은 부서의 사람은 다시 묻지 않는다 ──
+    await guard('CSV — near-duplicate first, no second ask', async () => {
+      await goSettings();
+      await page.locator('#csvFile').setInputFiles({ name: 'near.csv', mimeType: 'text/csv', buffer: csvBuf(['소속,부서,이름,금액', `${ORG},보건정책과,가나,1000`, `${ORG},보건정책과,다라,1000`, `${ORG},보건정책과,새사람,1000`].join('\r\n') + '\r\n') });
+      await page.waitForSelector('#choiceTitle', { timeout: 8000 });
+      const t1 = await page.locator('#choiceTitle').innerText();
+      await check(t1 === '비슷한 부서가 이미 있어요' && await count(page, '.move-modal') === 0, `the near-duplicate prompt comes first (got ${JSON.stringify(t1)})`);
+      await page.locator('.choice-modal [data-a="choice-pick"][data-val="separate"]').click();
+      await page.waitForSelector('.csv-table, .move-modal', { timeout: 8000 });
+      await check(await count(page, '.move-modal') === 0, 'people of the department already asked are not asked again');
+      await closeModals();
+    });
+
+    // ── 창이 떠 있는 동안 자동 잠금(손님 화면) = 취소, 장부 무변경 ──
+    await guard('auto-lock dismisses the prompt', async () => {
+      await openInbox('sid-b61-c', '세무과', [{ name: '한석봉', dept: '세무과', amount: 4000 }]);
+      const db0 = await readDb(page);
+      await page.evaluate(() => { window.__prepaidTestHooks.TIMERS.modalIdleCap = 1500; });
+      await page.locator('[data-a="relay-approve"]').click();
+      await page.waitForSelector('.move-modal', { timeout: 10000 });
+      await page.waitForFunction(() => window.__prepaidTestHooks.lockState().locked === true, null, { timeout: 8000 }).catch(() => {});
+      await page.evaluate(() => { window.__prepaidTestHooks.TIMERS.modalIdleCap = 600000; });
+      const db1 = await readDb(page);
+      await check(await count(page, '.move-modal') === 0 && (await page.evaluate(() => window.__prepaidTestHooks.lockState().locked)) === true, 'auto-lock closes the prompt and shows the customer screen');
+      await check(db1.transactions.length === db0.transactions.length && byId(db1, 'm-han').dept === '재무과', 'a dismissed prompt leaves the ledger untouched');
+      await unlockPin(page);
+      await page.waitForFunction(() => window.__prepaidTestHooks.lockState().locked === false, null, { timeout: 8000 });
+      const allowed = await page.evaluate(() => window.__prepaidTestHooks.lockAllowed());
+      const keys = await page.evaluate(() => window.__prepaidTestHooks.clickActionKeys());
+      await check(keys.includes('move-pick') && !allowed.includes('move-pick'), 'move-pick exists and stays outside the lock allowlist');
+    });
+
+    // ── ㉠ [직원 정보 수정]: 안내 한 줄 + 부서만 바꿀 때 orgKind 유지(소속을 바꾸면 재분류는 그대로) ──
+    await guard('edit employee keeps orgKind', async () => {
+      await goSettings();
+      await openSettingsCard(page, 'employees');
+      // 직원 목록은 소속별로 접혀 있어 행 위치가 시나리오마다 달라진다 — [수정] 처리기(edit-employee)를 그 직원 id로 직접 누른다(beta.60c와 같은 방식).
+      const openEdit = async id => {
+        await page.evaluate(i => { const b = document.createElement('button'); b.dataset.a = 'edit-employee'; b.dataset.id = i; b.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px'; document.getElementById('app').appendChild(b); b.click(); b.remove(); }, id);
+        await page.waitForSelector('#empDept', { timeout: 5000 });
+      };
+      await openEdit('m-hong');
+      const note = await page.locator('.emp-move-note').innerText().catch(() => '');
+      await check(note.trim() === '부서를 바꿔도 지난 기록과 잔액은 그대로 따라가요.', `the edit form tells that records follow (got ${JSON.stringify(note)})`);
+      await page.locator('#empDept').fill('기획과');
+      await page.locator('[data-a="save-employee"]').click();
+      await page.waitForTimeout(300);
+      let db = await readDb(page);
+      const h = byId(db, 'm-hong');
+      await check(h.dept === '기획과' && h.orgKind === 'public', `changing only the dept keeps orgKind 'public' (got ${JSON.stringify({ dept: h.dept, orgKind: h.orgKind })})`);
+      await check(balOf(db, 'm-hong') === 12000, 'the balance follows the same id');
+      // 두 번째 공공기관(가게 기본 기관 meta.orgName='광진구청'과 다른 소속) — 예전에는 부서만 바꿔도 orgKind를 다시 판정해 public을 잃었다.
+      await openEdit('m-bo');
+      await page.locator('#empDept').fill('건강증진과');
+      await page.locator('[data-a="save-employee"]').click();
+      await page.waitForTimeout(300);
+      db = await readDb(page);
+      await check(byId(db, 'm-bo').dept === '건강증진과' && byId(db, 'm-bo').orgKind === 'public', `a second public agency's staff keeps orgKind 'public' on a dept-only change (got ${JSON.stringify({ dept: byId(db, 'm-bo').dept, orgKind: byId(db, 'm-bo').orgKind })})`);
+      await openEdit('m-han');
+      await page.locator('#empOrg').fill('개인');
+      await page.locator('[data-a="save-employee"]').click();
+      await page.waitForTimeout(300);
+      db = await readDb(page);
+      await check(byId(db, 'm-han').org === '개인' && byId(db, 'm-han').orgKind === '', 'changing the org still re-classifies (개인 → not public)');
+    });
+
+    await check(problems.length === 0, `no page error may occur (got ${JSON.stringify(problems.slice(0, 3))})`);
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+  console.log(`beta.61b: ${passed} checks passed${fails.length ? `, ${fails.length} failed` : ''}`);
+  return { passed, fails };
+}
+
 async function main() {
   await fsp.mkdir(path.join(root, 'harness', 'screenshots'), { recursive: true }).catch(() => {});
   const { server, url } = await startServer();
@@ -4836,6 +5599,22 @@ async function main() {
   if (process.env.E2E_ONLY === 'beta60e') {
     try {
       const r = await runBeta60e(browser, url, { 'Access-Control-Allow-Origin': '*' });
+      process.exitCode = r.fails.length ? 1 : 0;
+    } finally { await browser.close(); server.close(); }
+    return;
+  }
+  // E2E_ONLY=beta61a — beta.61 M([이력] > [월별] 탭) 블록만.
+  if (process.env.E2E_ONLY === 'beta61a') {
+    try {
+      const r = await runBeta61a(browser, url, { 'Access-Control-Allow-Origin': '*' });
+      process.exitCode = r.fails.length ? 1 : 0;
+    } finally { await browser.close(); server.close(); }
+    return;
+  }
+  // E2E_ONLY=beta61b — beta.61 D(부서 이동) 블록만.
+  if (process.env.E2E_ONLY === 'beta61b') {
+    try {
+      const r = await runBeta61b(browser, url, { 'Access-Control-Allow-Origin': '*' });
       process.exitCode = r.fails.length ? 1 : 0;
     } finally { await browser.close(); server.close(); }
     return;
@@ -4923,6 +5702,8 @@ async function main() {
     { const r60c = await runBeta60c(browser, url, cors); if (r60c.fails.length) throw new Error('[beta.60c] ' + r60c.fails[0]); }
     { const r60d = await runBeta60d(browser, url, cors); if (r60d.fails.length) throw new Error('[beta.60d] ' + r60d.fails[0]); }
     { const r60e = await runBeta60e(browser, url, cors); if (r60e.fails.length) throw new Error('[beta.60e] ' + r60e.fails[0]); }
+    { const r61a = await runBeta61a(browser, url, cors); if (r61a.fails.length) throw new Error('[beta.61a] ' + r61a.fails[0]); }
+    { const r61b = await runBeta61b(browser, url, cors); if (r61b.fails.length) throw new Error('[beta.61b] ' + r61b.fails[0]); }
 
     await page.goto(url, { waitUntil: 'load' });
 

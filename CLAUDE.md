@@ -10,9 +10,10 @@
 |---|---|---|---|
 | 소개 홈페이지 | https://bapjangbu.com | Cloudflare Pages `bapjangbu-home` | `npx wrangler pages deploy homepage --project-name=bapjangbu-home --branch=main` |
 | 음식점 앱(PWA) | https://app.bapjangbu.com | GitHub Pages(커스텀 도메인) | `git push` → Actions 자동 |
+| 가게 색인(beta.61) | https://app.bapjangbu.com/storeidx/meta.json | GitHub Pages 아티팩트(리포에 커밋 안 함) | `pages.yml`이 주 1회(한국 월 03:23) 새로 만들고, push 때는 라이브 것을 그대로 싣는다 |
 | 기관 담당자 웹 | https://agency.bapjangbu.com | Cloudflare Pages `prepaid-agency` | `npx wrangler pages deploy agency-web --project-name=prepaid-agency` |
 | 문서(매뉴얼·방침·약관·관리자) | https://app.bapjangbu.com/docs/… | GitHub Pages(리포 docs/) | `git push` |
-| 직원용 앱(베타) | https://staff.bapjangbu.com | GitHub Pages(별도 리포 `NULMARU/bapjangbu-staff`) | 그 리포에 `git push` |
+| 밥장부 개인용 앱(옛 직원용) | https://staff.bapjangbu.com | GitHub Pages(별도 리포 `NULMARU/bapjangbu-staff`) | 그 리포에 `git push` |
 | 중계 서버 | https://prepaid-relay.sulsul-plus.workers.dev | Cloudflare Workers + D1 | `cd server && npx wrangler deploy` |
 
 옛 주소(`nulmaru.github.io/Prepaid_PWA`, `prepaid-agency.pages.dev`)는 계속 작동(301/병행 서빙).
@@ -22,9 +23,9 @@
 - `index.html` — 음식점 주인 PWA(단일 파일, 오프라인 우선, IndexedDB). 원장의 진실은 이 기기.
 - `agency-web/index.html` — 기관 담당자 웹(단일 파일). 명단을 음식점 RSA 공개키로 브라우저 암호화.
 - `server/src/worker.js` — zero-knowledge 중계(암호문·총액·해시만 저장). D1 스키마 `server/schema.sql`.
-- 직원용 앱은 **별도 리포**(`NULMARU/bapjangbu-staff`)다 — 개인 기록장이며 음식점 장부와 연동되지 않는다(공식 잔액은 음식점 기기).
+- 개인용 앱(옛 직원용, 이름 "밥장부 개인용 앱" — 사용자 결정 2026-11-22)은 **별도 리포**(`NULMARU/bapjangbu-staff`)다 — 개인 기록장이며 음식점 장부와 연동되지 않는다(공식 잔액은 음식점 기기).
 - 전달 2모드: 「바로 보내기」(서버 경유, 수령 즉시 삭제·미수령 72h 만료) / 「직접 전달」(서버 무보관 — 파일·QR·이메일·카톡 오픈채팅).
-- 인증: 기관=이메일 OTP(Resend, `noreply@bapjangbu.com`) + `X-Agency-Token` 필수(`REQUIRE_AGENCY_AUTH=1`). 음식점=RSA 챌린지-응답 소유증명(approve/deregister/재등록/원장백업/연락처).
+- 인증: 기관=이메일 OTP(Resend, `noreply@bapjangbu.com`) + `X-Agency-Token` 필수(`REQUIRE_AGENCY_AUTH=1`, **토큰은 인증한 때부터 90일 고정** — beta.61, 담당자 웹은 `localStorage`에 89일, `POST /api/agency/logout`). 음식점=RSA 챌린지-응답 소유증명(approve/deregister/재등록/원장백업/연락처).
 - 운영자: `docs/admin.html`(ADMIN_TOKEN secret, 비식별 집계+의견 표), `/api/feedback`.
 
 ## 절대 불변식 (깨는 PR·기능 금지)
@@ -41,14 +42,16 @@
 ## 검증·개발 명령
 
 ```bash
-bash harness/verify-all.sh          # 원터치 전체 검증(로컬 8 + 라이브 5 + 3앱 접속) — 16/16 기대(담당자 웹 e2e 4종·정적·링크·갱신 보존 포함)
-node harness/prepaid.e2e.js         # 음식점 앱 Playwright e2e (전 기능 시나리오). E2E_ONLY=beta55|beta55b|beta55c(70·63·107) · beta60a~beta60e(53·36·64·19·21)로 블록만
-node harness/phase2.e2e.mjs         # 서버 하니스 — 메모리 store + node:sqlite D1 어댑터로 실제 SQL(919 검증, beta.60)
-node harness/responsive.e2e.mjs     # 폰·태블릿 반응형 기하 검증(360/390/412/768 + 태블릿 가로·세로 6종 — 3,955 검증, beta.60)
-node harness/dongsearch.e2e.mjs     # 동 이름 검색(zipmap 순회·429 재시도·입력 보존·실패/오프라인 안내·첫 검색 재시도·되찾기 글씨 자리·15초 뒤 [그만두기]) 108 검증
+bash harness/verify-all.sh          # 원터치 전체 검증(로컬 8 + 라이브 5 + 3앱 접속 + 가게 색인 기준일) — 17/17 기대(담당자 웹 e2e 5종·색인 도구·정적·링크·갱신 보존 포함)
+node harness/prepaid.e2e.js         # 음식점 앱 Playwright e2e (전 기능 시나리오). E2E_ONLY=beta55|beta55b|beta55c(70·63·107) · beta60a~beta60e(53·36·64·19·21) · beta61a(월별 46)·beta61b(부서 이동 81)로 블록만
+node harness/phase2.e2e.mjs         # 서버 하니스 — 메모리 store + node:sqlite D1 어댑터로 실제 SQL(971 검증, beta.61)
+node harness/responsive.e2e.mjs     # 폰·태블릿 반응형 기하 검증(360/390/412/768 + 태블릿 가로·세로 6종 — 4,345 검증, beta.61)
+node harness/dongsearch.e2e.mjs     # 동 이름 검색(zipmap 순회·429 재시도·입력 보존·실패/오프라인 안내·첫 검색 재시도·되찾기 글씨 자리·15초 뒤 [그만두기]·색인 X1~X10) 180 검증
 node harness/unregistered.e2e.mjs   # 미등록 가게(직접 입력·오프라인 설치): 서버 호출 0·오류 0·배너 '받지 않아요'(29, beta.58)
 node harness/backup-pass.e2e.mjs    # 백업 암호 기억(처음 한 번·적어 두기 창·다시 안 묻기·바꾸기·새 기기 되찾기) 33, beta.59
-node harness/agency-net.e2e.mjs     # 담당자 웹 4종(agency-xlsx 40·csvchoice 19·sent 54·net 28 = 141, beta.60)
+node harness/agency-net.e2e.mjs     # 담당자 웹 5종(agency-xlsx 40·csvchoice 19·sent 54·net 28·auth 51 = 192, beta.61)
+node harness/storeidx.test.mjs      # 가게 색인 만들기 도구(cp949·CSV·형식 v1·두 가게 포함·전화번호 없음) 49, 네트워크 없음(CI 게이트)
+node harness/build-storeidx.mjs --download   # 전국 일반음식점 파일을 받아 storeidx/를 만든다(로컬 산출물은 gitignore) — docs/storeidx-pipeline.md
 node harness/check-static.mjs       # 정적 계약: meta 키⊂META_KEYS·APP_VERSION=CACHE_NAME·NUL 바이트·기관 수(CI 게이트)
 node harness/check-links.mjs        # homepage·docs 상대 링크·앵커(네트워크 없음, CI 게이트)
 node harness/install.e2e.mjs        # 홈 화면에 추가 안내(안드로이드 크롬·iOS 사파리·인앱·설치됨 분기, 그만 보기) 200, beta.60
@@ -153,12 +156,19 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - **단언은 뜻을 직접 비교한다** — "Space가 화면을 밀지 않는다"를 `scrollY===0`으로 적어 두면, 배너 하나가 늘어 focus만으로 화면이 내려갈 때 무관한 실패가 된다. 누르기 전·후를 비교할 것(beta.60).
 - **고정 자료(fixture)가 날짜를 타지 않게 한다** — 자료에 박힌 "마지막 서버 백업" 시각이 7일을 넘기자 잠금 해제 때 자동 백업이 끼어들어, 코드가 그대로인데 검사가 날짜만으로 실패했다(beta.60). 시간에 기대는 값은 검사 안에서 "지금" 기준으로 맞출 것.
 - **모든 e2e 블록은 `/api/**`를 목으로 막는다** — 목이 빠진 블록 하나가 실제 중계 서버로 요청을 보냈다(beta.60, CORS에 막혀 본문은 가지 않음).
+- **"정확히 한 명"을 셀 때는 표시용 꾸밈(동명이인 번호 `·N`)을 떼고 센다** — 번호는 명단 순서일 뿐 같은 사람이라는 뜻이 아니다. 헷갈릴 수 있으면 묻지 않고 '따로'가 기본(beta.61 부서 이동).
+- **빠른 길을 붙일 때 느린 옛 길을 지우지 않는다** — 색인이 없거나 낡은 날의 탈출구다. 다만 저절로 넘어가지 않게 하고(느림이 되살아난다) 버튼으로 둔다. 빠른 길의 결과가 **있을 때도** 탈출구가 보여야 한다(beta.61).
 - **구현한 사람과 다른 눈으로 깨뜨려 본다** — 외부 모델 리뷰(아스트라, 50건 사실관계 전부 맞음)와 구역별 적대 검증이 구현자가 못 본 것을 잡았다(beta.60).
 - **서버 계약은 실제 D1 문장으로도 돌린다**(phase2의 node:sqlite 어댑터) — 메모리 store만 통과하면 SQL은 증명되지 않는다. **배포 후 `live-betaNN` 태그**를 남겨야 갱신 보존 게이트가 진짜 라이브와 비교한다(beta.55).
 
-## 현재 상태 (2026-11-17)
+## 현재 상태 (2026-11-22)
 
-- **라이브 = beta.60(2026-11-22 배포, 태그 `live-beta60`)** — 외부 리뷰(ChatGPT 아스트라) 반영 + 비밀번호 분실 복구 재설계 + 홈 화면 설치 안내 +
+- **beta.61(2026-11-22, 베타로 배포 — 정식 버전은 현장 점검 뒤 결정)** — 가게 찾기 정적 색인 + [이력]>[월별] 탭 + 부서를 옮긴 분 + 담당자 인증 90일 +
+  밥장부 개인용 앱(옛 직원용). 앱·서버·담당자 웹·개인용 앱·홈페이지·안내서. D1 마이그레이션 없음. 배포 순서: 서버 → 앱·docs push(색인은 Pages 런이 만든다) →
+  담당자 웹 → 홈페이지 → 개인용 앱 → 태그 `live-beta61`. 아래 완료 기록 참조.
+  **현장·실기기 점검표와 1.0 판단 기준은 `docs/handover/13-beta61-field-checklist.md`**, 남은 문제는 `09-open-items.md`(사용자: "beta61 테스트 결과를 보면서 같이 결정").
+  결정 대기: 서명 그림 서버 보관(09 D10), 약관 제7조 출처 표기(A5). 상표 출원은 하지 않기로 함(설명적 이름·무료 서비스 — 제휴·유료 요소가 생기면 재검토).
+- **그 전 라이브 = beta.60(2026-11-22 배포, 태그 `live-beta60`)** — 외부 리뷰(ChatGPT 아스트라) 반영 + 비밀번호 분실 복구 재설계 + 홈 화면 설치 안내 +
   오프라인 백업 안내 + 이름 통일(대표 이름 "밥장부") + 가게 찾기 정리 + 오픈채팅 숨김 + 약관·방침 보완. 앱·서버·담당자 웹·직원 앱·홈페이지·안내서.
   배포 순서: D1 `migrations-2026-11b.sql` 7문(`--command`) → 서버 → 앱·docs push → 담당자 웹 → 홈페이지 → 직원 앱 → 태그. 아래 완료 기록 참조.
   배포 뒤 할 일: 모든 기기가 beta.60 이상이 되면 서버 `REACTIVATE_COMPAT="0"`, 실기기 확인(아이폰 홈 화면 앱·카카오톡 인앱·아이콘 이름 갱신).
@@ -244,6 +254,50 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 - **verify-all 16/16 기대**(2026-11-13 정적 검사·링크 검사·갱신 보존 3항목 추가 — 로컬 8 + 라이브 5 + 접속 3. [1]-5는 담당자 웹 4종). beta.55 수치는 위 beta.55 항목. 이전 기록: **12/12**(2026-09-13 beta.48 배포 후, 목 427 + 반응형 2,589 → beta.49에서 2,625 + 동 검색 25 + 음식점 e2e ok + 라이브 11). 이 환경에서 Playwright는 정상 기동한다(09-01의 mach port 차단은 재현되지 않음). HEAD b60add2의 e2e는 라벨 없는 `console.error` 1건으로 실패 상태였고 beta.48에서 해소. 알려진 경미 이슈 1건: 홈 검색 입력 중 간헐 `NotFoundError`(blur 핸들러 중 innerHTML 교체 — 해당 렌더만 버려지고 다음 입력에 복구, beta.13 이전부터 존재, 사용자 체감 없음) — 추후 렌더 스케줄링 개선 후보.
 
 ## 완료 기록 (최신순)
+
+### 완료 (2026-11-22 — 가게 찾기 정적 색인·월별 탭·부서 이동·담당자 인증 90일·밥장부 개인용 앱, beta.61)
+
+- **배경(사용자 결정 2026-11-22)**: beta.60 배포 뒤 검토 6건의 답 — ① 가게 찾기를 공공데이터 **전체 파일로 만든 정적 색인**으로(네이버 지도 API 대체는 불가)
+  ② 사장님용 통계는 [이력]의 **[월별] 탭**(기관 담당자용은 하지 않음) ③ "직원이 부서를 옮긴 경우 사장님에게 확인하고 승인하면 부서를 옮긴다"
+  ④ 담당자 **인증 3개월**(서무 자리는 개인 PC이고 잘 바뀌지 않는다) ⑤ 직원용 앱 → **"밥장부 개인용 앱"**, 베타 표시 제거 ⑥ 상표 출원은 하지 않음.
+  계약서 `.claude/reviews/beta61-contract.md`(리포 밖). 구역 M(월별)→D(부서 이동)→A(앱 색인)는 `index.html`이라 차례로, B(색인 만들기)·S(서버)·O(담당자 웹·개인용 앱)·
+  L(문서)·F(개인용 앱 이름)는 나란히, 끝에 다른 작업자의 적대 검증(T)과 보완.
+- **가게 색인 — 설계 판단**:
+  (a) 출처는 `file.localdata.go.kr`의 일반음식점 전국 CSV(cp949, 39열, 약 700MB, 231만 행 중 영업 67만). **`관리번호` 열이 있고 중복 0** — 가게 식별번호가
+  그대로라 등록·지문 확인·기존 두 가게에 영향이 없다. 브라우저 UA + Referer가 있어야 200.
+  (b) 형식 v1: `storeidx/meta.json`(시도→시군구→`{f,n}`) + 시군구 파일 `[관리번호, 이름, 도로명주소, 지번주소, 우편번호]`. 키 표기는 zipmap과 같다. **읽는 쪽은
+  반드시 meta의 `f`를 쓴다**(번호는 zipmap 순번이라 바뀔 수 있다). **전화번호는 넣지 않는다**(불변식 4) — 색인으로 고른 가게는 전화 칸이 비어 있다.
+  (c) Node 내장 `TextDecoder('euc-kr')`는 cp949 확장 한글 8,822자를 못 푼다 → KS X 1001 영역만 내장으로, 확장 영역은 규칙으로 만든 표(파이썬 cp949와 전 구간 일치, 만들 때마다 자기 점검).
+  (d) **리포에 커밋하지 않는다**(117MB·256파일) — `pages.yml`이 Pages 아티팩트에만 싣는다. 새로 만드는 것은 **주 1회 예약**(한국 월 03:23)과 수동 실행뿐이고,
+  push 때는 라이브 색인을 그대로 가져온다(배포마다 700MB를 받으면 한도 429·배포가 공공 서버 상태에 묶임). 만들기 실패 → 라이브 것 → 그것도 없으면 색인 없이
+  배포. **색인 때문에 앱 배포가 실패하지 않는다.** 주기를 매일이 아니라 주 1회로 한 것은 사용자 결정(원자료가 이틀 전 기준이고 [공공데이터에서 다시 찾기]·[직접 입력]이 있다).
+  (e) GitHub 러너(미국 LAX·IAD)에서 내려받기·만들기 확인(일회성 시험 가지, 41~54초). 공개 리포는 60일 무커밋이면 예약이 멈춘다 → verify-all "가게 색인" 항목(기준일 10일).
+  (f) 앱: **지역 칸에서 시·도와 시·군·구가 하나로 정해질 때만** 색인. 이름만 적거나 색인을 못 받으면(404·형식·10초) 예전 방식 그대로(코드를 지우지 않았다).
+  0건이면 예전 방식으로 **저절로 넘어가지 않고** [공공데이터에서 다시 찾기] 글씨 버튼(49구역 순회를 되살리지 않으려고). 같은 이름 구("중구")는 칩으로 묻는다.
+  (g) 적대 검증 보완: 색인 상호와 공공데이터 API 상호가 다르면 등록이 `store_not_found`로 막히는데 다시 찾아도 같은 색인 결과가 나왔다 → **결과가 있을 때도**
+  목록 아래에 기준일과 [공공데이터에서 다시 찾기], 실패 안내는 토스트가 아니라 앱 안 창.
+- **[월별] 탭**: 읽기 전용. 날짜는 발생일(`txDispTime`), 취소 제외, 조정은 0이 아닐 때 한 줄. "지금 남은 선금"은 `derive().total`(설정의 잔액 합계와 같은 함수),
+  소속별 묶음은 홈 그룹(`homeGroupIndex`). "오래 안 온 손님"은 잔액>0·마지막 사용 60일 초과(사용이 없으면 첫 선금부터). 그래프 없음, 빈 달은 0원 표 대신 한 문장.
+- **부서를 옮긴 분 — 설계 판단**: 직원은 무작위 id로 거래와 묶여 있어 부서 글자만 바꾸면 기록·잔액이 따라간다. **잔액을 사람 사이에 옮기는 길은 없다**(beta.54 유지).
+  명단을 받을 때(승인·직접 전달·CSV 공통, `askNearDuplicate` 뒤) 후보에게만 앱 안 창에서 한 사람씩 묻고, 기본은 [다른 사람이에요 — 새로 등록].
+  '옮기기'는 부서 패치와 충전을 **한 번의 `repo.apply`**로, 충전 note에 "부서 이동 A → B"(해시 안 — 새 필드·meta 키 없음). 되돌리기는 충전만 되돌리고 부서는 둔다.
+  **후보 규칙(적대 검증 뒤 고침)**: 번호 `·N`을 뗀 이름으로 센다 — 같은 소속의 다른 부서 전체에서 그 이름이 정확히 한 명(예전 형식 직원도 셈에 넣되 후보로는
+  삼지 않는다), 들어온 이름에 번호가 없고 명단 안에서도 한 줄뿐, 같은 명단에 옛 부서 줄이 없고, 앞 갈림길이 이미 물은 부서가 아닐 때(원래 장부 라벨 기준).
+  처음 구현은 `·N`까지 같은 표시 이름으로 세어, 재무과에 홍길동·홍길동·2가 있을 때 한 명만 후보로 잡아 **남의 카드에 충전될 수 있는 질문**을 했다(T가 재현).
+  `saveEmployee`: 소속이 그대로면 `orgKind`를 지킨다(부서만 바꾼 공공기관 직원이 회사 그룹으로 넘어가던 결함).
+- **담당자 인증 90일**: 서버 토큰은 **인증한 때부터 90일 고정**(쓸 때 늘리지 않음), `POST /api/agency/logout`(멱등, 그 토큰 행만 삭제). 담당자 웹은 `localStorage`에
+  89일(저장소가 막힌 PC는 세션→메모리로 조용히 폴백), 30분 무조작 해제 삭제, "○○@기관 으로 인증됨 · [로그아웃]" 상시 표시. 명단 내용은 여전히 저장하지 않는다.
+  마이그레이션 없음. 방침 제3조에 보관 기간(토큰 해시·이메일 해시·도메인·만료 시각 90일)과 브라우저 저장을 적었다. 목적은 인증 메일 한도(하루 80통)의 여유.
+- **밥장부 개인용 앱**(별도 리포): 이름·manifest `name`/`short_name`(id·start_url·scope·저장 키·백업 형식 불변), 홈 맨 위에 늘 보이는 두 줄
+  "공식 잔액은 음식점 태블릿이 기준이에요. / 여기 금액과 잔액은 내가 직접 적는 개인 기록이에요."(한 상수), 손상된 금액·날짜를 조용히 0원·오늘로 바꾸지 않고
+  "읽지 못한 기록"으로 보존·알림, 광진구 예시 20곳 제거, 색인 검색. 홈페이지·안내서의 "(베타)" 제거 — 3주체의 역할 이름 '직원'은 그대로.
+- **하니스**: e2e `runBeta61a`(46)·`runBeta61b`(81), 반응형 4,345, phase2 971(`beta61Suite` — 메모리·D1), 동 검색 180(X1~X10), 신설 `storeidx.test.mjs`(49)·
+  `agency-auth.e2e.mjs`(51), 담당자 웹 5종 192, 개인용 앱 `personal.e2e.mjs`(83)·`storeidx.e2e.mjs`(24). 갱신 보존 beta.60→61 29/29. 새 단언은 수정 전 코드에서 실패 확인.
+  verify-all 17항목(가게 색인 기준일 추가). 실제 전국 색인으로 잰 가게 찾기: 첫 검색 0.07초(느린 4G+느린 폰 1.1초, 강남구 2.3초), 서버 호출 0.
+- **저장 구조**: VER 3·백업 형식·`batch_hash`·meta 키 불변(새 키 없음). 서버 스키마 불변.
+- **남은 것**: `docs/handover/13-beta61-field-checklist.md`(실기기·현장 점검, 1.0 조건)와 09의 C16(색인 운영)·D10(서명 서버 보관 — 결정 대기)·D11·D12·A5.
+  이름이 바뀐 구의 옛 이름("인천 중구")은 색인에서도 못 찾는다. 이름 대조의 영문 대소문자가 앱(구별)과 담당자 웹(구별 안 함)에서 다르다.
+
 
 ### 완료 (2026-11-22 — 외부 리뷰 반영·비밀번호 분실 복구 재설계·홈 화면 설치·오프라인 안내·이름 통일, beta.60)
 
@@ -1017,7 +1071,7 @@ node harness/phase2.live.mjs <URL>  # 배포 서버 스모크(인증 강제 검�
 
 - 사용법: `docs/manual-restaurant.html`(음식점), `docs/manual-agency.html`(기관), `docs/manual-staff.html`(직원)
 - 릴리스 이력: `CHANGELOG.md`(릴리스 요약 — 외부용). 배경·판단은 이 파일의 "완료 기록"
-- 이관 문서: `docs/handover/`(12종 — 아키텍처·데이터 모델·계약 C1~C14·미결 항목·보안 점검(11)·외부 검토 반영 기록(12) 등). 이관받는 개발자는 여기부터. 외부 검토 원문은 리포 밖(`~/.codex/audits/bapjangbu-20260912/`)
+- 이관 문서: `docs/handover/`(13종 — 아키텍처·데이터 모델·계약 C1~C17·미결 항목·보안 점검(11)·외부 검토 반영 기록(12)·beta.61 현장 점검표와 1.0 판단 기준(13) 등). 이관받는 개발자는 여기부터. 외부 검토 원문은 리포 밖(`~/.codex/audits/bapjangbu-20260912/`)
 - 홍보물: `docs/marketing/`(전단·기관 안내문·협회 덱 + 1페이지 홍보 PDF 2종·SNS 카드뉴스, 인쇄용)
 - 프로토콜·API 계약: `server/PROTOCOL.md`
 - 사업·운영 민감 문서: 리포 미포함(로컬 보관, .gitignore 등재) — 커밋 금지 유지

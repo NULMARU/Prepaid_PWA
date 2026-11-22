@@ -1685,6 +1685,140 @@ async function runTypingProfile(browser, url, label, contextOpts) {
 // ── beta.55(C2, 사용자 결정 §1-6): 태블릿 가로·세로 — 손님 요청 화면·사장님 확인·사용 등록 창·증표가 스크롤 없이 ──
 //   현장 캡처: 1024×768 가로 태블릿에서 [사장님 확인 받기]가 화면 밖이었다. 가로에서는 두 칸(왼쪽 금액·오른쪽 서명)이다.
 //   세로 태블릿(768×1024·800×1280)은 예전 한 줄 배치 그대로다. 회전(가로↔세로)으로 배치가 바뀌어도 캔버스 노드와 획은 그대로여야 한다.
+// ── beta.61: [이력] > [월별] — 폰 4폭 + 태블릿 6종에서 가로 넘침 0 ─────────────────────────────
+//   가장 긴 줄을 심는다: 7자리 금액(1,234,567원), 공공기관 결합 라벨 + 아주 긴 부서명, 긴 이름의 오래 안 온 손님.
+//   표는 고정 열이라 소속·부서 칸이 줄바꿈되고 금액 칸은 한 줄이어야 한다(금액이 칸 밖으로 넘치면 실패).
+const MONTH_LONG_DEPT = '어르신복지과 노인일자리지원팀 공공형사업담당';
+async function runMonthProfile(browser, url, w, h) {
+  const tag = `월별 ${w}×${h}`;
+  const context = await browser.newContext({ viewport: { width: w, height: h }, isMobile: w <= 640, hasTouch: true, deviceScaleFactor: 2 });
+  await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"error":"internal"}' }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('dialog', d => { errors.push('native dialog: ' + d.type()); d.dismiss().catch(() => {}); });
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await seed(page);
+    await page.evaluate(({ t, longOrg, longDept, longName }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('prepaid-ledger-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const tx = req.result.transaction(['employees', 'transactions'], 'readwrite');
+        const es = tx.objectStore('employees'), ts = tx.objectStore('transactions');
+        const base = { note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: t - 200 * 86400000, updatedAt: t };
+        es.put({ ...base, id: 'r-m-1', org: longOrg, orgKind: 'public', dept: longDept, name: longName });
+        es.put({ ...base, id: 'r-m-2', org: '개인', orgKind: '', dept: '', name: longName + '둘' });
+        const row = (id, employeeId, type, amount, extra) => ts.put({ id, employeeId, type, amount, beforeBalance: 0, afterBalance: 0, reason: '', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', txHash: '', prevHash: '', createdAt: t + 50, ...extra });
+        row('r-m-tx1', 'r-m-1', 'open', 9876543, {});
+        row('r-m-tx2', 'r-m-1', 'use', 1234567, { createdAt: t + 60 });
+        row('r-m-tx3', 'r-m-1', 'adjust', -1234567, { createdAt: t + 70 });
+        row('r-m-tx4', 'r-m-2', 'open', 7654321, { createdAt: t + 80, occurredAt: t - 90 * 86400000 });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { t: Date.now(), longOrg: LONG_ORG, longDept: MONTH_LONG_DEPT, longName: LONG_NAME });
+    await page.reload({ waitUntil: 'load' });
+    await unlock(page);
+    await page.locator('[data-a="screen"][data-screen="history"]').click();
+    await page.locator('[data-a="history-tab"][data-tab="month"]').click();
+    await page.waitForSelector('#monthCard', { timeout: 8000 });
+    await noHorizontalOverflow(page, `${tag} 이번 달`, w);
+    const m = await page.evaluate(() => {
+      const cw = document.documentElement.clientWidth;
+      const over = [];
+      document.querySelectorAll('#monthNav, #monthNav *, #monthCard, #monthCard *, #monthRemain, #monthRemain *, #monthIdle, #monthIdle *').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return;
+        if (r.right > cw + 1 || r.left < -1) over.push((el.id || el.className || el.tagName) + ' → ' + el.innerText.slice(0, 30));
+        if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== 'inline') over.push('clip ' + (el.id || el.className || el.tagName) + ' → ' + el.innerText.slice(0, 30));
+      });
+      const btns = [...document.querySelectorAll('[data-a="month-prev"], [data-a="history-tab"]')].map(b => { const r = b.getBoundingClientRect(); return { a: b.dataset.a, h: r.height, w: r.width }; });
+      // 큰 숫자(쓴 금액·들어온 선금)는 한 줄 — 7자리 금액의 '원'이 아랫줄로 떨어지면 숫자를 잘못 읽는다.
+      const bigWrap = [...document.querySelectorAll('#monthCard .month-v')].filter(el => el.getBoundingClientRect().height > parseFloat(getComputedStyle(el).fontSize) * 1.8).map(el => el.innerText);
+      return { over, btns, bigWrap, idle: !!document.getElementById('monthIdle'), rows: document.querySelectorAll('#monthTable tbody tr').length };
+    });
+    check(m.over.length === 0, `${tag}: 월별 화면 요소가 화면 밖으로 나가거나 잘렸다 ${JSON.stringify(m.over.slice(0, 5))}`);
+    check(m.bigWrap.length === 0, `${tag}: 이 달 요약의 큰 금액이 두 줄로 꺾였다 ${JSON.stringify(m.bigWrap)}`);
+    check(m.btns.length >= 4 && m.btns.every(b => b.h >= 44 && b.w >= 44), `${tag}: 탭·◀ 버튼은 44px 이상이어야 한다 ${JSON.stringify(m.btns)}`);
+    check(m.idle && m.rows >= 2, `${tag}: 시드가 표(2줄 이상)와 오래 안 온 손님을 그려야 잴 수 있다 (rows ${m.rows}, idle ${m.idle})`);
+    // 빈 달(지난달)도 넘침 0
+    await page.locator('[data-a="month-prev"]').click();
+    await page.waitForTimeout(120);
+    await noHorizontalOverflow(page, `${tag} 지난달`, w);
+    check(errors.length === 0, `${tag}: 페이지 오류·기본 팝업 ${JSON.stringify(errors.slice(0, 3))}`);
+  } finally { await context.close(); }
+}
+
+// ── beta.61(구역 D): "부서를 옮긴 분인가요?" 창 — 폰 4폭 + 태블릿 6종 × 후보 1명·12명 ─────────────────────────────
+//   계약: 창이 화면 안 · 창 자체는 스크롤 없음(목록만 스크롤) · [이대로 받기](진한 버튼 하나)·[취소]가 스크롤 없이 보이고 ≥44px ·
+//         줄마다 두 칸(≥44px, 글자 안 잘림) · 가로 넘침 0 · 12명이면 목록 끝까지 내려 마지막 줄을 고를 수 있고 고른 뒤 목록이 맨 위로 튀지 않는다.
+//   가장 긴 줄을 심는다: 긴 이름 + 긴 옛 부서 + 긴 새 부서 + 7자리 잔액. 옛 부서는 사람마다 달라 "비슷한 부서" 갈림길이 먼저 뜨지 않는다.
+const MOVE_NEW_DEPT = '어르신복지과 노인일자리지원팀';
+async function runMoveProfile(browser, url, w, h, n) {
+  const tag = `부서 이동 창(${n}명) ${w}×${h}`;
+  const context = await browser.newContext({ viewport: { width: w, height: h }, isMobile: w <= 640, hasTouch: true, deviceScaleFactor: 2 });
+  await context.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"error":"internal"}' }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('dialog', d => { errors.push('native dialog: ' + d.type()); d.dismiss().catch(() => {}); });
+  const ORG = '서울특별시 강남구청';
+  const people = Array.from({ length: n }, (_, i) => ({ id: `r-mv-${i}`, org: ORG, orgKind: 'public', dept: `건강증진과 지역보건${i + 1}팀`, name: i === 0 ? LONG_NAME : `${LONG_NAME.slice(0, 4)}${i}`, amount: 1234567 + i, topups: 0 }));
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await seed(page, people);
+    await page.reload({ waitUntil: 'load' });
+    await unlock(page);
+    await page.locator('[data-a="screen"][data-screen="settings"]').click();
+    const csv = ['소속,부서,이름,금액', ...people.map(p => `${ORG},${MOVE_NEW_DEPT},${p.name},9000`)].join('\r\n') + '\r\n';
+    await page.locator('#csvFile').setInputFiles({ name: 'move.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + csv, 'utf8') });
+    await page.waitForSelector('.move-modal', { timeout: 10000 });
+    await page.screenshot({ path: path.join(root, 'harness', 'screenshots', `move-${n}-${w}x${h}.png`) }).catch(() => {});
+    await noHorizontalOverflow(page, `${tag}`, w);
+    const m = await page.evaluate(() => {
+      const modal = document.querySelector('.move-modal');
+      const list = modal.querySelector('.move-list');
+      const r = el => { const b = el.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right, height: b.height, sw: el.scrollWidth, cw: el.clientWidth, text: el.innerText.trim() }; };
+      return {
+        vh: innerHeight, vw: document.documentElement.clientWidth, modal: r(modal), msh: modal.scrollHeight, mch: modal.clientHeight,
+        list: { ...r(list), sh: list.scrollHeight, ch: list.clientHeight },
+        rows: modal.querySelectorAll('.move-row').length,
+        primary: [...modal.querySelectorAll('.btn-primary')].map(r),
+        actions: [...modal.querySelectorAll('.choice-actions [data-a="choice-pick"]')].map(r),
+        opts: [...modal.querySelectorAll('[data-a="move-pick"]')].map(r),
+        qs: [...modal.querySelectorAll('.move-q')].map(r)
+      };
+    });
+    check(m.rows === n, `${tag}: 줄 ${n}개가 그려져야 한다 (got ${m.rows})`);
+    check(m.modal.top >= -1 && m.modal.bottom <= m.vh + 1 && m.modal.left >= -1 && m.modal.right <= m.vw + 1, `${tag}: 창이 화면 밖으로 나갔다 (${Math.round(m.modal.top)}~${Math.round(m.modal.bottom)} / vh ${m.vh})`);
+    check(m.msh <= m.mch + 1, `${tag}: 창 전체가 스크롤된다 — 목록만 스크롤해야 한다 (scrollHeight ${m.msh} > ${m.mch})`);
+    check(m.modal.sw <= m.modal.cw + 1, `${tag}: 창 안 가로 넘침 (${m.modal.sw} > ${m.modal.cw})`);
+    check(m.primary.length === 1 && m.primary[0].text === '이대로 받기', `${tag}: 진한 버튼은 [이대로 받기] 하나 (${JSON.stringify(m.primary.map(b => b.text))})`);
+    check(m.actions.length === 2 && m.actions.every(b => b.bottom <= m.vh + 1 && b.top >= -1 && b.height >= 44), `${tag}: [이대로 받기]·[취소]가 스크롤 없이 보이고 44px 이상 (${JSON.stringify(m.actions.map(b => [b.text, Math.round(b.top), Math.round(b.bottom), Math.round(b.height)]))})`);
+    check(m.opts.length === 2 * n && m.opts.every(b => b.height >= 44 && b.sw <= b.cw + 1 && b.right <= m.vw + 1), `${tag}: 줄마다 두 칸(44px 이상·글자 안 잘림·화면 안)`);
+    check(m.qs.every(q => q.sw <= q.cw + 1 && q.right <= m.vw + 1), `${tag}: 물음 문장이 잘리거나 화면 밖으로 나갔다`);
+    if (n === 1) check(m.list.sh <= m.list.ch + 1, `${tag}: 한 명이면 목록도 스크롤 없이 다 보여야 한다 (${m.list.sh} > ${m.list.ch})`);
+    // 12명: 목록 끝까지 내려 마지막 줄을 고른다 → 그 줄만 바뀌고 목록은 그 자리에 있다(전체 render로 맨 위로 튀지 않음).
+    const last = n - 1;
+    await page.evaluate(() => { const l = document.querySelector('.move-list'); l.scrollTop = l.scrollHeight; });
+    await page.waitForTimeout(80);
+    const before = await page.evaluate(() => document.querySelector('.move-list').scrollTop);
+    await page.locator(`.move-row[data-i="${last}"] [data-a="move-pick"][data-val="move"]`).click();
+    await page.waitForTimeout(120);
+    const after = await page.evaluate(i => ({ top: document.querySelector('.move-list').scrollTop, on: document.querySelector(`.move-row[data-i="${i}"] [data-val="move"]`).getAttribute('aria-checked'), lb: document.querySelector(`.move-row[data-i="${i}"]`).getBoundingClientRect().bottom, listB: document.querySelector('.move-list').getBoundingClientRect().bottom }), last);
+    check(after.on === 'true', `${tag}: 마지막 줄의 '옮기기'를 고를 수 있어야 한다`);
+    check(after.lb <= after.listB + 1, `${tag}: 목록 끝까지 내리면 마지막 줄이 목록 안에 다 보여야 한다`);
+    if (n > 1 && m.list.sh > m.list.ch + 1) check(Math.abs(after.top - before) <= 1 && before > 0, `${tag}: 고른 뒤 목록 스크롤이 그대로여야 한다 (${before} → ${after.top})`);
+    await page.locator('.move-modal [data-a="choice-pick"][data-val="cancel"]').click();
+    await page.waitForTimeout(150);
+    check(await page.locator('.move-modal').count() === 0, `${tag}: [취소]로 창이 닫혀야 한다`);
+    check(errors.length === 0, `${tag}: 페이지 오류·기본 팝업 ${JSON.stringify(errors.slice(0, 3))}`);
+  } finally { await context.close(); }
+}
+
 const TABLET_PROFILES = [
   { w: 1024, h: 768 }, { w: 1280, h: 800 }, { w: 1180, h: 820 }, { w: 960, h: 600 },
   { w: 800, h: 1280 }, { w: 768, h: 1024 }
@@ -2065,6 +2199,14 @@ async function main() {
     // beta.60b: 가게 찾기 1/3 — 진행 표시 + [그만두기]가 들어와도 버튼이 가려지지 않는다(폰 4폭 + 태블릿 6종)
     for (const { w, h } of [...VIEWPORTS, ...TABLET_PROFILES]) {
       try { await runStoreStopProfile(browser, url, w, h); } catch (err) { check(false, `가게 찾기(그만두기) ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
+    }
+    // beta.61: [이력] > [월별] — 폰 4폭 + 태블릿 6종 가로 넘침 0
+    for (const { w, h } of [...VIEWPORTS, ...TABLET_PROFILES]) {
+      try { await runMonthProfile(browser, url, w, h); } catch (err) { check(false, `월별 ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
+    }
+    // beta.61(구역 D): 부서 이동 창 — 폰 4폭 + 태블릿 6종 × 후보 1명·12명
+    for (const { w, h } of [...VIEWPORTS, ...TABLET_PROFILES]) for (const n of [1, 12]) {
+      try { await runMoveProfile(browser, url, w, h, n); } catch (err) { check(false, `부서 이동 창(${n}명) ${w}×${h}: 시나리오가 끝까지 가지 못했다 (${String(err && err.message || err).split('\n')[0].slice(0, 200)})`); }
     }
     // beta.55(A2): 장부 지키기 카드·창 4종 기하
     for (const { w, h } of GUARD_PROFILES) {

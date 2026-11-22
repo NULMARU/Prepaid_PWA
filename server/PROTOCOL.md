@@ -127,9 +127,10 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 | `POST /api/ledger-archive/seg/get` | `{restaurant_id, public_key, auth_token, gen, seg_nos:[…≤5]}` | `{segments:[{seg_no, blob, blob_hash, updated_at}]}` / 400/401/404 | **beta.60** 보관 칸의 옛 조각(§4.14, `/seg/get`과 같은 규칙) |
 | `POST /api/ledger-archive/seg/list` | `{restaurant_id, public_key, auth_token}` | `{segments:[{gen, seg_no, blob_hash, updated_at, size}]}` / 401/404 | **beta.60** 보관 칸의 옛 조각 목록(§4.14) |
 | `POST /api/agency/request-otp` | `{email}` | `{ok:true, dev_otp?, sent?}` / 400/429/500 | 기관 이메일 OTP 발급(§4.4). **beta.55**: OTP 전용 한도에 걸린 `429 {error:'rate_limited'}`에 `scope`(`'ip'`=IP당 시간당 5회, `'email'`=같은 이메일 60초)와 `retry_after_s`(다시 될 때까지 남은 초)가 함께 실린다. **beta.60**: 일일 예산은 발송 **전** 원자 예약 — 예산 저장소 오류면 보내지 않고 `500 {error:'email_send_failed'}`(§4.4) |
-| `POST /api/agency/verify-otp` | `{email, otp}` | `{token}` / 401/429 | OTP 검증 → 24시간 기관 토큰 발급. 시도 5회 초과 `429 {error:'too_many_attempts'}` — **beta.55**부터 시도 횟수는 비교 **전에** 원자적으로 센다(병렬 대입 차단, §4.4) |
+| `POST /api/agency/verify-otp` | `{email, otp}` | `{token}` / 401/429 | OTP 검증 → 기관 토큰 발급. **beta.61**: 토큰 수명은 **인증한 때부터 90일 고정**(`AGENCY_TOKEN_TTL_MS`, 예전 24시간 — 쓸 때마다 늘지 않는다, §4.4). 시도 5회 초과 `429 {error:'too_many_attempts'}` — **beta.55**부터 시도 횟수는 비교 **전에** 원자적으로 센다(병렬 대입 차단, §4.4) |
 | `POST /api/agency/keycheck` | 헤더 `X-Agency-Token` + `{institution, department, restaurant_id, fingerprint}` | `{ok:true, fingerprint}` / 400/401/404/409 | 열쇠 지문 확인 기록(§4.8). 서버가 현재 공개키로 지문을 재계산해 **일치할 때만** 저장(upsert). 불일치 시 `409 {error:'fingerprint_mismatch', current}`. **beta.55**: 이미 **다른 지문으로 확인한 기록**이 있으면 `confirm_change:true`일 때만 덮어쓰고, 아니면 `409 {error:'fingerprint_changed', current, had_previous:true}`. **beta.60**: 기록은 **인증 도메인별로 따로** 저장된다 — 다른 도메인이 같은 기관·부서명을 적어도 남의 기록을 덮어쓰지 못하고, `fingerprint_changed` 비교도 같은 도메인의 기록과만 한다(§4.8) |
 | `GET /api/agency/keychecks?institution=&department=` | 헤더 `X-Agency-Token` | `{keychecks:[{restaurant_id, fingerprint, checked_at}]}` / 400/401 | 그 **부서가** 확인해 둔 음식점 목록(§4.8). **토큰이 인증한 도메인의 기록만** 반환한다(기관·부서명은 자칭 값이므로 — §4.8 도메인 결속). 다른 정보(인원·금액 등)는 절대 싣지 않는다 |
+| `POST /api/agency/logout` | 헤더 `X-Agency-Token`(본문 없음) | 언제나 `200 {ok:true}` | **beta.61** 담당자 로그아웃(§4.4). 그 토큰 행 하나만 지운다. 머리가 없거나·모르는 토큰·이미 만료/로그아웃한 토큰이어도 `200 {ok:true}`(멱등 — 토큰 존재 여부를 알려 주지 않는다). 같은 이메일로 다른 PC에서 받은 토큰은 그대로 |
 | `GET /api/admin/stats` | 헤더 `X-Admin-Token` | `{restaurants, institutions_total, …, feedback[]}` / 401/503/429 | 비식별 집계 통계(관리자 전용, §8) |
 | `GET /api/admin/registry` | 헤더 `X-Admin-Token` | `{restaurants:[{restaurant_id, restaurant_name, district, registered_at, deregistered_at, purge_after, verified, has_contact, has_backup, pending, is_diag}], grace_ms}` / 401/503/429 | 등록 가게 목록(관리자 전용, §8.4). 공개 정보만 — 연락처·백업은 **있음/없음(boolean)만**, 공개키 미포함. 휴지통·진단(`__diag_`) 행도 포함하되 표시 |
 | `POST /api/admin/deregister` | 헤더 `X-Admin-Token` + `{restaurant_id, confirm_id, reason_code, memo?}` | `{ok:true, restaurant_id, deregistered_at, purge_after}` / 이미 휴지통 `{ok:true, already_deregistered:true, deregistered_at, purge_after}` / 400/401/404/429/503 | 운영자 **30일 휴지통** 처리(§8.4). 효과는 `/api/deregister`와 동일. `confirm_id`는 `restaurant_id`와 정확히 같아야 함. 감사 기록 `admin_action_log` |
@@ -231,7 +232,7 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 제출을 허용한다. 어느 쪽이든 유효한 토큰이 있으면 검증 후 `consent_log.agency_email_hash`에
 **이메일의 SHA-256 해시만** 기록한다(평문 이메일은 절대 저장하지 않음). `agency_token`에 이미
 해시가 저장돼 있으므로 재해싱하지 않고 그대로 옮겨 적으며, 값이 64자 hex가 아니면(구버전이
-평문으로 남긴 행 — 최대 24시간 내 자연 소멸) 그 자리에서 해싱해 기록한다(평문 유입 차단).
+평문으로 남긴 행 — 2026-07 해시 저장 전환 전 발급분으로 이미 소멸) 그 자리에서 해싱해 기록한다(평문 유입 차단).
 
 **운영 상태(2026-07~)**: `REQUIRE_AGENCY_AUTH="1"`(필수). OTP 이메일 인증(Resend,
 `AUTH_MODE="prod"`)이 라이브에서 `.go.kr` 실주소로 발송·검증까지 정상 확인되어 기관
@@ -273,7 +274,9 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
     - **미설정이면 기존 SHA-256으로 그대로 동작**하므로 secret 등록 전에 배포해도 안전하다
       (배포 순서 자유). 등록 후에도 **구 SHA-256 키로 저장된 행을 조회 폴백**으로 함께 찾으므로
       전환 순간에 진행 중이던 인증이 깨지지 않는다(그 행은 검증 성공 시 삭제되고, 새 행은 항상
-      HMAC 키로 저장된다 — 최대 24시간 안에 구 키 행은 자연 소멸한다).
+      HMAC 키로 저장된다 — 구 키 `agency_otp` 행은 10분 안에 자연 소멸한다). **beta.61부터 토큰은 90일**이므로,
+      pepper 등록 **전에** 발급된 `agency_token` 행은 최대 90일 동안 구 SHA-256 이메일 해시를 담은 채 남고, 그동안
+      그 토큰으로 제출한 건의 `consent_log.agency_email_hash`도 구 해시로 기록된다(토큰 조회는 토큰 해시로 하므로 인증 자체는 영향 없음).
   - **발송 남용 차단(2026-08~)**:
     - **서버 자체 일일 예산**: `AUTH_MODE='prod'`에서 하루 발송량을 D1 카운터
       (`stats_counter`의 `otp_sent_YYYY-MM-DD` — 비식별 집계, 수신자 정보 없음)로 세고,
@@ -335,10 +338,24 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
     이제 `AUTH_MODE="prod"`(실제 이메일 발송) + `REQUIRE_AGENCY_AUTH="1"`(제출 시 토큰 필수)
     이므로 담당자는 verify-otp로 받은 토큰으로만 제출할 수 있다(§4.3의 운영 상태 참조).
     위 `"pilot"` 관련 설명은 인프라 온보딩 전 단계의 fallback 동작 기록이다.
-- `POST /api/agency/verify-otp {email, otp}`: 성공 시 32바이트 토큰 발급, 24시간 유효
-  (`agency_token`). 이 토큰이 `X-Agency-Token` 헤더 값이 된다. (`AUTH_MODE==='pilot'`에서는
+- `POST /api/agency/verify-otp {email, otp}`: 성공 시 32바이트 토큰 발급(`agency_token`). 이 토큰이
+  `X-Agency-Token` 헤더 값이 된다. (`AUTH_MODE==='pilot'`에서는
   담당자가 실제 OTP 값을 알 방법이 없으므로 이 엔드포인트가 정상 호출되는 경우가 드물다 —
   위 정직성 원칙 참조.)
+  - **수명(beta.61, 사용자 결정 2026-11-22 "인증 3개월")**: **인증한 때부터 90일 고정**(`AGENCY_TOKEN_TTL_MS`,
+    예전 24시간). `expires_at = 발급 시각 + 90일`로 한 번 정하고, 토큰을 쓰는 길(`/api/submit`·`/api/agency/keycheck`·
+    `/api/agency/keychecks`)은 읽기만 한다 — 쓸 때마다 늘리지 않는다. 90일이 지나면 세 길 모두 `401 {error:'agency_auth_required'}`
+    (`/api/submit`은 `REQUIRE_AGENCY_AUTH="1"`일 때)이고 담당자 웹은 인증 화면으로 돌아간다. 근거: 서무 자리는 개인 PC이고 자주
+    바뀌지 않아, 인증 메일(하루 80통 예산)을 줄인다. 인증번호(10분)·발송 한도·도메인 규칙은 그대로다.
+    D1 스키마 변경 없음(`expires_at` 값만 길어진다). 만료된 행은 일일 정리 ③이 지운다(§6.3).
+  - **토큰 행에 90일 동안 남는 것**: 토큰 해시(`token_hash`)·이메일 해시(`email`, HMAC/SHA-256 — 평문 아님)·
+    인증 도메인(`email_domain`, 예 `gwangjin.go.kr` — 로컬파트 없음)·만료 시각. 예전에는 하루 안에 사라졌다.
+- `POST /api/agency/logout`(beta.61, 헤더 `X-Agency-Token`, 본문 없음): 그 토큰 행 **하나만** 지우고 `200 {ok:true}`.
+  머리가 없거나, 모르는 토큰이거나, 이미 만료·로그아웃된 토큰이어도 `200 {ok:true}` — **멱등**이며 토큰이 있었는지 알려 주지
+  않는다(담당자 웹은 결과와 상관없이 기기에 둔 값을 지운다). 200자를 넘는 값은 저장소를 건드리지 않고 그대로 200.
+  같은 이메일로 다른 PC에서 받은 토큰과 다른 담당자의 토큰은 그대로다. CORS(`POST`·`X-Agency-Token` 허용)·보안 머리·
+  전역 레이트리밋(IP당 분당 60회)이 다른 길과 같이 적용된다. 구서버에는 이 길이 없어 `404 {error:'not found'}` —
+  담당자 웹은 404·네트워크 오류여도 기기 값만 지우면 된다(배포 순서: 서버 먼저).
 
 ### 4.5 업무용 연락처 (선택)
 
@@ -566,7 +583,7 @@ canonical에 끼워 넣으면 담당자 웹/음식점 앱 버전이 엇갈릴 �
 - **`null`의 의미(하위호환)**: 아래 경우 `agency_domain`은 `null`이며, 서버는 `null`을 그대로
   내보낸다. **음식점 앱은 `null`을 "확인 불가"로 표시**한다(빈칸으로 두지 말 것 — 표시가 없으면
   사장님은 검증된 것으로 오해한다).
-  - 마이그레이션 이전에 발급된 구버전 토큰(`email_domain` 없음) — 24시간 내 자연 소멸.
+  - 마이그레이션 이전에 발급된 구버전 토큰(`email_domain` 없음) — 당시 수명 24시간이라 이미 소멸.
   - 마이그레이션 이전에 저장된 `deposit_summary` 행.
   - `REQUIRE_AGENCY_AUTH='0'`이거나 `AUTH_MODE`가 `pilot`/fallback이라 토큰 없이 제출된 건
     (pilot에서는 담당자 웹이 OTP 검증 단계를 건너뛰므로 애초에 토큰이 없다).
@@ -752,6 +769,8 @@ A 머리가 B 조각을, B 머리가 A 조각을 지워 "B 머리 + 조각 없�
 (`deposit_summary`의 총액·인원수·해시·상태)만 처리 완료 후 30일간 보관 후 삭제된다.
 `consent_log`(기관·부서·연월·기관 이메일 해시)와 `feedback`(자유 입력 본문)은 180일 후
 TTL cron이 삭제한다(§6.3). 이메일 해시의 pepper(HMAC)는 2026-08에 도입됐다(§4.4).
+기관 담당자 인증 토큰(`agency_token` — 토큰 해시·이메일 해시·인증 도메인)은 **인증 후 90일**(beta.61, 예전 24시간)에
+만료되고 일일 정리가 지운다. 담당자가 [로그아웃]하면 그 자리에서 지워진다(§4.4). 인증번호(`agency_otp`)는 10분.
 
 등록을 해제하면 공개키 행과 암호화 원장 백업(머리·조각)은 **30일 휴지통**(§4.12)에 들어갔다가 삭제된다.
 다른 열쇠가 인수한 가게의 '인수 전 옛 백업'도 인수 후 30일에 삭제된다(beta.55, §4.12). beta.60부터는 인수 때 옛 백업이
@@ -1029,6 +1048,7 @@ probe(`server/probe-emd.mjs`) 실측 결과 공공 API 응답·조건에 법정�
 
 | 버전 | 날짜 | 계약 변경 | 마이그레이션 |
 |---|---|---|---|
+| beta.61 | 2026-11 | ① 기관 토큰 수명 24시간 → **90일, 인증한 때부터 고정**(`AGENCY_TOKEN_TTL_MS`, 쓸 때마다 늘지 않음 — §4.4). ② `POST /api/agency/logout` 신설(헤더 `X-Agency-Token`, 언제나 `200 {ok:true}` — 멱등, 그 토큰 행만 삭제, §4.4). 예전 담당자 웹은 그대로 동작(토큰을 더 오래 쓸 수 있을 뿐) | 없음(스키마 무변경). 배포 순서: 서버 → 담당자 웹 |
 | beta.60 | 2026-11 | ① 휴지통 cron이 삭제 시점에 상태를 다시 확인(S-4, §4.12). ② 인수 때 옛 백업+옛 공개키를 **보관 칸**으로, 옛 열쇠 읽기 전용 `/api/ledger-archive/{challenge,get,seg/get,seg/list}` 신설·cron ⑧(S-5, §4.14). ③ 챌린지를 발급 키에 결속 + 키 교체·인수 때 미사용 챌린지 삭제(S-6, §4.1). ④ 인수·되돌리기·키 교체를 처음 읽은 상태 조건부로 — `409 takeover_conflict`·`state_conflict`(S-7). ⑤ 같은 키 되돌리기에 소유 증명(토큰 없으면 구버전 호환 — 상호·관할 그대로·운영자 휴지통 아님만, `REACTIVATE_COMPAT`), 상호 변경 시 실존 재대조(S-8, §4.12). ⑥ 머리 교체는 15분 넘게 조용한 세대만 지움 + 선택 `seg_count` 검증 `409 segments_missing`(S-9, §4.13). ⑦ 빈 상호 등록 `400 store_name_required`, 미확인·진단 가게 조각 할당량 `backup_quota_exceeded`(S-10). ⑧ OTP 예산 원자 예약·확인된 실패만 환원·저장소 오류면 미발송(S-11, §4.4). ⑨ 지문 확인 기록 도메인별 저장(S-12, §4.8). ⑩ 승인·거절 전이+삭제 한 트랜잭션, 409 재시도도 남은 암호문 삭제(S-13, §6.1). ⑪ cron 매시(만료만) + UTC 18시 일일 정리(S-14, §6.2·§6.3). ⑫ 의견함 개인정보 차단 확대(S-D2, §8.3) | **`migrations-2026-11b.sql`**(신규 파일) 문 1(`ALTER … auth_challenge ADD COLUMN pk`)·문 2~6(보관 칸 3표 + 인덱스 2)·문 7(`agency_keycheck_dom`) — 문 단위 `--command`, **일곱 문 모두 서버 배포 전에** |
 | beta.55 | 2026-11 | ① **조각 백업**: `POST /api/ledger-backup/seg`·`/seg/get`·`/seg/list` 신설, `/api/ledger-backup`에 선택 필드 `gen`(머리 저장과 같은 배치로 다른 세대 조각 삭제), `/delete`·휴지통 cron이 조각도 삭제(§4.13). ② 인수 때 옛 백업을 **지우지 않음**(`taken_over_at`으로 숨김, 30일 뒤 cron ⑥) + 운영자 휴지통 가게 **7일 인수 잠금** `409 takeover_locked` + `400 invalid_public_key`(§4.12). ③ 챌린지 상한에서 429 대신 가장 오래된 것 교체(§4.1). ④ OTP 시도 원자 증가(§4.4). ⑤ `/api/submit` 활성 가게 확인 `404 not_registered`·미수령 상한 `429 too_many_pending`, `/api/inbox` 최대 50건(§4.7·§4.9). ⑥ OTP `rate_limited`에 `scope`·`retry_after_s` 추가(기존 필드 유지, §4.4). ⑦ keycheck 지문 변경 시 `confirm_change` 필요 `409 fingerprint_changed`(§4.8). ⑧ cron 단계별 격리 `errors`(§6.3), 진단 id 제외를 `substr`로(LIKE 와일드카드 수정). ⑨ **고아 조각 정리**: cron ⑦(14일) + 업로드 중 상한에서 24시간 지난 고아 세대 비우기, `too_many_segments`에 `reason`(`recent_orphans`+`retry_after_s` / `full`) 추가(기존 필드 유지, §4.13), 머리의 세대를 지키려고 `ledger_backup.gen` 저장(서버 내부용 — 응답 무변경) | **`migrations-2026-11.sql`**(신규 파일) 문 1(`ledger_backup_seg`)·문 2(`ALTER … public_key_registry ADD COLUMN taken_over_at`)·문 3(`ALTER … ledger_backup ADD COLUMN gen`) — 문 단위 `--command`, **세 문 모두 서버 배포 전에** |
 | admin | 2026-10 | 운영자 등록 가게 관리: `GET /api/admin/registry`·`POST /api/admin/deregister`(30일 휴지통, 효과는 `/api/deregister`와 동일)·`GET /api/admin/actions`(§8.4). 기존 계약 무변경 | **`migrations-2026-10.sql`**(신규 파일) 문 1~2(`admin_action_log` + 인덱스) — 문 단위 `--command` |

@@ -140,6 +140,12 @@ const FEEDBACK_RETENTION_TTL_MS = 180 * 24 * 60 * 60 * 1000; // feedback(자유 
 // 등록 해제(=휴지통) 유예: 해제해도 공개키 행·암호화 원장 백업을 30일 보관한다(§4.2/§4.12).
 // 그 안에 같은 열쇠로 재등록하면 백업을 그대로 되찾을 수 있고, 지나면 cron이 둘 다 지운다.
 const DEREGISTER_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
+// 기관 담당자 인증 토큰 수명(beta.61, 사용자 결정 2026-11-22 "인증 3개월"): 인증한 때부터 **90일 고정**.
+// 쓸 때마다 늘리지 않는다(verifyAgencyToken은 읽기만 한다) — 90일이 지나면 다시 인증번호를 받는다.
+// 서무 자리는 개인 PC이고 자주 바뀌지 않아, 인증 메일(하루 80통 예산)을 아끼려고 24시간에서 늘렸다.
+// 자리를 옮기거나 함께 쓰는 PC면 담당자 웹의 [로그아웃](POST /api/agency/logout)이 이 행을 지운다.
+// 만료된 행은 일일 정리(cron)의 expired_auth 단계가 지운다(예전과 같다).
+const AGENCY_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 // TTL cron 분기(beta.60 S-14): wrangler.toml의 cron은 **매시 17분** 하나다(무료 플랜 cron 트리거 수를 늘리지 않음).
 //   · 매시: 미수령 72시간 만료(암호문 파기)만 — "미수령 암호문은 72시간 뒤 삭제" 약속을 72시간+1시간 안에 지킨다.
 //   · 하루 한 번(UTC 18시 = KST 03:17): 예전과 같은 전체 정리(30일 요약·인증 만료·180일·휴지통·보관 칸·고아 조각).
@@ -252,8 +258,10 @@ async function emailKey(env, email) {
   const pepper = env && env.EMAIL_PEPPER;
   return pepper ? await hmacSha256hex(pepper, String(email)) : await sha256hex(String(email));
 }
-// 전환기 조회 폴백: pepper 도입 전에 SHA-256으로 저장된 행(agency_otp·agency_token, 최대 24시간
-// 내 자연 소멸)도 계속 찾을 수 있게 구 해시를 함께 시도한다. pepper 미설정이면 둘이 같은 값이라
+// 전환기 조회 폴백: pepper 도입 전에 SHA-256으로 저장된 agency_otp 행(10분 내 자연 소멸)도 계속 찾을 수
+// 있게 구 해시를 함께 시도한다. (agency_token 행의 이메일 해시는 조회 키가 아니다 — 토큰은 토큰 해시로 찾는다.
+// beta.61부터 토큰은 90일 살아 있으므로, pepper 등록 전에 발급된 토큰의 행은 최대 90일 동안 구 SHA-256 해시를
+// 담고 있다가 만료·정리된다.) pepper 미설정이면 둘이 같은 값이라
 // 폴백은 자동으로 no-op이 된다.
 async function emailKeyLegacy(email) { return await sha256hex(String(email)); }
 // 저장된 기관 이메일 값이 이미 해시(64자 hex — SHA-256 또는 HMAC-SHA256)인지 판별. 전환기(구 평문 행) 방어용.
@@ -311,7 +319,8 @@ async function verifyAuth(store, restaurant_id, auth_token) {
   const token_hash = await sha256hex(String(auth_token));
   return await store.consumeChallenge(String(restaurant_id), token_hash);
 }
-// 기관 OTP 인증 토큰 검증(소비하지 않음 — 24시간 재사용 가능).
+// 기관 OTP 인증 토큰 검증(소비하지 않음 — 발급 후 AGENCY_TOKEN_TTL_MS(90일) 동안 재사용 가능).
+// 읽기만 한다: 쓸 때마다 만료를 늘리지 않는다(인증한 때부터 90일 고정, beta.61).
 async function verifyAgencyToken(store, token) {
   if (!token) return null;
   const token_hash = await sha256hex(String(token));
@@ -1178,7 +1187,7 @@ export async function handle(request, env, store) {
           ciphertext: ciphertextStr, delivered: 0, created_at: nowSubmit
         },
         // agency_token에 저장된 값은 이미 이메일의 SHA-256 해시(64자 hex)이므로 재해싱하지 않는다.
-        // 전환기 방어: 구버전이 평문으로 남긴 토큰 행(24시간 내 자연 소멸)이 오면 해시로 바꿔 기록한다 —
+        // 전환기 방어: 구버전이 평문으로 남긴 토큰 행(2026-07 이전 발급분 — 이미 소멸)이 오면 해시로 바꿔 기록한다 —
         // 어떤 경로로도 평문 이메일이 consent_log에 들어가지 않게 하는 마지막 방어선.
         consent: consentRow ? {
           id: uuid(), institution: consentRow.institution, department: consentRow.department,
@@ -1569,8 +1578,18 @@ export async function handle(request, env, store) {
       // 도메인은 verify-otp를 실제로 통과한 경우에만 생긴다 — pilot 모드처럼 OTP 검증 단계를
       // 건너뛰는 경로에는 토큰 자체가 없으므로 전달되는 도메인도 없다(null).
       const email_domain = emailDomainOf(email);
-      await store.createAgencyToken({ token_hash, email_hash, email_domain, expires_at: Date.now() + 24 * 60 * 60 * 1000 });
+      await store.createAgencyToken({ token_hash, email_hash, email_domain, expires_at: Date.now() + AGENCY_TOKEN_TTL_MS });
       return j({ token });
+    }
+
+    // ── 담당자 로그아웃(beta.61) ── 헤더 X-Agency-Token의 토큰 행을 지운다. 언제나 200 {ok:true}(멱등):
+    // 헤더가 없거나, 모르는 토큰이거나, 이미 만료·로그아웃된 토큰이어도 같다 — 담당자 웹은 결과와 상관없이
+    // 기기에 둔 값을 지우므로, 여기서 "그런 토큰 없음"을 구분해 알려 줄 이유가 없다(토큰 존재 여부 오라클도 막는다).
+    // 지우는 것은 그 토큰 한 줄뿐이다 — 같은 이메일로 다른 PC에서 받은 토큰은 그대로 둔다.
+    if (path === '/api/agency/logout' && request.method === 'POST') {
+      const token = request.headers.get('X-Agency-Token') || '';
+      if (token && !tooLong(token, MAX_STR)) await store.deleteAgencyToken(await sha256hex(String(token)));
+      return j({ ok: true });
     }
 
     // ── 열쇠 지문 확인 기록 (§4.8, 가게 선점 방어의 핵심) ──
@@ -2141,6 +2160,10 @@ export function makeD1Store(DB) {
     },
     async getAgencyToken(token_hash) {
       return await DB.prepare('SELECT email AS email_hash, email_domain, expires_at FROM agency_token WHERE token_hash=?').bind(token_hash).first();
+    },
+    // 담당자 로그아웃(beta.61): 그 토큰 한 줄만 지운다(없으면 0행 — 멱등).
+    async deleteAgencyToken(token_hash) {
+      await DB.prepare('DELETE FROM agency_token WHERE token_hash=?').bind(token_hash).run();
     },
     // ── 열쇠 지문 확인 기록(§4.8) ── 기관+부서+음식점 단위 1행(upsert). 장기 보관(정리 대상 아님).
     // beta.60(S-12): 새 기록은 도메인별 표 agency_keycheck_dom(키 = 도메인·기관·부서·음식점)에만 쓴다 — 다른 도메인이
@@ -2751,6 +2774,7 @@ export function makeMemoryStore() {
     // D1과 동등: email_domain 미지정(구버전 토큰)은 null로 정규화(§4.11 — 하위호환 경로).
     async createAgencyToken(t) { agencyTokens.set(t.token_hash, { ...t, email_domain: t.email_domain != null ? t.email_domain : null }); },
     async getAgencyToken(token_hash) { return agencyTokens.get(token_hash) || null; },
+    async deleteAgencyToken(token_hash) { agencyTokens.delete(token_hash); },
     // ── 열쇠 지문 확인 기록(§4.8) — D1의 PRIMARY KEY(institution,department,restaurant_id)와 동등 ──
     // beta.60(S-12): 새 기록은 도메인별 표(keychecksDom)에만 — D1과 동등. 옛 표(keychecks)는 읽기만(하니스가 _seedLegacyKeycheck로 깐다).
     async upsertKeycheck(k) {

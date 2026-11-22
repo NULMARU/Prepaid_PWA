@@ -23,3 +23,7 @@ server/.public-api-key
 
 # 이메일 전달용 PDF 사본 — 배포용 원본은 docs/manuals/에서 관리
 /output/pdf/
+
+# 가게 색인(harness/build-storeidx.mjs 산출물) — 배포 때 GitHub Actions가 만들어 Pages 아티팩트에만 싣는다(리포에 커밋하지 않음)
+/storeidx/
+/storeidx.tmp-*/

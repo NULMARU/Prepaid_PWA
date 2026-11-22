@@ -10,7 +10,7 @@
 
 | # | 서피스 | 명령 | git push로 나가나 |
 |---|---|---|---|
-| 1 | 음식점 앱 + 문서(`docs/`) | `git push` → GitHub Actions `pages.yml`(**`test` job 통과 후** 리포 루트 전체를 아티팩트로 업로드) | ✅ |
+| 1 | 음식점 앱 + 문서(`docs/`) + 가게 색인(`storeidx/`, beta.61) | `git push` → GitHub Actions `pages.yml`(**`test` job 통과 후** 리포 루트 전체를 아티팩트로 업로드). 색인은 리포에 없고 배포 단계에서 아티팩트에만 싣는다 — push 때는 라이브 색인 그대로, 매일 한국 03:23 예약 실행이 새로 만든다([storeidx-pipeline.md](../storeidx-pipeline.md)) | ✅ |
 | 2 | 담당자 웹 | `npx wrangler pages deploy agency-web --project-name=prepaid-agency --branch=main` | ❌ |
 | 3 | 소개 홈페이지 | `npx wrangler pages deploy homepage --project-name=bapjangbu-home --branch=main` | ❌ |
 | 4 | 중계 서버 | `cd server && npx wrangler deploy` | ❌ |
@@ -34,6 +34,7 @@
 
 | 릴리스 | 실제 순서 | 비고 |
 |---|---|---|
+| beta.61 (2026-11, 배포 전 — 계획) | 서버 → 음식점 앱·문서(색인 포함) → 담당자 웹 → 직원 앱 → `git tag live-beta61` | D1 마이그레이션 없음. 서버를 먼저: 새 담당자 웹의 [로그아웃]은 예전 서버의 404도 오류로 보지 않지만, 서버 토큰은 새 서버부터 90일이다(예전 서버가 준 24시간 토큰은 그대로 만료되고 다시 인증하면 90일). 담당자 웹·직원 앱은 `app.bapjangbu.com/storeidx/`를 읽으므로, 색인이 실린 앱 배포가 먼저면 첫날부터 색인을 쓴다(없어도 예전 방식으로 찾는다). 푸시 직후 `workflow_dispatch`(`storeidx_only`)로 GitHub 러너에서 공공데이터 내려받기가 되는지 시험할 것 |
 | beta.60 (2026-11, 배포 전) | 마이그레이션 7문(`migrations-2026-11b.sql`) → 서버 → 음식점 앱·문서 → 담당자 웹 → 홈페이지 → 직원 앱 → `git tag live-beta60` | 🔴 **문 1(`auth_challenge.pk`)을 서버 배포 전에** — 새 서버의 `/api/challenge`가 이 컬럼에 쓰므로 없으면 챌린지 발급이 500 → 승인·서버 백업·등록 해제·연락처가 **전부** 막힌다. 문 2~6(보관 칸)이 없으면 다른 열쇠 인수가 500, 문 7(`agency_keycheck_dom`)이 없으면 담당자 웹의 지문 확인이 500. 서버를 올리면 cron이 **매시 17분**으로 바뀐다(§8). 구버전 앱(beta.59)은 토큰 없이 같은 열쇠로 재등록하는데, 서버가 `REACTIVATE_COMPAT`(기본 켜짐)으로 상호·관할이 같을 때만 받아 준다(§8). 새 오류 코드(`segments_missing`·`state_conflict`·`takeover_conflict`·`store_name_required`·`backup_quota_exceeded`)는 구버전 앱에 일반 오류로 보일 뿐 깨지지 않는다 |
 | beta.55 (2026-11) | 마이그레이션 3문(`migrations-2026-11.sql`) → 서버 → 음식점 앱·문서 → 담당자 웹 → 홈페이지 → 직원 앱 (2026-11-14 이 순서로 배포, 태그 `live-beta55`) | 🔴 **문 2(`taken_over_at`)·문 3(`ledger_backup.gen`) 컬럼을 서버 배포 전에** — 새 서버의 `getPublicKey`·백업 저장이 이 컬럼을 읽고 쓰므로 없으면 등록·챌린지·백업이 전부 500. 프론트 쪽 새 필드(`gen`, `confirm_change`)는 선택 필드이고 새 오류 코드(`not_registered`·`too_many_pending`·`takeover_locked`·`invalid_public_key`·`fingerprint_changed`)는 구버전 프론트가 일반 오류로 보여 줄 뿐 깨지지 않는다 |
 | beta.48 (2026-09) | 마이그레이션 7문 → 서버 → **담당자 웹 → 음식점 앱** | `submission_id`·`transfer_id`가 둘 다 선택 필드라 어느 쪽을 먼저 내도 깨지지 않는다. `migrations-2026-09.sql` 머리말·`PROTOCOL.md` §9가 이 순서로 적혀 있다 |
@@ -224,6 +225,8 @@ npx wrangler secret put RESEND_API_KEY
 | 사장님이 "가게 등록이 `takeover_locked`로 막힌다" | 운영자가 [휴지통으로] 처리한 지 7일이 안 된 가게를 **다른 열쇠**로 등록하려는 것(beta.55). 원래 기기는 같은 열쇠로 바로 되살릴 수 있다. 부당 선점 정리 직후라면 7일 뒤에 진짜 사장님이 등록하거나, 본인 확인 후 아래 §12 터미널 절차로 잠금 없이 처리 |
 | 담당자가 "`too_many_pending`으로 안 보내진다" | 그 가게 수신함에 미수령 신청이 30건 쌓였다(beta.55). 사장님이 받기·거절을 하면 풀린다(72시간 지나면 자동 만료) |
 | 사장님 앱이 "서버 백업 자리가 가득 찼어요"(`too_many_segments`) | 운영자가 할 일은 대개 없다(beta.55) — 서버가 스스로 고아 조각(머리가 오지 않은 세대)을 치운다: 업로드 때 24시간 지난 고아 세대를 바로 비우고, cron ⑦이 14일 지난 것을 지운다. 응답의 `reason`이 `recent_orphans`면 `retry_after_s` 뒤 다시 하면 풀리고, `full`이면 머리의 세대만으로 1,000행이 찬 것(장부가 비정상적으로 크다 — 앱의 조각 크기·압축을 볼 것). cron 로그의 `orphanSegments`·`errors`(`purge_orphan_segments`)로 정리 여부 확인. **머리(`ledger_backup`)는 지우지 말 것** |
+| 가게 찾기 색인의 기준일이 며칠째 그대로 | Actions의 예약 실행 기록 — 공공데이터 내려받기 실패면 라이브 색인을 그대로 실은 것(요약 `### 가게 색인: …`). 공개 리포는 60일 동안 커밋이 없으면 예약 실행이 꺼지니 Actions 탭에서 다시 켠다([storeidx-pipeline.md](../storeidx-pipeline.md) §6) |
+| 담당자가 "매번 인증번호를 다시 받는다"(beta.61 이후) | 브라우저가 저장소를 막는 기관 PC면 그 창을 닫을 때까지만 기억한다(화면 안내 "이 창을 닫기 전까지…"). 서버 토큰은 인증한 때부터 90일 |
 | 배포했는데 안 바뀐다 | Pages `--branch=main` 누락(§5) / GitHub Pages 런 실패(§6) / 커스텀 도메인 반영 지연 |
 | 새 프론트에서 CORS 오류 | `ALLOW_ORIGIN`에 추가 후 `wrangler deploy`(§8) |
 | 관리자 통계가 503 | `ADMIN_TOKEN` 미등록(§7) |

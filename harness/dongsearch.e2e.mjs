@@ -16,11 +16,13 @@ const EARLY_ZIP = GUUI_ZIPS[4];              // 첫 라운드(9구역) 안 — �
 const LATE_ZIP = GUUI_ZIPS[20];              // 자동 2라운드(18구역) 밖 — [계속 찾기] 시나리오
 const mkRow = (zip, name) => [{ restaurant_id: '3040000-101-2026-77' + zip.slice(-2), name, address: '서울특별시 광진구 구의동 어딘가 (' + zip + ')', status: '영업/정상', tel: '', zip }];
 
+// DS_INDEX=<경로>: 앱 화면(index.html)만 다른 사본으로 서빙한다 — 새 단언이 수정 전 코드에서 실패하는지 확인할 때 쓴다.
+const INDEX_OVERRIDE = process.env.DS_INDEX || '';
 const srv = http.createServer((req, res) => {
   const p = req.url.split('?')[0];
   const file = p === '/' ? '/index.html' : p;
   try {
-    const body = readFileSync(ROOT + decodeURIComponent(file));
+    const body = (INDEX_OVERRIDE && file === '/index.html') ? readFileSync(INDEX_OVERRIDE) : readFileSync(ROOT + decodeURIComponent(file));
     const type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.json') ? 'application/json' : 'text/html; charset=utf-8';
     res.writeHead(200, { 'Content-Type': type });
     res.end(body);
@@ -58,6 +60,25 @@ async function newPage(ctx, calls, respond, opts = {}) {
   // beta.49: 검색 결과의 "다른 기기에서 이미 등록됨" 배지는 /api/registered 를 조회한다.
   //   목이 없으면 이 로컬 하니스가 **라이브 중계 서버로 실제 요청을 보낸다** — 반드시 막는다(배지는 이 하니스의 관심사가 아니므로 빈 배열).
   await ctx.route('**/api/registered**', async route => { if (opts.registeredDelay) await new Promise(r => setTimeout(r, opts.registeredDelay)); route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(opts.registered ? opts.registered() : []) }); });
+  // beta.61 가게 색인(storeidx/): opts.idx가 있으면 그 처리기로 답한다(경로·지연·상태·끊김). 없으면 로컬 서버가 404를 준다
+  //   (= 색인이 아직 배포되지 않은 날 — 예전 시나리오는 모두 이 조건으로 돈다).
+  if (opts.idx) {
+    await ctx.route('**/storeidx/**', async route => {
+      const path = new URL(route.request().url()).pathname.replace(/^.*\/storeidx\//, '');
+      (opts.idxCalls || []).push(path);
+      const r = (await opts.idx(path)) || { status: 404 };
+      if (r.delay) await new Promise(res => setTimeout(res, r.delay));
+      if (r.abort) return route.abort('failed').catch(() => {});
+      return route.fulfill({ status: r.status || 200, contentType: 'application/json', body: typeof r.body === 'string' ? r.body : JSON.stringify(r.body || {}) }).catch(() => {});
+    });
+  }
+  if (opts.register) {
+    // 등록 흐름(약관 동의 뒤 register-key 1회): 처음 등록하는 가게는 챌린지가 404(실서버와 같은 답).
+    await ctx.route('**/api/challenge**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"등록된 공개키 없음"}' }));
+    // opts.registerFail: 서버 실존 대조 실패를 흉내 낸다(색인 상호 ≠ 공공데이터 API 상호 → 400 store_not_found, 실서버와 같은 답).
+    await ctx.route('**/api/register-key**', route => { opts.register.push(JSON.parse(route.request().postData() || '{}')); return opts.registerFail ? route.fulfill({ status: 400, contentType: 'application/json', headers: cors, body: JSON.stringify({ error: opts.registerFail }) }) : route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{"ok":true}' }); });
+  }
+  if (opts.init) await ctx.addInitScript(opts.init);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
@@ -254,9 +275,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.fill('#setupStoreRegion', '광진구 구의동');
   await page.click('[data-a="setup-store-search"]');
   await page.waitForSelector('[data-a="dong-scan-stop"]', { timeout: 20000 });
-  const inputBefore = await page.evaluateHandle(() => document.getElementById('setupStoreName'));
+  // 노드는 입력칸에 포커스가 들어간 **뒤에** 잡는다 — 포커스 전(입력 중이 아닐 때)의 진행 갱신은 설계상 전체 render일 수 있어,
+  //   그 사이에 잡으면 하니스가 부하에 따라 흔들렸다(beta.61에서 6회 중 1회 관찰, 앱 동작과 무관).
   await page.click('#setupStoreName');
   await page.keyboard.press('End');
+  const inputBefore = await page.evaluateHandle(() => document.getElementById('setupStoreName'));
   const progressAt = async () => (await page.textContent('.setup')).match(/(\d+)\/\d+ 구역/);
   const p0 = await progressAt();
   await page.keyboard.type('바른연어', { delay: 120 });
@@ -611,6 +634,387 @@ const STOP_MODAL_MSG = '찾기를 그만뒀어요. 가게 이름이나 지역을
   ok(calls.filter(c => !c.zip).length === nAt && (await page.evaluate(() => document.querySelector('.modal').innerText)).includes(STOP_MODAL_MSG), 'L3: 그만둔 뒤 늦게 온 503에도 다시 찾지 않고 안내가 그대로다 — 이름 ' + calls.filter(c => !c.zip).length + '/' + nAt);
   ok(errors.length === 0, 'L3: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// beta.61 — 가게 색인(storeidx/)으로 찾기. 계약서 beta61 §2(형식)·§3(쓰는 법).
+//   지역 칸에서 시·도·시·군·구가 하나로 정해지면 색인 파일을 받아 기기에서 이름으로 찾는다(서버 /api/restaurants 호출 0).
+//   못 쓰면(지역 없음·404·형식 다름·구 파일 404·끊김·10초) 예전 방식 그대로. 0건이면 저절로 넘어가지 않고 [공공데이터에서 다시 찾기].
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+const IDX_BUILT = '2026-11-20';
+const koSort = rows => rows.slice().sort((a, b) => a[1].localeCompare(b[1], 'ko'));
+const GJ_ROWS = koSort([
+  ['3040000-101-2019-00111', '육회바른연어 건대점', '서울특별시 광진구 능동로 110 (자양동)', '서울특별시 광진구 자양동 1-1', '05065'],
+  ['3040000-101-2019-00222', '육회바른연어 구의역점', '서울특별시 광진구 아차산로 399, 1층 (구의동)', '서울특별시 광진구 구의동 2-2', '05021'],
+  ['3040000-101-2018-00333', '육회 (본점)', '서울특별시 광진구 천호대로 1 (중곡동)', '서울특별시 광진구 중곡동 3-3', '04900'],
+  ...Array.from({ length: 60 }, (_, i) => ['3040000-101-2020-' + String(1000 + i), '김밥집 ' + String(i).padStart(2, '0'), '서울특별시 광진구 화양로 ' + (i + 1) + ' (화양동)', '서울특별시 광진구 화양동 ' + (i + 1), '05000'])
+]);
+const IDX_FILES = {
+  'seoul/05.json': GJ_ROWS,
+  'seoul/23.json': [['3010000-101-2015-00001', '중구식당', '서울특별시 중구 명동길 1 (명동1가)', '서울특별시 중구 명동1가 1', '04536']],
+  'busan/14.json': [['3250000-101-2015-00001', '중구식당 부산점', '부산광역시 중구 광복로 1 (남포동)', '부산광역시 중구 남포동 1', '48953']],
+  'gyeonggi/18.json': [],
+  'gyeonggi/19.json': [],
+  'gyeonggi/20.json': [['3740000-101-2010-00001', '수원갈비 장안점', '경기도 수원시 장안구 정자로 1 (정자동)', '경기도 수원시 장안구 정자동 1', '16300']],
+  'gyeonggi/21.json': [['3780000-101-2010-00001', '수원갈비 팔달점', '경기도 수원시 팔달구 정조로 1 (남창동)', '경기도 수원시 팔달구 남창동 1', '16200']],
+  'sejong/00.json': [['5690000-101-2012-00001', '세종국밥', '세종특별자치시 조치원읍 새내로 1', '세종특별자치시 조치원읍 원리 1', '30000']],
+  'jeonnam-gwangju/03.json': [['3260000-101-2011-00001', '광산한우', '전남광주통합특별시 광산구 첨단중앙로 1 (쌍암동)', '전남광주통합특별시 광산구 쌍암동 1', '62000']],
+  'incheon/10.json': [['3500000-101-2011-00001', '제물포냉면', '인천광역시 제물포구 신포로 1 (신포동)', '인천광역시 제물포구 신포동 1', '22300']]
+};
+const IDX_META = { v: 1, built: IDX_BUILT, total: 70, regions: {
+  '서울특별시': { '광진구': { f: 'seoul/05.json', n: GJ_ROWS.length }, '중구': { f: 'seoul/23.json', n: 1 } },
+  '부산광역시': { '중구': { f: 'busan/14.json', n: 1 } },
+  '경기도': { '수원시 권선구': { f: 'gyeonggi/18.json', n: 0 }, '수원시 영통구': { f: 'gyeonggi/19.json', n: 0 }, '수원시 장안구': { f: 'gyeonggi/20.json', n: 1 }, '수원시 팔달구': { f: 'gyeonggi/21.json', n: 1 } },
+  '세종특별자치시': { '세종특별자치시': { f: 'sejong/00.json', n: 1 } },
+  '전남광주통합특별시': { '광산구': { f: 'jeonnam-gwangju/03.json', n: 1 } },
+  '인천광역시': { '제물포구': { f: 'incheon/10.json', n: 1 } }
+} };
+// 정상 색인 처리기(mode로 고장 내기): 'meta404' · 'badv'(v:2) · 'file404' · 'abort'(끊김) · 'hang'(구 파일이 12초 뒤에야 옴)
+const idxServe = (mode = 'ok', fileDelay = 0) => async path => {
+  if (path === 'meta.json') {
+    if (mode === 'meta404') return { status: 404, body: 'nf' };
+    if (mode === 'badv') return { body: { ...IDX_META, v: 2 } };
+    if (mode === 'abort') return { abort: true };
+    return { body: IDX_META };
+  }
+  if (mode === 'file404') return { status: 404, body: 'nf' };
+  if (mode === 'hang') return { delay: 12000, body: { v: 1, rows: IDX_FILES[path] || [] } };
+  if (!(path in IDX_FILES)) return { status: 404, body: 'nf' };
+  return { delay: fileDelay, body: { v: 1, rows: IDX_FILES[path] } };
+};
+const OLD_ROW = [{ restaurant_id: '3040000-101-2026-55555', name: '예전방식식당', address: '서울특별시 광진구 구의동 5', status: '영업/정상', tel: '', zip: '05021' }];
+const idxRows = page => page.$$eval('[data-a="setup-store-pick"]', els => els.map(e => e.dataset.name));
+const IDX_EMPTY_SETUP = q => `『광진구』에서 '${q}' 이름의 영업 중인 가게를 찾지 못했어요. 이름을 줄여 보거나(예: '육회바른연어 구의역점' → '육회'), [직접 입력할게요]로 먼저 시작할 수 있어요.`;
+const IDX_MORE = '찾은 가게가 많아 앞의 50곳만 보여 드려요. 이름을 더 자세히 적어 주세요.';
+
+// ── 시나리오 X1: 색인으로 찾기 — 서버 호출 0, 동이 든 가게가 앞, 등록 배지·되찾기 글씨, 찾는 동안 입력 노드 보존, 고른 가게가 등록에 관리번호로 실린다 ──
+{
+  const ctx = await browser.newContext();
+  try {
+  const calls = [], idxCalls = [], register = [];
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: OLD_ROW }), { idx: idxServe('ok', 900), idxCalls, register, registered: () => ['3040000-101-2019-00222'] });
+  const dialogs = [];
+  page.on('dialog', d => { dialogs.push(d.message()); d.accept().catch(() => {}); });
+  await page.fill('#setupStoreName', '육회');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  // 구 파일이 오는 0.9초 동안: 진행 한 줄(색인 단계) + 그 사이 이름을 고쳐 쳐도 입력 노드·포커스가 그대로
+  const busy = await page.waitForSelector('#storeBusy-setup .store-search-busy[data-idx="1"]', { timeout: 3000 }).then(() => true, () => false);
+  ok(busy && (await page.innerText('#storeBusy-setup')).includes('가게 목록을 받아 오는 중이에요.'), 'X1: 색인에서 찾는 동안 진행 한 줄이 보인다(조각 갱신)');
+  await page.click('#setupStoreName'); await page.keyboard.press('End');
+  await page.evaluate(() => { window.__ixNode = document.getElementById('setupStoreName'); });
+  await page.keyboard.type('바른', { delay: 60 });
+  const mid = await page.evaluate(() => ({ same: document.getElementById('setupStoreName') === window.__ixNode && document.activeElement === window.__ixNode, busy: !!document.querySelector('.store-search-busy'), v: document.getElementById('setupStoreName').value }));
+  ok(mid.busy && mid.same && mid.v === '육회바른', 'X1: 색인을 받는 동안 친 글자가 남고 입력 노드·포커스가 그대로다 — ' + JSON.stringify(mid));
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 8000 });
+  const names = await idxRows(page);
+  ok(calls.length === 0, 'X1: 색인으로 찾으면 서버 가게 검색(/api/restaurants)을 한 번도 부르지 않는다 — ' + calls.length + '회');
+  ok(idxCalls.includes('meta.json') && idxCalls.includes('seoul/05.json') && idxCalls.length === 2, 'X1: 받은 색인 파일은 meta.json과 광진구 파일(meta의 f 경로) 둘뿐 — ' + JSON.stringify(idxCalls));
+  ok(JSON.stringify(names) === JSON.stringify(['육회바른연어 구의역점', '육회 (본점)', '육회바른연어 건대점']), 'X1: 이름 부분 일치 3곳, 지역 칸의 동(구의동)이 주소에 든 가게가 맨 앞 — ' + JSON.stringify(names));
+  ok(await page.inputValue('#setupStoreName') === '육회바른', 'X1: 결과가 그려진 뒤에도 고쳐 친 이름이 남는다');
+  await page.waitForSelector('.badge-soft', { timeout: 8000 });
+  const badge = await page.evaluate(() => { const b = document.querySelector('.badge-soft'); const row = b.closest('.store-badge-slot').parentElement.parentElement; return { t: b.innerText.trim(), id: row.querySelector('[data-a="setup-store-pick"]').dataset.id }; });
+  ok(badge.t === '다른 기기에서 이미 등록됨' && badge.id === '3040000-101-2019-00222', 'X1: 색인 결과에도 /api/registered로 "다른 기기에서 이미 등록됨" 배지가 붙는다 — ' + JSON.stringify(badge));
+  ok(await page.locator('#setupRestoreSlot [data-a="welcome-restore"]').count() === 1, 'X1: 이미 등록된 가게가 있으면 되찾기 글씨가 그 자리에 뜬다');
+  const vis = await page.evaluate(() => document.querySelector('.setup').innerText);
+  ok(await page.locator('[data-a="dong-scan"]').count() === 0 && await page.locator('.idx-block[data-state="empty"], .idx-more').count() === 0 && !/검색 결과가 없습니다|가게 이름만으로는/.test(vis), 'X1: 동네 순회 버튼·0건 안내·"많아요" 줄이 없다');
+  // 보완 F4: 결과가 있어도 목록 아래에 기준일 한 줄 + 작은 글씨 [공공데이터에서 다시 찾기](0건 때와 같은 액션)
+  const found = await page.evaluate(() => { const b = document.querySelector('.idx-block[data-state="found"]'); if (!b) return null; const picks = [...document.querySelectorAll('[data-a="setup-store-pick"]')]; const btn = b.querySelector('[data-a="idx-old"]'); return { built: (b.querySelector('.idx-built') || {}).innerText, btn: btn && btn.innerText.trim(), link: !!(btn && btn.classList.contains('link-btn')), below: b.getBoundingClientRect().top >= picks[picks.length - 1].getBoundingClientRect().bottom - 1 }; });
+  ok(found && found.built === IDX_BUILT + ' 기준 공공데이터' && found.btn === '공공데이터에서 다시 찾기' && found.link && found.below, 'X1: 결과 목록 아래에 기준일 + 글씨 버튼 [공공데이터에서 다시 찾기] — ' + JSON.stringify(found));
+  // [이 가게] → 가게 확인(주소) → 2/3 → 3/3 → 약관 → PIN → register-key에 관리번호·이름이 실린다(전화는 빈 칸 그대로)
+  await page.locator('[data-a="setup-store-pick"][data-id="3040000-101-2019-00111"]').click();
+  await page.waitForSelector('[data-a="setup-next"]', { timeout: 5000 });
+  ok(dialogs.some(m => m.includes('능동로 110')) && (await page.inputValue('#setupStoreTel')) === '', 'X1: 고르면 주소로 확인을 묻고, 가게 전화 칸은 빈 채로 둔다(색인에 전화번호 없음)');
+  await page.click('[data-a="setup-next"]');
+  await page.waitForSelector('[data-a="setup-to-contact"]'); await page.click('[data-a="setup-to-contact"]');
+  await page.waitForSelector('#setupTermsChk'); await page.check('#setupTermsChk'); await page.click('[data-a="setup-contact-skip"]');
+  const pin = async () => { for (const k of '1234') { await page.locator(`[data-a="pin-key"][data-key="${k}"]`).click(); await page.waitForTimeout(250); } };
+  await page.waitForSelector('[data-a="pin-key"]'); await pin(); await page.waitForTimeout(400); await pin();
+  for (let i = 0; i < 100 && !register.length; i++) await sleep(100);
+  ok(register.length === 1 && register[0].restaurant_id === '3040000-101-2019-00111' && register[0].restaurant_name === '육회바른연어 건대점',
+    'X1: 색인으로 고른 가게도 같은 등록 흐름 — register-key에 관리번호·이름이 실린다 — ' + JSON.stringify(register.map(b => [b.restaurant_id, b.restaurant_name, b.district])));
+  ok(errors.length === 0, 'X1: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X2: 색인 0건 — 계약 문구·기준일·[공공데이터에서 다시 찾기], 저절로 넘어가지 않고 누르면 예전 방식 ──
+{
+  const ctx = await browser.newContext();
+  try {
+  const calls = [], idxCalls = [];
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => { await sleep(20); return { body: zip ? [] : OLD_ROW }; }, { idx: idxServe('ok'), idxCalls });
+  await page.fill('#setupStoreName', '없는가게');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.idx-block[data-state="empty"]', { timeout: 8000 });
+  await sleep(1500); // 저절로 예전 방식으로 넘어가지 않는지 지켜본다
+  const blk = await page.evaluate(() => { const b = document.querySelector('.idx-block'); return { msg: b.querySelector('.idx-empty-msg').innerText.trim(), built: (b.querySelector('.idx-built') || {}).innerText, btn: (b.querySelector('[data-a="idx-old"]') || {}).innerText }; });
+  ok(blk.msg === IDX_EMPTY_SETUP('없는가게'), 'X2: 0건 안내는 계약 문장 그대로 — ' + JSON.stringify(blk.msg));
+  ok(blk.built === IDX_BUILT + ' 기준 공공데이터', 'X2: 색인 기준일 한 줄 — ' + JSON.stringify(blk.built));
+  ok(blk.btn === '공공데이터에서 다시 찾기' && await page.locator('[data-a="idx-old"].link-btn').isVisible(), 'X2: [공공데이터에서 다시 찾기]는 글씨 버튼 하나');
+  ok(calls.length === 0 && await page.locator('[data-a="dong-scan"]').count() === 0 && await page.locator('[data-a="dong-scan-stop"]').count() === 0, 'X2: 0건이어도 서버 검색·동네 순회로 저절로 넘어가지 않는다 — 서버 ' + calls.length + '회');
+  const vis = await page.evaluate(() => document.querySelector('.setup').innerText);
+  ok(!/가게 이름만으로는|검색 결과가 없습니다/.test(vis) && await page.locator('[data-a="setup-manual-toggle"]').isVisible(), 'X2: 예전 0건 문구는 겹쳐 나오지 않고 [직접 입력할게요]는 그대로 보인다');
+  const idxBefore = idxCalls.length;
+  await page.click('[data-a="idx-old"]');
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 8000 });
+  ok(calls.filter(c => !c.zip && c.q === '없는가게').length === 1 && idxCalls.length === idxBefore, 'X2: 누르면 색인을 건너뛰고 예전 방식(서버 이름 검색)으로 그 검색을 한다 — 서버 ' + JSON.stringify(calls) + ' / 색인 ' + (idxCalls.length - idxBefore));
+  ok((await idxRows(page)).includes('예전방식식당') && await page.locator('.idx-block').count() === 0, 'X2: 예전 방식 결과가 실리고 색인 안내는 사라진다');
+  ok(errors.length === 0, 'X2: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X3: 결과가 많으면 50곳 + 한 줄, 구만 적어도 색인, 받은 구 파일은 메모리에(다시 받지 않음), 이름 정규화(띄어쓰기·괄호), 이름만이면 예전 방식 ──
+{
+  const ctx = await browser.newContext();
+  try {
+  const calls = [], idxCalls = [];
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: OLD_ROW }), { idx: idxServe('ok'), idxCalls });
+  await page.fill('#setupStoreName', '김밥');
+  await page.fill('#setupStoreRegion', '광진구');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.idx-more', { timeout: 8000 });
+  ok((await idxRows(page)).length === 50 && (await page.innerText('.idx-more')).trim() === IDX_MORE, 'X3: 60곳이 맞으면 50곳만 싣고 "' + IDX_MORE + '" 한 줄');
+  ok(calls.length === 0, 'X3: 지역 칸에 구(광진구)만 적어도 색인으로 찾는다(서버 0회)');
+  ok(await page.locator('.idx-block[data-state="more"] [data-a="idx-old"]').count() === 1 && (await page.innerText('.idx-block[data-state="more"] .idx-built')).trim() === IDX_BUILT + ' 기준 공공데이터', 'X3: "많아요" 줄 아래에도 기준일과 [공공데이터에서 다시 찾기]가 있다(보완 F4)');
+  await page.fill('#setupStoreName', '육회본점');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForFunction(() => document.querySelectorAll('[data-a="setup-store-pick"]').length === 1, null, { timeout: 8000 });
+  ok(JSON.stringify(await idxRows(page)) === JSON.stringify(['육회 (본점)']), 'X3: "육회본점"으로 "육회 (본점)"을 찾는다(서버와 같은 정규화 — 띄어쓰기·괄호 무시)');
+  await page.fill('#setupStoreName', '육회');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForFunction(() => document.querySelectorAll('[data-a="setup-store-pick"]').length === 3, null, { timeout: 8000 });
+  ok(JSON.stringify(await idxRows(page)) === JSON.stringify(['육회 (본점)', '육회바른연어 건대점', '육회바른연어 구의역점']), 'X3: 동을 적지 않으면 가나다순 그대로');
+  ok(idxCalls.filter(p => p === 'seoul/05.json').length === 1 && idxCalls.filter(p => p === 'meta.json').length === 1, 'X3: 같은 실행에서는 meta·구 파일을 한 번만 받는다 — ' + JSON.stringify(idxCalls));
+  // 이름만(지역 비움) → 예전 방식: 서버 이름 검색, 색인 요청 없음
+  const before = idxCalls.length;
+  await page.fill('#setupStoreRegion', '');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-a="setup-store-pick"]')].some(e => e.dataset.name === '예전방식식당'), null, { timeout: 8000 });
+  ok(calls.length >= 1 && calls[0].q === '육회' && idxCalls.length === before, 'X3: 지역 칸이 비면 예전 방식 그대로(서버 이름 검색, 색인 요청 0)');
+  ok(errors.length === 0, 'X3: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X4: 색인을 못 쓰면 예전 방식 그대로 — meta 404 · 형식(v≠1) · 구 파일 404 · 끊김 · 10초 초과 ──
+for (const mode of ['meta404', 'badv', 'file404', 'abort', 'hang']) {
+  const ctx = await browser.newContext();
+  try {
+  const calls = [], idxCalls = [];
+  const { page, errors } = await newPage(ctx, calls, async ({ zip }) => { await sleep(20); return { body: zip ? [] : OLD_ROW }; }, { idx: idxServe(mode), idxCalls });
+  await page.fill('#setupStoreName', '육회');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  const t0 = Date.now();
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 20000 }).catch(() => {});
+  const ms = Date.now() - t0;
+  const names = await idxRows(page);
+  ok(JSON.stringify(names) === JSON.stringify(['예전방식식당']) && calls.filter(c => !c.zip).length === 1 && await page.locator('.idx-block').count() === 0,
+    `X4(${mode}): 색인을 못 쓰면 예전 방식(서버 이름 검색)으로 찾는다 — ${JSON.stringify(names)} / 서버 ${calls.length}회 / 색인 ${JSON.stringify(idxCalls)}`);
+  if (mode === 'hang') ok(ms >= 9500 && ms <= 15000, 'X4(hang): 구 파일이 10초 안에 안 오면 그만두고 예전 방식으로 — ' + ms + 'ms');
+  ok(errors.length === 0, `X4(${mode}): 페이지 예외 없음` + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X5: 일반구가 있는 시(구 파일을 합침)·세종·새 이름 시·도(전남광주통합특별시·인천 제물포구) ──
+{
+  const ctx = await browser.newContext();
+  try {
+  const calls = [], idxCalls = [];
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: OLD_ROW }), { idx: idxServe('ok'), idxCalls });
+  const find = async (name, region) => {
+    await page.fill('#setupStoreName', name); await page.fill('#setupStoreRegion', region);
+    await page.evaluate(() => { window.__ixDone = false; });
+    await page.click('[data-a="setup-store-search"]');
+    await page.waitForFunction(() => !document.querySelector('.store-search-busy') && (document.querySelector('[data-a="setup-store-pick"]') || document.querySelector('.idx-block') || document.querySelector('.empty')), null, { timeout: 8000 });
+    return idxRows(page);
+  };
+  let r = await find('수원갈비', '수원시');
+  ok(JSON.stringify(r) === JSON.stringify(['수원갈비 장안점', '수원갈비 팔달점']) && ['gyeonggi/18.json', 'gyeonggi/19.json', 'gyeonggi/20.json', 'gyeonggi/21.json'].every(f => idxCalls.includes(f)),
+    'X5: "수원시"만 적으면 수원시의 구 파일 4개를 모두 합쳐 찾는다 — ' + JSON.stringify(r));
+  r = await find('수원갈비', '경기 수원시 장안구');
+  ok(JSON.stringify(r) === JSON.stringify(['수원갈비 장안점']), 'X5: "경기 수원시 장안구"면 그 구만 — ' + JSON.stringify(r));
+  r = await find('국밥', '세종시 조치원읍');
+  ok(JSON.stringify(r) === JSON.stringify(['세종국밥']), 'X5: 세종(시·군·구 없음)은 시 이름 하나가 키 — "세종시 조치원읍" — ' + JSON.stringify(r));
+  r = await find('한우', '광주 광산구');
+  ok(JSON.stringify(r) === JSON.stringify(['광산한우']), 'X5: 옛 이름 "광주"는 전남광주통합특별시로 읽는다 — ' + JSON.stringify(r));
+  r = await find('냉면', '인천 제물포구');
+  ok(JSON.stringify(r) === JSON.stringify(['제물포냉면']), 'X5: 인천 새 구(제물포구) — ' + JSON.stringify(r));
+  ok(calls.length === 0, 'X5: 모두 서버 호출 없이 색인으로 — ' + calls.length + '회');
+  ok(errors.length === 0, 'X5: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X6: 같은 이름의 구(중구)는 추측하지 않는다 — 칩으로 고르게 하고, 동을 적었으면 그 동이 있는 곳으로 좁힌다 ──
+{
+  const ctx = await browser.newContext();
+  try {
+  const calls = [], idxCalls = [];
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: OLD_ROW }), { idx: idxServe('ok'), idxCalls });
+  await page.fill('#setupStoreName', '중구식당');
+  await page.fill('#setupStoreRegion', '중구');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.idx-block[data-state="choices"]', { timeout: 8000 });
+  const chips = await page.$$eval('[data-a="idx-pick"]', els => els.map(e => e.innerText.trim()));
+  ok(JSON.stringify(chips.slice().sort()) === JSON.stringify(['부산광역시 중구', '서울특별시 중구']) && await page.locator('[data-a="setup-store-pick"]').count() === 0,
+    'X6: "중구"만 적으면 고르지 않고 칩(색인에 있는 곳)으로 묻는다 — ' + JSON.stringify(chips));
+  ok(!idxCalls.some(p => p !== 'meta.json') && calls.length === 0, 'X6: 고르기 전에는 구 파일도 서버 검색도 부르지 않는다 — ' + JSON.stringify(idxCalls));
+  await page.click('[data-a="idx-pick"][data-sido="부산광역시"]');
+  await page.waitForSelector('[data-a="setup-store-pick"]', { timeout: 8000 });
+  ok(JSON.stringify(await idxRows(page)) === JSON.stringify(['중구식당 부산점']) && idxCalls.includes('busan/14.json') && !idxCalls.includes('seoul/23.json'), 'X6: 칩으로 고른 부산 중구만 찾는다');
+  await page.fill('#setupStoreRegion', '중구 명동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-a="setup-store-pick"]')].some(e => e.dataset.name === '중구식당'), null, { timeout: 8000 });
+  ok(JSON.stringify(await idxRows(page)) === JSON.stringify(['중구식당']) && await page.locator('[data-a="idx-pick"]').count() === 0, 'X6: "중구 명동"은 명동이 있는 서울 중구로 좁혀 바로 찾는다');
+  ok(calls.length === 0, 'X6: 서버 검색 0회');
+  ok(errors.length === 0, 'X6: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X7: 색인 단계에도 15초 [그만두기] 규칙(하니스는 0.6초) — 누르면 늦게 온 색인 응답은 버린다 ──
+{
+  const ctx = await browser.newContext();
+  try {
+  const calls = [], idxCalls = [];
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: OLD_ROW }), { idx: idxServe('ok', 2500), idxCalls, init: () => { window.__storeStopAfterMs = 600; } });
+  await page.fill('#setupStoreName', '육회');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('#storeBusy-setup [data-a="store-search-stop"]', { timeout: 3000 });
+  ok(await page.locator('.store-search-busy[data-idx="1"]').count() === 1, 'X7: 색인에서 찾는 중에도 기준 시간이 지나면 진행 표시 자리에 [그만두기]가 나타난다');
+  await page.click('[data-a="store-search-stop"]');
+  await page.waitForSelector('.store-search-err[data-code="stopped"]', { timeout: 3000 });
+  await sleep(3000);
+  ok(await page.locator('[data-a="setup-store-pick"]').count() === 0 && await page.locator('.store-search-err[data-code="stopped"]').count() === 1 && calls.length === 0,
+    'X7: 그만둔 뒤 늦게 온 색인 응답은 화면을 덮지 않고, 예전 방식으로도 넘어가지 않는다');
+  ok(errors.length === 0, 'X7: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X8: 설정의 가게 찾기 창도 같은 색인 — 서버 0회, 창의 0건 문구, 고르면 register-key에 관리번호 ──
+{
+  const ctx = await browser.newContext();
+  try {
+  const calls = [], idxCalls = [], register = [];
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: OLD_ROW }), { idx: idxServe('ok'), idxCalls, register });
+  page.on('dialog', d => d.accept().catch(() => {}));
+  const pin = async () => { for (const k of '1234') { await page.locator(`[data-a="pin-key"][data-key="${k}"]`).click(); await page.waitForTimeout(250); } };
+  await page.click('[data-a="setup-manual-toggle"]');
+  await page.fill('#setupManualName', '창색인식당'); await page.fill('#setupManualAddr', '서울특별시 광진구 구의동 1');
+  await page.click('[data-a="setup-manual-save"]'); await page.waitForSelector('[data-a="setup-next"]'); await page.click('[data-a="setup-next"]');
+  await page.waitForSelector('[data-a="setup-to-contact"]'); await page.click('[data-a="setup-to-contact"]');
+  await page.waitForSelector('#setupTermsChk'); await page.check('#setupTermsChk'); await page.click('[data-a="setup-contact-skip"]');
+  await page.waitForSelector('[data-a="pin-key"]'); await pin(); await page.waitForTimeout(400); await pin();
+  await page.waitForFunction(() => !document.querySelector('.pin-screen'), null, { timeout: 20000 }); await page.waitForTimeout(800);
+  if (await page.locator('[data-a="guide-dismiss"]').count()) await page.locator('[data-a="guide-dismiss"]').click();
+  await page.waitForSelector('[data-a="go-register-store"]', { timeout: 8000 });
+  await page.locator('[data-a="go-register-store"]').first().click();
+  await page.waitForSelector('#storeName', { timeout: 8000 });
+  await page.fill('#storeName', '없는가게'); await page.fill('#storeRegion', '광진구');
+  await page.click('[data-a="relay-search-stores"]');
+  await page.waitForSelector('.modal .idx-block[data-state="empty"]', { timeout: 8000 });
+  const mmsg = (await page.innerText('.modal .idx-empty-msg')).trim();
+  ok(mmsg === "『광진구』에서 '없는가게' 이름의 영업 중인 가게를 찾지 못했어요. 이름을 줄여 다시 찾아 보세요(예: '육회바른연어 구의역점' → '육회')." && await page.locator('.modal [data-a="idx-old"]').count() === 1 && (await page.innerText('.modal .idx-built')).trim() === IDX_BUILT + ' 기준 공공데이터',
+    'X8: 창의 0건 안내(직접 입력 버튼이 없는 창이라 그 말은 빼고) + 기준일 + [공공데이터에서 다시 찾기] — ' + JSON.stringify(mmsg));
+  await page.fill('#storeName', '육회바른연어'); await page.fill('#storeRegion', '광진구 구의동');
+  await page.click('[data-a="relay-search-stores"]');
+  await page.waitForSelector('[data-a="relay-pick-store"]', { timeout: 8000 });
+  const mnames = await page.$$eval('[data-a="relay-pick-store"]', els => els.map(e => e.dataset.name));
+  ok(JSON.stringify(mnames) === JSON.stringify(['육회바른연어 구의역점', '육회바른연어 건대점']) && calls.length === 0, 'X8: 창에서도 색인으로 찾고 동이 든 가게가 앞(서버 0회) — ' + JSON.stringify(mnames));
+  await page.locator('[data-a="relay-pick-store"]').first().click();
+  for (let i = 0; i < 80 && !register.length; i++) await sleep(100);
+  ok(register.length === 1 && register[0].restaurant_id === '3040000-101-2019-00222', 'X8: 창에서 고른 색인 가게도 register-key에 관리번호가 실린다 — ' + JSON.stringify(register.map(b => b.restaurant_id)));
+  ok(errors.length === 0, 'X8: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X9(보완 F4): 폰 폭 처음 설정 1/3 — 결과 아래 줄이 넘치지 않고, 색인으로 고른 가게가 실존 대조(store_not_found)에 막히면
+//   창에 "가게 찾기에서 [공공데이터에서 다시 찾기]를 눌러 다시 골라 주세요."가 남는다. 그 버튼은 예전 방식(서버 이름 검색)으로 찾는다.
+const IDX_RETRY_LINE = '가게 찾기에서 [공공데이터에서 다시 찾기]를 눌러 다시 골라 주세요.';
+const NOT_FOUND_MSG = '공공데이터에서 이 가게를 찾지 못했어요. 가게 이름·주소로 다시 검색해서 골라 주세요.';
+{
+  const ctx = await browser.newContext({ viewport: { width: 360, height: 640 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  try {
+  const calls = [], idxCalls = [], register = [];
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: OLD_ROW }), { idx: idxServe('ok'), idxCalls, register, registerFail: 'store_not_found' });
+  const dialogs = [];
+  page.on('dialog', d => { dialogs.push(d.type() + ':' + d.message()); d.accept().catch(() => {}); });
+  await page.fill('#setupStoreName', '육회바른연어');
+  await page.fill('#setupStoreRegion', '광진구 구의동');
+  await page.click('[data-a="setup-store-search"]');
+  await page.waitForSelector('.idx-block[data-state="found"]', { timeout: 8000 });
+  const geo = await page.evaluate(() => { const vw = document.documentElement.clientWidth; const b = document.querySelector('.idx-block[data-state="found"]'); const els = [b, ...b.querySelectorAll('*')]; return { vw, doc: document.documentElement.scrollWidth, over: els.filter(e => { const r = e.getBoundingClientRect(); return r.width && (r.right > vw + 1 || r.left < -1 || e.scrollWidth > e.clientWidth + 1); }).map(e => e.className), btnH: b.querySelector('[data-a="idx-old"]').getBoundingClientRect().height }; });
+  ok(geo.doc <= geo.vw + 1 && geo.over.length === 0, 'X9: 360px 폭에서 결과 아래 기준일·버튼 줄이 넘치지 않는다 — ' + JSON.stringify(geo));
+  ok(geo.btnH >= 40, 'X9: [공공데이터에서 다시 찾기] 누를 자리가 40px 이상 — ' + geo.btnH);
+  await page.locator('[data-a="setup-store-pick"][data-id="3040000-101-2019-00222"]').click();
+  await page.waitForSelector('[data-a="setup-next"]', { timeout: 5000 });
+  await page.click('[data-a="setup-next"]');
+  await page.waitForSelector('[data-a="setup-to-contact"]'); await page.click('[data-a="setup-to-contact"]');
+  await page.waitForSelector('#setupTermsChk'); await page.check('#setupTermsChk'); await page.click('[data-a="setup-contact-skip"]');
+  const pin = async () => { for (const k of '1234') { await page.locator(`[data-a="pin-key"][data-key="${k}"]`).click(); await page.waitForTimeout(250); } };
+  // 처음 설정은 약관 동의 뒤 곧바로 등록을 시도한다 — 실패 창이 비밀번호 화면보다 먼저 뜰 수 있다.
+  await page.waitForSelector('#choiceTitle', { timeout: 15000 }).catch(() => {});
+  const dlg = await page.evaluate(() => { const m = document.querySelector('.choice-modal'); return m ? { title: m.querySelector('#choiceTitle').innerText.trim(), lines: [...m.querySelectorAll('.choice-line')].map(l => l.innerText.trim()) } : null; });
+  ok(register.length === 1 && dlg && dlg.title === '가게를 등록하지 못했어요' && JSON.stringify(dlg.lines) === JSON.stringify([NOT_FOUND_MSG, IDX_RETRY_LINE]), 'X9: 색인으로 고른 가게가 store_not_found면 창에 이유 + [공공데이터에서 다시 찾기] 안내가 남는다 — ' + JSON.stringify(dlg));
+  ok(!dialogs.some(m => m.includes('공공데이터에서 이 가게를')), 'X9: 그 안내는 기기 기본 팝업이 아니다');
+  if (dlg) await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
+  await page.waitForSelector('[data-a="pin-key"]', { timeout: 8000 }); await pin(); await page.waitForTimeout(400); await pin();
+  await page.waitForFunction(() => !document.querySelector('.pin-screen'), null, { timeout: 20000 }).catch(() => {}); await page.waitForTimeout(800);
+  if (await page.locator('[data-a="guide-dismiss"]').count()) await page.locator('[data-a="guide-dismiss"]').click();
+  await page.waitForSelector('[data-a="go-register-store"]', { timeout: 8000 }).catch(() => {});
+  ok(await page.locator('[data-a="go-register-store"]').count() >= 1, 'X9: 실패한 뒤에도 설정은 끝나고, 홈에 "우리 가게 등록" 길이 남는다');
+  ok(errors.length === 0, 'X9: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
+}
+
+// ── 시나리오 X10(보완 F4): 설정의 가게 찾기 창 — 결과가 있어도 [공공데이터에서 다시 찾기], 색인 가게의 store_not_found는 창 안내,
+//   그 버튼으로 예전 방식에서 고른 가게의 store_not_found는 예전처럼 한 줄 알림(색인 안내를 붙이지 않는다).
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  try {
+  const calls = [], idxCalls = [], register = [];
+  const { page, errors } = await newPage(ctx, calls, async () => ({ body: OLD_ROW }), { idx: idxServe('ok'), idxCalls, register, registerFail: 'store_not_found' });
+  page.on('dialog', d => d.accept().catch(() => {}));
+  const pin = async () => { for (const k of '1234') { await page.locator(`[data-a="pin-key"][data-key="${k}"]`).click(); await page.waitForTimeout(250); } };
+  await page.click('[data-a="setup-manual-toggle"]');
+  await page.fill('#setupManualName', '창색인식당'); await page.fill('#setupManualAddr', '서울특별시 광진구 구의동 1');
+  await page.click('[data-a="setup-manual-save"]'); await page.waitForSelector('[data-a="setup-next"]'); await page.click('[data-a="setup-next"]');
+  await page.waitForSelector('[data-a="setup-to-contact"]'); await page.click('[data-a="setup-to-contact"]');
+  await page.waitForSelector('#setupTermsChk'); await page.check('#setupTermsChk'); await page.click('[data-a="setup-contact-skip"]');
+  await page.waitForSelector('[data-a="pin-key"]'); await pin(); await page.waitForTimeout(400); await pin();
+  await page.waitForFunction(() => !document.querySelector('.pin-screen'), null, { timeout: 20000 }); await page.waitForTimeout(800);
+  if (await page.locator('[data-a="guide-dismiss"]').count()) await page.locator('[data-a="guide-dismiss"]').click();
+  // 홈 배너의 [등록하기] 또는(실패 뒤 설정 화면에 머물면) 자동 등록 카드의 [우리 가게 등록]으로 가게 찾기 창을 연다.
+  const openFind = async () => { await page.waitForSelector('[data-a="go-register-store"], [data-a="relay-find-store"]', { timeout: 8000 }); if (await page.locator('[data-a="go-register-store"]').count()) await page.locator('[data-a="go-register-store"]').first().click(); else await page.locator('[data-a="relay-find-store"]').first().click(); await page.waitForSelector('#storeName', { timeout: 8000 }); };
+  await openFind();
+  await page.fill('#storeName', '육회바른연어'); await page.fill('#storeRegion', '광진구 구의동');
+  await page.click('[data-a="relay-search-stores"]');
+  await page.waitForSelector('[data-a="relay-pick-store"]', { timeout: 8000 });
+  const mb = await page.evaluate(() => { const b = document.querySelector('.modal .idx-block[data-state="found"]'); const vw = document.documentElement.clientWidth; return b ? { built: (b.querySelector('.idx-built') || {}).innerText, btn: (b.querySelector('[data-a="idx-old"]') || {}).innerText, right: b.getBoundingClientRect().right, vw } : null; });
+  ok(mb && mb.built === IDX_BUILT + ' 기준 공공데이터' && mb.btn === '공공데이터에서 다시 찾기' && mb.right <= mb.vw + 1, 'X10: 창에서도 결과 아래 기준일 + [공공데이터에서 다시 찾기](화면 안) — ' + JSON.stringify(mb));
+  await page.locator('[data-a="relay-pick-store"]').first().click();
+  await page.waitForSelector('#choiceTitle', { timeout: 15000 }).catch(() => {});
+  const dlg = await page.evaluate(() => { const m = document.querySelector('.choice-modal'); return m ? [...m.querySelectorAll('.choice-line')].map(l => l.innerText.trim()) : null; });
+  ok(register.length === 1 && JSON.stringify(dlg) === JSON.stringify([NOT_FOUND_MSG, IDX_RETRY_LINE]), 'X10: 창에서 고른 색인 가게의 store_not_found도 같은 창 안내 — ' + JSON.stringify(dlg));
+  if (dlg) await page.locator('.choice-modal [data-a="choice-pick"][data-val="ok"]').click();
+  await page.waitForTimeout(500);
+  const card = await page.evaluate(() => (document.querySelector('.fold-head[data-card="enroll-auto"]') || {}).innerText || '');
+  ok(!card.includes('명단 받는 중'), 'X10: 창을 닫은 뒤 가게 등록은 되돌려져 "명단 받는 중"이 아니다 — ' + JSON.stringify(card.slice(0, 80)));
+  // 안내대로: 가게 찾기 → 같은 검색 → [공공데이터에서 다시 찾기] → 예전 방식 결과에서 고름 → 같은 실패면 예전처럼 한 줄 알림(색인 안내 없음)
+  await openFind();
+  await page.fill('#storeName', '육회바른연어'); await page.fill('#storeRegion', '광진구 구의동');
+  await page.click('[data-a="relay-search-stores"]');
+  await page.waitForSelector('.modal [data-a="idx-old"]', { timeout: 8000 });
+  await page.click('.modal [data-a="idx-old"]');
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-a="relay-pick-store"]')].some(e => e.dataset.name === '예전방식식당'), null, { timeout: 8000 });
+  ok(calls.some(c => !c.zip && c.q === '육회바른연어'), 'X10: 결과가 있던 검색에서도 [공공데이터에서 다시 찾기]가 예전 방식(서버 이름 검색)으로 찾는다 — ' + JSON.stringify(calls));
+  await page.locator('[data-a="relay-pick-store"][data-name="예전방식식당"]').click();
+  for (let i = 0; i < 80 && register.length < 2; i++) await sleep(100);
+  await page.waitForTimeout(400);
+  const after = await page.evaluate(() => ({ dlg: !!document.querySelector('.choice-modal'), toast: (document.querySelector('.toast') || {}).innerText || '' }));
+  ok(register.length === 2 && !after.dlg && after.toast.includes(NOT_FOUND_MSG) && !after.toast.includes('[공공데이터에서 다시 찾기]'), 'X10: 예전 방식으로 고른 가게의 실패는 예전 한 줄 알림 그대로 — ' + JSON.stringify(after));
+  ok(errors.length === 0, 'X10: 페이지 예외 없음' + (errors.length ? ' — ' + errors[0] : ''));
+  } catch (e) { ok(false, '색인 시나리오 예외 — ' + String(e && e.message || e).split('\n')[0].slice(0, 200)); } finally { await ctx.close().catch(() => {}); }
 }
 
 await browser.close();

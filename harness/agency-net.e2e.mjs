@@ -185,7 +185,8 @@ const expireNow=async p=>{await p.evaluate(()=>{const S=window.__S;S.dept='';});
   await p.clock.runFor(31*60*1000);await p.waitForTimeout(200);
   const st=await p.evaluate(()=>({rows:window.__S.rawRows,sel:window.__S.restaurants.length}));
   const am=await text(p,'#authMsg');
-  ok(held&&st.rows===null&&st.sel===0&&/30분/.test(am)&&/명단을 지웠어요/.test(am),'W7-3 인증 만료 뒤에도 30분 무조작이면 명단 폐기 '+JSON.stringify({held,st,am}));
+  // beta.61(계약서 4절): 30분 무조작 자동 해제를 없앴다 — 가만히 두어도 올린 명단·선택을 지우지 않는다(공용 PC는 [로그아웃]).
+  ok(held&&st.rows&&st.rows.length===1&&st.sel===1&&!/30분/.test(am),'W7-3(beta.61) 30분 무조작이어도 명단을 지우지 않음 '+JSON.stringify({held,rows:st.rows&&st.rows.length,sel:st.sel,am}));
   await p.context().close();
 }
 // ── W-11: 목록에 없는 기관(학교·복지관 등) 직접 입력 ──

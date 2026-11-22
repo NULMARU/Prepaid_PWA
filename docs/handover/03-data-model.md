@@ -35,7 +35,7 @@ const APP='선입금대장', APP_VERSION='1.0.0-beta.NN', DB='prepaid-ledger-db'
 |---|---|---|---|
 | `id` | `'id-…'` (`uid()`) | PK | 전 경로 자동 |
 | `org` | string | **소속** — 공공기관명·회사명·`개인`. 레거시 데이터는 `''`(옛날엔 `dept`에 합성돼 있었다) | 자동 등록(`summary.institution` 또는 `items[].org`), CSV `소속`/`회사` 열, 수동 등록 `#empOrg` |
-| `orgKind` | `'public'` \| `''` | 표시·분류용 꼬리표 | 자동 등록 경로는 `'public'` 고정, 수동·CSV는 `orgKindFor(org)`(= `org === meta.orgName`일 때만 `'public'`) |
+| `orgKind` | `'public'` \| `''` | 표시·분류용 꼬리표 | 자동 등록 경로는 `'public'` 고정, 수동·CSV는 `orgKindFor(org)`(= `org === meta.orgName`일 때만 `'public'`). **beta.61**: [직원 정보 수정]에서 소속이 그대로면 기존 값을 지킨다(부서만 바꾼 공공기관 직원이 회사 그룹으로 넘어가던 결함) — 소속을 바꿨을 때만 다시 분류 |
 | `dept` | string | 부서 | 위와 동일 3경로 |
 | `name` | string | 이름 | 위와 동일 |
 | `note` | string | 메모 | 수동 등록만 |
@@ -48,6 +48,7 @@ const APP='선입금대장', APP_VERSION='1.0.0-beta.NN', DB='prepaid-ledger-db'
 - **`balance` 필드는 저장하지 않는다**(§3 참조).
 - 동일인 판정: `empMatchKey(e)` = `orgDeptLabel(e) + '|' + name` — **"화면에서 같아 보이는 직원 = 같은 직원"** 원칙. 레거시 결합 `dept`와 신규 분리 `org`/`dept`가 섞여도 충전이 정확히 붙는다. 인덱스 빌더는 `activeEmployeeIndex()`.
 - 매칭되면 새 카드를 만들지 않고 `topup` 거래를 추가한다(매달 재전송 시 카드 증식 방지).
+- **부서 이동(beta.61)**: 명단의 줄이 매칭되지 않고 **같은 소속의 다른 부서**에 같은 표시 이름의 활성 직원이 정확히 한 명이면(같은 명단에 그 옛 부서 줄이 함께 있으면 제외, 소속이 비었거나 `개인`이면 제외) 받기 전에 묻는다(`deptMoveCandidates`·`askDeptMoves`, 기본값 = 새로 등록). [옮기기]를 고른 줄은 **같은 `id`**의 `org`/`dept`를 명단 글자로 바꾸고 그 id에 `topup` — 장부와 한 번의 `repo.apply`. 흔적은 그 충전 거래의 `note`("부서 이동 재무과 → 세무과", 해시 canonical 안). 새 필드·meta 키 없음, `batch_hash` 불변. 잔액을 다른 id로 옮기는 경로는 여전히 없다.
 - 동명이인: `assignDuplicateSuffix()`가 `·2`, `·3` 마커를 부여(라틴 이름 오병합을 피하려 라틴 접미사 `a/b`에서 바꾼 것).
 
 ### 1.2 거래(`transactions`) 레코드
@@ -276,7 +277,7 @@ employeeId | amount | afterBalance | prevHash | createdAt
 | `auth_challenge` | 소유증명 챌린지 토큰 **해시** | 5분, 1회용 |
 | `ledger_backup` | 음식점당 암호화 원장 1행(v1 전체 또는 v2 **머리**). **beta.55 `gen`** 컬럼 = 머리의 세대(v1 업로드는 NULL) | 사용자 삭제 시까지 · **등록 해제 후에는 30일**(그 안에 같은 열쇠로 재등록하면 되찾는다). 다른 열쇠가 인수해도 즉시 지우지 않는다(새 주인에게는 404) |
 | `ledger_backup_seg` | **beta.55** v2 조각 `(restaurant_id, gen, seg_no)` → 암호문 blob | 머리가 오면 다른 세대 삭제 · 고아 세대는 14일 뒤 cron ⑦ · 가게당 1,000행 상한(가득 차면 하루 넘게 조용한 고아 세대부터 비움) · `ledger_backup`을 지우는 모든 경로에서 함께 삭제 |
-| `agency_otp` / `agency_token` | OTP 해시 / 세션 토큰 해시 (**이메일도 해시**, 도메인부만 `email_domain`에 평문) | 10분 / 24시간 |
+| `agency_otp` / `agency_token` | OTP 해시 / 인증 토큰 해시 (**이메일도 해시**, 도메인부만 `email_domain`에 평문) | 10분 / **인증한 때부터 90일 고정**(beta.61 `AGENCY_TOKEN_TTL_MS` — 쓰는 동안 늘지 않음). 로그아웃(`POST /api/agency/logout`)이면 그 행 즉시 삭제, 만료 행은 일일 정리 |
 | `agency_keycheck` | 열쇠 지문 확인 이력(기관·부서·가게 id·지문·**`agency_domain`**) | **TTL 정리 대상 아님**(장기 보관 — 개인정보 없음) |
 | `seen_institution` / `seen_department` / `seen_restaurant` / `stats_counter` | 비식별 집계 | 무기한(비개인) |
 | `feedback` | 의견 자유 입력 | 180일 |
@@ -302,7 +303,7 @@ TTL 상수는 `server/src/worker.js` 상단(`PENDING_TTL_MS`, `RETENTION_TTL_MS`
 | 서피스 | 저장소 | 오리진 이동 시 |
 |---|---|---|
 | 음식점 앱 | IndexedDB `prepaid-ledger-db` (+ 폴백 `localStorage['prepaid-ledger-local']`) | **원장 전체 소실.** 백업 JSON + 열쇠 백업으로만 이전 가능 |
-| 담당자 웹 | `localStorage`(`relay-server`, `bapjangbu_terms_agreed`), `sessionStorage`(`agency-token`) | 재인증·재동의만 하면 됨(피해 작음) |
+| 담당자 웹 | `localStorage`(`relay-server`, `bapjangbu_terms_agreed`, **`agency-token`** = 토큰·이메일·인증 시각 — beta.61부터, 89일 뒤 스스로 버림·저장소가 막히면 `sessionStorage`로 폴백), `sessionStorage`(`agency-sent-v1` — 보낸 기록의 솔트 해시) | 재인증·재동의만 하면 됨(피해 작음). 명단 내용(직원명·금액)은 어느 저장소에도 두지 않는다 |
 | 직원용 앱(별도 리포) | `localStorage` | 개인 기록 소실. 백업 JSON으로만 이전 |
 
 - 옛 주소 `nulmaru.github.io/Prepaid_PWA` → `app.bapjangbu.com` 은 **다른 오리진**이다. 옛 주소로 설치한 사용자가 남아 있다면 자동 이전은 없다.

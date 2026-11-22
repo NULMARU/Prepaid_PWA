@@ -309,6 +309,18 @@
 .pass-foot{margin-top:8px;font-size:13px;line-height:1.5}
 .choice-actions button.choice-opt{display:block;text-align:left;padding:10px 14px;line-height:1.35}
 .choice-opt strong{display:block;font-size:16px}.choice-opt .choice-sub{display:block;margin-top:2px;font-size:13px;font-weight:400;opacity:.88}
+/* beta.61(구역 D): 부서를 옮긴 분 묻기 — 목록만 스크롤되고 제목·[이대로 받기]·[취소]는 늘 화면 안(폰 세로 12명까지 확인).
+   줄마다 고르는 두 칸은 진한 버튼이 아니다(카드 안 진한 버튼은 [이대로 받기] 하나). 고른 칸은 테두리·✓로 보인다. */
+.move-modal{display:flex;flex-direction:column;max-height:calc(100vh - 32px);max-height:calc(100svh - 32px);overflow:hidden}
+.move-modal>h2,.move-modal>.choice-line,.move-modal>.choice-actions{flex:0 0 auto}
+.move-list{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;margin:4px 0 2px;padding-right:2px}
+.move-row{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 8px}
+.move-q{margin:0 0 8px;font-size:15px;line-height:1.5;color:var(--text);overflow-wrap:anywhere}
+.move-opts{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
+.move-opts button.move-opt{width:100%;min-width:0;min-height:44px;text-align:left;background:#fff;border:1.5px solid var(--line);color:var(--text);font-size:15px;font-weight:600;white-space:normal;line-height:1.3;padding:8px 12px;border-radius:10px;box-shadow:none}
+.move-opts button.move-opt[aria-checked="true"]{border:2px solid var(--primary);background:var(--primary-soft);color:var(--primary-dark)}
+.move-opts button.move-opt[aria-checked="true"]::before{content:"✓ ";font-weight:800}
+@media(min-width:641px){.move-opts{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 .modal-actions button{flex:1;font-size:16px;font-weight:700}
 
 /* ─── 토스트/로딩 ─── */
@@ -372,6 +384,34 @@
 /* 직원 목록 관리 카드 상단 요약(홈 하단에서 이 자리로 옮긴 "활성 직원 N명 · 잔액 합계") */
 .mgr-summary{margin-top:0;font-size:14px;padding:12px 14px;box-shadow:0 4px 12px rgba(23,69,121,.16)}
 .mgr-summary .v{font-size:19px}
+/* beta.61 — [이력] > [월별]. 표는 폰 360폭에서 가로 스크롤 0(고정 열 + 긴 소속·부서는 줄바꿈). */
+.month-nav{display:flex;align-items:center;gap:8px;margin-top:8px}
+.month-nav-btn,.month-nav-sp{flex:0 0 52px;min-height:44px}
+.month-nav-btn{border-radius:10px;font-size:16px;font-weight:700;background:#fff;color:var(--primary);border:1.5px solid var(--line);padding:0}
+.month-nav-title{flex:1;min-width:0;text-align:center;font-size:18px;font-weight:800;color:var(--text)}
+.month-card{display:flex;flex-direction:column;gap:12px}
+.month-sum{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+@media (max-width:480px){.month-sum{grid-template-columns:minmax(0,1fr)}}/* 폰은 한 줄에 하나 — 7자리 금액에서 '원'이 아랫줄로 떨어지지 않게 */
+.month-sum-item{background:var(--primary-soft);border-radius:12px;padding:12px;min-width:0}
+.month-k{font-size:14px;font-weight:700;color:var(--muted)}
+.month-v{font-size:24px;font-weight:800;color:var(--text);letter-spacing:-.5px;overflow-wrap:anywhere}
+.month-n{font-size:14px;color:var(--muted)}
+.month-adj{font-size:14px;color:var(--muted)}
+.month-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:14px}
+.month-table th{font-size:13px;color:var(--muted);font-weight:700;text-align:right;padding:6px 4px;border-bottom:1.5px solid var(--line)}
+.month-table th:first-child,.month-table td:first-child{text-align:left;width:40%}
+.month-table td{padding:8px 4px;border-bottom:1px solid #eef1f4;text-align:right;white-space:nowrap}
+.month-table td:first-child{white-space:normal;word-break:keep-all;overflow-wrap:anywhere}
+.month-h{font-size:17px;font-weight:800;color:var(--text)}
+.month-sub{font-size:14px;color:var(--muted)}
+.month-remain-total{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:15px}
+.month-remain-total b{font-size:22px;font-weight:800;white-space:nowrap}
+.month-remain-list,.month-idle-list{display:flex;flex-direction:column}
+.month-remain-row,.month-idle-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #eef1f4;font-size:15px}
+.month-remain-row span,.month-idle-main{min-width:0;overflow-wrap:anywhere;word-break:keep-all}
+.month-remain-row b,.month-idle-bal{flex:0 0 auto;white-space:nowrap;font-weight:700}
+.month-idle-name{font-size:16px;font-weight:700}
+.month-idle-dept,.month-idle-last{font-size:13px;color:var(--muted)}
 
 /* ─── PIN 화면 ─── */
 .pin-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:linear-gradient(160deg,#f0f2f5 0%,#e6eaf0 100%)}
@@ -686,7 +726,7 @@ a.install-inline-link{color:var(--primary);font-weight:700}
 'use strict';
 // beta.60b(이름): 화면에 보이는 대표 이름은 BRAND('밥장부'). APP('선입금대장')은 백업 파일 **안에** 적히는 값(appName)이라 그대로 둔다 —
 //   파일 형식 불변(예전 파일·새 파일 모두 같은 값). 복원·되찾기는 appName을 검사하지 않는다(값을 지나 보낼 뿐). 화면 문구에 APP를 쓰지 말 것.
-const APP='선입금대장',BRAND='밥장부',APP_VERSION='1.0.0-beta.60',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',BRAND='밥장부',APP_VERSION='1.0.0-beta.61',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -722,7 +762,7 @@ const COMMON_DEPTS=[...DEFAULT_DEPTS];
 //   custAmount = 작성 중인 금액, pendingAmount·pendingSign = 사장님께 넘긴 요청의 내용.
 //   저장소·서버·백업 어디에도 나가지 않는다(state.data 바깥이라 backupCore/repo.apply의 사정권 밖이다).
 //   "손님은 요청을 만들고, 사장님은 기록을 만든다" — 이 4개는 요청이지 기록이 아니다.
-const state={loaded:false,mode:'준비 중',screen:'home',formDrafts:{},search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},expandedEmps:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,recoveryPass:'',pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,guardBannerDismissed:false,pendingOwnHasKey:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
+const state={loaded:false,mode:'준비 중',screen:'home',formDrafts:{},search:'',deptFilter:'',historyTab:'date',historyEmployeeId:'',historyMonth:null,modal:null,toast:'',toastTimer:null,busy:'',expandedDepts:{},expandedEmps:{},homeExpanded:{},settingsOpen:{},pinLocked:true,pinInput:'',pinFails:0,pinMode:'',pinSetup1:'',pinMsg:'',pinRecovery:false,pinRecoveryAt:0,allowLockedRestore:false,recoveryPass:'',pinDelayUntil:0,lockView:'customer',pinContext:'',custQuery:'',custStage:'search',custSelectedId:'',custVerify:null,custAmount:'',pendingCustomerId:'',pendingCustomerAt:0,pendingAmount:0,pendingSign:'',pendingExpired:false,backupConfirmed:false,setupStep:1,setupSelected:null,setupDepts:[],setupGuide:false,setupTermsAgreed:false,setupManualMode:false,setupManualDraft:{name:'',addr:'',tel:''},setupPickedStore:null,setupStoreQ:'',setupStoreRegion:'',setupStoreResults:[],setupStoreRegisteredIds:[],setupStoreSearching:false,setupStoreSearched:false,setupStoreFilteredOut:false,setupStoreUsedZip:false,inboxCount:null,storeBannerDismissed:false,keyBackupBannerDismissed:false,backupReminderDismissed:false,guardBannerDismissed:false,pendingOwnHasKey:false,agencyData:null,agencyError:'',regionSelected:'',agencySelected:'',deptCache:{},qrAvailable:false,data:{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[...DEFAULT_DEPTS]}}};
 // lastInputAt = 마지막 **사용자 조작** 시각. 유휴 만료의 유일한 기준이다(렌더는 이 값을 건드리지 못한다).
 //   init()이 첫 render를 부르기 전에 반드시 초기화돼 있어야 하므로 선언을 여기(최상단 상태 묶음)에 둔다.
 let lastInputAt=Date.now();
@@ -797,7 +837,7 @@ instanceMode:()=>instanceLockMode||'',
 // 체인 결정성 회귀용(읽기 전용) — 전부 순수 계산 함수다(저장·전송 경로 없음).
 verifyChain,verifyBalanceFor,chainTip,
 // beta.60(A2): 동명이인 번호 규칙(순수 계산 — 넘겨 준 배열의 이름만 바꾼다, 저장·전송 없음).
-assignDuplicateSuffix,isCsvTotalRow,txClock:()=>num(__txClock),txOrder:list=>sortTxAsc(list||state.data.transactions).map(t=>t.id),
+assignDuplicateSuffix,isCsvTotalRow,deptMoveCandidates:(rows,patches,skip)=>deptMoveCandidates(rows,patches,skip?new Set(skip):null).map(c=>({i:c.i,empId:c.emp.id,fromDept:c.fromDept,toDept:c.toDept})),txClock:()=>num(__txClock),txOrder:list=>sortTxAsc(list||state.data.transactions).map(t=>t.id),
 lockState:()=>({locked:!!state.pinLocked,lockView:state.lockView,pinContext:str(state.pinContext),pinRecovery:!!state.pinRecovery,recoveryLeft:recoveryLeft(),allowLockedRestore:!!state.allowLockedRestore,pinMode:str(state.pinMode),recoveryPassHeld:!!state.recoveryPass,pinFails:num(state.pinFails),pinDelayLeft:pinDelayLeft(),pendingCustomerId:str(state.pendingCustomerId),custQuery:str(state.custQuery),custStage:str(state.custStage),
 // B단계 요청(휘발성)의 관측점. 서명은 **길이만** 내보낸다(그림 자체는 훅으로도 꺼내지 않는다) —
 //   폐기 경로가 대상만 지우고 금액·서명을 남기지 않았는지 확인하는 용도다.
@@ -1224,12 +1264,19 @@ function dismissPassDialog(){const d=state.passDialog;if(!d)return;state.passDia
 //   버튼 이름도 못 바꾼다(beta.52 원칙: 되돌릴 수 없는 선택은 앱 안 창으로). 열쇠 암호 창(passDialog)과 같은 자리(overlaysHtml)에
 //   그리고, 같은 규칙으로 닫는다 — 손님 화면으로 넘어가면 조용히 닫힌다(dismissChoiceDialog).
 // o = {title, lines:[html…], buttons:[{val,label,cls}]} → Promise<val|null>. lines는 호출부가 esc()한 문자열만 넣는다.
-function askChoice(o){return new Promise(resolve=>{const prev=state.choiceDialog;state.choiceDialog={title:str(o&&o.title),lines:Array.isArray(o&&o.lines)?o.lines:[],buttons:Array.isArray(o&&o.buttons)?o.buttons:[],resolve};if(prev&&typeof prev.resolve==='function'){try{prev.resolve(null)}catch(e){}}render()})}
+// beta.61(구역 D): o.picks=[{q(html), opts:[{val,label}], value}]를 주면 버튼 위에 "줄마다 하나 고르기" 목록을 그린다(부서 이동 묻기).
+//   고른 값은 호출부가 넘긴 picks 객체에 그대로 적힌다(move-pick — 그 줄 버튼만 갈아칠하고 전체 render는 하지 않는다: 목록 스크롤 유지).
+//   닫힘 규칙은 보통의 선택창과 똑같다(Esc·손님 화면 전환·자동 잠금 = 취소).
+function askChoice(o){return new Promise(resolve=>{const prev=state.choiceDialog;state.choiceDialog={title:str(o&&o.title),lines:Array.isArray(o&&o.lines)?o.lines:[],buttons:Array.isArray(o&&o.buttons)?o.buttons:[],picks:Array.isArray(o&&o.picks)?o.picks:null,resolve};if(prev&&typeof prev.resolve==='function'){try{prev.resolve(null)}catch(e){}}render()})}
 function closeChoiceDialog(val){const d=state.choiceDialog;if(!d)return;state.choiceDialog=null;render();try{d.resolve(val==null?null:val)}catch(e){}}
 function dismissChoiceDialog(){const d=state.choiceDialog;if(!d)return;state.choiceDialog=null;try{d.resolve(null)}catch(e){}}
 function choiceDialogHtml(){const d=state.choiceDialog;if(!d)return '';
-return `<div class="modal-back pass-back choice-back"><div class="modal choice-modal" role="dialog" aria-modal="true" aria-labelledby="choiceTitle"><h2 id="choiceTitle">${esc(d.title)}</h2>${d.lines.map(l=>`<p class="help choice-line">${l}</p>`).join('')}<div class="modal-actions choice-actions">${d.buttons.map(b=>`<button class="${esc(str(b.cls)||'btn')}${str(b.sub)?' choice-opt':''}" data-a="choice-pick" data-val="${esc(str(b.val))}">${str(b.sub)?`<strong>${esc(str(b.label))}</strong><span class="choice-sub">${esc(str(b.sub))}</span>`:esc(str(b.label))}</button>`).join('')}</div></div></div>`}
+const picksHtml=d.picks?`<div class="move-list" id="moveList">${d.picks.map((p,i)=>`<div class="move-row" data-i="${i}" role="radiogroup" aria-label="${esc(str(p.aria))}"><p class="move-q">${p.q}</p><div class="move-opts">${(p.opts||[]).map(op=>`<button class="move-opt" role="radio" aria-checked="${p.value===op.val?'true':'false'}" data-a="move-pick" data-i="${i}" data-val="${esc(str(op.val))}">${esc(str(op.label))}</button>`).join('')}</div></div>`).join('')}</div>`:'';
+return `<div class="modal-back pass-back choice-back"><div class="modal choice-modal${d.picks?' move-modal':''}" role="dialog" aria-modal="true" aria-labelledby="choiceTitle"><h2 id="choiceTitle">${esc(d.title)}</h2>${d.lines.map(l=>`<p class="help choice-line">${l}</p>`).join('')}${picksHtml}<div class="modal-actions choice-actions">${d.buttons.map(b=>`<button class="${esc(str(b.cls)||'btn')}${str(b.sub)?' choice-opt':''}" data-a="choice-pick" data-val="${esc(str(b.val))}">${str(b.sub)?`<strong>${esc(str(b.label))}</strong><span class="choice-sub">${esc(str(b.sub))}</span>`:esc(str(b.label))}</button>`).join('')}</div></div></div>`}
 document.addEventListener('keydown',function(e){if(!state.choiceDialog)return;if(e.key==='Escape'){e.preventDefault();closeChoiceDialog(null)}});
+// 줄 하나의 선택만 바꾼다(전체 render 없음 — 폰에서 목록 아래쪽을 고르다가 맨 위로 튀지 않게). 열린 목록이 없으면 아무 일도 하지 않는다.
+function pickMoveRow(i,val){const d=state.choiceDialog;if(!d||!Array.isArray(d.picks))return;const p=d.picks[num(i)];if(!p)return;if(!(p.opts||[]).some(op=>str(op.val)===str(val)))return;p.value=str(val);
+const row=document.querySelector(`.move-row[data-i="${num(i)}"]`);if(row)row.querySelectorAll('[data-a="move-pick"]').forEach(b=>b.setAttribute('aria-checked',b.dataset.val===p.value?'true':'false'))}
 // ── 앱 안 글자 입력창(beta.55, C12) — 기기 기본 팝업(window.prompt) 대신 ─────────────────────────
 // 사용 취소 사유·전화번호·공공기관명을 window.prompt로 받았다. 그 팝업은 **무엇을** 고치는지(어느 직원·얼마·언제)를 보여 주지 못하고,
 //   형식이 틀리면 3초 토스트 한 줄로 거절돼 창이 닫혀 버렸다. → 앱 안 창: 대상을 위에 적고, 거절 사유는 창 안에 남고, 다시 고칠 수 있다.
@@ -1548,10 +1595,16 @@ window.alert(REGISTER_TAKEN_MSG);takeoverReportHref(takeoverReportTarget().name,
 if(relayRegisterLastError==='takeover_locked'){relayRegisterToldUser=true;await askChoice({title:'지금은 이 가게를 등록할 수 없어요',lines:[`운영자가 최근 정리한 가게라 <b>${esc(lockedUntilText(e&&e.lockedUntil))}</b> 다시 등록할 수 있어요.`,'우리 가게가 맞는데 급하시면 contact@bapjangbu.com으로 가게 이름과 함께 알려 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return}
 // beta.60(S 계약 ③): 그 사이 등록이 바뀐 경우·상호가 빈 경우는 3초 토스트로 흘려보내지 않는다 — 이유 + 다음 행동을 창에 남긴다.
 if(REGISTER_STAY_ERR.includes(relayRegisterLastError)){relayRegisterToldUser=true;await askChoice({title:relayRegisterLastError==='store_name_required'?'가게 이름이 비어 있어요':'그 사이 가게 등록이 바뀌었어요',lines:[esc(RELAY_ERR_KO[relayRegisterLastError]),relayRegisterLastError==='store_name_required'?'설정 &gt; 자동 등록 &gt; [우리 가게 등록]에서 가게를 다시 골라 주세요.':'다른 기기에서 먼저 등록했거나 되돌렸을 수 있어요. 우리 가게가 맞는데 남이 등록한 것 같으면 contact@bapjangbu.com으로 알려 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return}
+// beta.61 보완(F4): 색인(정적 가게 목록)으로 고른 가게가 서버 실존 대조에서 store_not_found면 — 색인 상호와 공공데이터 API 상호가
+//   다를 수 있다. "다시 검색"만 말하면 색인이 같은 줄을 또 주므로, 예전 방식으로 찾는 길([공공데이터에서 다시 찾기])을 창에 남긴다.
+if(relayRegisterLastError==='store_not_found'&&storePickFromIdx){relayRegisterToldUser=true;await askChoice({title:'가게를 등록하지 못했어요',lines:[esc(REGISTER_ERR_KO.store_not_found),STORE_IDX_RETRY_LINE],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]});return}
 const known=REGISTER_ERR_KO[relayRegisterLastError]||(['timeout','network','rate_limited','too_many_attempts'].includes(relayRegisterLastError)?RELAY_ERR_KO[relayRegisterLastError]:'');
 if(known){relayRegisterToldUser=true;toast('가게 등록에 실패했어요. '+known,6000);return}
 toast('가게 등록에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.')}}
 var REGISTER_STAY_ERR=['state_conflict','takeover_conflict','store_name_required'];
+// beta.61 보완(F4): 지금 등록하려는 가게를 색인 결과에서 골랐는가(고르는 순간 정한다 — 등록 실패 안내만 바꾼다).
+var storePickFromIdx=false;
+const STORE_IDX_RETRY_LINE='가게 찾기에서 [공공데이터에서 다시 찾기]를 눌러 다시 골라 주세요.';
 var REGISTER_ERR_KO={invalid_public_key:'이 기기의 가게 열쇠가 올바르지 않아요. 앱을 새로 고친 뒤 다시 해 보고, 계속 안 되면 contact@bapjangbu.com으로 알려 주세요.',
 store_not_found:'공공데이터에서 이 가게를 찾지 못했어요. 가게 이름·주소로 다시 검색해서 골라 주세요.'};
 // 서버의 locked_until(초·ms·ISO 문자열 무엇이든)을 "11월 20일 이후" 같은 말로. 읽지 못하면 "며칠 뒤에".
@@ -1664,10 +1717,129 @@ if(!hits.length)return{error:'"'+dong+'"을(를) 그 지역에서 찾지 못했�
 if(hits.length>1)return{choices:hits.map(h=>({sido:h.sido,sigungu:h.sigungu,dong:h.dong}))};
 return hits[0]}
 function dongState(kind){return kind==='setup'?state.setupDong:(state.modal&&state.modal.dong)}
+// ── 가게 색인으로 찾기 (beta.61) ──────────────────────────────────────────────
+// 왜: 공공데이터 API는 한 번에 5~41초가 걸리고 자주 실패한다(beta.56·57). 공공데이터 전체 파일로 미리 만든 시군구별 색인
+//   (`storeidx/meta.json` + `storeidx/<시도>/<번호>.json`, 이 앱과 같은 출처 — 배포 때 만들어 Pages에만 싣는다)을
+//   받아 **이 기기에서** 이름으로 찾는다. 계약서 beta61 §2(형식)·§3(쓰는 법).
+// 언제 쓰나: 지역 칸에서 시·도와 시·군·구가 **하나로** 정해질 때만(zipmap/index.json의 표기 = 색인의 표기).
+//   · 시·도는 추측하지 않는다 — 같은 이름의 구·군(중구·고성군 등)이 여러 곳이면 칩으로 고르게 한다(동을 적었으면 그 동이 있는 곳으로 먼저 좁힘).
+//   · 일반구가 있는 시(수원시 등)는 "그 시 + 공백 + 구" 키를 모두 합친다(6개 넘으면 예전 방식) — 담당자 웹 storeIdxKeys와 같은 규칙.
+//   · 세종처럼 시·군·구가 없는 곳은 시·도 이름 하나가 키다.
+// 못 쓰면(지역 없음·해석 안 됨·오프라인·404·v≠1·구 파일 404·10초 초과) null → **예전 방식 그대로**(서버 이름 검색 → 동네 순회).
+// 색인에서 0건이면 예전 방식으로 저절로 넘어가지 않는다(느린 49구역 순회를 되살리지 않는다) — [공공데이터에서 다시 찾기] 글씨 버튼으로만.
+// 파일은 서비스워커 캐시에 넣지 않고(sw.js 예외), 받은 구 파일은 이 실행 동안 메모리에만 둔다. 전화번호는 색인에 없다(불변식 4).
+const STOREIDX_TIMEOUT_MS=10000;      // 한 번의 색인 찾기 전체(meta + 구 파일) 한도
+const STOREIDX_MAX_FILES=6;
+const STOREIDX_SHOW_MAX=50;           // 화면에 싣는 결과 수(넘으면 "이름을 더 자세히" 한 줄)
+const STOREIDX_MISS_MS=10*60*1000;    // 색인이 없다(404·형식 다름)는 답은 10분 동안 믿는다 — 검색마다 다시 묻지 않는다
+// 사장님이 적는 줄임·옛 이름 → zipmap(=색인) 시·도 이름. 색인 만드는 도구(build-storeidx.mjs)의 표와 같다.
+const STOREIDX_SIDO_ALIAS={'서울':'서울특별시','서울시':'서울특별시','부산':'부산광역시','부산시':'부산광역시','대구':'대구광역시','대구시':'대구광역시','인천':'인천광역시','인천시':'인천광역시','대전':'대전광역시','대전시':'대전광역시','울산':'울산광역시','울산시':'울산광역시','세종':'세종특별자치시','세종시':'세종특별자치시','경기':'경기도','강원도':'강원특별자치도','강원':'강원특별자치도','충북':'충청북도','충남':'충청남도','전라북도':'전북특별자치도','전북':'전북특별자치도','광주광역시':'전남광주통합특별시','광주':'전남광주통합특별시','전라남도':'전남광주통합특별시','전남':'전남광주통합특별시','경북':'경상북도','경남':'경상남도','제주도':'제주특별자치도','제주':'제주특별자치도'};
+const storeIdx={meta:null,missUntil:0,files:new Map()};
+// 이름 대조 정규화 — 서버 normalizeStoreName과 같은 규칙(NFC + 공백·괄호 제거, 그 밖의 글자는 그대로).
+function storeIdxNorm(v){return String(v==null?'':v).normalize('NFC').replace(/[\s()[\]{}（）［］｛｝]/g,'')}
+async function storeIdxMeta(signal){
+if(storeIdx.meta)return storeIdx.meta;
+if(storeIdx.missUntil>Date.now())return null;
+let r;try{r=await fetch('storeidx/meta.json',{signal})}catch(e){return null}// 끊김·10초 초과는 다음 검색 때 다시 받아 본다
+const miss=()=>{storeIdx.missUntil=Date.now()+STOREIDX_MISS_MS;return null};
+if(!r.ok)return r.status===404?miss():null;
+let j;try{j=await r.json()}catch(e){return miss()}
+if(!j||j.v!==1||!j.regions||typeof j.regions!=='object'||Array.isArray(j.regions))return miss();
+storeIdx.meta={built:/^\d{4}-\d{2}-\d{2}$/.test(str(j.built))?str(j.built):'',regions:j.regions};
+return storeIdx.meta}
+const STOREIDX_FILE_RE=/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\.json$/;
+// 구 파일 하나 → [[관리번호,이름,도로명주소,지번주소,우편번호,정규화한 이름]] | null(못 받음·형식 다름)
+async function storeIdxFile(f,signal){
+if(!STOREIDX_FILE_RE.test(str(f)))return null;
+if(storeIdx.files.has(f))return storeIdx.files.get(f);
+let r;try{r=await fetch('storeidx/'+f,{signal})}catch(e){return null}
+if(!r.ok)return null;
+let j;try{j=await r.json()}catch(e){return null}
+if(!j||j.v!==1||!Array.isArray(j.rows))return null;
+const rows=[];
+for(const x of j.rows){if(!Array.isArray(x)||typeof x[0]!=='string'||!x[0]||typeof x[1]!=='string'||!x[1])continue;
+rows.push([x[0],x[1],typeof x[2]==='string'?x[2]:'',typeof x[3]==='string'?x[3]:'',typeof x[4]==='string'?x[4]:'',storeIdxNorm(x[1])])}
+storeIdx.files.set(f,rows);return rows}
+// (시·도, 고른 단위) → 색인의 {sido, keys}. 단위가 일반구 없는 이름(수원시)이면 그 시의 구 키를 모두. 못 맞추면 null.
+function storeIdxKeysOf(meta,sido,unit){
+let sd=str(sido),reg=meta.regions[sd];
+if(!reg&&STOREIDX_SIDO_ALIAS[sd]){sd=STOREIDX_SIDO_ALIAS[sd];reg=meta.regions[sd]}
+if(!reg||typeof reg!=='object')return null;
+const keys=Object.keys(reg).filter(k=>reg[k]&&typeof reg[k]==='object'&&typeof reg[k].f==='string');
+if(keys.length===1&&keys[0]===sd)return{sido:sd,keys};
+const u=str(unit);if(!u)return null;
+const hit=keys.filter(k=>k===u||k.startsWith(u+' '));
+if(!hit.length||hit.length>STOREIDX_MAX_FILES)return null;
+return{sido:sd,keys:hit}}
+// 지역 칸 → null(색인을 쓸 수 없음) | {choices:[{sido,unit}]} | {sido,unit,dong}. zipmap/index.json으로만 해석한다(추측 없음).
+async function resolveStoreIdxRegion(regionText,sidoPick,sigunguPick){
+const t=str(regionText).normalize('NFC').split(/\s+/).filter(Boolean);
+if(!t.length)return null;
+const dong=dongTokenOf(regionText);
+if(str(sidoPick)&&str(sigunguPick))return{sido:str(sidoPick),unit:str(sigunguPick),dong};
+let idx;try{idx=await zipmapIndex()}catch(e){return null}
+if(!idx||!Array.isArray(idx.sido))return null;
+let sidoTok='',sidoSet=null;
+for(const x of t){if(x===dong||x.length<2)continue;const al=STOREIDX_SIDO_ALIAS[x];const ms=idx.sido.filter(s=>s.name===x||s.name.startsWith(x)||al===s.name).map(s=>s.name);if(ms.length){sidoTok=x;sidoSet=new Set(ms);break}}
+const sgToks=t.filter(x=>x!==dong&&x!==sidoTok&&x.length>=2&&/[시군구]$/.test(x));
+const units=new Map();// "시도|단위" → {sido,unit,sgs:[zipmap 시군구 키]}
+const add=(s,unit,sg)=>{const k=s.name+'|'+unit;if(!units.has(k))units.set(k,{sido:s.name,slug:s.slug,unit,sgs:[]});units.get(k).sgs.push(sg)};
+for(const s of idx.sido){
+if(sidoSet&&!sidoSet.has(s.name))continue;
+const sgs=Array.isArray(s.sigungu)?s.sigungu:[];
+if(sgToks.length){for(const sg of sgs){const parts=sg.split(' ');if(!sgToks.every(x=>parts.includes(x)||sg===x))continue;
+// "수원시"만 적었으면 그 시 전체(구 키를 모두 합친다), "장안구"·"수원시 장안구"면 그 구 하나
+add(s,(parts.length>1&&sgToks.includes(parts[0])&&!sgToks.includes(parts[1]))?parts[0]:sg,sg)}}
+else if(sidoSet){
+if(sgs.length===1&&sgs[0]===s.name){add(s,s.name,s.name);continue}// 세종: 시·군·구가 없다
+if(dong)for(const sg of sgs)add(s,sg,sg)}}// 시·도 + 동만: 그 동이 있는 구·군을 아래에서 고른다
+if(!units.size)return null;
+let list=[...units.values()];
+// 같은 이름 구·군이 여럿이면(또는 시·도+동만 적었으면) 그 동이 실제로 있는 곳만 남긴다 — 줄지 않으면(동 오타 등) 그대로 둔다.
+if(list.length>1&&dong){const d2=dong.replace(/\d+(?=동$)/,'');const has=[];
+for(const u of list){let m;try{m=await zipmapSido(u.slug)}catch(e){m=null}
+if(m&&u.sgs.some(sg=>m[sg]&&(m[sg][dong]||m[sg][d2])))has.push(u)}
+if(has.length)list=has;else if(!sgToks.length)return null}
+if(list.length>1)return{choices:list.slice(0,12).map(u=>({sido:u.sido,unit:u.unit}))};
+return{sido:list[0].sido,unit:list[0].unit,dong}}
+// → null(색인을 쓸 수 없음 — 예전 방식으로) | {choices:[{sido,unit}]} | {built,label,rows,total}
+async function storeIdxSearch(q,regionText,sidoPick,sigunguPick){
+const qn=storeIdxNorm(q);if(!qn)return null;
+const rg=await resolveStoreIdxRegion(regionText,sidoPick,sigunguPick);if(!rg)return null;
+const ac=typeof AbortController==='function'?new AbortController():null;const signal=ac?ac.signal:undefined;
+const timer=ac?setTimeout(()=>{try{ac.abort()}catch(e){}},STOREIDX_TIMEOUT_MS):null;
+try{
+const meta=await storeIdxMeta(signal);if(!meta)return null;
+let one=rg;
+if(rg.choices){const ok=rg.choices.filter(c=>storeIdxKeysOf(meta,c.sido,c.unit));if(!ok.length)return null;if(ok.length>1)return{choices:ok};one={sido:ok[0].sido,unit:ok[0].unit,dong:dongTokenOf(regionText)}}
+const pick=storeIdxKeysOf(meta,one.sido,one.unit);if(!pick)return null;
+let all=[];
+for(const k of pick.keys){const rows=await storeIdxFile(meta.regions[pick.sido][k].f,signal);if(!rows)return null;all=all.concat(rows)}
+let named=all.filter(r=>r[5].includes(qn));
+if(pick.keys.length>1)named.sort((a,b)=>a[1].localeCompare(b[1],'ko'));
+// 동을 적었으면 주소(도로명·지번)에 그 동이 든 가게를 앞에 — 거르지는 않는다(행정동·법정동이 다를 수 있다).
+const dong=str(one.dong);
+if(dong){const d2=dong.replace(/\d+(?=동$)/,'');const inDong=r=>{const a=r[2]+' '+r[3];return a.includes(dong)||(d2!==dong&&a.includes(d2))};named=named.filter(inDong).concat(named.filter(r=>!inDong(r)))}
+return{built:meta.built,label:one.unit,total:named.length,
+rows:named.slice(0,STOREIDX_SHOW_MAX).map(r=>({restaurant_id:r[0],name:r[1],address:r[2]||r[3],status:'영업/정상',tel:'',zip:r[4]}))}}
+catch(e){return null}
+finally{if(timer)clearTimeout(timer)}}
+function idxState(kind){return kind==='setup'?state.setupIdx:(state.modal&&state.modal.idx)}
+// 색인 결과 아래 한 묶음(동 검색 블록 자리에 그린다): 같은 이름 구·군 칩 / 0건 안내 + 기준일 + [공공데이터에서 다시 찾기] / 많으면 한 줄.
+function idxBlockInner(kind,ix){
+if(ix.status==='choices')return '<div class="idx-block" data-state="choices" style="margin-top:10px"><div class="meta" style="margin-bottom:6px">같은 이름의 구·군이 여러 곳에 있어요. 우리 가게가 있는 곳을 골라 주세요.</div>'+ix.choices.map(c=>'<button class="btn small" data-a="idx-pick" data-kind="'+esc(kind)+'" data-sido="'+esc(c.sido)+'" data-sigungu="'+esc(c.unit)+'" style="margin:0 6px 6px 0">'+esc(c.sido+' '+c.unit)+'</button>').join('')+'</div>';
+if(ix.status!=='done')return '';
+if(!num(ix.shown)){
+const tail=kind==='setup'?'이름을 줄여 보거나(예: \'육회바른연어 구의역점\' → \'육회\'), [직접 입력할게요]로 먼저 시작할 수 있어요.':'이름을 줄여 다시 찾아 보세요(예: \'육회바른연어 구의역점\' → \'육회\').';
+return '<div class="idx-block" data-state="empty" style="margin-top:12px;line-height:1.6"><div class="meta idx-empty-msg">『'+esc(ix.label)+'』에서 \''+esc(ix.q)+'\' 이름의 영업 중인 가게를 찾지 못했어요. '+tail+'</div>'+(ix.built?'<div class="meta idx-built" style="margin-top:4px;font-size:13px">'+esc(ix.built)+' 기준 공공데이터</div>':'')+'<button class="link-btn idx-old" data-a="idx-old" data-kind="'+esc(kind)+'" style="color:var(--primary);padding-left:0">공공데이터에서 다시 찾기</button></div>'}
+// beta.61 보완(F4): 결과가 **있을 때도** 기준일과 [공공데이터에서 다시 찾기]를 둔다 — 색인 상호가 공공데이터 API 상호와 달라
+//   등록(실존 대조)이 막히면, 색인은 같은 줄을 다시 주므로 예전 방식으로 찾는 길이 늘 보여야 한다.
+const more=num(ix.total)>num(ix.shown)?'<div class="meta idx-more" style="line-height:1.5">찾은 가게가 많아 앞의 '+num(ix.shown)+'곳만 보여 드려요. 이름을 더 자세히 적어 주세요.</div>':'';
+return '<div class="idx-block" data-state="'+(more?'more':'found')+'" style="margin-top:10px;line-height:1.5">'+more+(ix.built?'<div class="meta idx-built" style="margin-top:4px;font-size:13px">'+esc(ix.built)+' 기준 공공데이터</div>':'')+'<button class="link-btn idx-old" data-a="idx-old" data-kind="'+esc(kind)+'" style="color:var(--primary);padding-left:0;font-size:14px">공공데이터에서 다시 찾기</button></div>'}
 // 이름 검색 0건 안내문 — **지역 칸의 실제 입력 상태를 확인**하고 다음 행동을 정확히 알려준다.
 // 동네 검색이 이미 진행·완료·오류 상태면 ''(그 상태 안내가 아래 블록에서 이어지므로 중복 문구 금지).
 function emptySearchMsg(kind,regionText){
-if(dongState(kind))return '';
+if(dongState(kind)||idxState(kind))return '';// 색인 결과(beta.61)도 아래 블록이 직접 말한다
 const t=str(regionText).trim(),dong=dongTokenOf(t);
 if(!t)return '가게 이름만으로는 찾지 못했어요. 지역 칸에 "광진구 구의동"처럼 구·군과 동을 적고 다시 검색해 주세요.';
 if(!dong)return '가게 이름만으로는 찾지 못했어요. 지역 칸의 "'+t+'" 뒤에 동(읍·면) 이름까지 붙여 주세요 — 예: "'+t+' 구의동"처럼요.';
@@ -1746,6 +1918,7 @@ function patchDongBlock(kind){const el=qs('dongBlock-'+kind);if(!el)return false
 const a=kind==='setup'?[state.setupStoreRegion,state.setupStoreSearched,(state.setupStoreResults||[]).length]:(state.modal?[state.modal.region,state.modal.searched,(state.modal.results||[]).length]:null);
 if(!a)return false;el.innerHTML=dongScanBlockInner(kind,a[0],a[1],a[2]);return true}
 function dongScanBlockInner(kind,regionText,searched,resultCount){
+const ix=idxState(kind);if(ix)return idxBlockInner(kind,ix);// beta.61: 색인으로 찾은 검색에는 동네 순회 버튼을 두지 않는다
 const ds=dongState(kind);const dong=dongTokenOf(regionText);
 if(!ds){if(searched&&!resultCount&&dong)return '<div style="margin-top:10px"><button class="btn" data-a="dong-scan" data-kind="'+esc(kind)+'" style="width:100%">『'+esc(dong)+'』 동네 전체에서 찾아보기</button><div class="meta" style="margin-top:6px;line-height:1.5">동네를 구역별로 차례로 살펴봐요.</div></div>';return ''}
 if(ds.status==='error')return '<div class="meta" style="margin-top:10px;line-height:1.5;color:var(--danger)">'+esc(ds.msg||'동네를 찾지 못했어요.')+'</div>';
@@ -1764,19 +1937,28 @@ if(ds.found.length)return '<div style="margin-top:10px"><div class="meta" style=
 if(remain)return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">검색 결과가 없습니다. ('+ds.done+'/'+ds.total+' 구역 확인) 남은 구역을 더 찾아보시겠습니까?</div><button class="btn small" data-a="dong-scan" data-kind="'+esc(kind)+'" data-resume="1" style="margin-top:6px">남은 '+remain+'개 구역 계속 찾기</button></div>';
 return '<div style="margin-top:10px"><div class="meta" style="line-height:1.5">『'+esc(ds.label)+'』 동네 전 구역('+ds.total+'곳)을 모두 살펴봤지만 찾지 못했어요. 가게 이름 표기를 바꿔 다시 검색하거나, 아래 [직접 입력]으로 등록해 주세요.</div></div>'}
 return ''}
-async function relaySearchStores(){blurSearchInput();const q=str(qs('storeName')&&qs('storeName').value),regionText=str(qs('storeRegion')&&qs('storeRegion').value);state.modal.dong=null;state.modal.registeredIds=[];state.modal.err='';
+async function relaySearchStores(opts){opts=opts||{};blurSearchInput();const q=str(qs('storeName')&&qs('storeName').value),regionText=str(qs('storeRegion')&&qs('storeRegion').value);state.modal.dong=null;state.modal.idx=null;state.modal.idxBusy=false;state.modal.registeredIds=[];state.modal.err='';
 // beta.57: 온보딩과 같은 규칙 — 검색마다 번호를 매기고, 창이 닫혔거나 새 검색이 시작되면 앞선 검색은 물러난다.
 const m=state.modal;const seq=m.seq=num(m.seq)+1;const alive=()=>state.modal===m&&m.seq===seq;
 // 전면 재렌더 앱이라 입력값은 render() 전에 반드시 상태로 흡수한다.
 state.modal.q=q;state.modal.region=regionText;
 // 오프라인: 토스트로 잠깐 알리고 끝내지 않는다 — 안내를 창 안에 남긴다(입력값은 위에서 이미 흡수).
 if(!navigator.onLine){state.modal.searching=false;state.modal.tryNo=0;state.modal.err='offline';state.modal.results=[];render();return}
-if(!q){toast('가게 이름을 입력해 주세요.');return}state.modal.searching=true;state.modal.tryNo=1;m.stopReady=false;render();armStoreStop('modal',alive);try{const res=await searchStoresRetry(q,regionText,alive,n=>{m.tryNo=n;if(!paintStoreBusy('modal'))render()});if(!res)return;state.modal.searching=false;state.modal.tryNo=0;m.stopReady=false;state.modal.searched=true;state.modal.results=res.results;state.modal.regionFilteredOut=res.regionFilteredOut;state.modal.usedZip=false;render();markRegisteredIds('modal',res.results);
+if(!q){toast('가게 이름을 입력해 주세요.');return}state.modal.searching=true;state.modal.tryNo=1;m.stopReady=false;
+// beta.61: 온보딩과 같은 규칙 — 지역을 적었으면 먼저 색인, 못 쓰면 예전 방식.
+const useIdx=!opts.old&&!!regionText;m.idxBusy=useIdx;
+render();armStoreStop('modal',alive);try{
+if(useIdx){const ix=await storeIdxSearch(q,regionText,opts.sido,opts.sigungu);if(!alive())return;m.idxBusy=false;
+if(ix){m.searching=false;m.tryNo=0;m.stopReady=false;m.regionFilteredOut=false;m.usedZip=false;
+if(ix.choices){m.searched=false;m.results=[];m.idx={status:'choices',choices:ix.choices};render();return}
+m.searched=true;m.results=ix.rows;m.idx={status:'done',built:ix.built,label:ix.label,q,total:ix.total,shown:ix.rows.length};render();markRegisteredIds('modal',ix.rows);return}
+if(!paintStoreBusy('modal'))render()}
+const res=await searchStoresRetry(q,regionText,alive,n=>{m.tryNo=n;if(!paintStoreBusy('modal'))render()});if(!res)return;state.modal.searching=false;state.modal.tryNo=0;m.stopReady=false;state.modal.searched=true;state.modal.results=res.results;state.modal.regionFilteredOut=res.regionFilteredOut;state.modal.usedZip=false;render();markRegisteredIds('modal',res.results);
 // 프로세스 순서(사용자 확정): ① 이름 검색(공공데이터 정상 경로) ② 0건이면 지역(구·군+동)으로 동네 자동 검색.
 // beta.52: 이름 검색이 실패해도 지역이 있으면 동네 순회로 넘어간다(온보딩과 같은 규칙).
 const canDong=!!(q&&dongTokenOf(regionText));
 if(!res.ok&&!canDong){state.modal.err=storeSearchErrOf(res);render()}
-else if((!res.ok||!res.results.length)&&canDong)await runDongScan('modal','','',false)}catch(e){console.error(e);if(!alive()||state.modal.type!=='store-search')return;state.modal.searching=false;state.modal.tryNo=0;m.stopReady=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;state.modal.err='fail';render()}}
+else if((!res.ok||!res.results.length)&&canDong)await runDongScan('modal','','',false)}catch(e){console.error(e);if(!alive()||state.modal.type!=='store-search')return;state.modal.searching=false;state.modal.idxBusy=false;state.modal.tryNo=0;m.stopReady=false;state.modal.searched=true;state.modal.results=[];state.modal.regionFilteredOut=false;state.modal.err='fail';render()}}
 // 온보딩 1/3 전용 검색(모달이 없는 화면이라 state에 직접 보관). 서버로 보내는 것은 검색어뿐이며 아무것도 저장되지 않는다.
 function blurSearchInput(){try{const a=document.activeElement;if(a&&a.tagName==='INPUT'&&typeof a.blur==='function')a.blur()}catch(e){}}
 // 입력 칸(INPUT·TEXTAREA)에 남은 초점을 거둔다 — 소프트키보드를 닫는 유일하게 믿을 수 있는 방법이다(beta.54).
@@ -1796,9 +1978,10 @@ const STORE_SEARCH_TRIES=3;
 function storeSearchSlow(res){return !!res&&!res.ok&&(res.status===503||res.status===0)}
 function storeBusyInner(kind){const on=kind==='setup'?!!state.setupStoreSearching:!!(state.modal&&state.modal.type==='store-search'&&state.modal.searching);if(!on)return '';
 const n=kind==='setup'?num(state.setupStoreTry):num(state.modal.tryNo);
-const msg=n>1?'공공데이터가 느려요. 다시 찾는 중 ('+n+'/'+STORE_SEARCH_TRIES+')…':'가게 목록을 받아 오는 중이에요. 느린 날은 30초쯤 걸려요.';
+const idxBusy=kind==='setup'?!!state.setupStoreIdxBusy:!!state.modal.idxBusy;
+const msg=idxBusy?'가게 목록을 받아 오는 중이에요.':n>1?'공공데이터가 느려요. 다시 찾는 중 ('+n+'/'+STORE_SEARCH_TRIES+')…':'가게 목록을 받아 오는 중이에요. 느린 날은 30초쯤 걸려요.';
 const ready=kind==='setup'?!!state.setupStoreStopReady:!!state.modal.stopReady;
-return '<div class="meta store-search-busy" role="status" data-try="'+(n||1)+'" style="margin-top:8px;line-height:1.5">'+esc(msg)+'</div>'+(ready?'<button class="btn small store-search-stop" data-a="store-search-stop" data-kind="'+esc(kind)+'" style="margin-top:6px">그만두기</button>':'')}
+return '<div class="meta store-search-busy" role="status" data-try="'+(n||1)+'" data-idx="'+(idxBusy?1:0)+'" style="margin-top:8px;line-height:1.5">'+esc(msg)+'</div>'+(ready?'<button class="btn small store-search-stop" data-a="store-search-stop" data-kind="'+esc(kind)+'" style="margin-top:6px">그만두기</button>':'')}
 function storeBusyHtml(kind){return '<div id="storeBusy-'+esc(kind)+'">'+storeBusyInner(kind)+'</div>'}
 // 진행 한 줄만 갈아끼운다 — 사장님이 그 사이 이름을 고쳐 치고 있어도 입력 노드를 건드리지 않는다(설계 원칙 ①).
 function paintStoreBusy(kind){const el=qs('storeBusy-'+kind);if(!el)return false;el.innerHTML=storeBusyInner(kind);return true}
@@ -1815,8 +1998,8 @@ if(kind==='setup'){if(!state.setupStoreSearching)return;state.setupStoreStopRead
 else{const m=state.modal;if(!m||m.type!=='store-search'||!m.searching)return;m.stopReady=true}
 paintStoreBusy(kind)},storeStopAfterMs())}
 function stopStoreSearch(kind){
-if(kind==='setup'){if(!state.setupStoreSearching)return;state.setupSearchSeq=num(state.setupSearchSeq)+1;state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;state.setupStoreErr='stopped';render();return}
-const m=state.modal;if(!m||m.type!=='store-search'||!m.searching)return;m.seq=num(m.seq)+1;m.searching=false;m.tryNo=0;m.stopReady=false;m.searched=true;m.results=[];m.regionFilteredOut=false;m.err='stopped';render()}
+if(kind==='setup'){if(!state.setupStoreSearching)return;state.setupSearchSeq=num(state.setupSearchSeq)+1;state.setupStoreSearching=false;state.setupStoreIdxBusy=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;state.setupStoreErr='stopped';render();return}
+const m=state.modal;if(!m||m.type!=='store-search'||!m.searching)return;m.seq=num(m.seq)+1;m.searching=false;m.idxBusy=false;m.tryNo=0;m.stopReady=false;m.searched=true;m.results=[];m.regionFilteredOut=false;m.err='stopped';render()}
 // alive(): 그 사이 새 검색이 시작됐거나 창이 닫혔으면 false — 그때는 null을 돌려주고 호출부는 아무것도 하지 않는다.
 async function searchStoresRetry(q,regionText,alive,onTry){let res=null,lastErr=null;
 for(let i=1;i<=STORE_SEARCH_TRIES;i++){if(i>1){if(!navigator.onLine)break;onTry(i)}
@@ -1834,17 +2017,27 @@ const main=code==='offline'?'<b>와이파이(인터넷)에 연결해야 가게�
 const tail=kind==='setup'?(code==='offline'?'<br>연결이 어려우면 [직접 입력할게요]로 먼저 시작하세요.':'<br>계속 안 되면 [직접 입력할게요]로 먼저 시작하세요.'):(code==='offline'?'<br>연결한 뒤 [검색]을 다시 눌러 주세요.':'');
 return '<div class="card banner warn store-search-err" data-code="'+esc(code)+'" role="status" style="margin-top:12px"><div class="meta" style="line-height:1.6">'+main+tail+'</div></div>'}
 function searchErrMsg(res){const e=str(res&&res.error);if((res&&res.status===429)||e==='rate_limited')return '검색 요청이 잠시 몰렸어요. 30초쯤 뒤에 다시 검색해 주세요.';if(!e||/^[A-Za-z0-9_ .:-]+$/.test(e))return '공공데이터 서버가 잠시 응답하지 않아요. 잠시 뒤 다시 검색해 주세요.';return e}
-async function setupSearchStores(){blurSearchInput();const q0=str(qs('setupStoreName')&&qs('setupStoreName').value),region0=str(qs('setupStoreRegion')&&qs('setupStoreRegion').value);
+// opts(beta.61): {old:true} = [공공데이터에서 다시 찾기](색인을 건너뛰고 예전 방식) · {sido,sigungu} = 같은 이름 구·군 칩으로 고른 곳.
+async function setupSearchStores(opts){opts=opts||{};blurSearchInput();const q0=str(qs('setupStoreName')&&qs('setupStoreName').value),region0=str(qs('setupStoreRegion')&&qs('setupStoreRegion').value);
 // 전면 재렌더 앱이라 입력값은 render() 전에 반드시 상태로 흡수한다(오프라인 조기 반환보다도 먼저).
-state.setupStoreQ=q0;state.setupStoreRegion=region0;state.setupDong=null;state.setupStoreRegisteredIds=[];state.setupStoreErr='';
+state.setupStoreQ=q0;state.setupStoreRegion=region0;state.setupDong=null;state.setupIdx=null;state.setupStoreIdxBusy=false;state.setupStoreRegisteredIds=[];state.setupStoreErr='';
 // beta.57: 검색마다 번호를 매긴다 — 다시 찾는 동안 [가게 찾기]를 또 누르면 앞선 검색은 조용히 물러난다.
 const seq=state.setupSearchSeq=num(state.setupSearchSeq)+1;const alive=()=>state.setupSearchSeq===seq;
-if(!navigator.onLine){state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreErr='offline';state.setupStoreSearched=true;state.setupStoreResults=[];render();return}const q=q0,regionText=region0;if(!q){toast('가게 이름을 입력해 주세요.');return}state.setupStoreSearching=true;state.setupStoreTry=1;state.setupStoreStopReady=false;render();armStoreStop('setup',alive);try{const res=await searchStoresRetry(q,regionText,alive,n=>{state.setupStoreTry=n;if(!paintStoreBusy('setup'))render()});if(!res)return;state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupStoreSearched=true;state.setupStoreResults=res.results;state.setupStoreFilteredOut=res.regionFilteredOut;state.setupStoreUsedZip=false;render();markRegisteredIds('setup',res.results);
+if(!navigator.onLine){state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreErr='offline';state.setupStoreSearched=true;state.setupStoreResults=[];render();return}const q=q0,regionText=region0;if(!q){toast('가게 이름을 입력해 주세요.');return}state.setupStoreSearching=true;state.setupStoreTry=1;state.setupStoreStopReady=false;
+// beta.61: 지역을 적었으면 먼저 색인에서 찾는다(못 쓰면 null → 아래 예전 방식 그대로). [그만두기]·검색 번호 규칙은 이 단계에도 그대로다.
+const useIdx=!opts.old&&!!regionText;state.setupStoreIdxBusy=useIdx;
+render();armStoreStop('setup',alive);try{
+if(useIdx){const ix=await storeIdxSearch(q,regionText,opts.sido,opts.sigungu);if(!alive())return;state.setupStoreIdxBusy=false;
+if(ix){state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupStoreFilteredOut=false;state.setupStoreUsedZip=false;
+if(ix.choices){state.setupStoreSearched=false;state.setupStoreResults=[];state.setupIdx={status:'choices',choices:ix.choices};render();return}
+state.setupStoreSearched=true;state.setupStoreResults=ix.rows;state.setupIdx={status:'done',built:ix.built,label:ix.label,q,total:ix.total,shown:ix.rows.length};render();markRegisteredIds('setup',ix.rows);return}
+if(!paintStoreBusy('setup'))render()}// 색인을 못 씀 → 진행 한 줄만 예전 문구로 바꾸고 예전 방식으로
+const res=await searchStoresRetry(q,regionText,alive,n=>{state.setupStoreTry=n;if(!paintStoreBusy('setup'))render()});if(!res)return;state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupStoreSearched=true;state.setupStoreResults=res.results;state.setupStoreFilteredOut=res.regionFilteredOut;state.setupStoreUsedZip=false;render();markRegisteredIds('setup',res.results);
 // 프로세스 순서(사용자 확정): ① 이름 검색 ② 0건이면 지역(구·군+동)으로 동네 자동 검색.
 // beta.52: 이름 검색이 실패해도(서버 분당 한도·공공API 장애) 지역이 있으면 동네 순회로 넘어간다 — 순회가 재시도·대기를 맡는다.
 const canDong=!!(q&&dongTokenOf(regionText));
 if(!res.ok&&!canDong){state.setupStoreErr=storeSearchErrOf(res);render()}
-else if((!res.ok||!res.results.length)&&canDong)await runDongScan('setup','','',false)}catch(e){console.error(e);if(!alive())return;state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;state.setupStoreErr='fail';render()}}
+else if((!res.ok||!res.results.length)&&canDong)await runDongScan('setup','','',false)}catch(e){console.error(e);if(!alive())return;state.setupStoreSearching=false;state.setupStoreIdxBusy=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupStoreSearched=true;state.setupStoreResults=[];state.setupStoreFilteredOut=false;state.setupStoreErr='fail';render()}}
 // 새 명단 신청 개수 — 등록·온라인일 때만 조회. 실패·404(구서버)는 조용히 무시하고 폴링 타이머는 만들지 않는다.
 let lastInboxCountAt=0;
 // 비동기 렌더가 입력을 날리지 않도록(S8) 모달이 열려 있거나 입력/서명 조작 중이면 카운트만 갱신하고 다음 자연 렌더에 맡긴다.
@@ -2015,19 +2208,27 @@ const groupDept=combinedDeptLabel(item.summary.institution,item.summary.departme
 // beta.54: 정확히 같은 부서는 없는데 비슷한 부서가 있으면 받기 전에 멈춰 묻는다(askNearDuplicate). 선택창은 busy 오버레이 아래에 묻히므로 먼저 걷는다.
 const recOf=it=>({org:str(it.org)||str(item.summary.institution),dept:str(it.dept)});
 const labels=new Set(plain.items.map(it=>orgDeptLabel(recOf(it))));
-let renamePatches=[],renameFrom='';
+let renamePatches=[],renameFrom='';const askedLabels=new Set();
 if(labels.size===1&&plain.items.length){clearBusy();const nd=await askNearDuplicate(recOf(plain.items[0]),plain.items.map(i=>str(i.name)),plain.items.length);
 if(nd.choice==='cancel'){render();return}
+if(nd.group)askedLabels.add(nd.group.label);
 if(nd.choice==='rename'){const r0=recOf(plain.items[0]);renamePatches=relabelGroupPatches(nd.group.label,r0.org,r0.dept,'public');renameFrom=nd.group.label}}
 const activeByKey=activeEmployeeIndex(renamePatches);
-const planBal=runningBalance();const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));const ld=exist?lastDepositOf(exist.id):null;return{it,rec,amt:num(it.amount),exist,before:exist?planBal.take(exist.id,num(it.amount)):0,lastAt:ld?num(ld.createdAt):0}});
+// beta.61(구역 D): 갈림길 뒤 남은 줄 중 "부서를 옮긴 분" 후보를 한 창에서 묻는다(취소 = 받기 전체 취소).
+const recsAll=plain.items.map(it=>({org:str(it.org)||str(item.summary.institution),dept:str(it.dept),name:str(it.name)}));
+const moveCands=deptMoveCandidates(recsAll,renamePatches,askedLabels);
+let moveByIdx=new Map();
+if(moveCands.length){clearBusy();const mv=await askDeptMoves(moveCands);if(!mv){render();return}moveByIdx=mv}
+const planBal=runningBalance();const plan=plain.items.map((it,ix)=>{const rec=recsAll[ix];const mc=moveByIdx.get(ix);const exist=mc?mc.emp:activeByKey.get(empMatchKey(rec));const ld=exist?lastDepositOf(exist.id):null;return{it,rec,amt:num(it.amount),exist,move:mc?{from:mc.fromDept,to:mc.toDept}:null,before:exist?planBal.take(exist.id,num(it.amount)):0,lastAt:ld?num(ld.createdAt):0}});
 clearBusy();
 if(!window.confirm(batchReviewText({label:groupDept,renameFrom,renameTo:plain.items.length?orgDeptLabel(recOf(plain.items[0])):'',ym:str(item.summary.year_month),direct:false,payers:batchPayers(plain.items),payMethod:batchPayMethod(plain.items),domain:item.summary.agency_domain,sentAt:batchSentAt(item,item.summary),total:num(item.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(bh)}))){render();return}
 setBusy('장부에 올리는 중입니다.');
-const t=now(),ym=str(item.summary.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);let topupCount=0;const patchedIds=new Set();const writeBal=runningBalance();
+const t=now(),ym=str(item.summary.year_month);let tip=chainTip();const emps=[],txs=[],patches=[],movePatches=[];const noteLabel=str(item.summary.institution)+' '+str(item.summary.department);let topupCount=0;const patchedIds=new Set(plan.filter(p=>p.move).map(p=>p.exist.id));const writeBal=runningBalance();
 for(const p of plan){/* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
-const txNote=noteLabel+(str(p.it.payer)?' · 결제 '+str(p.it.payer):'');
+const txNote=noteLabel+(str(p.it.payer)?' · 결제 '+str(p.it.payer):'')+(p.move?deptMoveNote(p.move.from,p.move.to):'');
 publicOrgPatchesForLabel(p.rec,patchedIds).forEach(pt=>patches.push(pt));
+// 부서를 옮긴 분: 같은 id의 소속·부서 글자만 명단 쪽으로 바꾼다(이름·잔액·거래는 그대로). 저장은 아래 한 번의 apply.
+if(p.move){const cur=state.data.employees.find(v=>v.id===p.exist.id)||p.exist;movePatches.push({...cur,org:p.rec.org,dept:p.rec.dept,orgKind:'public',updatedAt:t})}
 if(p.exist){topupCount++;if(p.amt>0){const before=writeBal.take(p.exist.id,p.amt);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'공공기관 신청 승인 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
 const eid=uid();emps.push({id:eid,org:p.rec.org,orgKind:'public',dept:p.rec.dept,name:p.rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
 if(p.amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:p.amt,beforeBalance:0,afterBalance:p.amt,reason:'공공기관 신청 승인',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}
@@ -2036,16 +2237,16 @@ if(p.amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:p.amt,befor
 const metaPatch=Object.assign({},nextReceivedBatchMeta(bh)||{});
 metaPatch.approvedSummaryLog=[...approvedSummaryLog().filter(x=>x&&x.sid!==str(sid)),{sid:str(sid),h:bh,at:t}].slice(-300);
 metaPatch.pendingNotify=[...pendingNotifyList().filter(x=>x&&x.sid!==str(sid)),{sid:str(sid),at:t}];
-await repo.apply({employees:emps.concat(patches,renamePatches),transactions:txs,meta:metaPatch});
+await repo.apply({employees:emps.concat(patches,renamePatches,movePatches),transactions:txs,meta:metaPatch});
 Object.assign(state.data.meta,metaPatch);
-emps.forEach(upsertEmp);patches.forEach(upsertEmp);renamePatches.forEach(upsertEmp);txs.forEach(upsertTx);
+emps.forEach(upsertEmp);patches.forEach(upsertEmp);renamePatches.forEach(upsertEmp);movePatches.forEach(upsertEmp);txs.forEach(upsertTx);
 // 통보 실패는 장부를 되돌리지 않는다 — 장부가 진실이고 서버는 중계일 뿐이다. 항목은 수신함에 남겨
 //   "장부에 반영됨 · 서버 알림 대기"로 보여주고, 인터넷이 되면 자동으로(또는 버튼으로) 다시 알린다.
 const notified=await notifyApproved(sid);
 if(notified&&modal&&Array.isArray(modal.items)){modal.items=modal.items.filter(x=>x.summary_id!==sid);setInboxCount(modal.items.length)}
 clearBusy();render();refreshInboxCount();
 const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);
-window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`+(notified?'':'\n\n⚠️ 서버에 처리 완료를 아직 알리지 못했어요.\n장부에는 이미 들어갔어요 — 인터넷이 되면 자동으로 다시 알려요.'));
+window.alert(`✅ 등록 완료\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`+(movePatches.length?`\n부서를 옮긴 분 ${movePatches.length}명은 부서를 바꿨어요.`:'')+(notified?'':'\n\n⚠️ 서버에 처리 완료를 아직 알리지 못했어요.\n장부에는 이미 들어갔어요 — 인터넷이 되면 자동으로 다시 알려요.'));
 cloudBackupAfterRoster()}catch(e){console.error(e);clearBusy();toast('승인하지 못했어요. '+relayErrMsg(e))}})}
 // ── 직접 전달(파일·QR) 수신 — 서버를 거치지 않고 기관이 건넨 암호문을 그 자리에서 열어 장부에 등록 ──
 // 계약(고정): {v:1, type:'direct-transfer', restaurant_id, restaurant_name, institution, department, year_month, summary:{total_amount, member_count, batch_hash}, ciphertext:{alg,encKey,iv,ct}}
@@ -2135,6 +2336,62 @@ const lines=noOverlap
 const renameBtn={val:'rename',label:`기존 부서 이름을 '${incoming}'으로 고치고 받기`,cls:noOverlap?'btn':'btn-primary'},sepBtn={val:'separate',label:'새 부서로 따로 등록',cls:noOverlap?'btn-primary':'btn'};
 const v=await askChoice({title:'비슷한 부서가 이미 있어요',lines,buttons:[...(noOverlap?[sepBtn,renameBtn]:[renameBtn,sepBtn]),{val:'cancel',label:'취소 — 담당자가 이름을 잘못 적었다면',cls:'btn'}]});
 return{choice:v||'cancel',group:g}}
+// ── beta.61(구역 D): 부서를 옮긴 분 묻기 — 승인·직접 전달·CSV 공통, askNearDuplicate **뒤** ─────────────────
+// 직원은 id로 거래와 묶여 있어 부서 글자만 바꾸면 기록·잔액이 따라간다. 문제는 다음 달 명단이 새 부서로 오면
+//   "소속+부서+이름"이 달라 새 직원이 생기고, 잔액을 가진 옛 부서 카드와 둘로 갈리는 것이다.
+//   → 받기 전에 "옮긴 분인가요?"를 사장님에게 묻고, 고른 사람만 **같은 id의 부서 글자를 바꿔 그 id에 충전**한다.
+//   잔액을 한 사람에서 다른 사람으로 옮기는 길은 어디에도 없다(beta.54 "합치기 없음"). 기본값은 언제나 '다른 사람 — 새로 등록'
+//   (동명이인을 한 사람으로 잘못 합치면 남의 선금을 쓰게 된다).
+// 후보 판정(rows는 동명이인 번호가 정해진 **뒤**의 표시 이름, patches는 갈림길에서 고친 부서 이름 — activeEmployeeIndex와 같은 모습).
+//   beta.61 보완(F1·F2·F3): 동명이인 번호(·N)는 명단 순서일 뿐 "같은 사람"이라는 뜻이 없다 → 번호를 뗀 이름으로 세고, 번호가 끼면 묻지 않는다.
+//   ① 소속이 비었거나 '개인'인 줄, 이름에 번호(·N)가 붙은 줄은 대상이 아니다.
+//   ② 같은 소속·부서·이름의 활성 직원이 이미 있으면 보통의 충전이다.
+//   ③ 들어온 명단 안에서 같은 소속에 번호를 뗀 그 이름이 **한 줄뿐**이어야 한다(옛 부서 줄이 함께 와도 여기서 걸린다 — 두 사람).
+//   ④ 같은 소속의 **다른 부서 전체**에서 번호를 뗀 이름이 같은 활성 직원이 **정확히 한 명**이고, 그 한 명의 이름이 번호 없이 똑같아야 한다.
+//      셈에는 예전 형식 직원(소속 칸이 비고 부서 칸이 '광진구청 총무과'처럼 결합 라벨)도 넣는다 — 다만 그 한 명이 예전 형식이면
+//      후보로 삼지 않는다(부서 글자를 바꾸는 패치가 예전 형식에서 무엇을 뜻하는지 분명하지 않다).
+//   ⑤ 그 직원의 부서가 갈림길(askNearDuplicate)에서 이미 물어본 부서면 묻지 않는다 — **원래 장부의 라벨**로 본다
+//      (CSV에서 [이름 고치고 받기]를 고르면 patches 뒤 라벨이 바뀌어 예전에는 이 확인이 듣지 않았다).
+//   ⑥ 한 직원을 명단의 두 줄이 가리키면 어느 쪽인지 모르므로 묻지 않는다.
+function activeEmployeesView(patches){const pm=new Map((patches||[]).map(p=>[p.id,p]));return state.data.employees.map(e=>pm.get(e.id)||e).filter(v=>!v.isDeleted)}
+function deptMoveCandidates(rows,patches,skipLabels){
+const view=activeEmployeesView(patches);const byKey=new Set(view.map(empMatchKey));
+const origById=new Map(state.data.employees.map(e=>[e.id,e]));
+const recs=(rows||[]).map(r=>({org:str(r&&r.org),dept:str(r&&r.dept),name:str(r&&r.name)}));
+const inCount=new Map();recs.forEach(r=>{const k=r.org+'\u0000'+custDupBase(r.name);inCount.set(k,(inCount.get(k)||0)+1)});
+const out=[],hits=new Map();
+recs.forEach((r,i)=>{const{org,dept,name}=r;
+if(!org||org===PERSONAL_ORG||!dept||!name)return;
+if(custDupBase(name)!==name)return;
+if(byKey.has(empMatchKey({org,dept,name})))return;
+if(inCount.get(org+'\u0000'+name)!==1)return;
+const legacyPre=org+' ';
+const pool=view.filter(v=>{if(custDupBase(v.name)!==name)return false;
+if(str(v.org)===org)return str(v.dept)!==dept;
+if(!str(v.org)){const l=orgDeptLabel(v);return l.startsWith(legacyPre)&&l!==legacyPre+dept}
+return false});
+if(pool.length!==1)return;
+const e=pool[0];
+if(str(e.org)!==org||str(e.name)!==name)return;
+const orig=origById.get(e.id)||e;
+if(skipLabels&&(skipLabels.has(orgDeptLabel(orig))||skipLabels.has(orgDeptLabel(e))))return;
+out.push({i,rec:{org,dept,name},emp:e,fromDept:str(e.dept),toDept:dept});hits.set(e.id,(hits.get(e.id)||0)+1)});
+return out.filter(c=>hits.get(c.emp.id)===1)}
+// '세무과로'·'총무팀으로' — 받침 있는 글자(ㄹ 제외) 뒤에는 '으로'. 한글이 아니면 '(으)로'.
+function roJosa(word){const s=str(word);const c=s.charCodeAt(s.length-1)-0xAC00;if(!(c>=0&&c<=11171))return '(으)로';const j=c%28;return (j===0||j===8)?'로':'으로'}
+// 옮긴 분 묻기 창. 후보가 없으면 묻지 않고 빈 Map. 취소(Esc·[취소]·손님 화면·자동 잠금)면 null — 받기 전체를 그만둔다(장부 무변경).
+//   반환 Map: 후보 줄 위치(i) → 후보. '옮기기'를 고른 줄만 들어 있다.
+async function askDeptMoves(cands){if(!cands||!cands.length)return new Map();
+const picks=cands.map(c=>{const from=c.fromDept||'부서 없음';return{c,value:'new',aria:c.rec.name,
+q:`<b>${esc(c.rec.name)}</b> — ${esc(from)}에 같은 이름이 있어요(잔액 ${money(balanceOf(c.emp.id))}). ${esc(c.toDept)}${roJosa(c.toDept)} 옮긴 분인가요?`,
+opts:[{val:'new',label:'다른 사람이에요 — 새로 등록'},{val:'move',label:`옮긴 분이에요 — ${c.toDept}${roJosa(c.toDept)} 옮기기`}]}});
+const v=await askChoice({title:'부서를 옮긴 분인가요?',lines:[cands.length>1?`같은 소속의 다른 부서에 같은 이름이 있는 분이 <b>${cands.length}명</b> 있어요. 한 분씩 골라 주세요.`:'같은 소속의 다른 부서에 같은 이름이 있는 분이 있어요.','옮긴 분이면 지금 카드의 부서만 바뀌고 잔액에 이번 금액이 더해져요. 모르겠으면 그대로 두세요.'],
+picks,buttons:[{val:'ok',label:'이대로 받기',cls:'btn-primary'},{val:'cancel',label:'취소',cls:'btn'}]});
+if(v!=='ok')return null;
+const m=new Map();picks.forEach(p=>{if(p.value==='move')m.set(p.c.i,p.c)});return m}
+// 부서 이동 거래 메모 꼬리(note는 해시 안 — 새 필드·meta 키 없음). 메모 첫 토막(기관·부서)은 그대로라 받은 명단 묶음(noteLabelOf)도 그대로다.
+function deptMoveNote(from,to){return ' · 부서 이동 '+(str(from)||'부서 없음')+' → '+str(to)}
+const DEPT_MOVE_NOTE_MARK=' · 부서 이동 ';
 // beta.55(A-10c): 한 명단에 같은 직원이 두 줄로 오면(소속 칸 유무 등으로 같은 사람에 닿는 경우) 두 번째 충전의 '이전 잔액'이
 //   첫 번째 충전을 몰라 틀렸다 → 잔액 대조 오경보. 같은 묶음 안에서는 앞 줄 금액을 더한 잔액에서 이어 간다.
 function runningBalance(){const run=new Map();return{take(id,amt){const k=str(id);const b=run.has(k)?run.get(k):balanceOf(id);run.set(k,b+(num(amt)>0?num(amt):0));return b}}}
@@ -2179,7 +2436,7 @@ const newN=live.filter(t=>t.type==='open').length,topN=live.length-newN;
 // 한 명단의 거래는 시각이 1ms씩 이어진다(nextTxTime) — 그보다 벌어지면 다른 명단이다.
 const subs=[];sortTxAsc(live).forEach(t=>{const last=subs[subs.length-1];if(last&&num(t.createdAt)-last.lastAt<=1){last.txs.push(t);last.lastAt=num(t.createdAt)}else subs.push({at:num(t.createdAt),lastAt:num(t.createdAt),txs:[t]})});
 const subLines=subs.length>1?[`⚠️ 이 묶음에는 1분 안에 받은 명단 ${subs.length}개가 함께 들어 있어요. 되돌리면 모두 함께 되돌아가요.`,...subs.map((x,i)=>`· 명단 ${i+1}: ${esc(mdhm(x.at))} · ${x.txs.length}명 · ${money(x.txs.reduce((a,t)=>a+num(t.amount),0))}`)]:[];
-const v=await askChoice({title:'이 명단 등록을 되돌릴까요?',lines:[`<b>${esc(b.label)}</b> · ${esc(md(b.at))} 받음 · ${live.length}명 · 모두 ${money(liveTotal)}`,...subLines,`${newN?`새로 만들어진 직원 ${newN}명은 잔액을 0원으로 정리하고 삭제돼요(복원 가능). `:''}${topN?`충전된 직원 ${topN}명은 그 금액만큼 빼요.`:''}`,`${esc(names.slice(0,6).join(', '))}${names.length>6?` 외 ${names.length-6}명`:''}`,'되돌린 기록은 이력에 남아요. 이 명단의 돈을 실제로 받았다면 되돌리지 마세요.','받을 때 기존 부서 이름을 고쳤다면, 고친 부서 이름은 되돌아가지 않아요 — 필요하면 부서 [이름 고치기]로 다시 고쳐 주세요.'],buttons:[{val:'ok',label:'되돌리기',cls:'btn-danger'},{val:'cancel',label:'취소',cls:'btn'}]});
+const v=await askChoice({title:'이 명단 등록을 되돌릴까요?',lines:[`<b>${esc(b.label)}</b> · ${esc(md(b.at))} 받음 · ${live.length}명 · 모두 ${money(liveTotal)}`,...subLines,`${newN?`새로 만들어진 직원 ${newN}명은 잔액을 0원으로 정리하고 삭제돼요(복원 가능). `:''}${topN?`충전된 직원 ${topN}명은 그 금액만큼 빼요.`:''}`,`${esc(names.slice(0,6).join(', '))}${names.length>6?` 외 ${names.length-6}명`:''}`,'되돌린 기록은 이력에 남아요. 이 명단의 돈을 실제로 받았다면 되돌리지 마세요.',...(live.some(t=>str(t.note).includes(DEPT_MOVE_NOTE_MARK))?['부서를 옮긴 분의 부서는 그대로 둬요.']:[]),'받을 때 기존 부서 이름을 고쳤다면, 고친 부서 이름은 되돌아가지 않아요 — 필요하면 부서 [이름 고치기]로 다시 고쳐 주세요.'],buttons:[{val:'ok',label:'되돌리기',cls:'btn-danger'},{val:'cancel',label:'취소',cls:'btn'}]});
 if(v!=='ok')return;
 setBusy('되돌리는 중입니다.');try{const t=now();let tip=chainTip();const txs=[],patches=[];const done=new Set();
 for(const bt of live){const e=state.data.employees.find(x=>x.id===bt.employeeId);if(!e)continue;const before=balanceOf(e.id)+txs.filter(x=>x.employeeId===e.id).reduce((s,x)=>s+num(x.amount),0);const delta=-num(bt.amount);
@@ -2204,8 +2461,10 @@ else{L.push(domainLine(o.domain));
 L.push('기관명은 담당자가 직접 적는 값이라, 인증된 이메일 도메인과 함께 보고 판단하세요.');
 L.push(`명단 전송 시각: ${o.sentAt?dt(o.sentAt):'확인 불가'}`)}
 if(pm)L.push(`결제 방식: ${pm==='카드'?'카드결제':pm==='제로페이'?'제로페이':'계좌이체'} (명단에 표기됨)`);
-const tops=o.plan.filter(p=>p.exist),news=o.plan.filter(p=>!p.exist);
-if(tops.length){L.push('');L.push(`이미 있는 직원 충전 ${tops.length}명 — 잔액에 더해져요`);tops.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.before)} → ${money(p.before+p.amt)}${p.lastAt?` (${md(p.lastAt)} 등록)`:''}`));if(tops.length>8)L.push(`· 외 ${tops.length-8}명`);
+// beta.61(구역 D): 부서를 옮긴 분은 '기존 충전'에 들고, 목록 맨 앞에 "(옛 부서 → 새 부서 부서 이동)"과 함께 보인다(8명 줄임에 가려지지 않게).
+const movedTops=o.plan.filter(p=>p.exist&&p.move);
+const tops=movedTops.concat(o.plan.filter(p=>p.exist&&!p.move)),news=o.plan.filter(p=>!p.exist);
+if(tops.length){L.push('');L.push(`이미 있는 직원 충전 ${tops.length}명 — 잔액에 더해져요`);if(movedTops.length)L.push(`그중 부서를 옮긴 분 ${movedTops.length}명은 지금 카드의 부서를 바꿔서 충전해요.`);tops.slice(0,8).forEach(p=>L.push(`· ${p.rec.name}: ${money(p.before)} → ${money(p.before+p.amt)}${p.move?` (${p.move.from||'부서 없음'} → ${p.move.to} 부서 이동)`:''}${p.lastAt?` (${md(p.lastAt)} 등록)`:''}`));if(tops.length>8)L.push(`· 외 ${tops.length-8}명`);
 // beta.54(현장 사고): 사장님이 수기 장부를 옮기며 이번 달 돈까지 먼저 넣어 둔 뒤 명단이 오면, 라벨이 같아도 "기존 충전"으로 같은 돈이 두 번 들어간다.
 const recent=tops.filter(p=>p.lastAt&&now()-num(p.lastAt)<=RECENT_DEPOSIT_MS);
 if(recent.length){L.push(`⚠️ ${recent.length}명은 최근 14일 안에 선금이 등록됐어요: ${recent.slice(0,5).map(p=>p.rec.name).join(', ')}${recent.length>5?` 외 ${recent.length-5}명`:''}`);L.push('수기로 먼저 넣은 이번 달 돈이면 승인하지 마세요 — 같은 돈이 두 번 들어가요.')}}
@@ -2244,23 +2503,30 @@ const groupDept=combinedDeptLabel(parsed.institution,parsed.department);
 // beta.54: 비슷한 부서가 있으면 받기 전에 묻는다(relayApprove와 같은 갈림길).
 const recOf=it=>({org:str(it.org)||str(parsed.institution),dept:str(it.dept)});
 const labels=new Set(plain.items.map(it=>orgDeptLabel(recOf(it))));
-let renamePatches=[],renameFrom='';
+let renamePatches=[],renameFrom='';const askedLabels=new Set();
 if(labels.size===1&&plain.items.length){clearBusy();const nd=await askNearDuplicate(recOf(plain.items[0]),plain.items.map(i=>str(i.name)),plain.items.length);
 if(nd.choice==='cancel'){render();return}
+if(nd.group)askedLabels.add(nd.group.label);
 if(nd.choice==='rename'){const r0=recOf(plain.items[0]);renamePatches=relabelGroupPatches(nd.group.label,r0.org,r0.dept,'public');renameFrom=nd.group.label}}
 const activeByKey=activeEmployeeIndex(renamePatches);
-const planBal=runningBalance();const plan=plain.items.map(it=>{const rec={org:str(it.org)||str(parsed.institution),dept:str(it.dept),name:str(it.name)};const exist=activeByKey.get(empMatchKey(rec));const ld=exist?lastDepositOf(exist.id):null;return{it,rec,amt:num(it.amount),exist,before:exist?planBal.take(exist.id,num(it.amount)):0,lastAt:ld?num(ld.createdAt):0}});
+// beta.61(구역 D): 승인과 같은 "부서를 옮긴 분" 묻기.
+const recsAll=plain.items.map(it=>({org:str(it.org)||str(parsed.institution),dept:str(it.dept),name:str(it.name)}));
+const moveCands=deptMoveCandidates(recsAll,renamePatches,askedLabels);
+let moveByIdx=new Map();
+if(moveCands.length){clearBusy();const mv=await askDeptMoves(moveCands);if(!mv){render();return}moveByIdx=mv}
+const planBal=runningBalance();const plan=plain.items.map((it,ix)=>{const rec=recsAll[ix];const mc=moveByIdx.get(ix);const exist=mc?mc.emp:activeByKey.get(empMatchKey(rec));const ld=exist?lastDepositOf(exist.id):null;return{it,rec,amt:num(it.amount),exist,move:mc?{from:mc.fromDept,to:mc.toDept}:null,before:exist?planBal.take(exist.id,num(it.amount)):0,lastAt:ld?num(ld.createdAt):0}});
 clearBusy();
 if(!window.confirm(batchReviewText({label:groupDept,renameFrom,renameTo:plain.items.length?orgDeptLabel(recOf(plain.items[0])):'',ym:str(parsed.year_month),direct:true,payers:batchPayers(plain.items),payMethod:batchPayMethod(plain.items),domain:'',sentAt:batchSentAt(parsed,parsed.summary),total:num(parsed.summary.total_amount),count:plain.items.length,plan,dupAt:receivedBatchAt(batchHash)}))){render();return}
 setBusy('장부에 올리는 중입니다.');
-const t=now(),ym=str(parsed.year_month);let tip=chainTip();const emps=[],txs=[],patches=[];
+const t=now(),ym=str(parsed.year_month);let tip=chainTip();const emps=[],txs=[],patches=[],movePatches=[];
 const noteLabel=str(parsed.institution)+' '+str(parsed.department);
-let topupCount=0;const patchedIds=new Set();const writeBal=runningBalance();
+let topupCount=0;const patchedIds=new Set(plan.filter(p=>p.move).map(p=>p.exist.id));const writeBal=runningBalance();
 for(const p of plan){
 /* 담당자 웹의 CSV '소속' 선택 열(items[].org) — 없으면 기존대로 기관명. batch_hash 계산식은 불변(name|dept|amount). */
-const txNote=noteLabel+(str(p.it.payer)?' · 결제 '+str(p.it.payer):'');
+const txNote=noteLabel+(str(p.it.payer)?' · 결제 '+str(p.it.payer):'')+(p.move?deptMoveNote(p.move.from,p.move.to):'');
 // 승인과 동일: 같은 결합 라벨을 쓰는 활성 직원 전체를 함께 백필한다(명단에 빠진 동료가 다른 그룹으로 갈라지지 않게).
 publicOrgPatchesForLabel(p.rec,patchedIds).forEach(pt=>patches.push(pt));
+if(p.move){const cur=state.data.employees.find(v=>v.id===p.exist.id)||p.exist;movePatches.push({...cur,org:p.rec.org,dept:p.rec.dept,orgKind:'public',updatedAt:t})}
 if(p.exist){topupCount++;if(p.amt>0){const before=writeBal.take(p.exist.id,p.amt);const tx=await makeTx({employeeId:p.exist.id,type:'topup',amount:p.amt,beforeBalance:before,afterBalance:before+p.amt,reason:'직접 전달 추가 충전',note:txNote,createdAt:t},tip);tip=tx.txHash;txs.push(tx)}continue}
 const eid=uid();
 emps.push({id:eid,org:p.rec.org,orgKind:'public',dept:p.rec.dept,name:p.rec.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth:ym,createdAt:t,updatedAt:t});
@@ -2269,12 +2535,12 @@ if(p.amt>0){const tx=await makeTx({employeeId:eid,type:'open',amount:p.amt,befor
 // 장부와 "받은 기록"(명단 해시 + 전달 번호)을 한 번의 apply로 커밋한다.
 const metaPatch=Object.assign({},nextReceivedBatchMeta(batchHash)||{});
 if(tid)metaPatch.receivedTransferLog=nextReceivedTransferLog(tid);
-await repo.apply({employees:emps.concat(patches,renamePatches),transactions:txs,meta:metaPatch});
+await repo.apply({employees:emps.concat(patches,renamePatches,movePatches),transactions:txs,meta:metaPatch});
 Object.assign(state.data.meta,metaPatch);
-emps.forEach(upsertEmp);patches.forEach(upsertEmp);renamePatches.forEach(upsertEmp);txs.forEach(upsertTx);
+emps.forEach(upsertEmp);patches.forEach(upsertEmp);renamePatches.forEach(upsertEmp);movePatches.forEach(upsertEmp);txs.forEach(upsertTx);
 clearBusy();render();
 const totalAmt=txs.reduce((s,tx)=>s+num(tx.amount),0);
-window.alert(`✅ 등록 완료 (직접 전달)\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`);
+window.alert(`✅ 등록 완료 (직접 전달)\n\n${groupDept}\n신규 ${emps.length}명 · 기존 충전 ${topupCount}명 · ${money(totalAmt)}이 장부에 추가됐어요.`+(movePatches.length?`\n부서를 옮긴 분 ${movePatches.length}명은 부서를 바꿨어요.`:''));
 cloudBackupAfterRoster()
 }catch(e){console.error(e);clearBusy();toast('명단을 등록하지 못했어요. '+relayErrMsg(e))}
 })}
@@ -3705,6 +3971,7 @@ const before=num(state.data.meta.relayRegisteredAt);
 // 공식 주소(storeAddr)는 관할 지역(district) 산출의 1순위 근거다 — 반드시 함께 저장한다.
 state.data.meta.restaurantId=str(picked.id);state.data.meta.relayStoreName=str(picked.name);state.data.meta.storeAddr=str(picked.addr);
 try{await repo.apply({meta:{restaurantId:state.data.meta.restaurantId,relayStoreName:state.data.meta.relayStoreName,storeAddr:state.data.meta.storeAddr}})}catch(e){console.error('relay store meta save',e)}
+storePickFromIdx=!!picked.fromIdx;
 try{await relayRegister(str(picked.addr))}catch(e){console.error('relay setup register',e)}
 if(num(state.data.meta.relayRegisteredAt)>before)return true;// 성공(relayRegister가 pending 플래그도 해제)
 state.data.meta.restaurantId='';state.data.meta.relayStoreName='';state.data.meta.storeAddr='';
@@ -3875,7 +4142,7 @@ const deptOpts=['<option value="">전체 소속</option>',...groupOrder.map(g=>`
 // 검색 초기화(✕)는 지울 것이 있을 때만 검색창 바로 옆에 — 상단바 상시 버튼보다 손과 눈이 가는 자리(beta.29).
 const clearBtn=(state.search.trim()||state.deptFilter)?`<button class="btn" data-a="reset-filter" title="검색어와 소속 필터를 지웁니다" aria-label="검색 초기화" style="min-width:52px;font-size:18px;flex-shrink:0">✕</button>`:'';
 filters=`<div class="home-filters"><div class="filter-row"><input id="searchInput" type="text" placeholder="직원명 검색 (초성도 돼요 · 예: ㄱㅁㅅ)" aria-label="직원명 검색 — 초성 검색 가능" value="${esc(state.search)}">${clearBtn}</div><div class="filter-row"><select id="deptFilterSelect" aria-label="소속으로 거르기">${deptOpts}</select></div></div>`}else if(state.screen==='history'){filters=historyFilterHtml()}const shop=state.data.meta.shopName;const shopAddr=state.data.meta.shopAddr||'';const shopHtml=shop&&state.screen==='home'?`<div style="font-size:26px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#1a5276,#2e86c1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px">${esc(shop)}${shopAddr?` <span style="font-size:13px;font-weight:600;letter-spacing:0">(${esc(shopAddr)})</span>`:''}</div>`:'';return `<div class="top">${shopHtml}<div class="title"><div><h1>${BRAND}</h1><div class="sub">${sub}</div></div><div class="tool">${homeBtn}${btns}</div></div>${filters}</div>`}
-function historyFilterHtml(){const d=derive();const tabStyle='flex:1;min-height:44px;border-radius:10px;font-size:14px;font-weight:700;';/* beta.55(C13): 44px·14px */const dateOn=state.historyTab==='date';const empOn=state.historyTab==='employee';const empFilter=empOn?`<select id="historyFilter" style="margin-top:8px">${['<option value="">전체 직원</option>',...d.employees.map(e=>`<option value="${esc(e.id)}"${state.historyEmployeeId===e.id?' selected':''}>${esc(e.name)} (${esc(e.deptKey||orgDeptLabel(e)||'부서 없음')})${e.isDeleted?' [숨김]':''}</option>`)].join('')}</select>`:'';return `<div style="display:flex;gap:8px"><button style="${tabStyle}${dateOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="date">일자별</button><button style="${tabStyle}${empOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="employee">직원별</button></div>${empFilter}`}
+function historyFilterHtml(){const d=derive();const tabStyle='flex:1;min-height:44px;border-radius:10px;font-size:14px;font-weight:700;';/* beta.55(C13): 44px·14px */const dateOn=state.historyTab==='date';const empOn=state.historyTab==='employee';const monthOn=state.historyTab==='month';const empFilter=empOn?`<select id="historyFilter" style="margin-top:8px">${['<option value="">전체 직원</option>',...d.employees.map(e=>`<option value="${esc(e.id)}"${state.historyEmployeeId===e.id?' selected':''}>${esc(e.name)} (${esc(e.deptKey||orgDeptLabel(e)||'부서 없음')})${e.isDeleted?' [숨김]':''}</option>`)].join('')}</select>`:'';return `<div style="display:flex;gap:8px"><button style="${tabStyle}${dateOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="date">일자별</button><button style="${tabStyle}${empOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="employee">직원별</button><button style="${tabStyle}${monthOn?'background:var(--primary);color:#fff;border:none':'background:#fff;color:var(--muted);border:1.5px solid var(--line)'}" data-a="history-tab" data-tab="month">월별</button></div>${empFilter}${monthOn?monthNavHtml():''}`}
 function banners(){let h='';if(state.mode!=='IndexedDB')h+='<div class="card banner error"><strong>호환 모드 저장</strong><div class="meta">IndexedDB를 사용할 수 없어 localStorage에 저장합니다.</div></div>';if(state.screen==='home')h+=storeRegisterBanner()+guardBanner()+installBanner();return h}
 // 온보딩에서 우리 가게 등록을 못 마친 경우에만 뜨는 지속 배너(등록에 성공하면 플래그가 해제돼 사라진다).
 // 가게 등록 마무리 안내 — ✕로 닫으면 이번 실행 동안만 숨김(재시작하면 다시 보인다).
@@ -3926,7 +4193,46 @@ function soloEmpCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';c
 function empCard(e){const c=e.balance<0?'negative':e.balance===0?'zero':'';const initial=esc(Array.from(str(e.name))[0]||'?');return `<div class="card employee" style="display:flex;align-items:center;gap:12px"><div class="emp-avatar" aria-hidden="true">${initial}</div><div class="employee-main" data-a="history-for" data-id="${esc(e.id)}"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.name)}</div><div class="dept" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(orgDeptLabel(e)||'부서 없음')}${e.note?' · '+esc(e.note):''}</div></div><div class="bal ${c}" style="margin:0;white-space:nowrap;font-size:20px">${money(e.balance)}</div><button class="small" data-a="receipt" data-id="${esc(e.id)}" aria-label="${esc(e.name)} 잔액증표 보기" title="잔액증표(명함)" style="flex:0 0 auto;min-width:44px;font-size:18px">🧾<span class="rcpt-label">증표</span></button><button class="btn-primary" data-a="use" data-id="${esc(e.id)}" style="min-width:auto;padding:10px 16px;flex:0 0 auto">사용</button></div>`}
 // beta.55(A2): 서버 백업(v2)에서 되찾은 사용 거래에는 서명 그림이 없다(서명 해시는 사슬에 남아 있다). 빈 칸 대신 그 사실을 말한다.
 function sigMissingHtml(t){return(t&&t.type==='use'&&str(t.signatureHash)&&!sigD(t.signatureData))?'<div class="sig-missing">서명 그림은 이 백업에 없어요 (서명 기록은 확인됨)</div>':''}
-function historyHtml(d){if(state.historyTab==='employee')return historyByEmployee(d);return historyByDate(d)}
+function historyHtml(d){if(state.historyTab==='employee')return historyByEmployee(d);if(state.historyTab==='month')return historyByMonth(d);return historyByDate(d)}
+// ── beta.61 — [이력] > [월별] (읽기 전용: 장부를 쓰지 않고, 저장하는 값도 없다 — 고른 달은 state.historyMonth, 세션 한정) ──
+// 날짜 기준은 [일자별]과 같은 발생일(txDispTime). 취소된 사용(d.voided)과 취소 기록(void)은 뺀다.
+//   조정(adjust)은 쓴 금액·들어온 선금에 넣지 않고 0이 아닐 때만 "잔액 조정 ±N원" 한 줄로 보인다.
+// ⚠️ 합계를 여기서 새로 계산하지 않는다 — 지금 남은 선금은 derive()의 d.total(설정 > 직원 목록 관리의 "잔액 합계"와 같은 값),
+//   소속별 묶음은 홈 그룹(homeGroupIndex — 제목·순서), 표의 순서는 groupSortTuple. 같은 사실을 두 곳이 따로 세면 어긋난다.
+const MONTH_IDLE_DAYS=60,MONTH_IDLE_MAX=20,MONTH_DAY_MS=86400000;
+function monthIndexOf(ts){const x=new Date(ts);return x.getFullYear()*12+x.getMonth()}
+function monthTitle(i){return `${Math.floor(i/12)}년 ${i%12+1}월`}
+// 넘길 수 있는 범위 — 첫 거래(발생일)가 있는 달 ~ 이번 달. 거래가 없으면 이번 달 하나.
+function historyMonthSel(){const last=monthIndexOf(now());let first=last;state.data.transactions.forEach(t=>{const ts=txDispTime(t);if(ts>0){const i=monthIndexOf(ts);if(i<first)first=i}});let i=Number.isInteger(state.historyMonth)?state.historyMonth:last;if(i>last)i=last;if(i<first)i=first;return{i,first,last}}
+function isMonthInTx(t){return(t.type==='open'||t.type==='topup')&&num(t.amount)>0}
+function monthStats(d,mi){let useSum=0,useN=0,inSum=0,inN=0,adj=0;const rows=new Map();
+state.data.transactions.forEach(t=>{if(t.type==='void'||d.voided.has(t.id))return;if(monthIndexOf(txDispTime(t))!==mi)return;const a=num(t.amount);
+if(t.type==='adjust'){adj+=a;return}
+const isUse=t.type==='use'&&a>0,isIn=isMonthInTx(t);if(!isUse&&!isIn)return;
+const e=d.empMap.get(t.employeeId);const label=e?e.deptKey:'알 수 없는 직원';
+if(!rows.has(label))rows.set(label,{label,sort:e?groupSortTuple(e):[2,label,''],use:0,inn:0});const r=rows.get(label);
+if(isUse){useSum+=a;useN+=1;r.use+=a}else{inSum+=a;inN+=1;r.inn+=a}});
+const list=[...rows.values()].sort((x,y)=>cmpGroupSort(x.sort,y.sort)||x.label.localeCompare(y.label,'ko'));
+return{useSum,useN,inSum,inN,adj,rows:list}}
+// 오래 안 온 손님 — 잔액이 남은 활성 직원 중 마지막 사용(발생일)이 60일 넘게 없는 사람.
+//   사용이 한 번도 없으면 첫 선금(등록·충전) 때부터, 그것도 없으면 직원 등록 때부터 센다.
+function idleCustomers(d){const lastUse=new Map(),firstIn=new Map();
+state.data.transactions.forEach(t=>{if(t.type==='void'||d.voided.has(t.id))return;const ts=txDispTime(t);if(!(ts>0))return;const k=t.employeeId;
+if(t.type==='use'){if(ts>(lastUse.get(k)||0))lastUse.set(k,ts)}else if(isMonthInTx(t)){const p=firstIn.get(k);if(!p||ts<p)firstIn.set(k,ts)}});
+const cut=now()-MONTH_IDLE_DAYS*MONTH_DAY_MS;
+return d.active.filter(e=>e.balance>0).map(e=>{const lu=lastUse.get(e.id)||0;return{e,lu,ref:lu||firstIn.get(e.id)||num(e.createdAt)}}).filter(x=>x.ref>0&&x.ref<cut).sort((a,b)=>b.e.balance-a.e.balance||a.e.name.localeCompare(b.e.name,'ko'))}
+function monthDayText(ts){const x=new Date(ts),y=new Date(now());return(x.getFullYear()===y.getFullYear()?'':`${x.getFullYear()}년 `)+`${x.getMonth()+1}월 ${x.getDate()}일`}
+function monthNavHtml(){const s=historyMonthSel();const sp='<span class="month-nav-sp" aria-hidden="true"></span>';
+return `<div class="month-nav" id="monthNav">${s.i>s.first?`<button type="button" class="month-nav-btn" data-a="month-prev" aria-label="${esc(monthTitle(s.i-1))} 보기">◀</button>`:sp}<div class="month-nav-title" id="monthTitle">${esc(monthTitle(s.i))}</div>${s.i<s.last?`<button type="button" class="month-nav-btn" data-a="month-next" aria-label="${esc(monthTitle(s.i+1))} 보기">▶</button>`:sp}</div>`}
+function historyByMonth(d){const s=historyMonthSel();const st=monthStats(d,s.i);
+const has=st.useN>0||st.inN>0||st.adj!==0;
+const monthCard=!has?`<div class="card empty" id="monthEmpty">이 달에는 기록이 없어요.</div>`:`<div class="card month-card" id="monthCard"><div class="month-sum"><div class="month-sum-item" id="monthUse" data-v="${st.useSum}" data-n="${st.useN}"><div class="month-k">쓴 금액</div><div class="month-v">${money(st.useSum)}</div><div class="month-n">${st.useN}건</div></div><div class="month-sum-item" id="monthIn" data-v="${st.inSum}" data-n="${st.inN}"><div class="month-k">들어온 선금</div><div class="month-v">${money(st.inSum)}</div><div class="month-n">${st.inN}건</div></div></div>${st.adj!==0?`<div class="month-adj" id="monthAdj" data-v="${st.adj}">잔액 조정 ${st.adj>0?'+':''}${money(st.adj)}</div>`:''}${st.rows.length?`<table class="month-table" id="monthTable"><thead><tr><th scope="col">소속·부서</th><th scope="col">쓴 금액</th><th scope="col">들어온 선금</th></tr></thead><tbody>${st.rows.map(r=>`<tr data-label="${esc(r.label)}" data-use="${r.use}" data-in="${r.inn}"><td>${esc(r.label)}</td><td>${r.use?money(r.use):'-'}</td><td>${r.inn?money(r.inn):'-'}</td></tr>`).join('')}</tbody></table>`:''}</div>`;
+// 지금 남은 선금 — 달과 무관. 합계는 d.total, 묶음은 홈 그룹(제목·순서 그대로), 0원 묶음은 줄이지 않고 뺀다(합은 그대로).
+let remainCard='';if(d.active.length){const gi=homeGroupIndex(d.active);const sums=new Map();d.active.forEach(e=>{const k=homeGroupKey(e);sums.set(k,(sums.get(k)||0)+e.balance)});const lines=gi.order.filter(g=>(sums.get(g.key)||0)!==0);
+remainCard=`<div class="card month-card" id="monthRemain"><div class="month-h">지금 남은 선금</div><div class="month-remain-total" id="monthRemainTotal" data-v="${d.total}"><span>전체</span><b>${money(d.total)}</b></div>${lines.length?`<div class="month-remain-list">${lines.map(g=>`<div class="month-remain-row" data-v="${sums.get(g.key)}"><span>${esc(g.label)}</span><b>${money(sums.get(g.key))}</b></div>`).join('')}</div>`:''}</div>`}
+const idle=idleCustomers(d);let idleCard='';if(idle.length){const shown=idle.slice(0,MONTH_IDLE_MAX),more=idle.length-shown.length;
+idleCard=`<div class="card month-card" id="monthIdle"><div class="month-h">오래 안 온 손님</div><div class="month-sub">잔액이 남았는데 ${MONTH_IDLE_DAYS}일 넘게 쓰지 않은 분이에요.</div><div class="month-idle-list">${shown.map(x=>`<div class="month-idle-row" data-id="${esc(x.e.id)}"><div class="month-idle-main"><div class="month-idle-name">${esc(x.e.name)}</div><div class="month-idle-dept">${esc(x.e.deptKey)}</div><div class="month-idle-last">${x.lu?`마지막 사용 ${esc(monthDayText(x.lu))}`:'사용 기록 없음'}</div></div><b class="month-idle-bal">${money(x.e.balance)}</b></div>`).join('')}</div>${more>0?`<div class="month-sub" id="monthIdleMore">외 ${more}명</div>`:''}</div>`}
+return monthCard+remainCard+idleCard}
 function historyByDate(d){if(!d.dateGroups.length)return '<div class="card empty">거래 이력이 없습니다.<br>홈 화면에서 직원을 골라 [사용]을 눌러 등록해 보세요.<br><button class="btn-primary" data-a="go-home" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">홈으로 가기</button></div>';return d.dateGroups.map(g=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1.5px solid #eef1f4"><div class="name" style="font-size:16px">${esc(g.date)}</div><div style="font-size:12px;color:var(--muted)">${g.count}건${g.useTotal?` · 사용 ${money(g.useTotal)}`:''}</div></div><div class="list">${g.items.map(t=>txCardDate(t,d)).join('')}</div></div>`).join('')}
 function txCardDate(t,d){const e=d.empMap.get(t.employeeId);const eName=e?(e.name+(e.isDeleted?' (삭제됨)':'')):'알 수 없음';const eDept=e?e.deptKey:'';const lbl={open:'등록',topup:'충전',use:'사용',void:'취소',adjust:'조정'}[t.type]||t.type;const isOut=t.type==='use';const isAdj=t.type==='adjust';const isV=d.voided.has(t.id);const adjNeg=isAdj&&num(t.amount)<0;const sign=isOut?'-':adjNeg?'':'+';const cls=isOut?'out':isAdj?'adjust':'in';const sigSrc=sigD(t.signatureData);const sig=sigSrc?`<img class="thumb" src="${esc(sigSrc)}" data-a="view-sign" data-id="${esc(t.id)}" alt="서명">`:sigMissingHtml(t);const vb=t.type==='use'&&!isV?`<button class="small" data-a="void" data-id="${esc(t.id)}">이 사용 기록 취소</button>`:'';const vm=isV?'<span class="chip" style="background:var(--danger-soft);color:var(--danger)">취소됨</span>':'';const nt=t.note?`<span class="chip">${esc(t.note)}</span>`:'';const time=new Date(t.createdAt);const hm=String(time.getHours()).padStart(2,'0')+':'+String(time.getMinutes()).padStart(2,'0');return `<div class="txn" style="${isV?'opacity:.5':''}"><div class="txn-top"><div><div class="txn-title">${esc(eName)} <span style="font-weight:400;color:var(--muted);font-size:11px">${esc(eDept)} · ${esc(lbl)}</span></div></div><div class="amt ${cls}">${sign}${money(isAdj?t.amount:Math.abs(t.amount))}</div></div><div class="chips"><span>${hm}</span>${nt}${vm}${t.reason&&t.type!=='use'?`<span>${esc(t.reason)}</span>`:''}</div>${sig}${vb}</div>`}
 function historyByEmployee(d){if(!d.historyGroups.length)return '<div class="card empty">거래 이력이 없습니다.<br>홈 화면에서 직원을 골라 [사용]을 눌러 등록해 보세요.<br><button class="btn-primary" data-a="go-home" style="margin-top:14px;min-height:56px;padding:0 22px;font-size:16px;font-weight:700">홈으로 가기</button></div>';return d.historyGroups.map(g=>{const emp=g.employee;const bal=emp?emp.balance:0;const canAdjust=emp&&!emp.isDeleted;return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="name">${esc(g.name)}${emp&&emp.isDeleted?'<span class="hidden-badge">삭제됨</span>':''}<span class="dept" style="margin-left:8px">${esc(g.dept)}</span></div><div style="display:flex;align-items:center;gap:8px"><div style="font-size:22px;font-weight:800;color:var(--danger);white-space:nowrap">잔액 ${money(bal)}</div>${canAdjust?`<button class="small" data-a="adjust" data-id="${esc(g.employeeId)}">조정</button>`:''}</div></div><div class="list">${g.items.map(t=>txCard(t,d)).join('')}</div></div>`}).join('')}
@@ -3948,7 +4254,7 @@ function navHtml(){return `<div class="nav"><button class="${state.screen==='hom
 // ── 모달 HTML ──
 function modalHtml(d){if(!state.modal)return '';
 if(state.modal.type==='terms'){return `<div class="modal-back"><div class="modal"><h2>약관 동의</h2><p class="help">서비스를 계속 이용하려면 약관에 동의해 주세요. 한 번만 확인하면 됩니다.</p>${termsAgreeBlockHtml('terms-toggle','termsChk',false)}<div class="modal-actions"><button class="btn-primary" id="termsAgreeBtn" data-a="terms-agree">동의하고 시작</button></div></div></div>`}
-if(state.modal.type==='employee'){const edit=state.modal.mode==='edit',e=edit?d.empMap.get(state.modal.id):null;return `<div class="modal-back"><div class="modal"><h2>${edit?'직원 정보 수정':'한 명씩 등록'}</h2><p class="help">${edit?'직원 기본 정보만 바뀝니다.':'초기 선입금액은 첫 거래로 등록됩니다.'}</p><div class="form">${orgField('empOrg',e?e.org:'')}${deptField('empDept','부서명',e?e.dept:'','예: 거래처A')}${field('empName','직원명',e?e.name:'','예: 홍길동','text','data-modal-focus')}${!edit?`<div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-open" data-amount="9000">9,000원</button><button data-a="fill-open" data-amount="18000">18,000원</button><button data-a="fill-open" data-amount="27000">27,000원</button></div></div>${field('empOpen','초기 선입금액','','예: 9000','number')}`:''}${field('empNote','메모',e?e.note:'','비고')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-employee">${edit?'수정 저장':'직원 저장'}</button></div></div></div>`}
+if(state.modal.type==='employee'){const edit=state.modal.mode==='edit',e=edit?d.empMap.get(state.modal.id):null;return `<div class="modal-back"><div class="modal"><h2>${edit?'직원 정보 수정':'한 명씩 등록'}</h2><p class="help">${edit?'직원 기본 정보만 바뀝니다.':'초기 선입금액은 첫 거래로 등록됩니다.'}</p>${edit?'<p class="help emp-move-note">부서를 바꿔도 지난 기록과 잔액은 그대로 따라가요.</p>':''}<div class="form">${orgField('empOrg',e?e.org:'')}${deptField('empDept','부서명',e?e.dept:'','예: 거래처A')}${field('empName','직원명',e?e.name:'','예: 홍길동','text','data-modal-focus')}${!edit?`<div class="field"><label>빠른 금액</label><div class="quick"><button data-a="fill-open" data-amount="9000">9,000원</button><button data-a="fill-open" data-amount="18000">18,000원</button><button data-a="fill-open" data-amount="27000">27,000원</button></div></div>${field('empOpen','초기 선입금액','','예: 9000','number')}`:''}${field('empNote','메모',e?e.note:'','비고')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-employee">${edit?'수정 저장':'직원 저장'}</button></div></div></div>`}
 if(state.modal.type==='topup'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>추가 충전</h2><p class="help">${esc(e.name)} · 현재 잔액 ${money(e.balance)}</p><div class="form">${field('topupAmount','충전 금액','9000','예: 9000','number')}${field('topupReason','사유','','예: 추가 선입금')}${txDateField('topupDate')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-primary" data-a="save-topup">충전 저장</button></div></div></div>`}
 if(state.modal.type==='adjust'){const e=d.empMap.get(state.modal.id);if(!e)return '';return `<div class="modal-back"><div class="modal"><h2>잔액 조정</h2><p class="help">현재 잔액은 ${money(e.balance)}입니다.</p><div class="form">${field('adjustBalance','새 잔액',String(e.balance),'예: 27000','number')}${field('adjustReason','조정 사유','','예: 장부 확인 후 정정')}${txDateField('adjustDate')}</div><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button><button class="btn-warn" data-a="save-adjust">조정 저장</button></div></div></div>`}
 if(state.modal.type==='usage'){const e=d.empMap.get(state.modal.id);if(!e)return '';const smsPhone=state.modal.smsPhone||'';const smsBox=smsPhone?`<div class="field"><label>문자 안내 (선택)</label><div class="meta">${esc(formatPhone(smsPhone))} — 저장하면 증표 화면에 <b>[문자 안내 보내기]</b>가 나와요.<br>누르면 문자 앱이 열리고, <b>보내기</b>를 눌러 주세요(자동 발송은 되지 않습니다).</div></div>`:'';
@@ -3993,7 +4299,7 @@ const actions=done
 :`<button class="btn-primary" data-a="relay-approve" data-sid="${esc(it.summary_id)}">결제 확인 후 승인</button><button class="btn-danger" data-a="relay-reject" data-sid="${esc(it.summary_id)}">거절</button>`;
 return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px"><div style="font-weight:700">${esc(combinedDeptLabel(it.summary.institution,it.summary.department))}</div><div class="meta">${esc(it.summary.restaurant_name||'')} · ${esc(it.summary.year_month||'')}</div><div class="meta">${esc(domainLine(it.summary.agency_domain))}${sentAt?' · 명단 전송 '+esc(dt(sentAt)):''}</div>${badge}<div style="margin:6px 0">총액 <b>${money(it.summary.total_amount)}</b> · ${num(it.summary.member_count)}명 <span class="meta">(승인 전에는 이름이 보이지 않습니다)</span></div><div style="display:flex;gap:8px">${actions}</div></div>`}).join(''):'<div class="empty">대기 중인 신청이 없습니다.<br>공공기관에서 신청을 보내면 여기에 나타나요.</div>';return `<div class="modal-back"><div class="modal"><h2>공공기관 명단 신청 수신함</h2><p class="help">결제 내역(카드 매출전표·통장 입금)과 금액을 대조한 뒤 승인하세요. 승인 시에만 명단이 열립니다.<br>기관명은 담당자가 직접 적는 값이라, 인증된 이메일 도메인과 함께 보고 판단하세요.</p>${body}<div class="modal-actions"><button class="btn" data-a="relay-inbox">새로고침</button><button class="btn" data-a="close-modal">닫기</button></div></div></div>`}
 if(state.modal.type==='qr-scan'){return `<div class="modal-back"><div class="modal" style="text-align:center"><h2>QR(사각 코드)로 받기</h2><p class="help">담당자가 보여주는 QR(사각 코드)를 카메라로 비춰주세요. 서버를 거치지 않고 바로 등록돼요.</p><video id="qrVideo" autoplay playsinline muted style="width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover"></video><div class="modal-actions"><button class="btn" data-a="close-modal">취소</button></div></div></div>`}
-if(state.modal.type==='csv'){const rows=state.modal.rows||[];const dupWarn=state.modal.dupWarn||0;const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''} — 등록 가능</div>`;const hasOrg=rows.some(r=>str(r.org));const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th>${hasOrg?'<th>소속</th>':''}<th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td>${hasOrg?`<td>${esc(r.org||'')}</td>`:''}<td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error?esc(r.error):(r.mode==='topup'?'🔄 추가 충전':'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>엑셀 명단(CSV) 불러오기</h2><p class="help">엑셀에서 저장한 CSV 파일을 불러와요. 첫 줄(제목 줄)에 <b>소속·부서·이름·금액</b> 칸을 넣어 주세요.<br>· <b>소속</b> = 공공기관명·회사명, 개인 선금이면 <b>'개인'</b> (없으면 비워 두셔도 돼요)<br>· 이미 등록된 직원은 금액이 추가로 충전돼요.</p>${sm}${state.modal.renameFrom?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">기존 부서 '${esc(state.modal.renameFrom)}'의 이름을 파일의 소속·부서로 고쳐서 올려요(잔액 변동 없음).</div>`:''}${dupWarn?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">⚠️ 동명이인 ${dupWarn}건 감지 — 구분 마커(·2, ·3 …)를 자동 부여했습니다. 표에서 확인하세요.</div>`:''}${num(state.modal.skippedTotals)?`<div class="csv-skip-note" style="color:var(--muted,#555);font-weight:700;margin:8px 0">합계·소계 줄 ${num(state.modal.skippedTotals)}개는 직원이 아니라서 건너뛰었어요.</div>`:''}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">등록하기</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
+if(state.modal.type==='csv'){const rows=state.modal.rows||[];const dupWarn=state.modal.dupWarn||0;const errs=rows.filter(r=>r.error).length;const newCount=rows.filter(r=>!r.error&&r.mode!=='topup').length;const topupCount=rows.filter(r=>!r.error&&r.mode==='topup').length;const moveCount=rows.filter(r=>!r.error&&r.moveId).length;const sm=!rows.length?'':errs>0?`<div style="color:var(--danger);font-weight:700;margin:8px 0">❌ ${errs}건 오류 — 수정 후 다시 시도하세요</div>`:`<div style="color:var(--success);font-weight:700;margin:8px 0">✅ ${newCount?'신규 '+newCount+'명':''}${newCount&&topupCount?' + ':''}${topupCount?'기존 충전 '+topupCount+'명':''}${moveCount?` (부서 이동 ${moveCount}명)`:''} — 등록 가능</div>`;const hasOrg=rows.some(r=>str(r.org));const tb=rows.length?`<div class="csv-preview"><table class="csv-table"><thead><tr><th>행</th>${hasOrg?'<th>소속</th>':''}<th>부서</th><th>이름</th><th>금액</th><th>상태</th></tr></thead><tbody>${rows.map(r=>`<tr class="${r.error?'err':''}" style="${r.mode==='topup'?'background:var(--warn-soft)':''}"><td>${r.line}</td>${hasOrg?`<td>${esc(r.org||'')}</td>`:''}<td>${esc(r.dept)}</td><td>${esc(r.name)}</td><td>${r.amount?money(r.amount):'-'}</td><td>${r.error?esc(r.error):(r.mode==='topup'?(r.moveId?`🔄 추가 충전 · 부서 이동(${esc(r.moveFrom||'부서 없음')} → ${esc(r.moveTo)})`:'🔄 추가 충전'):'✅ 신규')}</td></tr>`).join('')}</tbody></table></div>`:'';return `<div class="modal-back"><div class="modal"><h2>엑셀 명단(CSV) 불러오기</h2><p class="help">엑셀에서 저장한 CSV 파일을 불러와요. 첫 줄(제목 줄)에 <b>소속·부서·이름·금액</b> 칸을 넣어 주세요.<br>· <b>소속</b> = 공공기관명·회사명, 개인 선금이면 <b>'개인'</b> (없으면 비워 두셔도 돼요)<br>· 이미 등록된 직원은 금액이 추가로 충전돼요.</p>${sm}${state.modal.renameFrom?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">기존 부서 '${esc(state.modal.renameFrom)}'의 이름을 파일의 소속·부서로 고쳐서 올려요(잔액 변동 없음).</div>`:''}${dupWarn?`<div style="color:var(--warn,#b7791f);font-weight:700;margin:8px 0">⚠️ 동명이인 ${dupWarn}건 감지 — 구분 마커(·2, ·3 …)를 자동 부여했습니다. 표에서 확인하세요.</div>`:''}${num(state.modal.skippedTotals)?`<div class="csv-skip-note" style="color:var(--muted,#555);font-weight:700;margin:8px 0">합계·소계 줄 ${num(state.modal.skippedTotals)}개는 직원이 아니라서 건너뛰었어요.</div>`:''}${tb}<div class="modal-actions"><button class="btn" data-a="close-modal">취소</button>${rows.length&&!errs?'<button class="btn-primary" data-a="exec-csv">등록하기</button>':'<button class="btn-secondary" data-a="pick-csv">파일 선택</button>'}</div></div></div>`}
 // beta.54 직원 삭제 — 숨김(이름 입력 기본 팝업) 대신 앱 안 확인창. 돈 기록이 있는 직원은 기록을 남긴 채 삭제(복원 가능),
 //   기록이 없는 직원만 [기록까지 완전 삭제]가 보인다(거래가 달린 직원을 지우면 무결성 검사·백업 복원 검증이 "직원 없는 거래"로 실패한다).
 if(state.modal.type==='delete-emp'){const e=d.empMap.get(state.modal.id);if(!e||e.isDeleted)return '';const txN=state.data.transactions.filter(t=>str(t.employeeId)===str(e.id)).length;const bal=num(e.balance);
@@ -4132,7 +4438,10 @@ const clickActions={
 'adjust':(el)=>{state.modal={type:'adjust',id:el.dataset.id};render()},
 'use':async(el)=>{await openUsageFor(el.dataset.id)},
 'history-for':(el)=>{state.historyEmployeeId=el.dataset.id||'';state.historyTab='employee';state.screen='history';render()},
-'history-tab':(el)=>{state.historyTab=el.dataset.tab||'date';if(state.historyTab==='date')state.historyEmployeeId='';render()},
+'history-tab':(el)=>{const tb=el.dataset.tab;state.historyTab=(tb==='employee'||tb==='month')?tb:'date';if(state.historyTab!=='employee')state.historyEmployeeId='';render()},
+// beta.61 [월별] 달 넘기기 — 읽기 전용(세션 state만). 범위 밖은 historyMonthSel이 잘라 낸다. LOCK_ALLOWED 밖(잠금 중 무동작).
+'month-prev':()=>{const s=historyMonthSel();if(s.i>s.first)state.historyMonth=s.i-1;render()},
+'month-next':()=>{const s=historyMonthSel();if(s.i<s.last)state.historyMonth=(s.i+1===s.last)?null:s.i+1;render()},
 'view-sign':(el)=>{state.modal={type:'signature',id:el.dataset.id};render()},
 'receipt':async(el)=>{await openReceipt(el.dataset.id)},
 'close-modal':()=>{state.modal=null;render()},
@@ -4165,6 +4474,7 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 'save-rename-group':async()=>{await saveRenameGroup()},
 'undo-batch':async(el)=>{await undoBatch(el.dataset.at)},
 'choice-pick':(el)=>{closeChoiceDialog(el.dataset.val)},
+'move-pick':(el)=>{pickMoveRow(el.dataset.i,el.dataset.val)},
 'text-ok':()=>{textOk()},
 'text-cancel':()=>{closeTextDialog(null)},
 // 사유 예시 칩 — 칸에 글자만 채운다(render 없음). 사장님이 이어서 고칠 수 있다.
@@ -4203,10 +4513,13 @@ const box=el.closest('.org-picks')||document;box.querySelectorAll('.org-pick').f
 // 주소를 이미 아는 기기의 수동 재전송(자동 치유가 못 돌았거나 사장님이 직접 확인하고 싶을 때).
 'relay-send-district':async()=>{if(!relayDistrict()){toast('가게 주소를 몰라 지역을 보낼 수 없어요. [변경]을 눌러 우리 가게를 다시 골라 주세요.');return}await relayRegister()},
 'relay-search-stores':async()=>{await relaySearchStores()},
+// beta.61 가게 색인: 같은 이름 구·군 칩 → 그곳 색인으로 / [공공데이터에서 다시 찾기] → 색인을 건너뛰고 예전 방식으로
+'idx-pick':async(el)=>{const o={sido:str(el.dataset.sido),sigungu:str(el.dataset.sigungu)};if(el.dataset.kind==='setup')await setupSearchStores(o);else if(state.modal&&state.modal.type==='store-search')await relaySearchStores(o)},
+'idx-old':async(el)=>{if(el.dataset.kind==='setup')await setupSearchStores({old:true});else if(state.modal&&state.modal.type==='store-search')await relaySearchStores({old:true})},
 'dong-scan':async(el)=>{await runDongScan(el.dataset.kind,el.dataset.sido||'',el.dataset.sigungu||'',el.dataset.resume==='1')},
 'dong-scan-stop':(el)=>{const ds=dongState(el.dataset.kind);if(ds&&ds.status==='scanning')ds.stopped=true},
 'store-search-stop':(el)=>{stopStoreSearch(el.dataset.kind)},
-'relay-pick-store':async(el)=>{if(!confirmStoreTaken('modal',el.dataset.id))return;await relayPickStore(el.dataset.id,el.dataset.name,el.dataset.addr)},
+'relay-pick-store':async(el)=>{if(!confirmStoreTaken('modal',el.dataset.id))return;storePickFromIdx=!!(state.modal&&state.modal.idx&&state.modal.idx.status==='done');await relayPickStore(el.dataset.id,el.dataset.name,el.dataset.addr)},
 'relay-inbox':async()=>{await relayOpenInbox()},
 'copy-naver-link':async()=>{const u=naverMapUrl(state.data.meta.relayStoreName||state.data.meta.shopName,state.data.meta.storeAddr||state.data.meta.shopAddr);if(!u){toast('가게 이름을 먼저 저장해 주세요.');return}
 try{await navigator.clipboard.writeText(u);toast('네이버 지도 링크를 복사했어요.')}catch(e){toast('복사할 수 없어요. 링크를 눌러 직접 열어 주세요.')}},
@@ -4277,7 +4590,7 @@ state.setupPickedStore=null;state.setupSelected={idx:-1,name:mn,addr:ma,tel:mt,t
 // 1/3 우리 가게 찾기 — 고르기만 하고 서버 전송은 없음(약관 동의 후 finishSetup에서 등록)
 'setup-store-search':async()=>{await setupSearchStores()},
 // 남의 가게 오선택 방지 — 이름만으로는 구분이 안 되므로 주소를 함께 보여주고 확인받는다.
-'setup-store-pick':(el)=>{const id=str(el.dataset.id),name=str(el.dataset.name),addr=str(el.dataset.addr),tel=str(el.dataset.tel);if(!window.confirm('우리 가게가 맞나요?\n\n'+name+'\n'+(addr||'(주소 정보 없음)')+'\n\n주소가 우리 가게 주소와 같은지 꼭 확인하세요.'))return;if(!confirmStoreTaken('setup',id))return;state.setupPickedStore={id,name,addr,tel};state.setupSelected={idx:-1,name,addr,tel,type:'검색'};state.setupManualMode=false;render()},
+'setup-store-pick':(el)=>{const id=str(el.dataset.id),name=str(el.dataset.name),addr=str(el.dataset.addr),tel=str(el.dataset.tel);if(!window.confirm('우리 가게가 맞나요?\n\n'+name+'\n'+(addr||'(주소 정보 없음)')+'\n\n주소가 우리 가게 주소와 같은지 꼭 확인하세요.'))return;if(!confirmStoreTaken('setup',id))return;state.setupPickedStore={id,name,addr,tel,fromIdx:!!(state.setupIdx&&state.setupIdx.status==='done')};state.setupSelected={idx:-1,name,addr,tel,type:'검색'};state.setupManualMode=false;render()},
 'setup-add-dept':()=>{var inp=qs('setupNewDept');var v=str(inp&&inp.value);if(!v){toast('부서명을 입력하세요.');return}if(state.setupDepts.indexOf(v)>=0){toast('이미 추가된 부서입니다.');return}state.setupDepts.push(v);render()},
 'setup-remove-dept':(el)=>{var ri=Number(el.dataset.idx);if(ri>=0&&ri<state.setupDepts.length){state.setupDepts.splice(ri,1);render()}},
 'setup-complete':async()=>{if(!state.setupTermsAgreed){showTermsNeeded('setupTermsChk');return}const kakao=contactKakaoValue('setupContactKakao');const email=str(qs('setupContactEmail')&&qs('setupContactEmail').value);await finishSetup(kakao,email)},
@@ -4465,7 +4778,9 @@ if(e.target.id==='agencySelectSetup'||e.target.id==='agencySelectSettings'){stat
 async function saveEmployee(){return withTxLock(async()=>{const org=str(qs('empOrg')&&qs('empOrg').value),dept=str(qs('empDept')&&qs('empDept').value),name=str(qs('empName')&&qs('empName').value),note=str(qs('empNote')&&qs('empNote').value),t=now();if(!name){toast('직원명을 입력하세요.');return}if(state.modal.mode==='edit'){const old=state.data.employees.find(v=>v.id===state.modal.id);if(!old){toast('직원을 찾을 수 없습니다.');return}const key=empMatchKey({org,dept,name});const dup=state.data.employees.find(v=>v.id!==old.id&&!v.isDeleted&&empMatchKey(v)===key);if(dup){toast('같은 이름과 소속·부서의 활성 직원이 이미 있습니다.');return}const next={...old,org,dept,name,note,updatedAt:t};
 // 소속·부서를 바꾸면 홈 그룹 분류 표식(orgKind)도 따라가야 한다 — 소속을 '개인'으로 바꿨는데 공공기관 부서 그룹에
 //   그대로 남으면 사장님이 옮길 방법이 없다. 소속·부서가 그대로면 표식을 유지한다(자동 등록 이력 보존).
-if(str(old.org)!==org||str(old.dept)!==dept)next.orgKind=orgKindFor(org);setBusy('저장 중입니다.');try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;clearBusy();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);clearBusy();toast('직원 정보를 저장하지 못했어요. 다시 해 주세요.')}}else{const key=empMatchKey({org,dept,name});
+// beta.61(구역 D ㉠): **소속이 그대로면(빈 소속 제외) 부서만 바꿔도 표식을 지킨다** — 예전에는 부서만 바꿔도 다시 판정해,
+//   공공기관 직원(orgKind:'public')이 다른 과로 옮기면 public을 잃고 홈에서 회사 그룹으로 넘어갔다. 소속을 바꿨을 때의 재분류는 그대로.
+if(str(old.org)!==org||(!org&&str(old.dept)!==dept))next.orgKind=orgKindFor(org);setBusy('저장 중입니다.');try{await repo.apply({employees:[next]});upsertEmp(next);state.modal=null;clearBusy();toast('직원 정보를 수정했습니다.')}catch(err){console.error(err);clearBusy();toast('직원 정보를 저장하지 못했어요. 다시 해 주세요.')}}else{const key=empMatchKey({org,dept,name});
 // beta.54: 삭제한(숨긴) 같은 이름은 등록을 막지 않는다 — 예전에는 활성 직원보다 먼저 걸려 "복원하세요"로 막혔다(되돌리기·삭제 뒤 같은 부서를 다시 쓰면 반드시 부딪힌다).
 const dup=state.data.employees.find(v=>!v.isDeleted&&empMatchKey(v)===key);const rawOpen=qs('empOpen')&&qs('empOpen').value;const open=rawOpen?parseWon(rawOpen):0;if(rawOpen&&isNaN(open)){toast('초기 선입금액은 정수(원 단위)만 입력할 수 있습니다.');return}if(open<0){toast('초기 선입금액은 0원 이상이어야 합니다.');return}if(wonTooBig(open)){toast(WON_MAX_MSG);return}if(dup){if(open<=0){toast('이미 등록된 직원입니다. 충전할 금액을 입력하세요.');return}const curBal=balanceOf(dup.id);if(!window.confirm(`"${name}" (${orgDeptLabel({org,dept})||'부서 없음'})은 이미 등록되어 있습니다.\n현재 잔액: ${money(curBal)}\n\n${money(open)}을 추가 충전하시겠습니까?`))return;setBusy('저장 중입니다.');const before=curBal;const tx=await makeTx({employeeId:dup.id,type:'topup',amount:open,beforeBalance:before,afterBalance:before+open,reason:'한 명씩 등록 추가 충전',note:note||'',createdAt:t});try{await repo.apply({transactions:[tx]});upsertTx(tx);state.modal=null;clearBusy();toast(`${name} ${money(open)} 추가 충전 완료`)}catch(err){console.error(err);clearBusy();toast('충전을 저장하지 못했어요. 다시 해 주세요.')}return}setBusy('저장 중입니다.');const emp={id:uid(),org,dept,name,note,orgKind:orgKindFor(org),isDeleted:false,phone:'',phoneConsent:false,yearMonth:'',createdAt:t,updatedAt:t};const txs=open>0?[await makeTx({employeeId:emp.id,type:'open',amount:open,beforeBalance:0,afterBalance:open,reason:'초기 선입금 등록',note:'',createdAt:t})]:[];try{await repo.apply({employees:[emp],transactions:txs});upsertEmp(emp);txs.forEach(upsertTx);state.modal=null;clearBusy();toast('직원을 등록했습니다.')}catch(err){console.error(err);clearBusy();toast('직원을 등록하지 못했어요. 다시 해 주세요.')}}})}
 // ── 날짜(실제 사용일) 입력 — 사용·충전·조정 모달 공용 (beta.42) ─────────────────
@@ -4907,29 +5222,37 @@ if(rows.length>ROSTER_MAX_ITEMS){toast(`한 파일에 ${ROSTER_MAX_ITEMS.toLocal
 const dupWarn=assignDuplicateSuffix(rows.filter(r=>r.mode!=='error'));
 // beta.54: 파일의 소속·부서가 기존 부서와 "비슷하기만" 하면(정확히 같지는 않음) 올리기 전에 묻는다 — 승인 경로와 같은 갈림길.
 //   이름을 고치기로 하면 고친 모습으로 다시 매칭해(activeEmployeeIndex(patches)) 같은 이름은 '추가 충전'으로 바뀐다. 저장은 [등록하기]에서 한 번에.
-let renamePatches=[],renameFrom='';const seenLabels=new Set();
+let renamePatches=[],renameFrom='';const seenLabels=new Set(),askedLabels=new Set();
 for(const r of rows){if(r.error)continue;const rec={org:str(r.org),dept:str(r.dept)};const lb=orgDeptLabel(rec);if(!lb||seenLabels.has(lb))continue;seenLabels.add(lb);
 const same=rows.filter(x=>!x.error&&orgDeptLabel({org:str(x.org),dept:str(x.dept)})===lb);
 const nd=await askNearDuplicate(rec,same.map(x=>x.name),same.length);
 if(nd.choice==='cancel'){toast('불러오기를 취소했어요.');return}
+if(nd.group)askedLabels.add(nd.group.label);
 if(nd.choice==='rename'){renamePatches=renamePatches.concat(relabelGroupPatches(nd.group.label,rec.org,rec.dept,null));renameFrom=renameFrom?renameFrom+', '+nd.group.label:nd.group.label}}
+// beta.61(구역 D): 갈림길 뒤 남은 줄 중 "부서를 옮긴 분" 후보를 묻는다. 고른 줄은 그 직원 카드에 '추가 충전'으로 보이고,
+//   부서 글자는 [등록하기] 때 충전과 같은 한 번의 apply로 바꾼다. 취소하면 불러오기 전체를 그만둔다.
+const okRows=rows.filter(r=>!r.error);
+const moveCands=deptMoveCandidates(okRows.map(r=>({org:str(r.org),dept:str(r.dept),name:str(r.name)})),renamePatches,askedLabels);
+if(moveCands.length){const mv=await askDeptMoves(moveCands);if(!mv){toast('불러오기를 취소했어요.');return}mv.forEach((c,ix)=>{const r=okRows[ix];if(r){r.moveId=c.emp.id;r.moveFrom=c.fromDept;r.moveTo=c.toDept}})}
 // 매칭은 여기서 한 번 — 번호가 정해진 이름(표에 보이는 이름)으로, 이름 고치기를 골랐다면 고친 모습으로(beta.54와 같은 색인).
-{const idx=activeEmployeeIndex(renamePatches);rows.forEach(r=>{if(r.error)return;const ex2=idx.get(empMatchKey({org:r.org,dept:r.dept,name:r.name}));if(ex2){r.mode='topup';r.existId=ex2.id}else{r.mode='new';r.existId=''}})}
+{const idx=activeEmployeeIndex(renamePatches);rows.forEach(r=>{if(r.error)return;if(r.moveId){r.mode='topup';r.existId=r.moveId;return}const ex2=idx.get(empMatchKey({org:r.org,dept:r.dept,name:r.name}));if(ex2){r.mode='topup';r.existId=ex2.id}else{r.mode='new';r.existId=''}})}
 state.modal={type:'csv',rows,dupWarn,skippedTotals,renamePatches,renameFrom};render()}catch(err){console.error(err);toast('파일을 읽지 못했어요. '+relayErrMsg(err,'엑셀에서 CSV로 저장한 파일인지 확인해 주세요.'))}finally{qs('csvFile').value=''}}
-async function executeCsvImport(){return withTxLock(async()=>{const rows=(state.modal&&state.modal.rows||[]).filter(r=>!r.error);if(!rows.length)return;const renamePatches=(state.modal&&Array.isArray(state.modal.renamePatches))?state.modal.renamePatches:[];const newRows=rows.filter(r=>r.mode!=='topup');const topupRows=rows.filter(r=>r.mode==='topup');const msg=[];if(newRows.length)msg.push('신규 '+newRows.length+'명');if(topupRows.length)msg.push('추가 충전 '+topupRows.length+'명');if(!window.confirm(`${renamePatches.length?`기존 부서 '${str(state.modal.renameFrom)}'의 이름을 고치고, `:''}${msg.join(' + ')}을 처리하시겠습니까?`))return;setBusy('처리하는 중입니다.');try{const t=now();const emps=[],txs=[];
+async function executeCsvImport(){return withTxLock(async()=>{const rows=(state.modal&&state.modal.rows||[]).filter(r=>!r.error);if(!rows.length)return;const renamePatches=(state.modal&&Array.isArray(state.modal.renamePatches))?state.modal.renamePatches:[];const newRows=rows.filter(r=>r.mode!=='topup');const topupRows=rows.filter(r=>r.mode==='topup');const moveRows=topupRows.filter(r=>r.moveId);const msg=[];if(newRows.length)msg.push('신규 '+newRows.length+'명');if(topupRows.length)msg.push('추가 충전 '+topupRows.length+'명'+(moveRows.length?`(부서 이동 ${moveRows.length}명 포함)`:''));if(!window.confirm(`${renamePatches.length?`기존 부서 '${str(state.modal.renameFrom)}'의 이름을 고치고, `:''}${msg.join(' + ')}을 처리하시겠습니까?`))return;setBusy('처리하는 중입니다.');try{const t=now();const emps=[],txs=[];
 const ymD=new Date(t),yearMonth=ymD.getFullYear()+'-'+String(ymD.getMonth()+1).padStart(2,'0');let tip=chainTip();
 for(const r of newRows){const eid=uid();emps.push({id:eid,org:str(r.org),orgKind:orgKindFor(r.org),dept:r.dept,name:r.name,note:'',isDeleted:false,phone:'',phoneConsent:false,yearMonth,createdAt:t,updatedAt:t});if(r.amount>0){const tx=await makeTx({employeeId:eid,type:'open',amount:r.amount,beforeBalance:0,afterBalance:r.amount,reason:'CSV 임포트',note:'',createdAt:t},tip);tip=tx.txHash;txs.push(tx)}}
-const csvBal=runningBalance();for(const r of topupRows){if(!r.existId||!r.amount)continue;const before=csvBal.take(r.existId,r.amount);const tx=await makeTx({employeeId:r.existId,type:'topup',amount:r.amount,beforeBalance:before,afterBalance:before+r.amount,reason:'CSV 추가 충전',note:dt(t),createdAt:t},tip);tip=tx.txHash;txs.push(tx)}
-await repo.apply({employees:renamePatches.concat(emps),transactions:txs});renamePatches.forEach(upsertEmp);emps.forEach(upsertEmp);txs.forEach(upsertTx);state.modal=null;clearBusy();render();toast(`${msg.join(' + ')} 완료`)}catch(err){console.error(err);clearBusy();toast('명단을 저장하지 못했어요. 장부는 그대로예요 — 다시 해 주세요.')}})}
+// beta.61(구역 D): 부서를 옮긴 분 — 지금 장부의 그 직원(같은 id)의 소속·부서 글자만 파일 쪽으로. 소속이 같을 때만 후보이므로 orgKind는 그대로 둔다.
+const movePatches=[];for(const r of moveRows){const cur=state.data.employees.find(v=>v.id===r.moveId&&!v.isDeleted);if(cur)movePatches.push({...cur,org:str(r.org)||str(cur.org),dept:r.dept,updatedAt:t})}
+const csvBal=runningBalance();for(const r of topupRows){if(!r.existId||!r.amount)continue;const before=csvBal.take(r.existId,r.amount);const tx=await makeTx({employeeId:r.existId,type:'topup',amount:r.amount,beforeBalance:before,afterBalance:before+r.amount,reason:'CSV 추가 충전',note:dt(t)+(r.moveId?deptMoveNote(r.moveFrom,r.moveTo):''),createdAt:t},tip);tip=tx.txHash;txs.push(tx)}
+await repo.apply({employees:renamePatches.concat(emps,movePatches),transactions:txs});renamePatches.forEach(upsertEmp);emps.forEach(upsertEmp);movePatches.forEach(upsertEmp);txs.forEach(upsertTx);state.modal=null;clearBusy();render();toast(`${msg.join(' + ')} 완료`)}catch(err){console.error(err);clearBusy();toast('명단을 저장하지 못했어요. 장부는 그대로예요 — 다시 해 주세요.')}})}
 
 // ── 전체 초기화 ──
 // ⚠️ welcomeSeen:true — 전체 초기화/잠금화면 복구는 **이미 앱을 아는 사장님**이 하는 동작이다.
 //   여기서 환영 화면을 다시 띄우면 급히 되돌리려는 사람 앞에 인사 화면이 한 장 더 서는 셈이다(온보딩 1/3로 바로 간다).
 function emptyAppData(){return{employees:[],transactions:[],meta:{lastBackupAt:null,orgName:DEFAULT_ORG,shopName:'',departments:[],setupComplete:false,welcomeSeen:true}}}
 async function clearAppCachesAndWorker(){if('caches' in window){try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}catch(e){console.warn('cache clear:',e)}}if('serviceWorker' in navigator){try{const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}catch(e){console.warn('sw unregister:',e)}}}
-function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.modal=null;state.choiceDialog=null;state.expandedDepts={};state.expandedEmps={};state.homeExpanded={};state.settingsOpen={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
+function resetUiAfterWipe(emptyData){state.data=emptyData;state.pinLocked=true;state.pinInput='';state.pinSetup1='';state.pinMode='';state.pinFails=0;state.pinMsg='';state.pinDelayUntil=0;state.lockView='customer';state.pinContext='';leaveRecovery();stopPinDelayTick();resetCustomerState();state.screen='home';state.search='';state.deptFilter='';state.historyEmployeeId='';state.historyMonth=null;state.modal=null;state.choiceDialog=null;state.expandedDepts={};state.expandedEmps={};state.homeExpanded={};state.settingsOpen={};state.setupStep=1;state.setupSelected=null;state.setupDepts=[];state.setupGuide=false;
 // 초기화 후 온보딩/수신 상태 누수 방지(S4) — 이전 사용자의 가게 선택·검색 결과·동의·신청 건수가 남으면 안 된다.
-state.setupPickedStore=null;state.setupManualMode=false;state.setupManualDraft={name:'',addr:'',tel:''};state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreResults=[];state.setupStoreRegisteredIds=[];state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupSearchSeq=num(state.setupSearchSeq)+1;state.setupStoreSearched=false;state.setupStoreErr='';state.setupStoreFilteredOut=false;state.setupStoreUsedZip=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false;state.backupReminderDismissed=false;state.guardBannerDismissed=false;state.passDialog=null;state.textDialog=null}
+state.setupPickedStore=null;state.setupManualMode=false;state.setupManualDraft={name:'',addr:'',tel:''};state.setupStoreQ='';state.setupStoreRegion='';state.setupStoreResults=[];state.setupStoreRegisteredIds=[];state.setupStoreSearching=false;state.setupStoreTry=0;state.setupStoreStopReady=false;state.setupSearchSeq=num(state.setupSearchSeq)+1;state.setupStoreSearched=false;state.setupStoreErr='';state.setupStoreFilteredOut=false;state.setupStoreUsedZip=false;state.setupIdx=null;state.setupStoreIdxBusy=false;state.inboxCount=null;state.setupTermsAgreed=false;state.storeBannerDismissed=false;state.keyBackupBannerDismissed=false;state.backupReminderDismissed=false;state.guardBannerDismissed=false;state.passDialog=null;state.textDialog=null}
 async function wipeLocalData(){const empty=emptyAppData();await repo.replaceAll(empty);await clearAppCachesAndWorker();resetUiAfterWipe(empty);return empty}
 // 전체 초기화 확인 절차(스펙 §수정6): 개발자용 문자 입력 대신 안내창 2회 확인으로 단순화.
 // 1차 confirm → 자동 최종 백업 다운로드(실패해도 진행 여부는 2차 confirm에서 사용자가 선택) → 2차 confirm → 실행.

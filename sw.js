@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.60';
+const CACHE_NAME = 'prepaid-ledger-v1.0.0-beta.61';
 const ASSETS = [
   './',
   './index.html',
@@ -62,6 +62,10 @@ self.addEventListener('fetch', e => {
   let sameOrigin = false;
   try { sameOrigin = new URL(req.url).origin === self.location.origin; } catch (err) { sameOrigin = false; }
   if (!sameOrigin) return;
+
+  // beta.61: 가게 색인(storeidx/)은 서비스워커가 손대지 않는다 — 크고(구 하나에 수 MB) 매일 새로 만들어지는 자료라
+  //   캐시에 쌓으면 저장 공간만 차지하고 낡은 목록을 보여 준다. 앱은 실행 중 메모리에만 둔다(브라우저 기본 경로로 통과).
+  try { if (/\/storeidx\//.test(new URL(req.url).pathname)) return; } catch (err) { /* 그대로 아래로 */ }
 
   // HTML 문서(화면 자체)는 네트워크 우선: 온라인이면 항상 최신 버전을 받고,
   // 오프라인일 때만 캐시로 폴백한다. (구버전에 갇히는 문제 방지)

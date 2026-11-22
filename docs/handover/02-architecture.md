@@ -34,7 +34,7 @@
         │ ① 이메일 OTP 인증                            │                             │
         │  POST /api/agency/request-otp ─────────────▶ │──(Resend)──▶ 담당자 메일함    │
         │  POST /api/agency/verify-otp  ─────────────▶ │                             │
-        │  ◀──────────── {token} (24h, sessionStorage) │                             │
+        │  ◀── {token} (90일 고정, localStorage — beta.61) │                             │
         │                                             │                             │
         │ ② 음식점 찾기                                │                             │
         │  GET /api/restaurants?region=&q=&zip= ─────▶ │──▶ data.go.kr LOCALDATA     │

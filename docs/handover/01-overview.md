@@ -143,7 +143,7 @@
 | 서버(클라우드) 원장 백업 | v2 `cloudBackupRun()` → `/api/ledger-backup/seg`(조각) + `/api/ledger-backup`(머리, `gen`) · 구서버 `cloudBackupRunV1()` |
 | 엑셀로 내보내기 | `exportCsvLedger()` — 이력 화면, 복원 불가 |
 | 소유 증명 | `/api/challenge` → `auth_token` (RSA 챌린지-응답, 1회용) |
-| 기관 인증 | 이메일 OTP → `X-Agency-Token`(24시간) |
+| 기관 인증 | 이메일 OTP → `X-Agency-Token`(인증한 때부터 90일 고정 — beta.61, 로그아웃 `POST /api/agency/logout`) |
 | 수신함 | `/api/inbox`, 배지는 `/api/inbox-count` |
 
 ### 4.8 상태값

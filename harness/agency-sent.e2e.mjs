@@ -113,7 +113,7 @@ async function setup(q,rids,kc){
     S.agency={name:'광진구청',sido:'서울특별시',id:2};S.dept='보건의료과';
     S.restaurants=rids.map(id=>({name:NAMES[id],restaurant_id:id}));
     if(kc){S.kcUnsupported=false;S.fps=new Map(rids.map(id=>[id,FP]));S.keychecks=new Map(rids.map(id=>[id,{fingerprint:FP,checked_at:1}]))}else S.kcUnsupported=true;
-    document.getElementById('csvCard').classList.remove('hide');document.getElementById('logoutBtn').classList.remove('hide');
+    document.getElementById('csvCard').classList.remove('hide');document.getElementById('logoutBtn').classList.remove('hide');{const ab=document.getElementById('authBar');if(ab)ab.classList.remove('hide')}
     window.__v();window.__sv(3);document.getElementById('modalRoot').innerHTML=''},[rids,NAMES,FP,kc]);
 }
 const rosterOf=(rids,amt)=>H+rids.map((id,i)=>`${NAMES[id]},광진구청,보건의료과,직원${i+1},,${(amt&&amt[id])||9000*(i+1)},,카드`).join('\n')+'\n';
