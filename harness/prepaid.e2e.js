@@ -2481,7 +2481,13 @@ function makeBackupRelay(cors) {
     //   archive: 인수된 가게의 옛 백업 보관 칸(§4.14) — 키 `${rid}|${공개키}` → {head, segs, archived_at, keep_until}. 토큰은 일반 토큰과 따로(atokens)
     //   dereg·names·compat·registerFail·registers: /api/register-key(§4.1·§4.12, S-8 — 휴지통 되돌리기는 소유 증명, 토큰 없는 호환은 상호가 같을 때만)
     graceMs: 15 * 60000, dropSegOnHead: 0, segDelayMs: 0, quota: false, archive: new Map(), atokens: new Set(),
-    dereg: new Set(), names: new Map(), compat: true, registerFail: '', registers: [] };
+    dereg: new Set(), names: new Map(), compat: true, registerFail: '', registers: [],
+    // beta.62 — 서명 조각(번호 500~999) 검사용(기본값은 예전 동작 그대로):
+    //   failSeg(body) → 'abort'(연결 끊김) | 숫자(그 상태로 거절) | null — 조각 업로드를 골라서 실패시킨다
+    //   segQuota {rows, chars}: 실서버 segQuotaFor처럼 가게당(모든 세대 합계) 행·글자 상한. 이미 있는 (gen,seg_no)를 다시 올리면 행은 늘지 않고,
+    //     글자 수는 '전체 - 그 자리 예전 크기 + 새 크기'로 센다(worker.js 1352~1390과 같은 규칙. 24시간 고아 세대 비우기는 흉내 내지 않는다)
+    //   bodies: 배열이면 /api/ledger-backup* 요청 본문(원문)을 모은다 — 평문 서명·직원 이름·전화번호가 실리지 않는지 본다
+    failSeg: null, segQuota: null, bodies: null };
   const GEN_RE = /^[A-Za-z0-9_-]{8,40}$/;
   const segsOf = rid => { if (!st.segs.has(rid)) st.segs.set(rid, new Map()); return st.segs.get(rid); };
   async function handle(route) {
@@ -2548,6 +2554,7 @@ function makeBackupRelay(cors) {
       return reply(200, { segments: out });
     }
     if (!p.startsWith('/api/ledger-backup')) return reply(500, { error: 'harness: no mock' });
+    if (Array.isArray(st.bodies)) st.bodies.push({ p, raw: req.postData() || '' });
     if (p.startsWith('/api/ledger-backup/seg') && st.mode === 'old') return reply(404, { error: 'not found' });
     if (st.fail === '500') return reply(500, { error: 'internal' });
     const rid = String(b.restaurant_id || '');
@@ -2565,6 +2572,13 @@ function makeBackupRelay(cors) {
       if (!auth()) return reply(401, { error: 'auth_required' });
       if (st.segDelayMs > 0) { st.log.push({ t: 'segstart', gen: b.gen, n: b.seg_no }); await new Promise(r => setTimeout(r, st.segDelayMs)); }
       if (st.quota) { st.log.push({ t: 'segquota', gen: b.gen, n: b.seg_no }); return reply(400, { error: 'backup_quota_exceeded', max_chars: 12000000 }); }
+      if (typeof st.failSeg === 'function') { const f = st.failSeg(b); if (f === 'abort') { st.log.push({ t: 'segabort', gen: b.gen, n: b.seg_no }); return route.abort('failed'); } if (typeof f === 'number') { st.log.push({ t: 'segfail', gen: b.gen, n: b.seg_no }); return reply(f, { error: 'internal' }); } }
+      if (st.segQuota) {
+        let rows = 0, chars = 0, exists = false, exChars = 0;
+        segsOf(rid).forEach((m, g) => m.forEach((v, n) => { rows += 1; chars += v.blob.length; if (g === b.gen && n === b.seg_no) { exists = true; exChars = v.blob.length; } }));
+        if (!exists && rows >= st.segQuota.rows) { st.log.push({ t: 'segrows', gen: b.gen, n: b.seg_no }); return reply(400, { error: 'too_many_segments', max: st.segQuota.rows, reason: 'full' }); }
+        if (chars - exChars + b.blob.length > st.segQuota.chars) { st.log.push({ t: 'segquota', gen: b.gen, n: b.seg_no }); return reply(400, { error: 'backup_quota_exceeded', max_chars: st.segQuota.chars }); }
+      }
       // A3: segBudget(숫자)면 그만큼만 받고 그다음 조각부터 500 — '새 세대를 올리다 끊김'을 흉내 낸다.
       if (typeof st.segBudget === 'number') { if (st.segBudget <= 0) { st.log.push({ t: 'segfail', gen: b.gen, n: b.seg_no }); return reply(500, { error: 'internal' }); } st.segBudget -= 1; }
       const m = segsOf(rid); if (!m.has(b.gen)) m.set(b.gen, new Map());
@@ -2575,7 +2589,7 @@ function makeBackupRelay(cors) {
       return reply(200, { ok: true, updated_at: at });
     }
     if (p === '/api/ledger-backup/seg/get') {
-      if (!Array.isArray(b.seg_nos) || b.seg_nos.length < 1 || b.seg_nos.length > 5 || !b.seg_nos.every(n => Number.isInteger(n))) { st.violations.push('seg_nos ' + JSON.stringify(b.seg_nos)); return reply(400, { error: 'invalid_seg_nos' }); }
+      if (!Array.isArray(b.seg_nos) || b.seg_nos.length < 1 || b.seg_nos.length > 5 || !b.seg_nos.every(n => Number.isInteger(n) && n >= 0 && n <= 999)) { st.violations.push('seg_nos ' + JSON.stringify(b.seg_nos)); return reply(400, { error: 'invalid_seg_nos' }); }
       if (!auth()) return reply(401, { error: 'auth_required' });
       st.log.push({ t: 'get', gen: b.gen, nos: b.seg_nos });
       const m = segsOf(rid).get(String(b.gen)) || new Map();
@@ -2761,15 +2775,16 @@ async function runBeta55c(browser, url, cors) {
       await shot(page, 'choice-3-390');
       await pick(page, 'none');
       const log = relay.st.log.map(e => e.t + (e.n != null ? e.n : ''));
-      await check(JSON.stringify(log) === JSON.stringify(['list', 'seg0', 'seg1', 'seg2', 'head']), `7 transactions in segments of 3 must upload list → seg0 → seg1 → seg2 → head (head LAST) (got ${JSON.stringify(log)})`);
+      // beta.62: 서명 그림 조각(같은 세대의 번호 500~)이 장부 조각 뒤·머리 앞에 하나 더 올라간다(서명 3장 — 한 조각).
+      await check(JSON.stringify(log) === JSON.stringify(['list', 'seg0', 'seg1', 'seg2', 'seg500', 'head']), `7 transactions in segments of 3 must upload list → seg0 → seg1 → seg2 → seg500(signatures) → head (head LAST) (got ${JSON.stringify(log)})`);
       const head = relay.st.log.find(e => e.t === 'head'); gen1 = head && head.gen;
       await check(!!gen1 && relay.st.log.filter(e => e.t === 'seg').every(e => e.gen === gen1), `the head must carry the same gen as its segments (got ${JSON.stringify(relay.st.log)})`);
-      await check(relay.st.challenges - ch0 === 5 && relay.st.reused === 0, `every authenticated request must use its own one-time token (challenges ${relay.st.challenges - ch0}, reused ${relay.st.reused})`);
+      await check(relay.st.challenges - ch0 === 6 && relay.st.reused === 0, `every authenticated request must use its own one-time token (challenges ${relay.st.challenges - ch0}, reused ${relay.st.reused})`);
       const m = await metaOf(page);
       await check(m.cloudBackupState && m.cloudBackupState.gen === gen1 && Object.keys(m.cloudBackupState.segs).length === 3 && !m.cloudBackupState.failSince && m.cloudBackupState.lastOkAt > 0 && m.lastCloudBackupAt > 0,
         `a successful backup must record gen, segment hashes and clear the failure (got ${JSON.stringify(m.cloudBackupState && { gen: m.cloudBackupState.gen, segs: m.cloudBackupState.segs, failSince: m.cloudBackupState.failSince })})`);
-      const segSizes = relay.st.log.filter(e => e.t === 'seg').map(e => e.size);
-      await check(segSizes.every(s => s < 5000), `segments must be compressed and carry no signature images (sizes ${JSON.stringify(segSizes)})`);
+      const segSizes = relay.st.log.filter(e => e.t === 'seg' && e.n < 500).map(e => e.size);
+      await check(segSizes.every(s => s < 5000), `ledger segments must be compressed and carry no signature images (sizes ${JSON.stringify(segSizes)})`);
       const box = await page.locator('#guardState').innerText();
       // beta.60(가-1): 이 가게는 아직 백업 암호를 정하지 않았다 — 서버 경고가 걷힌 자리에는 "백업 암호를 아직 정하지 않았어요"(사실)가 선다.
       //   서버 쪽은 조용해야 한다: 서버 실패·멈춤 문장이 없고 '오늘'이 보인다. 백업 암호를 정한 뒤(⑫ 이후)의 '✓ 안전' 문장은 아래 단계가 본다.
@@ -2791,11 +2806,12 @@ async function runBeta55c(browser, url, cors) {
       await page.locator('[data-a="backup-now"]').click();
       await choiceTitle(page); await pick(page, 'none');
       const log = relay.st.log.map(e => e.t + (e.n != null ? e.n : ''));
-      await check(JSON.stringify(log) === JSON.stringify(['list', 'seg2', 'head']), `with 9 transactions only the changed segment (2) may be uploaded again (got ${JSON.stringify(log)})`);
+      // beta.62: 새 서명(c-t8)이 붙어 열린 서명 조각(500)도 다시 올라간다.
+      await check(JSON.stringify(log) === JSON.stringify(['list', 'seg2', 'seg500', 'head']), `with 9 transactions only the changed ledger segment (2) and the open signature segment (500) may be uploaded again (got ${JSON.stringify(log)})`);
       await check(relay.st.log.every(e => e.gen == null || e.gen === gen1), 'an incremental backup must keep the same gen');
     });
 
-    // ── ④ 서버에서 되찾기: 백업(9건)이 지금(10건)보다 적으면 진한 버튼이 [취소] → 안전 사본 → 필드 단위 동일(서명 그림만 없음) ──
+    // ── ④ 서버에서 되찾기: 백업(9건)이 지금(10건)보다 적으면 진한 버튼이 [취소] → 안전 사본 → 필드 단위 동일(beta.62: 서명 그림까지) ──
     await guard('cloud-restore', async () => {
       const ledgerA = await readDb(page);
       await putAll(page, { transactions: [tx('c-t10', 'c-e1', 'topup', 1000, 10)] });
@@ -2818,7 +2834,8 @@ async function runBeta55c(browser, url, cors) {
       t = await choiceTitle(page); await pick(page, 'go');
       t = await choiceTitle(page);
       txt = await choiceText(page);
-      await check(t === '되찾기를 마쳤어요' && txt.includes('서명 그림은 이 백업에 없어요') && txt.includes('잠긴 안전 사본') && txt.includes('전화번호 1건'), `the result must say what happened (snapshot, no signature images, phone kept) (got ${JSON.stringify(txt.slice(0, 400))})`);
+      // beta.62: 서버 백업에 서명 그림이 함께 있으므로 '서명 그림은 이 백업에 없어요' 줄은 없다.
+      await check(t === '되찾기를 마쳤어요' && !txt.includes('서명 그림') && txt.includes('잠긴 안전 사본') && txt.includes('전화번호 1건'), `the result must say what happened (snapshot, phone kept, no missing-signature line) (got ${JSON.stringify(txt.slice(0, 400))})`);
       await pick(page, 'ok');
       const snapDl = A.downloads[dl0];
       await check(!!snapDl && /^밥장부_되돌리기전_잠긴사본_\d{4}-\d{2}-\d{2}\.json$/.test(snapDl.suggestedFilename()), `a locked safety snapshot must be downloaded before overwriting (got ${snapDl && snapDl.suggestedFilename()})`);
@@ -2828,9 +2845,9 @@ async function runBeta55c(browser, url, cors) {
       await check(snap.appName === '선입금대장' && snapCore.appName === '선입금대장', `the locked file keeps the in-file appName 선입금대장 (got ${JSON.stringify({ outer: snap.appName, inner: snapCore && snapCore.appName })})`);
       await check(snap.type === 'prepaid-locked-backup' && snapCore.payload.transactions.length === 10, `the safety snapshot must hold the ledger as it was BEFORE the restore (10 transactions, got ${snapCore && snapCore.payload.transactions.length})`);
       const B = await readDb(page);
-      const txDiff = diffRecs(ledgerA.transactions, B.transactions, ['signatureData']);
-      await check(txDiff.length === 0, `restored transactions must equal the backed-up ledger field by field except signatureData (${txDiff.slice(0, 5).join(' | ')})`);
-      await check(B.transactions.filter(x => x.type === 'use' && x.signatureHash).every(x => x.signatureData === ''), 'server backups carry no signature images (signatureHash only)');
+      const txDiff = diffRecs(ledgerA.transactions, B.transactions, []);
+      await check(txDiff.length === 0, `restored transactions must equal the backed-up ledger field by field, signature images included (beta.62) (${txDiff.slice(0, 5).join(' | ')})`);
+      await check(B.transactions.filter(x => x.type === 'use' && x.signatureHash).every(x => x.signatureData === SIG), 'beta.62: signature images come back with the server restore');
       const empDiff = diffRecs(ledgerA.employees, B.employees, []);
       await check(empDiff.length === 0, `restored employees must equal the original, including the phone kept from this device (${empDiff.slice(0, 5).join(' | ')})`);
       const ch = await hookChain(page);
@@ -2839,7 +2856,7 @@ async function runBeta55c(browser, url, cors) {
       await check(m.cloudBackupState == null && m.restaurantId === RID && m.pubKey === pubA, 'after a restore the cloud state is reset while the device registration and key stay');
       await page.locator('[data-a="screen"][data-screen="history"]').click();
       await page.waitForTimeout(200);
-      await check((await page.locator('.sig-missing').count()) >= 3 && (await page.locator('.app').innerText()).includes('서명 기록은 확인됨'), 'history must say the signature image is not in this backup (signature record confirmed)');
+      await check((await page.locator('.sig-missing').count()) === 0 && (await page.locator('.txn img.thumb').count()) >= 3, 'beta.62: history shows the restored signature images (no "not in this backup" line)');
       await page.locator('[data-a="screen"][data-screen="home"]').click();
     });
 
@@ -3383,6 +3400,511 @@ async function runBeta55c(browser, url, cors) {
   });
 
   console.log(`beta.55 A2 검증: ${passed} 통과, ${fails.length} 실패`);
+  if (fails.length) console.log(JSON.stringify(fails, null, 2));
+  return { passed, fails };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// beta.62 A — 서명 그림을 서버 백업에(계약 .claude/reviews/beta62-contract.md). E2E_ONLY=beta62 로 이 블록만, E2E_SOFT=1 로 단언별 실패 목록.
+//   서명 조각은 같은 세대의 번호 500~999. 목 중계 서버(makeBackupRelay)는 실서버 규칙을 강제한다(토큰 1회용·gen 형식·seg_no 0..999·
+//   조각 ≤ 400,000자·머리 seg_count는 0..n-1만 셈·머리가 오래된 다른 세대 삭제·segQuota = segQuotaFor 행·글자 상한).
+//   예전 형식(서명 조각 없는 v2 머리 = beta.55~61, v1 한 덩어리)은 이 앱이 올린 머리를 Node에서 같은 봉투 모양으로 다시 봉해 만든다.
+//   각 단언은 수정 전 코드(beta.61)에서 실패함을 확인했다.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+async function runBeta62(browser, url, cors) {
+  const soft = !!process.env.E2E_SOFT;
+  const fails = [];
+  let passed = 0;
+  const check = async (cond, msg) => {
+    if (cond) { passed += 1; return true; }
+    if (soft) { fails.push(msg); console.log('  ✗ ' + msg); return false; }
+    throw new Error('[beta.62] ' + msg);
+  };
+  const guard = async (label, fn) => {
+    if (process.env.E2E_VERBOSE) console.log('  · ' + label);
+    try { await fn(); } catch (err) { if (!soft) throw err; fails.push(`${label}: ${String(err && err.message || err).slice(0, 300)}`); console.log(`  ✗ ${label}: ${String(err && err.message || err).slice(0, 300)}`); }
+  };
+  const vlog = m => { if (process.env.E2E_VERBOSE) console.log('    ' + m); };
+  const legacyPin = crypto.createHash('sha256').update('1234').digest('hex');
+  const DAY = 86400000, T0 = Date.now() - 40 * DAY;
+  const RID = 'rid-b62';
+  const FIX = path.join(__dirname, 'fixtures');
+  // 예전 형식 서명(beta.54 픽스처에 든 그대로 — 아주 작은 PNG) — 줄이지도 다시 굽지도 않고 그대로 왕복해야 한다.
+  const fxSig = JSON.parse(fs.readFileSync(path.join(FIX, 'beta54-plain.json'), 'utf8')).payload.transactions.find(t => t.signatureData).signatureData;
+  const relay = makeBackupRelay(cors);
+  const emp = (id, name, dept, o) => Object.assign({ id, org: '광진구청', orgKind: 'public', dept, name, note: '', isDeleted: false, phone: '', phoneConsent: false, yearMonth: '', createdAt: T0, updatedAt: T0 }, o || {});
+  const tx = (id, e, type, amount, k, extra) => Object.assign({ id, employeeId: e, type, amount, beforeBalance: 0, afterBalance: 0, reason: type === 'use' ? '서명 확인' : '', note: '', targetTransactionId: null, signatureData: '', signatureHash: '', hv: 2, txHash: '', prevHash: '', createdAt: T0 + k * 60000, occurredAt: 0 }, extra || {});
+  const putAll = (page, o) => page.evaluate(o2 => new Promise((resolve, reject) => {
+    const req = indexedDB.open('prepaid-ledger-db');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result; const t = db.transaction(['meta', 'employees', 'transactions'], 'readwrite');
+      Object.entries(o2.meta || {}).forEach(([k, v]) => t.objectStore('meta').put({ key: k, value: v }));
+      (o2.employees || []).forEach(e => t.objectStore('employees').put(e));
+      (o2.transactions || []).forEach(x => t.objectStore('transactions').put(x));
+      t.oncomplete = () => resolve(true); t.onerror = () => reject(t.error);
+    };
+  }), o);
+  const metaOf = async page => (await readDb(page)).meta.reduce((a, r) => (a[r.key] = r.value, a), {});
+  const awaitUnlocked = page => page.waitForFunction(() => { const H = window.__prepaidTestHooks; return !!H && H.lockState && H.lockState().locked === false; }, null, { timeout: 20000 });
+  const reloadUnlock = async page => { await page.reload({ waitUntil: 'load' }); await unlockPin(page); await awaitUnlocked(page); };
+  const choiceTitle = async page => { await page.waitForSelector('#choiceTitle', { timeout: 30000 }); return (await page.locator('#choiceTitle').innerText()).trim(); };
+  const choiceText = async page => (await page.locator('.choice-modal').innerText());
+  const pick = async (page, val) => { await page.locator(`.choice-modal [data-a="choice-pick"][data-val="${val}"]`).click(); await page.waitForTimeout(150); };
+  const goGuard = async page => { await page.locator('[data-a="screen"][data-screen="settings"]').click(); await openSettingsCard(page, 'ledger'); };
+  const hookChain = page => page.evaluate(async () => { const H = window.__prepaidTestHooks; const v = await H.verifyChain(); const r = H.reconcileLedger ? H.reconcileLedger() : null; return { ok: v.ok, tamperOk: v.tamperOk, broken: v.broken.length, reconcile: !!(r && r.ok) }; });
+  const sortById = a => [...a].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  const diffRecs = (A, B, skip) => {
+    const out = []; const a = sortById(A), b = sortById(B);
+    if (a.length !== b.length) out.push(`count ${a.length} → ${b.length}`);
+    for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+      const keys = [...new Set([...Object.keys(a[i]), ...Object.keys(b[i])])].filter(k => !(skip || []).includes(k));
+      for (const k of keys) if (JSON.stringify(a[i][k]) !== JSON.stringify(b[i][k])) out.push(`${a[i].id}.${k}: ${JSON.stringify(a[i][k]).slice(0, 60)} → ${JSON.stringify(b[i][k]).slice(0, 60)}`);
+    }
+    return out;
+  };
+  // segSize·sigRawMax: 하니스 훅 값을 새로고침 전에도 걸어 둔다(잠금 해제 때 도는 자동 백업이 다른 조각 크기로 '새 세대'를 만들지 않게).
+  const newCtx = async (segSize, sigRaw) => {
+    const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    if (segSize) await ctx.addInitScript(([x, y]) => { window.__cloudSegSize = x; if (y) window.__sigRawMax = y; }, [segSize, sigRaw || 0]);
+    await ctx.route('**/api/**', route => route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: '{"error":"harness: no mock"}' }));
+    await ctx.route('**/api/inbox-count**', route => route.fulfill({ status: 404, contentType: 'application/json', headers: cors, body: '{"error":"not_found"}' }));
+    await ctx.route('**/api/challenge**', relay.handle);
+    await ctx.route('**/api/ledger-backup**', relay.handle);
+    await ctx.route('**/api/ledger-archive/**', relay.handle);
+    const page = await ctx.newPage();
+    const dialogs = []; const downloads = [];
+    page.on('dialog', async d => { dialogs.push({ type: d.type(), message: d.message() }); await d.dismiss().catch(() => {}); });
+    page.on('download', d => downloads.push(d));
+    return { ctx, page, dialogs, downloads };
+  };
+  const sealPhone = (page, phone) => page.evaluate(async phone => {
+    const m = await new Promise(res => { const r = indexedDB.open('prepaid-ledger-db'); r.onsuccess = () => { const q = r.result.transaction('meta').objectStore('meta').get('deviceSecret'); q.onsuccess = () => res(q.result && q.result.value); }; });
+    const u2b = b => { const u = new Uint8Array(b); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+    const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(m)), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(phone));
+    return JSON.stringify({ v: 1, salt: u2b(salt), iv: u2b(iv), ct: u2b(ct) });
+  }, phone);
+  // Node에서 앱과 같은 봉투 모양으로 봉한다: base64(JSON{v,z:0,encKey(RSA-OAEP-256),iv,ct(AES-256-GCM, 태그 붙임)}).
+  const nodeSeal = (pubB64, obj) => {
+    const aes = crypto.randomBytes(32), iv = crypto.randomBytes(12);
+    const c = crypto.createCipheriv('aes-256-gcm', aes, iv);
+    const ct = Buffer.concat([c.update(Buffer.from(JSON.stringify(obj), 'utf8')), c.final(), c.getAuthTag()]);
+    const key = crypto.createPublicKey({ key: Buffer.from(pubB64, 'base64'), format: 'der', type: 'spki' });
+    const encKey = crypto.publicEncrypt({ key, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' }, aes);
+    const blob = Buffer.from(JSON.stringify({ v: 2, z: 0, encKey: encKey.toString('base64'), iv: iv.toString('base64'), ct: ct.toString('base64') }), 'utf8').toString('base64');
+    return { blob, blob_hash: crypto.createHash('sha256').update(blob, 'utf8').digest('hex') };
+  };
+  const openBlob = (page, blob) => page.evaluate(async b => (await window.__prepaidTestHooks.openFromCloud(b)).obj, blob);
+  // 서명 만들기: 새 형식은 앱의 굽기 함수(1비트 PNG 320px) 그대로, 예전 형식은 예전처럼 화면 크기 캔버스를 그대로 PNG로(회색 획·안티에일리어싱, 한 장 약 5KB).
+  const makeSigs = (page, nNew, nOld, seed0) => page.evaluate(async ({ nNew, nOld, seed0 }) => {
+    const H = window.__prepaidTestHooks; let seed = seed0;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    const strokes = (k0, len) => { const out = []; const k = k0 + Math.floor(rnd() * 3); for (let s = 0; s < k; s += 1) { const pts = []; let x = 40 + rnd() * 450, y = 40 + rnd() * 100; for (let i = 0; i < len; i += 1) { x += (rnd() - 0.45) * 28; y += (rnd() - 0.5) * 26; pts.push({ x: Math.max(5, Math.min(595, x)), y: Math.max(5, Math.min(175, y)) }); } out.push(pts); } return out; };
+    // (수정 전 앱에는 sigEncode 훅이 없다 — 그때는 같은 획을 320px 캔버스 PNG로 굽는다. 수정 전 코드에서 새 단언이 실패하는지 볼 때만 쓰는 길.)
+    const enc = H.sigEncode ? snap => H.sigEncode(snap) : async snap => { const cv = document.createElement('canvas'); cv.width = 320; cv.height = 96; const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, 320, 96); c.strokeStyle = '#000'; c.lineWidth = 2; snap.strokes.forEach(st => { c.beginPath(); c.moveTo(st[0].x * 0.533, st[0].y * 0.533); st.forEach(p => c.lineTo(p.x * 0.533, p.y * 0.533)); c.stroke(); }); return cv.toDataURL('image/png'); };
+    const fresh = []; for (let i = 0; i < nNew; i += 1) fresh.push(await enc({ w: 600, h: 180, strokes: strokes(6, 110) }));
+    const old = []; for (let i = 0; i < nOld; i += 1) {
+      const cv = document.createElement('canvas'); cv.width = 500; cv.height = 150; const c = cv.getContext('2d');
+      c.fillStyle = '#fff'; c.fillRect(0, 0, 500, 150); c.strokeStyle = '#444'; c.lineWidth = 2; c.lineCap = 'round'; c.lineJoin = 'round';
+      strokes(1, 9).slice(0, 1).forEach(st => { c.beginPath(); c.moveTo(st[0].x * 0.8, st[0].y * 0.8); st.forEach(p => c.lineTo(p.x * 0.8, p.y * 0.8)); c.stroke(); });
+      old.push(cv.toDataURL('image/png'));
+    }
+    return { fresh, old };
+  }, { nNew, nOld, seed0 });
+  const segLog = () => relay.st.log.filter(e => e.t === 'seg' || e.t === 'head' || e.t === 'list').map(e => e.t + (e.n != null ? e.n : ''));
+  const serverSegs = rid => { const out = []; (relay.st.segs.get(rid) || new Map()).forEach((m, gen) => m.forEach((v, n) => out.push({ gen, n, size: v.blob.length, v }))); return out; };
+  const cloneSegs = rid => { const m = new Map(); (relay.st.segs.get(rid) || new Map()).forEach((mm, gen) => { const c = new Map(); mm.forEach((v, n) => c.set(n, { ...v })); m.set(gen, c); }); return m; };
+  const usesMissing = db => db.transactions.filter(t => t.type === 'use' && t.signatureHash && !t.signatureData).length;
+
+  // 새 기기: 빈 저장소 + (내 보관 파일 없이) 그 가게의 열쇠와 등록만 — 서명 그림이 올 곳은 서버뿐이다.
+  const keyDevice = async (src, rid, appUrl) => {
+    const D = await newCtx(50);
+    await D.page.goto(appUrl || url, { waitUntil: 'load' });
+    await D.page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await D.page.waitForTimeout(200);
+    const now = Date.now();
+    await putAll(D.page, { meta: { setupComplete: true, welcomeSeen: true, termsAgreedAt: now, pinHash: legacyPin, shopName: '서명식당', departments: ['세무과'], orgName: '광진구청',
+      storeRegisterPending: false, restaurantId: rid || RID, relayStoreName: '서명식당', relayRegisteredAt: now, districtSyncedAt: now, myKeyBackedUpAt: now, lastCloudBackupAt: now,
+      deviceSecret: src.deviceSecret, privKeyWrapped: src.privKeyWrapped, pubKey: src.pubKey, keyCreatedAt: src.keyCreatedAt } });
+    await reloadUnlock(D.page);
+    return D;
+  };
+  const restoreFromServer = async (page) => {
+    await goGuard(page);
+    await page.locator('[data-a="guard-restore"]').click(); await choiceTitle(page); await pick(page, 'cloud');
+    const askTitle = await choiceTitle(page); const ask = await choiceText(page);
+    await pick(page, 'go');
+    const doneTitle = await choiceTitle(page); const done = await choiceText(page);
+    await pick(page, 'ok');
+    return { askTitle, ask, doneTitle, done };
+  };
+
+  const A = await newCtx(50);
+  const page = A.page;
+  const curGen = () => (relay.st.head.get(RID) || {}).gen;
+  let pubA = '', keyA = null, gen1 = '', sigSegNs = [], cntBy = {}, ledgerSegCount = 0, signedCount = 0, emps = [];
+  const NAMES = ['김서명', '이그림', '박조각', '최보관', '정되찾', '한기록'];
+  const PHONE = '01055556666', SHOPTEL = '02-1234-5678';
+  try {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 });
+    await page.waitForTimeout(200);
+    const phoneEnc = await sealPhone(page, PHONE);
+    emps = NAMES.map((n, i) => emp('s-e' + i, n, i < 3 ? '세무과' : '총무과', i === 0 ? { phone: phoneEnc, phoneConsent: true } : {}));
+    const sigs = await makeSigs(page, 172, 12, 4242);
+    const freshLens = sigs.fresh.map(s => s.length), oldLens = sigs.old.map(s => s.length);
+    const avg = a => Math.round(a.reduce((x, y) => x + y, 0) / a.length);
+    console.log(`  [beta.62] 서명 크기 — 새 형식 ${sigs.fresh.length}장 평균 ${avg(freshLens)}자(최대 ${Math.max(...freshLens)}), 예전 형식 ${sigs.old.length}장 평균 ${avg(oldLens)}자, 픽스처 ${fxSig.length}자`);
+    const txs = []; let k = 1;
+    emps.forEach(e => txs.push(tx('o-' + e.id, e.id, 'open', 5000000, k++)));
+    const allSigs = [...sigs.old.slice(0, 6), fxSig, ...sigs.fresh, ...sigs.old.slice(6)];
+    allSigs.forEach((sg, i) => txs.push(tx('u-' + String(i).padStart(4, '0'), emps[i % emps.length].id, 'use', 1000 + (i % 7) * 500, k++, { signatureData: sg, note: i === 3 ? '점심' : '' })));
+    txs.push(tx('t-top1', emps[1].id, 'topup', 30000, k++, { note: '추가 입금' }));
+    // 취소된 사용의 서명도 기록이다(올린다).
+    txs.push(tx('v-0010', emps[10 % emps.length].id, 'void', 1000 + (10 % 7) * 500, k++, { targetTransactionId: 'u-0010', reason: '잘못 입력' }));
+    signedCount = allSigs.length;
+    const now = Date.now();
+    await putAll(page, { meta: { setupComplete: true, welcomeSeen: true, termsAgreedAt: now, pinHash: legacyPin, shopName: '서명식당', shopTel: SHOPTEL, departments: ['세무과', '총무과'], orgName: '광진구청',
+      storeRegisterPending: false, restaurantId: RID, relayStoreName: '서명식당', relayRegisteredAt: now, districtSyncedAt: now, myKeyBackedUpAt: now, lastCloudBackupAt: now }, employees: emps, transactions: txs });
+    await resealChain(page);
+    keyA = await metaOf(page); pubA = keyA.pubKey;
+    await check(!!pubA, 'setup: the device must have its shop key');
+    relay.st.reg.set(RID, pubA);
+    await reloadUnlock(page);
+   
+    const ch0 = await hookChain(page);
+    await check(ch0.tamperOk && ch0.broken === 0 && ch0.reconcile, `setup: the seeded ledger (with a voided signed use) must verify (got ${JSON.stringify(ch0)})`);
+
+    // ── ① 첫 백업: 장부 조각 → 서명 조각(500~, 크기로 닫힘) → 머리. 서명 조각은 암호문·400,000자 이하, 머리의 seg_count는 장부 조각만 ──
+    await guard('upload', async () => {
+      const db0 = await readDb(page); const m0 = await metaOf(page);
+      const total = db0.transactions.length; ledgerSegCount = Math.ceil(total / 50);
+      relay.st.log.length = 0; relay.st.bodies = []; const c0 = relay.st.challenges;
+      await goGuard(page);
+      await page.locator('[data-a="backup-now"]').click();
+      const t = await choiceTitle(page); const txt = await choiceText(page);
+      await check(t === '백업했어요. 내 보관용도 남길까요?' && txt.includes('서명 그림 포함'), `the backup dialog must say the server copy now includes signature images (got ${JSON.stringify(t + ' / ' + txt.slice(0, 200))})`);
+      await pick(page, 'none');
+      const log = segLog();
+      const sigUp = relay.st.log.filter(e => e.t === 'seg' && e.n >= 500);
+      sigSegNs = sigUp.map(e => e.n);
+      const expect = ['list'].concat(Array.from({ length: ledgerSegCount }, (_, i) => 'seg' + i), sigSegNs.map(n => 'seg' + n), ['head']);
+      await check(sigSegNs.length >= 2 && sigSegNs.every((n, i) => n === 500 + i) && JSON.stringify(log) === JSON.stringify(expect),
+        `ledger segments, then signature segments numbered from 500 (closed by size — at least two here), then the head LAST (got ${JSON.stringify(log)})`);
+      const head = relay.st.log.find(e => e.t === 'head'); gen1 = head && head.gen;
+      await check(!!gen1 && relay.st.log.filter(e => e.t === 'seg').every(e => e.gen === gen1) && head.sc === ledgerSegCount,
+        `signature segments must sit in the same gen as the ledger, and the head's seg_count must count only ledger segments (gen ${gen1}, seg_count ${head && head.sc}, ledger ${ledgerSegCount})`);
+      await check(relay.st.log.filter(e => e.t === 'seg').every(e => e.size <= 400000) && relay.st.violations.length === 0, `every segment must stay within 400,000 chars and the server contract (sizes ${JSON.stringify(relay.st.log.filter(e => e.t === 'seg').map(e => e.size))}, violations ${JSON.stringify(relay.st.violations)})`);
+      await check(relay.st.challenges - c0 === 2 + ledgerSegCount + sigSegNs.length && relay.st.reused === 0, `one one-time token per request (challenges ${relay.st.challenges - c0})`);
+      const bodies = relay.st.bodies.map(b => b.raw).join('\n');
+      await check(!bodies.includes('data:image') && !bodies.includes('base64,iVBOR') && !NAMES.some(n => bodies.includes(n)) && !bodies.includes(PHONE) && !bodies.includes('1234-5678'),
+        'no request body may carry a plaintext signature dataURL, an employee name or a phone number (everything is sealed)');
+      const hb = relay.st.head.get(RID); const hobj = await openBlob(page, hb.blob);
+      cntBy = {}; (hobj.sigSegs || []).forEach(s => { cntBy[s.n] = s.count; });
+      await check(Array.isArray(hobj.sigSegs) && JSON.stringify(hobj.sigSegs.map(s => s.n)) === JSON.stringify(sigSegNs) && hobj.sigSegs.reduce((a, s) => a + s.count, 0) === signedCount && hobj.sigSegs.every(s => /^[0-9a-f]{64}$/.test(s.ph)) && hobj.v === 2 && Array.isArray(hobj.segs) && hobj.segs.length === ledgerSegCount,
+        `the sealed head must keep v:2 + segs and add sigSegs [{n,ph,count}] covering every signed transaction (got ${JSON.stringify((hobj.sigSegs || []).map(s => [s.n, s.count]))}, signed ${signedCount})`);
+      await check(hobj.employees.every(e => !('phone' in e) && !('phoneConsent' in e)) && !('shopTel' in hobj.meta), 'the head still carries no employee phone and no shop phone');
+      const byId = new Map(db0.transactions.map(x => [x.id, x]));
+      let roundOk = true, kindOk = true, order = []; const segMap = relay.st.segs.get(RID).get(gen1);
+      for (const n of sigSegNs) {
+        const o = await openBlob(page, segMap.get(n).blob);
+        if (!o || o.kind !== 'sig' || o.seg_no !== n || !Array.isArray(o.sigs)) { kindOk = false; continue; }
+        o.sigs.forEach(x => { order.push(x.id); const t0 = byId.get(x.id); if (!t0 || t0.signatureData !== x.sig) roundOk = false; });
+      }
+      const ledgerOrder = db0.transactions.slice().sort((a, b) => a.createdAt - b.createdAt).filter(x => x.signatureData).map(x => x.id);
+      await check(kindOk && roundOk && JSON.stringify(order) === JSON.stringify(ledgerOrder), 'each signature segment opens to {kind:"sig", seg_no, sigs:[{id, sig}]} in ledger order with the exact dataURL (old big ones and the voided use included)');
+      const l0 = await openBlob(page, segMap.get(0).blob);
+      await check(Array.isArray(l0.transactions) && l0.transactions.every(x => !('signatureData' in x)), 'ledger segments still carry no signature images');
+      const m1 = await metaOf(page);
+      await check(m1.chainTip === m0.chainTip && m1.txCount === m0.txCount && (await hookChain(page)).tamperOk, 'a backup must not touch chainTip/txCount or the hash chain');
+      const st = await page.evaluate(() => window.__prepaidTestHooks.cloudState());
+      await check(st.sigLeft === 0 && st.sigWhy === '' && Object.keys(st.sigSegs || {}).length === sigSegNs.length, `the device must remember the signature segments (got ${JSON.stringify({ left: st.sigLeft, why: st.sigWhy, segs: st.sigSegs && Object.keys(st.sigSegs) })})`);
+      const note = await page.locator('.guard-note').innerText();
+      await check(note.includes('서명 그림까지 올리고') && !note.includes('서명 그림·전화번호는 빼고') && (await page.locator('#guardSigNote').count()) === 0, `the guard card must say signature images are included now (got ${JSON.stringify(note)})`);
+      const sz = relay.st.log.filter(e => e.t === 'seg').map(e => `${e.n}:${e.size}`);
+      console.log(`  [beta.62] 조각 크기(자) — ${sz.join(' ')} · 서명 조각별 건수 ${JSON.stringify(cntBy)}`);
+    });
+
+    // ── ② 두 번째 백업: 닫힌 서명 조각은 다시 올리지 않는다(열린 마지막 조각만) ──
+    await guard('incremental', async () => {
+      const k2 = (await readDb(page)).transactions.length + 10;
+      await putAll(page, { transactions: [tx('u-new1', emps[2].id, 'use', 2000, k2, { signatureData: sigs.fresh[0] })] });
+      await resealChain(page); await reloadUnlock(page);
+      relay.st.log.length = 0; const c0 = relay.st.challenges;
+      await goGuard(page); await page.locator('[data-a="backup-now"]').click(); await choiceTitle(page); await pick(page, 'none');
+      const log = segLog(); const lastSig = sigSegNs[sigSegNs.length - 1];
+      await check(JSON.stringify(log) === JSON.stringify(['list', 'seg' + (ledgerSegCount - 1), 'seg' + lastSig, 'head']) && relay.st.challenges - c0 === 4,
+        `only the open ledger segment and the open signature segment may be re-uploaded — closed signature segments stay (got ${JSON.stringify(log)}, requests ${relay.st.challenges - c0})`);
+      signedCount += 1; cntBy[lastSig] += 1;
+    });
+
+    // ── ③ 서명 조각 업로드 실패(5xx·끊김) → 장부 백업은 성공으로 끝나고, 머리는 서버에 있는 서명(직전 성공분)만 싣는다 → 다음 실행에서 다시 ──
+    await guard('sig-fail-isolated', async () => {
+      const k3 = (await readDb(page)).transactions.length + 20;
+      await putAll(page, { transactions: [tx('u-new2', emps[3].id, 'use', 2500, k3, { signatureData: sigs.fresh[1] })] });
+      await resealChain(page); await reloadUnlock(page);
+      const lastSig = sigSegNs[sigSegNs.length - 1];
+      for (const mode of [503, 'abort']) {
+        relay.st.failSeg = b => (b.seg_no >= 500 ? mode : null);
+        relay.st.log.length = 0;
+        await goGuard(page); await page.locator('[data-a="backup-now"]').click();
+        const t = await choiceTitle(page); const txt = await choiceText(page);
+        await check(t === '백업했어요. 내 보관용도 남길까요?' && txt.includes('서명 그림 1건은 아직 서버에 못 올렸어요'), `${mode}: a failing signature upload must not fail the ledger backup, and the dialog must say one signature is not on the server yet (got ${JSON.stringify(t + ' / ' + txt.slice(0, 260))})`);
+        await pick(page, 'none');
+        const hobj = await openBlob(page, relay.st.head.get(RID).blob);
+        const last = (hobj.sigSegs || []).find(s => s.n === lastSig);
+        await check(relay.st.log.some(e => e.t === 'head') && hobj.txCount === (await readDb(page)).transactions.length && JSON.stringify(hobj.sigSegs.map(s => s.n)) === JSON.stringify(sigSegNs) && last && last.count === cntBy[lastSig],
+          `${mode}: the head must still be written with the new ledger, listing the signature segments the server really has (the open one at its previous count) (got ${JSON.stringify(hobj.sigSegs && hobj.sigSegs.map(s => [s.n, s.count]))})`);
+        const st = await page.evaluate(() => window.__prepaidTestHooks.cloudState());
+        await check(st.sigLeft === 1 && st.sigWhy === 'error' && !st.failSince, `${mode}: the device records 1 signature left (temporary) without marking the backup failed (got ${JSON.stringify({ left: st.sigLeft, why: st.sigWhy, fail: st.failSince })})`);
+        const sn = await page.locator('#guardSigNote').innerText().catch(() => '');
+        const gh = (await page.locator('#guardState b').first().innerText()).trim();
+        await check(sn.includes('서명 그림 1건은 아직 서버에 못 올렸어요 — 다음 서버 백업 때 다시 올려요.') && !gh.includes('서버 백업') && !gh.includes('서명'), `${mode}: the status box title says nothing about a server failure; one signature line is added (title ${JSON.stringify(gh)}, line ${JSON.stringify(sn)})`);
+      }
+      relay.st.failSeg = null;
+      // 일주일 뒤: 장부는 그대로여도 '못 올린 서명'이 있으면 잠금 해제 때 다시 시도한다(서명 조각 하나 + 머리만).
+      const cur = await metaOf(page); const fp = await page.evaluate(() => window.__prepaidTestHooks.ledgerFp()); const at = Date.now() - 8 * DAY;
+      await putAll(page, { meta: { cloudBackupState: Object.assign({}, cur.cloudBackupState, { lastOkAt: at, fp, failSince: 0, lastTryAt: 0 }), lastCloudBackupAt: at } });
+      relay.st.log.length = 0;
+      await reloadUnlock(page);
+      await page.waitForFunction(() => { const s = window.__prepaidTestHooks.cloudState(); return s && s.lastOkAt > Date.now() - 60000; }, null, { timeout: 30000 });
+      const st = await page.evaluate(() => window.__prepaidTestHooks.cloudState());
+      await check(st.sigLeft === 0 && JSON.stringify(segLog()) === JSON.stringify(['list', 'seg' + lastSig, 'head']), `the next run retries just the signature segment, even with no ledger change (got ${JSON.stringify({ log: segLog(), left: st.sigLeft })})`);
+      signedCount += 1; cntBy[lastSig] += 1;
+    });
+
+    // ── ④ 같은 기기 되찾기: 서버에 없는 서명 조각이 있어도 이 기기의 서명(같은 id·같은 해시)은 그대로 ──
+    await guard('same-device-keep', async () => {
+      const before = await readDb(page);
+      const saved = cloneSegs(RID);
+      relay.st.segs.get(RID).get(curGen()).delete(sigSegNs[sigSegNs.length - 1]);
+      const r = await restoreFromServer(page);
+      const after = await readDb(page);
+      await check(r.askTitle === '이 백업으로 되돌릴까요?' && !r.ask.includes('서명 그림') && !r.done.includes('서명 그림') && diffRecs(before.transactions, after.transactions, []).length === 0,
+        `restoring on the same device keeps this device's signature images where the server copy is missing (ask ${JSON.stringify(r.ask.slice(0, 200))}, diff ${diffRecs(before.transactions, after.transactions, []).slice(0, 3).join(' | ')})`);
+      relay.st.segs.set(RID, saved);
+    });
+
+    // ── ⑤ 새 기기(빈 저장소, 내 보관 파일 없이 서버만): 서명 그림이 이력에 보이고 바이트까지 같다 ──
+    await guard('new-device', async () => {
+      const ref = await readDb(page); const refMeta = await metaOf(page);
+      const B = await keyDevice(keyA);
+      try {
+        relay.st.log.length = 0;
+        const r = await restoreFromServer(B.page);
+        const db = await readDb(B.page); const mb = await metaOf(B.page);
+        await check(r.askTitle === '이 백업으로 되돌릴까요?' && !r.ask.includes('서명 그림') && r.doneTitle === '되찾기를 마쳤어요' && !r.done.includes('서명 그림'), `a full server restore says nothing about missing signatures (ask ${JSON.stringify(r.ask.slice(0, 200))} / done ${JSON.stringify(r.done.slice(0, 200))})`);
+        const d = diffRecs(ref.transactions, db.transactions, []);
+        await check(d.length === 0 && usesMissing(db) === 0, `every transaction — signatureData byte for byte (new 1-bit, old ~5KB, fixture) — must come back on a new device from the server alone (${d.slice(0, 4).join(' | ')})`);
+        const old5k = db.transactions.filter(x => x.signatureData && x.signatureData.length > 3000);
+        await check(old5k.length === 12 && old5k.every(x => x.signatureData === ref.transactions.find(y => y.id === x.id).signatureData) && db.transactions.some(x => x.signatureData === fxSig), `old big signatures and the beta.54 fixture signature round-trip unchanged (got ${old5k.length} big)`);
+        const ch = await hookChain(B.page);
+        await check(ch.tamperOk && ch.broken === 0 && ch.reconcile && mb.chainTip === refMeta.chainTip && mb.txCount === refMeta.txCount, `the hash chain, chainTip and txCount must match after the restore (got ${JSON.stringify({ ch, tip: mb.chainTip === refMeta.chainTip, cnt: [mb.txCount, refMeta.txCount] })})`);
+        const gets = relay.st.log.filter(e => e.t === 'get');
+        const sigGets = gets.filter(e => e.nos.every(n => n >= 500));
+        await check(sigGets.length === Math.ceil(sigSegNs.length / 5) && gets.every(e => e.nos.length <= 5) && sigGets.flatMap(e => e.nos).join(',') === sigSegNs.join(','), `signature segments are fetched after the ledger, five at a time (got ${JSON.stringify(gets.map(e => e.nos))})`);
+        await B.page.locator('[data-a="screen"][data-screen="history"]').click(); await B.page.waitForTimeout(300);
+        await check((await B.page.locator('.txn img.thumb').count()) > 0 && (await B.page.locator('.sig-missing').count()) === 0, 'history shows the signature images (no "not in this backup" line)');
+        await check(B.dialogs.length === 0, `no native dialogs (got ${JSON.stringify(B.dialogs)})`);
+      } finally { await B.ctx.close(); }
+    });
+
+    // ── ⑥ 서명 조각이 없거나(404) 손상(해시 불일치)이면: 장부는 살아나고 그 거래만 "서명 그림은 이 백업에 없어요" + 안내 한 줄 ──
+    await guard('sig-missing-404', async () => {
+      const ref = await readDb(page);
+      const saved = cloneSegs(RID); const gone = sigSegNs[sigSegNs.length - 1];
+      relay.st.segs.get(RID).get(curGen()).delete(gone);
+      const C = await keyDevice(keyA);
+      try {
+        const r = await restoreFromServer(C.page);
+        const db = await readDb(C.page); const n = cntBy[gone];
+        await check(r.ask.includes(`서명 그림 ${n}건은 서버 백업에서 받지 못했어요`) && r.doneTitle === '되찾기를 마쳤어요' && r.done.includes(`서명 그림 ${n}건은 받지 못했어요`),
+          `a missing signature segment must not fail the restore and must be named in one line (ask ${JSON.stringify(r.ask.slice(0, 300))} / done ${JSON.stringify(r.done.slice(0, 300))})`);
+        await check(db.transactions.length === ref.transactions.length && usesMissing(db) === n && diffRecs(ref.transactions, db.transactions, ['signatureData']).length === 0 && (await hookChain(C.page)).tamperOk,
+          `the ledger is complete and only that segment's ${n} signatures are missing (got missing ${usesMissing(db)})`);
+        await C.page.locator('[data-a="screen"][data-screen="history"]').click(); await C.page.waitForTimeout(300);
+        await check((await C.page.locator('.sig-missing').count()) >= 1 && (await C.page.locator('.app').innerText()).includes('서명 그림은 이 백업에 없어요 (서명 기록은 확인됨)'), 'history marks the missing ones with the usual line');
+      } finally { await C.ctx.close(); relay.st.segs.set(RID, saved); }
+    });
+    await guard('sig-corrupt-hash', async () => {
+      const ref = await readDb(page);
+      const saved = cloneSegs(RID); const segMap = relay.st.segs.get(RID).get(curGen());
+      // 500번 조각을 '같은 거래 id, 다른 그림'으로 바꿔 봉한다(열쇠는 맞음 — 해시 대조만 걸러야 한다).
+      const o = await openBlob(page, segMap.get(500).blob);
+      const bad = nodeSeal(pubA, { v: 1, kind: 'sig', seg_no: 500, sigs: o.sigs.map(x => ({ id: x.id, sig: x.sig === fxSig ? sigs.fresh[5] : fxSig })) });
+      segMap.set(500, { blob: bad.blob, blob_hash: bad.blob_hash, updated_at: Date.now() });
+      const C = await keyDevice(keyA);
+      try {
+        const r = await restoreFromServer(C.page);
+        const db = await readDb(C.page); const n = cntBy[500];
+        const ok500 = o.sigs.every(x => !db.transactions.find(t => t.id === x.id).signatureData);
+        await check(r.doneTitle === '되찾기를 마쳤어요' && r.done.includes(`서명 그림 ${n}건은 받지 못했어요`) && usesMissing(db) === n && ok500 && db.transactions.length === ref.transactions.length,
+          `signatures whose image does not match signatureHash must be dropped (never attached) and counted (done ${JSON.stringify(r.done.slice(0, 260))}, missing ${usesMissing(db)} of ${n})`);
+        const ch = await hookChain(C.page);
+        await check(ch.tamperOk && ch.broken === 0, `no tampered image may enter the ledger (chain ${JSON.stringify(ch)})`);
+      } finally { await C.ctx.close(); relay.st.segs.set(RID, saved); }
+    });
+
+    // ── ⑦ 예전 형식: 서명 조각 없는 v2 머리(beta.55~61) · v1 한 덩어리 — 지금처럼 되찾는다 ──
+    await guard('old-formats', async () => {
+      const ref = await readDb(page);
+      const savedHead = { ...relay.st.head.get(RID) };
+      const hobj = await openBlob(page, savedHead.blob);
+      delete hobj.sigSegs;
+      const v61 = nodeSeal(pubA, hobj);
+      relay.st.head.set(RID, { blob: v61.blob, blob_hash: v61.blob_hash, updated_at: Date.now(), gen: savedHead.gen });
+      let C = await keyDevice(keyA);
+      try {
+        relay.st.log.length = 0;
+        const r = await restoreFromServer(C.page);
+        const db = await readDb(C.page);
+        await check(r.ask.includes('이 서버 백업에는 서명 그림이 없어요(예전 방식으로 올린 백업)') && r.done.includes('서명 그림은 이 백업에 없어요') && usesMissing(db) === signedCount && usesMissing(db) === db.transactions.filter(t => t.type === 'use' && t.signatureHash).length,
+          `a beta.61-shaped head (no sigSegs) restores as before, without signature images (ask ${JSON.stringify(r.ask.slice(0, 260))})`);
+        await check(diffRecs(ref.transactions, db.transactions, ['signatureData']).length === 0 && !relay.st.log.some(e => e.t === 'get' && e.nos.some(n => n >= 500)) && (await hookChain(C.page)).tamperOk,
+          'the beta.61-shaped restore brings every ledger field and asks for no signature segment');
+      } finally { await C.ctx.close(); }
+      // v1 한 덩어리(예전 서버 폴백이 올린 모양 — 장부 전체, 서명 그림 없음)
+      const lean = { schemaVersion: 3, appName: '선입금대장', appVersion: '1.0.0-beta.61', exportedAt: Date.now(), payload: { employees: hobj.employees, meta: hobj.meta, transactions: ref.transactions.slice().sort((a, b) => a.createdAt - b.createdAt).map(t => { const { signatureData, ...rest } = t; return rest; }) } };
+      const v1 = nodeSeal(pubA, lean);
+      relay.st.head.set(RID, { blob: v1.blob, blob_hash: v1.blob_hash, updated_at: Date.now(), gen: null });
+      C = await keyDevice(keyA);
+      try {
+        const r = await restoreFromServer(C.page);
+        const db = await readDb(C.page);
+        await check(r.doneTitle === '되찾기를 마쳤어요' && r.done.includes('서명 그림은 이 백업에 없어요') && diffRecs(ref.transactions, db.transactions, ['signatureData']).length === 0, `a v1 one-blob server backup restores as before (done ${JSON.stringify(r.done.slice(0, 200))})`);
+      } finally { await C.ctx.close(); relay.st.head.set(RID, savedHead); }
+    });
+
+    // ── ⑧ 보관 칸(인수된 가게의 옛 백업) 되찾기도 서명 조각을 함께 받는다 ──
+    await guard('archive-sigs', async () => {
+      const ref = await readDb(page);
+      const other = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+      relay.st.archive.set(RID + '|' + pubA, { head: { ...relay.st.head.get(RID) }, segs: cloneSegs(RID), archived_at: Date.now(), keep_until: Date.now() + 29 * DAY });
+      relay.st.reg.set(RID, other);
+      const C = await keyDevice(keyA);
+      try {
+        relay.st.log.length = 0;
+        const r = await restoreFromServer(C.page);
+        const db = await readDb(C.page);
+        const aget = relay.st.log.filter(e => e.t === 'asegget');
+        await check(r.doneTitle === '되찾기를 마쳤어요' && !r.done.includes('서명 그림 ') && usesMissing(db) === 0 && diffRecs(ref.transactions, db.transactions, []).length === 0 && aget.some(e => e.nos.every(n => n >= 500)),
+          `the archive restore fetches the signature segments through /api/ledger-archive/seg/get and attaches them (missing ${usesMissing(db)}, segget ${JSON.stringify(aget.map(e => e.nos))})`);
+      } finally { await C.ctx.close(); relay.st.reg.set(RID, pubA); relay.st.archive.delete(RID + '|' + pubA); }
+    });
+
+    // ── ⑧' 예전 앱(beta.61)이 새 형식 백업을 만나면(다른 기기가 아직 갱신 전) — B62_OLD_APP_URL에 beta.61 앱을 띄웠을 때만 돈다(보고용 실험).
+    //   ① 되찾기는 장부만(서명 그림 없이, 예전 문구) ② 그 기기의 다음 백업은 새 세대로 장부만 올리고 500대에는 손대지 않는다
+    //   ③ 그 머리가 옛 세대(서명 포함)를 지운 뒤에도, 새 앱의 다음 백업이 서명 조각을 다시 올린다.
+    if (process.env.B62_OLD_APP_URL) await guard('old-app-meets-new-format', async () => {
+      const ref = await readDb(page);
+      const O = await keyDevice(keyA, RID, process.env.B62_OLD_APP_URL);
+      try {
+        const ver = await O.page.evaluate(() => { const m = document.documentElement.innerHTML.match(/APP_VERSION='([^']+)'/); return m ? m[1] : ''; });
+        const r = await restoreFromServer(O.page);
+        const db = await readDb(O.page);
+        await check(r.doneTitle === '되찾기를 마쳤어요' && r.done.includes('서명 그림은 이 백업에 없어요') && diffRecs(ref.transactions, db.transactions, ['signatureData']).length === 0 && usesMissing(db) === signedCount,
+          `${ver}: an old app restores the new-format server backup (ledger only, old wording) (done ${JSON.stringify(r.done.slice(0, 200))}, missing ${usesMissing(db)})`);
+        relay.st.segs.get(RID).forEach(m => m.forEach(v => { v.updated_at -= 20 * 60000; }));
+        relay.st.log.length = 0;
+        await goGuard(O.page); await O.page.locator('[data-a="backup-now"]').click(); await choiceTitle(O.page); await pick(O.page, 'none');
+        const oh = relay.st.head.get(RID); const ohObj = await openBlob(O.page, oh.blob);
+        const left = serverSegs(RID);
+        await check(!relay.st.log.some(e => e.t === 'seg' && e.n >= 500) && !('sigSegs' in ohObj) && left.every(x => x.gen === oh.gen && x.n < 500),
+          `${ver}: the old app's next backup uploads a new gen with ledger segments only, never touches 500+, and its head drops the old gen with the signatures (server now ${JSON.stringify(left.map(x => x.gen.slice(0, 6) + ':' + x.n))})`);
+      } finally { await O.ctx.close(); }
+      relay.st.log.length = 0;
+      await goGuard(page); await page.locator('[data-a="backup-now"]').click(); await choiceTitle(page); await pick(page, 'none');
+      const hobj = await openBlob(page, relay.st.head.get(RID).blob);
+      await check(relay.st.log.filter(e => e.t === 'seg' && e.n >= 500).length === sigSegNs.length && (hobj.sigSegs || []).reduce((x, y) => x + y.count, 0) === signedCount,
+        `the new app's next backup puts every signature segment back (got ${JSON.stringify(segLog())})`);
+    });
+
+    // ── ⑨ 내 보관 백업(암호 없이 = schemaVersion 3) 파일은 예전 그대로 — 서명 그림 포함, 같은 키·같은 거래 바이트 ──
+    await guard('own-file-unchanged', async () => {
+      const ref = await readDb(page);
+      await goGuard(page);
+      const dl0 = A.downloads.length;
+      await page.locator('[data-a="backup-now"]').click(); await choiceTitle(page);
+      await ownPlainBackupFromDialog(page);
+      const d = A.downloads[dl0]; const raw = await fsp.readFile(await d.path(), 'utf8'); const f = JSON.parse(raw);
+      await check(JSON.stringify(Object.keys(f)) === JSON.stringify(['schemaVersion', 'appName', 'appVersion', 'exportedAt', 'payload', 'summary', 'checksum']) && f.schemaVersion === 3 && f.appName === '선입금대장' && raw === JSON.stringify(f, null, 2),
+        `the plain own backup keeps its exact top-level shape and 2-space JSON (got ${JSON.stringify(Object.keys(f))})`);
+      const a = sortById(ref.transactions).map(x => JSON.stringify(x)), b = sortById(f.payload.transactions).map(x => JSON.stringify(x));
+      await check(a.length === b.length && a.every((x, i) => x === b[i]) && f.payload.transactions.filter(x => x.signatureData).length === signedCount, 'the own backup file carries every transaction exactly as stored, signature images included');
+      await pick(page, 'yes');
+    });
+  } finally { await A.ctx.close(); }
+
+  // ═════ ⑩ 서버 글자 수 상한(미확인 가게, segQuotaFor) — 서명 때문에 장부 백업이 실패하지 않는다 ═════
+  await guard('quota-sig', async () => {
+    const RQ = 'rid-b62q';
+    const Q = await newCtx(20, 20000); const p = Q.page;
+    try {
+      await p.goto(url, { waitUntil: 'load' }); await p.waitForSelector('[data-a="setup-welcome-start"]', { timeout: 15000 }); await p.waitForTimeout(200);
+      const sg = await makeSigs(p, 60, 0, 777);
+      const es = [emp('q-e1', '상한일', '세무과'), emp('q-e2', '상한이', '세무과')];
+      const txs = [tx('qo1', 'q-e1', 'open', 900000, 1), tx('qo2', 'q-e2', 'open', 900000, 2)];
+      sg.fresh.forEach((s, i) => txs.push(tx('qu' + String(i).padStart(3, '0'), i % 2 ? 'q-e2' : 'q-e1', 'use', 1000, 3 + i, { signatureData: s })));
+      const now = Date.now();
+      await putAll(p, { meta: { setupComplete: true, welcomeSeen: true, termsAgreedAt: now, pinHash: legacyPin, shopName: '상한식당', departments: ['세무과'], storeRegisterPending: false, restaurantId: RQ, relayStoreName: '상한식당', relayRegisteredAt: now, districtSyncedAt: now, myKeyBackedUpAt: now, lastCloudBackupAt: now }, employees: es, transactions: txs });
+      await resealChain(p);
+      relay.st.reg.set(RQ, (await metaOf(p)).pubKey);
+      await reloadUnlock(p);
+     
+      // 크기를 먼저 잰다(상한 없이 한 번) → 서버를 비우고, '장부 + 첫 서명 조각'만 들어가는 글자 상한을 건다.
+      relay.st.log.length = 0;
+      await goGuard(p); await p.locator('[data-a="backup-now"]').click(); await choiceTitle(p); await pick(p, 'none');
+      const sizes = relay.st.log.filter(e => e.t === 'seg').map(e => ({ n: e.n, size: e.size }));
+      const ledChars = sizes.filter(x => x.n < 500).reduce((a, x) => a + x.size, 0), s500 = (sizes.find(x => x.n === 500) || {}).size || 0;
+      await check(sizes.filter(x => x.n >= 500).length >= 3, `setup: small signature segments (got ${JSON.stringify(sizes)})`);
+      relay.st.segs.delete(RQ); relay.st.head.delete(RQ);
+      await putAll(p, { meta: { cloudBackupState: null } });
+      await reloadUnlock(p);
+      relay.st.segQuota = { rows: 250, chars: ledChars + s500 + 500 };
+      relay.st.log.length = 0;
+      await goGuard(p); await p.locator('[data-a="backup-now"]').click();
+      const t = await choiceTitle(p); const txt = await choiceText(p);
+      await check(t === '백업했어요. 내 보관용도 남길까요?' && txt.includes('서명 그림 일부는 서버에 못 올렸어요 — 내 보관 백업을 해 주세요.'), `when the server says "quota full" on a signature segment the ledger backup still finishes and says so (got ${JSON.stringify(t + ' / ' + txt.slice(0, 260))})`);
+      await pick(p, 'none');
+      const st = await p.evaluate(() => window.__prepaidTestHooks.cloudState());
+      const hobj = await openBlob(p, relay.st.head.get(RQ).blob);
+      const segsNow = serverSegs(RQ);
+      const totalChars = segsNow.reduce((a, x) => a + x.size, 0);
+      await check(st.sigWhy === 'quota' && st.sigCap === ledChars + s500 + 500 && st.sigLeft > 0 && (hobj.sigSegs || []).every(s => segsNow.some(x => x.n === s.n && x.size > 100)),
+        `the learned cap is remembered and the head lists only signature segments that really hold data (got ${JSON.stringify({ why: st.sigWhy, cap: st.sigCap, left: st.sigLeft, list: hobj.sigSegs })})`);
+      await check(totalChars <= Math.floor(st.sigCap / 2) + ledChars && segsNow.filter(x => x.n >= 500 && !(hobj.sigSegs || []).some(s => s.n === x.n)).every(x => x.size < 100),
+        `signature segments beyond the half-of-cap budget are overwritten by tiny placeholders so the ledger keeps room (total ${totalChars}, sizes ${JSON.stringify(segsNow.map(x => x.n + ':' + x.size))})`);
+      await check((await p.locator('#guardSigNote').innerText()).includes('서명 그림 일부는 서버에 못 올렸어요 — 내 보관 백업을 해 주세요.'), 'the status box says some signature images could not go to the server — make an own backup');
+      // 장부가 자라서 장부 조각이 상한에 닿는 경우: 서명 조각을 먼저 비우고 장부를 올린다(장부 백업은 성공).
+      const st2 = await p.evaluate(() => window.__prepaidTestHooks.cloudState());
+      await putAll(p, { meta: { cloudBackupState: Object.assign({}, st2, { sigCap: 0 }) } });
+      relay.st.segQuota = null;
+      await reloadUnlock(p);
+      await goGuard(p); await p.locator('[data-a="backup-now"]').click(); await choiceTitle(p); await pick(p, 'none');   // 상한 없이 서명을 다시 다 올린 상태
+      const full = serverSegs(RQ).reduce((a, x) => a + x.size, 0);
+      const kk = (await readDb(p)).transactions.length + 5;
+      await putAll(p, { transactions: Array.from({ length: 6 }, (_, i) => tx('qt' + i, 'q-e1', 'topup', 1000 + i, kk + i, { note: '추가 입금 ' + i })) });
+      await resealChain(p); await reloadUnlock(p);
+      relay.st.segQuota = { rows: 250, chars: full + 50 };
+      relay.st.log.length = 0;
+      await goGuard(p); await p.locator('[data-a="backup-now"]').click();
+      const t2 = await choiceTitle(p);
+      const lg = relay.st.log.map(e => e.t + (e.n != null ? e.n : ''));
+      const firstQuota = lg.findIndex(x => /^segquota\d+$/.test(x) && Number(x.slice(8)) < 500);
+      const trimAt = relay.st.log.findIndex((e, i) => i > firstQuota && e.t === 'seg' && e.n >= 500 && e.size < 100);
+      const ledOk = relay.st.log.findIndex((e, i) => i > trimAt && e.t === 'seg' && e.n < 500 && e.size > 100);
+      await check(t2 === '백업했어요. 내 보관용도 남길까요?' && firstQuota >= 0 && trimAt > firstQuota && ledOk > trimAt && relay.st.log.some(e => e.t === 'head'),
+        `a ledger segment blocked by "quota full" must free the signature segments first and then go up — the ledger backup succeeds (title ${JSON.stringify(t2)}, log ${JSON.stringify(lg)})`);
+      await pick(p, 'none');
+      const hq = await openBlob(p, relay.st.head.get(RQ).blob);
+      await check(hq.txCount === (await readDb(p)).transactions.length, 'the head describes the grown ledger');
+    } finally { relay.st.segQuota = null; await Q.ctx.close(); }
+  });
+
+  console.log(`beta.62 A 검증: ${passed} 통과, ${fails.length} 실패`);
   if (fails.length) console.log(JSON.stringify(fails, null, 2));
   return { passed, fails };
 }
@@ -5611,6 +6133,14 @@ async function main() {
     } finally { await browser.close(); server.close(); }
     return;
   }
+  // E2E_ONLY=beta62 — beta.62 A(서명 그림을 서버 백업에) 블록만.
+  if (process.env.E2E_ONLY === 'beta62') {
+    try {
+      const r = await runBeta62(browser, url, { 'Access-Control-Allow-Origin': '*' });
+      process.exitCode = r.fails.length ? 1 : 0;
+    } finally { await browser.close(); server.close(); }
+    return;
+  }
   // E2E_ONLY=beta61b — beta.61 D(부서 이동) 블록만.
   if (process.env.E2E_ONLY === 'beta61b') {
     try {
@@ -5704,6 +6234,7 @@ async function main() {
     { const r60e = await runBeta60e(browser, url, cors); if (r60e.fails.length) throw new Error('[beta.60e] ' + r60e.fails[0]); }
     { const r61a = await runBeta61a(browser, url, cors); if (r61a.fails.length) throw new Error('[beta.61a] ' + r61a.fails[0]); }
     { const r61b = await runBeta61b(browser, url, cors); if (r61b.fails.length) throw new Error('[beta.61b] ' + r61b.fails[0]); }
+    { const r62 = await runBeta62(browser, url, cors); if (r62.fails.length) throw new Error('[beta.62] ' + r62.fails[0]); }
 
     await page.goto(url, { waitUntil: 'load' });
 

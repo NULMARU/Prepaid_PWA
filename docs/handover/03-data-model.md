@@ -221,7 +221,7 @@ employeeId | amount | afterBalance | prevHash | createdAt
 | `pendingNotify` | **beta.48** `[{sid, at}]`. 장부에는 반영했으나 서버에 `APPROVED` 통보가 아직 성공하지 못한 건(상한 없음 — 통보가 성공하면 즉시 빠진다) |
 | `inboxCountCache` | 마지막으로 확인한 📩 배지 개수. **기기 전용**(backupCore 제외) |
 | `backupPassCheck` | **beta.55** 백업 암호 검증자 `{v,it,salt,hash}`. 암호 자체는 없다. **기기 전용**(backupCore 제외, 복원 시 이 기기 값 유지 — 단 암호 건 파일을 되찾았고 기기에 없으면 그 암호로 새로 만든다) |
-| `cloudBackupState` | **beta.55** 서버 백업 v2 기기 상태 `{v,mode,gen,segSize,segs:{n:ph},counts,bh,txCount,fp,headAt,lastOkAt,lastTryAt,failSince,lastError,pendingGen,pendingSegSize}`. **기기 전용**, 복원·초기화·서버 백업 지우기 때 `null` |
+| `cloudBackupState` | **beta.55** 서버 백업 v2 기기 상태 `{v,mode,gen,segSize,segs:{n:ph},counts,bh,txCount,fp,headAt,lastOkAt,lastTryAt,failSince,lastError,pendingGen,pendingSegSize}` + beta.62 서명 조각 상태 `{sigRaw,sigSegs:{n:ph},sigCnt,sigBh,sigLeft,sigWhy,sigErr,sigCap}`(새 meta 키가 아니라 이 값 안의 필드). **기기 전용**, 복원·초기화·서버 백업 지우기 때 `null` |
 | `lastBackupAt` | (뜻 변경) beta.55부터 **"내 보관 백업"** 시각 — 사장님이 보냈다/보인다고 확인한 때만 갱신. 전체 초기화 최종본·안전 사본은 갱신하지 않는다 |
 | `myKeyBackedUpAt` | (뜻 변경) **가게 열쇠가 든 암호 건 내 보관 백업**을 한 때(예전 「내 열쇠 백업」 시각도 그대로 인정). 비어 있고 등록됐으면 `keyBackupUrgent()` → "⚠ 가게 열쇠가 이 기기에만 있어요" |
 | `lastCloudBackupAt` · `autoCloudBackup` | 서버 백업 마지막 성공 시각 · 자동 백업 켜짐(`!== false`). 주기는 **월말 → 주 1회**(`cloudAutoDue()`) |
@@ -233,16 +233,17 @@ employeeId | amount | afterBalance | prevHash | createdAt
 
 ---
 
-## 6. 서버(클라우드) 원장 백업 — v2 조각 (beta.55) / v1 한 덩어리
+## 6. 서버(클라우드) 원장 백업 — v2 조각 (beta.55, 서명 조각 beta.62) / v1 한 덩어리
 
 **v2**(`cloudBackupRun()`, PROTOCOL §4.13 · [04](04-contracts.md)):
 1. 거래를 `sortTxAsc`(원장 순서)로 **300건씩 조각**. 조각 평문 `{v:2, seg_no, transactions:[segTx(t)…]}` — `segTx`는 고정 키 순서로 **`signatureData`를 뺀다**(`signatureHash`는 유지). 직원의 `phone`·`phoneConsent`도 `stripPhonesForCloud()`로 뺀다.
 2. `packBytes` = gzip(`z:1`, 없으면 `z:0`) → `sealForCloud` = 기존 하이브리드 암호(AES-GCM-256 + 자기 `pubKey` RSA-OAEP 래핑) → `base64(JSON{v,z,encKey,iv,ct})`. `ph` = **압축 전** JSON 바이트의 SHA-256(브라우저마다 gzip 바이트가 달라 헛재업로드가 생기므로).
-3. 바뀐 조각만 `POST /api/ledger-backup/seg`(≤400,000자). **조각을 모두 올린 뒤** 머리 `{v:2, gen, appName, appVersion, exportedAt, employees, meta, txCount, chainTip, segs:[{n,ph,count}]}`를 같은 방식으로 봉인해 `POST /api/ledger-backup {…, gen}`(≤1,000,000자). 서버는 머리를 받는 순간 다른 세대 조각을 지운다.
+3. 바뀐 조각만 `POST /api/ledger-backup/seg`(≤400,000자). (beta.62) 이어서 **서명 조각**(아래 3-1). **조각을 모두 올린 뒤** 머리 `{v:2, gen, appName, appVersion, exportedAt, employees, meta, txCount, chainTip, segs:[{n,ph,count}], sigSegs:[{n,ph,count}]}`를 같은 방식으로 봉인해 `POST /api/ledger-backup {…, gen}`(≤1,000,000자). 서버는 머리를 받는 순간 다른 세대 조각을 지운다.
+3-1. **서명 조각(beta.62, `cloudSigPhase()`)** — 같은 세대의 `seg_no` **500~999**(`SIG_SEG_BASE`). 평문 `{v:1, kind:'sig', seg_no, sigs:[{id, sig}]}` — 서명이 있는 거래(취소 포함)를 원장 순서로, `sig`는 `signatureData` dataURL **그대로**(줄이지 않음 — `signatureHash`와 맞아야 함). `sigPlan()`이 **압축 전 22만 자**(`SIG_RAW_MAX`)에서 닫는다. 봉투는 장부 조각과 같은 `sealForCloud`. 닫힌 조각은 `ph`가 같고 서버의 `blob_hash`가 기록과 같으면 다시 올리지 않는다. 머리의 `sigSegs`에는 **서버에 실제로 있는 서명 조각만** 싣는다. 실패는 격리 — 서명 조각이 실패해도 머리는 올라가 장부 백업은 성공하고, 남은 수는 `sigLeft`·이유는 `sigWhy`(`error`·`later`는 다음에 다시 / `cap`·`quota`·`ledger_full`·`toobig`은 영구 — `SIG_PERMANENT`)로 남아 `cloudSigNote()` 한 함수가 상자 문구를 만든다. 상한: 한 세대 장부+서명 **450행**(`SIG_GEN_ROWS` — 서버 1,000행의 절반 아래, 세대 교체 때 두 세대가 겹치므로), 서명 조각 최대 500개, 한 번에 새로 올리는 서명 조각 40개(`SIG_PER_RUN`), 장부 조각이 500개를 넘으면 서명은 올리지 않음. 글자 수 상한이 있는 가게는 서버가 처음 `backup_quota_exceeded`를 말한 값을 `sigCap`으로 기억해 그 절반 안에서만 싣고, 장부 조각이 자리 부족에 막히면 서명 조각을 작은 자리표 blob(`SIG_TRIM_BLOB`)으로 덮어 장부를 먼저 올린다. 계약 [04](04-contracts.md) C18.
 4. 새 세대(`gen`)가 필요한 때: 처음 / 거래 수가 줄었음(복원) / 닫힌 조각 내용 변경. 머리 전에 끊긴 새 세대는 `pendingGen`으로 기억했다가 **같은 번호로** 다시 올린다(고아 조각 누적 방지).
 - 주기: `maybeAutoCloudBackup()` — 앱 시작·잠금 해제 때, 등록·자동 켜짐·온라인·장부 있음·마지막 성공 7일 이상·`ledgerFp()` 변경. 실패 뒤 재시도 1시간 간격. 명단 승인 직후 `cloudBackupAfterRoster()`가 조용히 한 번.
-- 복원: `relayRestoreFromCloud()` — 머리 `blob_hash` 검증 → `openFromCloud`(열쇠 불일치는 `backup_key_mismatch`) → v2면 `cloudFetchSegments()`가 5개씩 받아 `ph`·건수·`chainTip` 검증(머리 건수보다 긴 조각은 앞부분이 `ph`와 맞으면 잘라 씀 — 머리 전 끊긴 업로드 대응) → `restoreLedger(…, {noSig})`. 되찾은 `use` 거래는 서명 그림이 없고 이력에 "서명 그림은 이 백업에 없어요 (서명 기록은 확인됨)".
-- **v1**(예전 서버·예전 백업): 장부 전체 한 덩어리(`MAX_LEDGER_BLOB` 1MB). 조각 API가 404인 서버에는 `cloudBackupRunV1()`이 서명 제외·압축만 적용해 같은 자리에 올린다. 읽기는 계속 지원.
+- 복원: `relayRestoreFromCloud()` — 머리 `blob_hash` 검증 → `openFromCloud`(열쇠 불일치는 `backup_key_mismatch`) → v2면 `cloudFetchSegments()`가 5개씩 받아 `ph`·건수·`chainTip` 검증(머리 건수보다 긴 조각은 앞부분이 `ph`와 맞으면 잘라 씀 — 머리 전 끊긴 업로드 대응) → `restoreLedger(…, {noSig})`. (beta.62) 장부를 살린 뒤 머리에 `sigSegs`가 있으면 `cloudFetchSigs()`가 5개씩 받고(던지지 않음 — 못 받은 조각은 `failed`로 셈) `sigAttach()`가 **`signatureHash`와 맞는 그림만** 붙인다. 같은 기기에서 되찾을 때 기기에 이미 있는 그림(같은 거래 id·같은 해시)은 그대로 둔다. 그림이 없는 `use` 거래는 이력에 "서명 그림은 이 백업에 없어요 (서명 기록은 확인됨)"이고, 되찾기 창의 한 줄은 `sigRestoreNote()`(새 형식에서 받지 못함 / 예전 방식 백업) 한 함수가 만든다. 보관 칸 되찾기도 같은 경로(`cloudParseHead`).
+- **v1**(예전 서버·예전 백업): 장부 전체 한 덩어리(`MAX_LEDGER_BLOB` 1MB). 조각 API가 404인 서버에는 `cloudBackupRunV1()`이 서명 제외·압축만 적용해 같은 자리에 올린다(beta.62에도 이 폴백에는 서명 그림이 없다). 읽기는 계속 지원.
 - `buildCloudBackupBlob()`은 이제 **잠긴 파일**(`exportLockedBackup` — PIN 분실 초기화·되찾기 안전 사본) 전용이다.
 
 ---

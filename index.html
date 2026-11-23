@@ -726,7 +726,7 @@ a.install-inline-link{color:var(--primary);font-weight:700}
 'use strict';
 // beta.60b(이름): 화면에 보이는 대표 이름은 BRAND('밥장부'). APP('선입금대장')은 백업 파일 **안에** 적히는 값(appName)이라 그대로 둔다 —
 //   파일 형식 불변(예전 파일·새 파일 모두 같은 값). 복원·되찾기는 appName을 검사하지 않는다(값을 지나 보낼 뿐). 화면 문구에 APP를 쓰지 말 것.
-const APP='선입금대장',BRAND='밥장부',APP_VERSION='1.0.0-beta.61',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
+const APP='선입금대장',BRAND='밥장부',APP_VERSION='1.0.0-beta.62',DB='prepaid-ledger-db',VER=3,LOCAL='prepaid-ledger-local',now=()=>Date.now(),qs=i=>document.getElementById(i);
 // 네이버 지도 검색 딥링크(참고·안내용) — 상호+주소 앞 3토큰(시도·시군구·도로명)으로 검색을 좁힌다.
 // 스킴·호스트 고정 + encodeURIComponent 값 인코딩이라 상호에 어떤 문자가 와도 링크 주입이 안 된다.
 // ⚠️ 이 링크는 편의 기능이다 — 가게 실존·소유 확인은 관리번호 대조·열쇠 지문이 담당한다.
@@ -873,7 +873,9 @@ cloudRetryGapReset:()=>{const s=cloudState();if(s&&s.lastTryAt)state.data.meta.c
 // beta.48: 저장 연타 잠금(withTxLock)·승인 아웃박스를 하니스가 직접 못 박기 위한 훅.
 saveTopup:(...a)=>saveTopup(...a),flushPendingNotify:(...a)=>flushPendingNotify(...a),
 // beta.60(보완): 백업 파일에 실리는 meta 키 이름만(값은 내보내지 않는다) — 기기 전용 키가 빠지는지 하니스가 본다.
-backupCoreMetaKeys:()=>Object.keys(backupCore().payload.meta)}:{})};
+backupCoreMetaKeys:()=>Object.keys(backupCore().payload.meta),
+// beta.62: 하니스가 지금 앱과 같은 방식으로 새 형식 서명(1비트 PNG)을 만들고, 서명 조각 묶음(번호·건수)을 보는 훅.
+sigEncode:snap=>sigEncode(snap,()=>''),sigPlanOf:()=>sigPlan(sortTxAsc(state.data.transactions)).segs.map(s=>({n:s.n,count:s.list.length,len:s.len}))}:{})};
 
 // ── 유틸리티 ──
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
@@ -2651,6 +2653,35 @@ function cloudSegSize(){try{if(E2E_HOOKS&&Number(window.__cloudSegSize)>0)return
 // 서명 그림만 뺀 거래 — 키 순서를 고정한다(같은 거래면 언제나 같은 바이트 → 같은 ph → 다시 올리지 않는다).
 const SEG_TX_KEYS=['id','employeeId','type','amount','beforeBalance','afterBalance','reason','note','targetTransactionId','signatureHash','hv','txHash','prevHash','createdAt','occurredAt'];
 function segTx(t){const o={};SEG_TX_KEYS.forEach(k=>{o[k]=(t&&t[k]!==undefined)?t[k]:null});return o}
+// ── beta.62: 서명 그림도 서버 백업에(계약 .claude/reviews/beta62-contract.md) ─────────────────────────────
+// 서버는 바꾸지 않는다. 장부 조각은 지금처럼 번호 0부터, **서명 조각은 같은 세대(gen)의 번호 500~999**에 올린다.
+//   · 서버의 머리 확인(seg_count)은 0..seg_count-1만 센다 — 서명 조각은 셈에 들지 않는다(장부 조각이 500개를 넘으면 서명은 올리지 않는다).
+//   · 같은 세대라서 세대 교체 때 삭제·고아 정리·해제 30일 정리·인수 때 보관 칸 이동이 서명 조각에도 그대로 적용된다.
+// 서명 조각 = 서명이 있는 거래를 원장 순서로 {id, sig(dataURL 그대로)} 목록으로 묶은 것. **크기로 닫는다**(압축 전 JSON 22만 자 —
+//   압축이 안 되는 기기에서도 봉인 뒤 40만 자를 넘지 않는 값). 서명은 줄이거나 다시 굽지 않는다(signatureHash = hash(dataURL)과 맞아야 한다).
+//   한 장이 그 크기를 넘는 아주 큰 예전 서명은 올리지 않고 '못 올림'으로 센다(내 보관 파일에는 그대로 들어 있다).
+// 실패 격리: 서명 조각을 못 올려도 **장부 백업은 그대로 끝낸다**(머리에는 서버에 실제로 있는 서명 조각만 싣는다). 서명은 다음 백업 때 다시.
+// 할당량: 서버의 가게당 조각 상한(실존 확인 가게 1,000행 / 미확인 가게 250행·1,200만 자)은 세대 교체 때 두 세대가 잠깐 함께 있으므로
+//   한 세대의 장부+서명이 **절반을 넘지 않게** 둔다(행: 450). 글자 수 상한은 앱이 미리 알 수 없어, 서버가 처음 '자리 가득'
+//   (backup_quota_exceeded)을 말하는 순간 그 값을 기억하고(sigCap) 넘치는 서명 조각을 작은 자리표로 덮어 장부 자리를 비운다.
+//   장부 조각이 그 오류에 막히면 서명 조각부터 비우고 장부를 한 번 더 올린다 — 서명 때문에 장부 백업이 실패하지 않게.
+const SIG_SEG_BASE=500,SIG_SEG_SLOTS=500,SIG_RAW_MAX=220000,SIG_GEN_ROWS=450,SIG_PER_RUN=40,SIG_CHAR_MARGIN=500000,SIG_CAP_DEFAULT=12000000,SIG_TRIM_BLOB='eyJ2IjoxLCJ0cmltIjoxfQ==';
+function sigRawMax(){try{if(E2E_HOOKS&&Number(window.__sigRawMax)>0)return Math.floor(Number(window.__sigRawMax))}catch(e){}return SIG_RAW_MAX}
+// 서명 조각 계획(동기·결정적 — 같은 장부면 언제나 같은 묶음). txs는 원장 순서.
+function sigPlan(txs){const max=sigRawMax()-200,segs=[];let cur=null,total=0,tooBig=0;
+for(const t of txs){const s=sigD(t&&t.signatureData);if(!s||!str(t.signatureHash))continue;total++;const e={id:str(t.id),sig:s},len=JSON.stringify(e).length+1;
+if(len>max){tooBig++;continue}
+if(!cur||cur.len+len>max){cur={i:segs.length,n:SIG_SEG_BASE+segs.length,list:[],len:0};segs.push(cur)}cur.list.push(e);cur.len+=len}
+return{segs,total,tooBig}}
+// 서버 백업 상태 상자·[지금 백업하기] 확인 창이 함께 쓰는 '서명 그림' 한 줄(같은 사실은 한 함수에서).
+const SIG_PERMANENT=['cap','quota','ledger_full','toobig'];
+function cloudSigNote(){const st=cloudState();if(st.mode!=='v2'||!num(st.lastOkAt))return '';const left=num(st.sigLeft);if(left<=0)return '';
+if(SIG_PERMANENT.includes(str(st.sigWhy)))return '서명 그림 일부는 서버에 못 올렸어요 — 내 보관 백업을 해 주세요.';
+return `서명 그림 ${left}건은 아직 서버에 못 올렸어요 — 다음 서버 백업 때 다시 올려요.`}
+// 되찾기 확인 창(ask)·결과 창(done)의 '서명 그림' 한 줄. src: 'server'(서명 조각이 있는 새 형식) | 'server-old'(beta.55~61이 올린 형식·v1).
+function sigRestoreNote(src,missing,phase){if(!src||!(missing>0))return '';
+if(src==='server')return phase==='ask'?`서명 그림 ${missing}건은 서버 백업에서 받지 못했어요 — 되찾은 뒤 이력에는 "서명 기록은 확인됨"으로 보여요.`:`서명 그림 ${missing}건은 받지 못했어요. 이력에는 "서명 기록은 확인됨"으로 보여요. 내 보관 백업 파일이 있으면 [파일에서 되찾기]로 그림까지 되찾을 수 있어요.`;
+return phase==='ask'?'이 서버 백업에는 서명 그림이 없어요(예전 방식으로 올린 백업) — 되찾은 뒤 이력에는 "서명 기록은 확인됨"으로 보여요.':'서명 그림은 이 백업에 없어요. 이력에는 "서명 기록은 확인됨"으로 보여요.'}
 function canGzip(){return typeof CompressionStream==='function'&&typeof DecompressionStream==='function'}
 async function streamBytes(u8,ts){return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(ts)).arrayBuffer())}
 async function sha256Hex(u8){return hexOf(await crypto.subtle.digest('SHA-256',u8))}
@@ -2726,14 +2757,27 @@ let gen=str(st.gen);if(fresh){const pg=str(st.pendingGen);gen=(!opts.freshGen&&p
 const onServer=new Map();(Array.isArray(lj.segments)?lj.segments:[]).forEach(x=>{if(x&&str(x.gen)===gen)onServer.set(num(x.seg_no),str(x.blob_hash))});
 const todo=segs.filter(s=>fresh||prevPh[s.n]!==s.ph||!onServer.has(s.n)||(prevBh[s.n]&&onServer.get(s.n)&&onServer.get(s.n)!==prevBh[s.n]));
 const bh={};if(!fresh)segs.forEach(s=>{if(prevBh[s.n])bh[s.n]=prevBh[s.n]});
+// beta.62: 서버가 가진 조각(모든 세대) — 서명 조각의 '이미 있음' 판정·글자 수 셈·자리 비우기에 쓴다. key `${gen}|${seg_no}`.
+const srv=new Map();(Array.isArray(lj.segments)?lj.segments:[]).forEach(x=>{if(x&&str(x.gen))srv.set(str(x.gen)+'|'+num(x.seg_no),{gen:str(x.gen),n:num(x.seg_no),bh:str(x.blob_hash),size:num(x.size)})});
+let sigCap=num(st.sigCap)>0?num(st.sigCap):0;const ledSize={};
 let done=0;
 for(const s of todo){say(`서버에 장부를 올리는 중이에요 (${done+1}/${todo.length}).`);
 const sealed=await sealForCloud(s.plain,2);if(sealed.blob.length>CLOUD_SEG_MAX)throw relayCodeErr('backup_too_big');
-const r=await cloudCall('/api/ledger-backup/seg',{gen,seg_no:s.n,blob:sealed.blob,blob_hash:sealed.blob_hash},onWait,alive);const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
-bh[s.n]=sealed.blob_hash;done++}
+const body={gen,seg_no:s.n,blob:sealed.blob,blob_hash:sealed.blob_hash};
+let r=await cloudCall('/api/ledger-backup/seg',body,onWait,alive);let j=await cloudJson(r);
+// beta.62: 장부 조각이 '자리 가득'에 막혔는데 서버에 서명 조각이 있으면 — 서명 조각을 먼저 비우고 장부를 한 번 더 올린다(장부가 먼저다).
+if(!r.ok&&str(j.error)==='backup_quota_exceeded'){sigCap=num(j.max_chars)>0?num(j.max_chars):SIG_CAP_DEFAULT;
+if(await cloudSigTrim(srv,null,onWait,alive)){r=await cloudCall('/api/ledger-backup/seg',body,onWait,alive);j=await cloudJson(r)}}
+if(!r.ok)throw await cloudFail(r,j);
+bh[s.n]=sealed.blob_hash;ledSize[s.n]=sealed.blob.length;srv.set(gen+'|'+s.n,{gen,n:s.n,bh:sealed.blob_hash,size:sealed.blob.length});done++}
+// ③' 서명 조각(beta.62) — 장부 조각 뒤, 머리 앞. 여기서 무엇이 실패해도 장부 백업은 계속된다(취소만 그대로 던진다).
+let ledgerChars=0;segs.forEach(s=>{const k=srv.get(gen+'|'+s.n);ledgerChars+=num(ledSize[s.n])||(k?k.size:0)});
+const sig=await cloudSigPhase({gen,fresh,txs,ledgerCount:segs.length,ledgerChars,srv,st,sigCap,onWait,alive,say});
 // ③ 머리(head) — 조각을 다 올린 뒤 **마지막에**. 직원·가게 정보(가게 전화 제외)와 조각 목록(ph·건수)을 담는다.
 say('서버에 마무리 정보를 올리는 중이에요.');
-const head={v:2,gen,appName:APP,appVersion:APP_VERSION,exportedAt:now(),employees:core.payload.employees,meta:core.payload.meta,txCount:txs.length,chainTip:chainTipOf(txs),segs:segs.map(s=>({n:s.n,ph:s.ph,count:s.count}))};
+// beta.62: sigSegs(추가 필드) = 이 세대에 서버가 실제로 가진 서명 조각 목록 [{n(500~999),ph,count}]. 예전 앱(beta.61 이하)은 모르는 필드라 무시하고 장부만 되찾는다.
+//   v는 2 그대로 둔다(예전 앱이 'v===2 && segs'로 읽는다).
+const head={v:2,gen,appName:APP,appVersion:APP_VERSION,exportedAt:now(),employees:core.payload.employees,meta:core.payload.meta,txCount:txs.length,chainTip:chainTipOf(txs),segs:segs.map(s=>({n:s.n,ph:s.ph,count:s.count})),sigSegs:sig.list};
 const hs=await sealForCloud(head,2);if(hs.blob.length>CLOUD_HEAD_MAX)throw relayCodeErr('backup_too_big');
 // beta.60(S-9): 머리에 조각 수(seg_count)를 싣는다 — 서버가 그 세대의 조각 0..n-1이 모두 있는지 같은 자리에서 확인한다.
 //   거래가 하나도 없으면(직원만) 조각이 0개라 싣지 않는다(서버는 1..1000만 받는다).
@@ -2745,9 +2789,70 @@ if(relayErrCode(fe)==='segments_missing'&&!opts.freshGen){alive();await saveClou
 throw fe}
 alive();
 const at=now(),segsPh={},counts={};segs.forEach(s=>{segsPh[s.n]=s.ph;counts[s.n]=s.count});
-await saveCloudState({v:2,mode:'v2',gen,segSize:size,segs:segsPh,counts,bh,txCount:txs.length,fp,headAt:at,lastOkAt:at,lastTryAt:at,failSince:0,lastError:''});
+await saveCloudState({v:2,mode:'v2',gen,segSize:size,segs:segsPh,counts,bh,txCount:txs.length,fp,headAt:at,lastOkAt:at,lastTryAt:at,failSince:0,lastError:'',
+sigRaw:sigRawMax(),sigSegs:sig.ph,sigCnt:sig.cnt,sigBh:sig.bh,sigLeft:sig.left,sigWhy:sig.why,sigErr:sig.err,sigCap:sig.cap||0});
 state.data.meta.lastCloudBackupAt=at;try{await repo.apply({meta:{lastCloudBackupAt:at}})}catch(e){console.error('relay cloud stamp',e)}
-return{ok:true,mode:'v2',uploaded:todo.length,total:segs.length}}
+return{ok:true,mode:'v2',uploaded:todo.length,total:segs.length,sigUploaded:sig.uploaded,sigTotal:sig.list.length,sigLeft:sig.left}}
+// 서명 조각을 작은 자리표로 덮는다(행은 그대로, 글자 수만 비운다 — 서버에는 조각 하나를 지우는 길이 없다). only: 이 세대만(null이면 모든 세대),
+//   keep: 덮지 않을 번호 Set. 덮은 수를 돌려준다. 실패는 삼킨다(취소만 던진다). 되찾기는 자리표를 '받지 못한 조각'으로 센다.
+async function cloudSigTrim(srv,only,onWait,alive,keep){let n=0;
+for(const x of [...srv.values()]){if(x.n<SIG_SEG_BASE||x.size<=SIG_TRIM_BLOB.length||(only&&x.gen!==only)||(keep&&keep.has(x.n)))continue;
+try{const r=await cloudCall('/api/ledger-backup/seg',{gen:x.gen,seg_no:x.n,blob:SIG_TRIM_BLOB},onWait,alive);await cloudJson(r);if(r.ok){srv.set(x.gen+'|'+x.n,{...x,bh:'',size:SIG_TRIM_BLOB.length});n++}}
+catch(e){if(cloudCancelled(e))throw e;console.error('relay sig trim',relayErrCode(e)||e)}}
+return n}
+// 서명 조각 올리기. 결과 {list(머리에 실을 목록), ph/cnt/bh(다음 백업의 '그대로인가' 판정), left(서버에 그림이 없는 서명 수), why, err, cap, uploaded}.
+//   why: ''(전부 올림) | 'error'(일시 실패 — 다음에 다시) | 'later'(한 번에 올리는 수 상한) | 'cap'(행·글자 자리 한도) | 'quota'(서버가 자리 가득)
+//        | 'ledger_full'(장부 조각이 500개를 넘음) | 'toobig'(한 장이 너무 큰 서명이 있음). 이 함수는 취소 말고는 던지지 않는다.
+async function cloudSigPhase(o){const{gen,fresh,txs,srv,st,onWait,alive,say}=o;
+const out={list:[],ph:{},cnt:{},bh:{},left:0,why:'',err:'',cap:num(o.sigCap)||0,uploaded:0};
+let plan;try{plan=sigPlan(txs)}catch(e){console.error('relay sig plan',e);plan={segs:[],total:0,tooBig:0}}
+let covered=0;
+try{
+if(!plan.total)return out;
+if(o.ledgerCount>SIG_SEG_BASE){out.why='ledger_full';return out}
+const prevPh=(st.sigSegs&&typeof st.sigSegs==='object')?st.sigSegs:{},prevCnt=(st.sigCnt&&typeof st.sigCnt==='object')?st.sigCnt:{},prevBh=(st.sigBh&&typeof st.sigBh==='object')?st.sigBh:{};
+const sameLayout=!fresh&&num(st.sigRaw)===sigRawMax()&&str(st.gen)===gen;
+const rows=Math.min(SIG_SEG_SLOTS,SIG_GEN_ROWS-o.ledgerCount);
+const budgetOf=cap=>cap?Math.floor(cap/2)-Math.min(SIG_CHAR_MARGIN,Math.floor(cap/10))-num(o.ledgerChars):Infinity;
+let budget=budgetOf(out.cap);
+let used=0,stopUp='',capped=false;const keep=new Set();
+for(const s of plan.segs){
+if(capped)break;
+if(s.i>=rows){out.why='cap';capped=true;break}
+s.plain={v:1,kind:'sig',seg_no:s.n,sigs:s.list};s.ph=await sha256Hex(new TextEncoder().encode(JSON.stringify(s.plain)));
+const k=srv.get(gen+'|'+s.n);
+const present=k&&prevBh[s.n]&&k.bh===str(prevBh[s.n]);
+if(sameLayout&&present&&str(prevPh[s.n])===s.ph){
+if(used+k.size>budget){out.why='cap';capped=true;break}
+used+=k.size;keep.add(s.n);out.list.push({n:s.n,ph:s.ph,count:s.list.length});out.ph[s.n]=s.ph;out.cnt[s.n]=s.list.length;out.bh[s.n]=k.bh;covered+=s.list.length;continue}
+// 올려야 하는 조각. 앞에서 멈췄으면(일시 실패·한 번에 올리는 수) 올리지 않고, 서버에 남은 예전 판이 있으면 그것을 싣는다(직전 성공분).
+const keepOld=()=>{if(sameLayout&&present&&num(prevCnt[s.n])>0&&used+k.size<=budget){used+=k.size;keep.add(s.n);out.list.push({n:s.n,ph:str(prevPh[s.n]),count:num(prevCnt[s.n])});out.ph[s.n]=str(prevPh[s.n]);out.cnt[s.n]=num(prevCnt[s.n]);out.bh[s.n]=k.bh;covered+=num(prevCnt[s.n])}};
+if(!stopUp&&out.uploaded>=SIG_PER_RUN)stopUp='later';
+if(stopUp){keepOld();continue}
+say(`서버에 서명 그림을 올리는 중이에요 (${s.i+1}/${plan.segs.length}).`);
+let sealed=null;try{sealed=await sealForCloud(s.plain,2)}catch(e){console.error('relay sig seal',e);stopUp='error';out.err=relayErrCode(e)||'internal';keepOld();continue}
+if(sealed.blob.length>CLOUD_SEG_MAX){stopUp='error';out.err='backup_too_big';keepOld();continue}
+if(used+sealed.blob.length>budget){out.why='cap';capped=true;break}
+let r=null,j={};
+try{r=await cloudCall('/api/ledger-backup/seg',{gen,seg_no:s.n,blob:sealed.blob,blob_hash:sealed.blob_hash},onWait,alive);j=await cloudJson(r)}
+catch(e){if(cloudCancelled(e))throw e;console.error('relay sig upload',relayErrCode(e)||e);stopUp='error';out.err=relayErrCode(e)||'network';keepOld();continue}
+if(!r.ok){const e=str(j.error);
+if(e==='backup_quota_exceeded'){out.cap=num(j.max_chars)>0?num(j.max_chars):SIG_CAP_DEFAULT;out.why='quota';capped=true;break}
+if(e==='too_many_segments'){out.why='quota';capped=true;break}
+stopUp='error';out.err=relayErrCode(await cloudFail(r,j))||'internal';keepOld();continue}
+srv.set(gen+'|'+s.n,{gen,n:s.n,bh:sealed.blob_hash,size:sealed.blob.length});used+=sealed.blob.length;keep.add(s.n);out.uploaded++;
+out.list.push({n:s.n,ph:s.ph,count:s.list.length});out.ph[s.n]=s.ph;out.cnt[s.n]=s.list.length;out.bh[s.n]=sealed.blob_hash;covered+=s.list.length}
+if(!out.why&&stopUp)out.why=stopUp;
+if(!out.why&&plan.tooBig)out.why='toobig';
+// 글자 수 상한이 있는 가게(서버가 한 번이라도 '자리 가득'을 말함): 이번에 처음 알았으면 새 한도로 다시 잰다 — 한도의 절반(세대 교체 몫)을 넘는
+//   서명 조각은 머리에서 빼고, 머리에 싣지 않는 이 세대의 서명 조각은 자리표로 덮어 장부 자리를 비워 둔다.
+if(out.cap){const b2=budgetOf(out.cap);let cum=0;const kept=[];
+for(const m of out.list){const x=srv.get(gen+'|'+m.n),sz=x?x.size:0;if(cum+sz<=b2){cum+=sz;kept.push(m)}else{keep.delete(m.n);delete out.ph[m.n];delete out.cnt[m.n];delete out.bh[m.n];covered-=num(m.count);if(!out.why)out.why='cap'}}
+out.list=kept;await cloudSigTrim(srv,gen,onWait,alive,keep)}
+}catch(e){if(cloudCancelled(e))throw e;console.error('relay sig phase',relayErrCode(e)||e);if(!out.why)out.why='error';if(!out.err)out.err=relayErrCode(e)||'internal'}
+out.left=Math.max(0,plan.total-covered);
+if(!out.left&&out.why!=='toobig')out.why='';
+return out}
 // 예전 서버(조각 API 없음) — v1과 같은 자리(/api/ledger-backup, gen 없음)에 한 덩어리로. 그래도 서명 그림은 빼고 압축한다.
 async function cloudBackupRunV1(core,fp,say,onWait,alive){say('서버에 장부를 올리는 중이에요.');
 const lean={...core,payload:{...core.payload,transactions:sortTxAsc(core.payload.transactions).map(segTx)}};
@@ -2771,8 +2876,10 @@ finally{if(cloudRunning===p)cloudRunning=null}}
 //   실패 뒤 다시 시도는 한 시간에 한 번(잠금 해제가 하루 수십 번이라 서버를 두드리지 않게). 폴링은 없다.
 function cloudAutoDue(){const m=state.data.meta;if(m.autoCloudBackup===false||!relayRegistered()||!str(m.pubKey))return false;
 if(!state.data.transactions.length&&!state.data.employees.length)return false;
-const last=cloudLastOkAt();if(last&&now()-last<CLOUD_WEEK_MS)return false;if(!cloudChanged())return false;
-const st=cloudState();if(pastTs(st.lastTryAt)&&num(st.failSince)&&now()-pastTs(st.lastTryAt)<CLOUD_RETRY_GAP_MS)return false;return true}
+const st=cloudState();
+// beta.62: 장부는 그대로여도 지난번에 서명 그림을 일시 실패로 다 못 올렸으면(서버 쪽 사정) 다음 주에 다시 시도한다.
+const sigRetry=num(st.sigLeft)>0&&!SIG_PERMANENT.includes(str(st.sigWhy));
+const last=cloudLastOkAt();if(last&&now()-last<CLOUD_WEEK_MS)return false;if(!cloudChanged()&&!sigRetry)return false;if(pastTs(st.lastTryAt)&&num(st.failSince)&&now()-pastTs(st.lastTryAt)<CLOUD_RETRY_GAP_MS)return false;return true}
 async function maybeAutoCloudBackup(){try{if(lockScreenActive()||!navigator.onLine||cloudRunning||cloudDeleting)return false;if(!cloudAutoDue())return false;return await relayBackupSilent()}catch(e){console.error('silent cloud backup',e);return false}}
 // 명단을 받은 직후 — 예전의 "백업을 갱신할까요?" 확인창 대신 조용히 시도한다(자동 백업을 끈 가게는 건드리지 않는다).
 function cloudBackupAfterRoster(){if(state.data.meta.autoCloudBackup===false)return;relayBackupSilent().catch(()=>{})}
@@ -2798,15 +2905,36 @@ out.push(...list)}}
 if(out.length!==num(head.txCount))throw relayCodeErr('backup_incomplete');
 if(str(head.chainTip)&&chainTipOf(out)!==str(head.chainTip))throw relayCodeErr('backup_corrupt');
 return out}
-function hasStrippedSignatures(txs){return(txs||[]).some(t=>t&&t.type==='use'&&str(t.signatureHash)&&!sigD(t.signatureData))}
+// 이력에 "서명 그림은 이 백업에 없어요"가 뜰 거래 수(sigMissingHtml과 같은 조건).
+function countStrippedSignatures(txs){let n=0;(txs||[]).forEach(t=>{if(t&&t.type==='use'&&str(t.signatureHash)&&!sigD(t.signatureData))n++});return n}
+// beta.62: 머리의 sigSegs가 가리키는 서명 조각을 5개씩 받아 {거래 id → dataURL} 지도로. **던지지 않는다** — 받지 못한 조각은 failed로 센다
+//   (장부 되찾기는 서명 때문에 실패하지 않는다). 붙이기 전 signatureHash 대조는 sigAttach가 한다.
+async function cloudFetchSigs(head,say,call){const metas=(Array.isArray(head.sigSegs)?head.sigSegs:[]).filter(m=>m&&Number.isInteger(Number(m.n))&&num(m.n)>=SIG_SEG_BASE&&num(m.n)<=999).sort((a,b)=>num(a.n)-num(b.n));
+const map=new Map();let failed=0;
+for(let i=0;i<metas.length;i+=5){const part=metas.slice(i,i+5);say(`서버에서 서명 그림을 받는 중이에요 (${Math.min(i+5,metas.length)}/${metas.length}).`);
+let got=null;try{const r=await call('/api/ledger-backup/seg/get',{gen:str(head.gen),seg_nos:part.map(m=>num(m.n))});const j=await cloudJson(r);if(r.ok)got=new Map((Array.isArray(j.segments)?j.segments:[]).map(s=>[num(s&&s.seg_no),s]))}
+catch(e){console.error('relay sig fetch',relayErrCode(e)||e)}
+for(const m of part){const s=got&&got.get(num(m.n));if(!s||typeof s.blob!=='string'){failed++;continue}
+try{if(s.blob_hash&&(await hash(s.blob))!==str(s.blob_hash))throw relayCodeErr('backup_corrupt');const u=await openFromCloud(s.blob);const o=u.obj;
+if(!o||o.kind!=='sig'||num(o.seg_no)!==num(m.n)||!Array.isArray(o.sigs))throw relayCodeErr('backup_corrupt');
+o.sigs.forEach(x=>{if(x&&typeof x.id==='string'){const sg=sigD(x.sig);if(sg&&!map.has(x.id))map.set(x.id,sg)}})}
+catch(e){failed++;console.error('relay sig open',relayErrCode(e)||e)}}}
+return{map,failed,listed:metas.length}}
+// 받은 서명을 거래에 붙인다 — **signatureHash와 맞는 것만**(안 맞으면 버린다: 이력은 지금처럼 "서명 그림은 이 백업에 없어요").
+async function sigAttach(txs,map){let n=0;if(!map||!map.size)return 0;
+for(const t of txs){if(!t||sigD(t.signatureData)||!str(t.signatureHash))continue;const s=map.get(str(t.id));if(!s)continue;
+if((await hash(s))===str(t.signatureHash)){t.signatureData=s;n++}}
+return n}
 // 서버의 백업 응답(머리)을 되찾기 꾸러미(schemaVersion 3 모양)로 푼다 — 지금 가게의 서버 백업·보관 칸 공용.
 async function cloudParseHead(j,say,call){if(j.blob_hash&&(await hash(j.blob))!==str(j.blob_hash))throw relayCodeErr('backup_corrupt');
-const top=await openFromCloud(j.blob);const obj=top.obj;let parsed,noSig=false,exportedAt=0;
+const top=await openFromCloud(j.blob);const obj=top.obj;let parsed,sigSrc='server-old',exportedAt=0,sigFailed=0;
 if(obj&&obj.v===2&&Array.isArray(obj.segs)){const txs=await cloudFetchSegments(obj,say,call);
-parsed={schemaVersion:3,appName:obj.appName||APP,appVersion:obj.appVersion,exportedAt:obj.exportedAt,payload:{employees:Array.isArray(obj.employees)?obj.employees:[],transactions:txs,meta:(obj.meta&&typeof obj.meta==='object')?obj.meta:{}}};noSig=hasStrippedSignatures(txs);exportedAt=num(obj.exportedAt)}
-else{parsed=obj;const p=obj&&obj.payload;noSig=hasStrippedSignatures(p&&p.transactions);exportedAt=num(obj&&obj.exportedAt)}
+// beta.62: 장부를 먼저 살린 뒤(위) 서명 조각을 받아 붙인다. 머리에 sigSegs가 없으면 beta.55~61이 올린 형식 — 지금처럼 서명 그림 없이.
+if(Array.isArray(obj.sigSegs)){sigSrc='server';const g=await cloudFetchSigs(obj,say,call||((p,b)=>cloudCall(p,b)));sigFailed=g.failed;await sigAttach(txs,g.map)}
+parsed={schemaVersion:3,appName:obj.appName||APP,appVersion:obj.appVersion,exportedAt:obj.exportedAt,payload:{employees:Array.isArray(obj.employees)?obj.employees:[],transactions:txs,meta:(obj.meta&&typeof obj.meta==='object')?obj.meta:{}}};exportedAt=num(obj.exportedAt)}
+else{parsed=obj;exportedAt=num(obj&&obj.exportedAt)}
 const updatedAt=num(j.updated_at)||(new Date(j.updated_at).getTime()||0);
-return{parsed,noSig,when:updatedAt||exportedAt,updatedAt}}
+return{parsed,sigSrc,sigFailed,when:updatedAt||exportedAt,updatedAt}}
 // ── 보관 칸에서 되찾기(beta.60, S-5 · PROTOCOL §4.14) ─────────────────────────────────────────────
 // 언제: 이 기기에 그 가게의 열쇠가 있는데 서버 등록은 **다른 열쇠**로 바뀐 경우(해제된 가게를 남이 인수). 인수 순간 서버는 옛 백업을
 //   '보관 칸'으로 옮겨 30일 동안 옛 열쇠 주인에게 **읽기만** 허락한다. 진입은 설정 > 장부 지키기 > [되찾기] > [서버에서 되찾기] 한 곳 —
@@ -2832,7 +2960,7 @@ const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
 const call=async(p,b)=>{try{return await archiveCall(rid,p,b)}catch(e){if(relayErrCode(e)==='archive_none')throw relayCodeErr('backup_incomplete');throw e}};
 const got=await cloudParseHead(j,say,call);
 clearBusy();
-const ok=await restoreLedger(got.parsed,{source:'archive',when:got.when,noSig:got.noSig});
+const ok=await restoreLedger(got.parsed,{source:'archive',when:got.when,sigSrc:got.sigSrc});
 if(ok)render();return ok?'ok':'cancel'}
 async function archiveNoneDialog(){await askChoice({title:'서버에 남은 예전 백업이 없어요',lines:['30일이 지났거나, 이 기기에서 서버에 올린 백업이 없었어요.','파일로 보관한 백업이 있으면 [되찾기] &gt; [파일에서 되찾기]로 골라 주세요.'],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]})}
 // 등록이 막힌 기기(storeBlocked)에서 보관 칸을 볼 만한가 — 이 기기 열쇠가 있고, 이 기기가 예전에 서버 백업을 올린 적이 있을 때만.
@@ -2856,7 +2984,7 @@ if(why){const a=await archiveRestoreRun(rid,say);if(a==='none'){clearBusy();awai
 const j=await cloudJson(r);if(!r.ok)throw await cloudFail(r,j);
 const got=await cloudParseHead(j,say);
 clearBusy();
-const ok=await restoreLedger(got.parsed,{source:'cloud',when:got.when,noSig:got.noSig});
+const ok=await restoreLedger(got.parsed,{source:'cloud',when:got.when,sigSrc:got.sigSrc});
 if(ok){const at=got.updatedAt||now();state.data.meta.lastCloudBackupAt=Math.max(num(state.data.meta.lastCloudBackupAt),at);try{await repo.apply({meta:{lastCloudBackupAt:state.data.meta.lastCloudBackupAt}})}catch(e){console.error('relay cloud stamp',e)}render()}}
 catch(e){console.error('relay restore',relayErrCode(e)||e);clearBusy();await askChoice({title:'서버에서 되찾지 못했어요',lines:[esc(relayErrMsg(e,'잠시 뒤 다시 해 주세요.'))],buttons:[{val:'ok',label:'확인',cls:'btn-primary'}]})}}
 const CLOUD_DELETE_WAIT_MS=75000;// [서버 백업 삭제]가 진행 중 업로드를 기다리는 최대 시간(그 뒤엔 그대로 지운다)
@@ -2984,7 +3112,7 @@ try{if(cloudRunning){try{await cloudRunning}catch(e){}}const p=cloudBackupRun({p
 catch(e){console.error('relay backup',relayErrCode(e)||e);await recordCloudFail(e);server='fail';failMsg=relayErrMsg(e,'잠시 뒤 다시 해 주세요.')}
 clearBusy()}}
 const title={keyonly:'가게 열쇠를 보관해 둘까요?',ok:'백업했어요. 내 보관용도 남길까요?',fail:'서버에는 올리지 못했어요 — 내 보관용을 남겨 주세요',offline:'인터넷이 연결되지 않아 서버에는 올리지 못했어요 — 내 보관용을 남겨 주세요',off:'내 보관용 백업을 남겨요',unreg:'내 보관용 백업을 남겨요'}[server];
-const lines={keyonly:['아직 장부는 비어 있지만 <b>가게 열쇠</b>가 있어요. 백업 암호로 잠근 파일에 열쇠가 함께 들어가요 — 폰을 잃어버려도 새 폰에서 명단을 계속 받을 수 있어요.'],ok:['서버에는 방금 올렸어요. 서명 그림까지 담긴 파일은 직접 보관해 두면 더 안전해요.'],fail:[esc(failMsg)],offline:['와이파이에 연결되면 서버에도 자동으로 올라가요.'],off:['서버 자동 백업은 꺼져 있어요. 파일로 직접 보관해 주세요.'],unreg:['이 기기에 저장하거나 카톡·메일로 보내 두세요. 가게를 등록하면 서버에도 자동 보관돼요.']}[server];
+const lines={keyonly:['아직 장부는 비어 있지만 <b>가게 열쇠</b>가 있어요. 백업 암호로 잠근 파일에 열쇠가 함께 들어가요 — 폰을 잃어버려도 새 폰에서 명단을 계속 받을 수 있어요.'],ok:['서버에는 방금 올렸어요(서명 그림 포함). 파일로도 직접 보관해 두면 더 안전해요.'].concat(cloudSigNote()?[esc(cloudSigNote())]:[]),fail:[esc(failMsg)],offline:['와이파이에 연결되면 서버에도 자동으로 올라가요.'],off:['서버 자동 백업은 꺼져 있어요. 파일로 직접 보관해 주세요.'],unreg:['이 기기에 저장하거나 카톡·메일로 보내 두세요. 가게를 등록하면 서버에도 자동 보관돼요.']}[server];
 const buttons=[{val:'share',label:'카톡·메일로 보내기',sub:'나에게 보내는 대화방이나 내 메일로 보내 두세요.',cls:'btn-primary'},{val:'save',label:'이 기기에 저장',sub:'다운로드 폴더에 파일로 저장해요.',cls:'btn'}];
 buttons.push(server==='ok'?{val:'none',label:'서버 백업만 할게요',sub:'이번에는 파일을 남기지 않아요.',cls:'btn'}:{val:'none',label:'취소',cls:'btn'});
 // beta.59: 암호를 기억한 뒤에는 암호 창(그 안의 "암호 없이" 체크)이 뜨지 않는다 → 그 길을 선택창 맨 아래 글씨로 둔다(진한 버튼·3갈래는 그대로).
@@ -3057,16 +3185,18 @@ if(why==='cloud'&&(!cloudAt||now()-cloudAt>=CLOUD_WEEK_MS+DAY_MS||keyMissing))ba
 else if(why==='key')banner={head,sub:'여기를 눌러 암호 건 내 보관 백업을 남겨 주세요.'};
 else if(why==='stale')banner={head,sub:'여기를 눌러 지금 백업해 주세요.'};
 else if(why==='nopass')banner={head,sub:'화면잠금 비밀번호를 잊으면 장부를 되찾을 수 없어요. 여기를 눌러 백업 암호를 정하고 백업해 주세요.'};
-return{reg,autoOn,level,head,sub,rows,summary,banner,cloudAt,ownAt,failing,keyMissing,cloudStale,deviceOnly,deviceNote}}
+// beta.62: 서명 그림을 서버에 다 못 올렸으면 상자 안 한 줄(장부는 안전하므로 상자 제목·배너는 바꾸지 않는다). 문장은 cloudSigNote 하나에서.
+const sigNote=reg&&autoOn?cloudSigNote():'';
+return{reg,autoOn,level,head,sub,rows,summary,banner,cloudAt,ownAt,failing,keyMissing,cloudStale,deviceOnly,deviceNote,sigNote}}
 function guardBanner(){const s=guardStatus();if(!s.banner||state.guardBannerDismissed)return '';
 return `<div class="card banner warn guard-banner" data-a="backup-now" style="cursor:pointer;position:relative"><button class="banner-x" data-a="dismiss-guard-banner" aria-label="이 안내 닫기">✕</button><strong>${esc(s.banner.head)}</strong><div class="meta">${esc(s.banner.sub)}</div></div>`}
 function guardCardHtml(){const s=guardStatus();
 const rows=s.rows.map(([k,v])=>`<div class="guard-row"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join('');
 const unreg=s.reg?'':`<div class="guard-unreg">가게를 등록하면 서버에도 자동 보관돼요. <button class="link-btn" data-a="go-register-store">우리 가게 등록하기</button></div>`;
-const devLine=s.deviceNote?`<div class="guard-device-note" id="guardDeviceNote">⚠ ${esc(s.deviceNote)}</div>`:'';
-const box=`<div class="guard-state${s.level==='warn'?' warn':s.level==='none'?' none':''}" id="guardState" role="status"><b>${esc(s.head)}</b>${s.sub?`<div class="guard-sub">${s.sub}</div>`:''}${rows}${devLine}${unreg}</div>`;
+const devLine=s.deviceNote?`<div class="guard-device-note" id="guardDeviceNote">⚠ ${esc(s.deviceNote)}</div>`:'';const sigLine=s.sigNote?`<div class="guard-device-note" id="guardSigNote">⚠ ${esc(s.sigNote)}</div>`:'';
+const box=`<div class="guard-state${s.level==='warn'?' warn':s.level==='none'?' none':''}" id="guardState" role="status"><b>${esc(s.head)}</b>${s.sub?`<div class="guard-sub">${s.sub}</div>`:''}${rows}${devLine}${sigLine}${unreg}</div>`;
 const links=s.reg?`<div class="guard-links"><button class="link-btn" data-a="toggle-auto-cloud">${s.autoOn?'서버 자동 백업 끄기':'서버 자동 백업 켜기'}</button><span aria-hidden="true"> · </span><button class="link-btn" data-a="cloud-backup-delete">서버 백업 지우기</button></div>`:'';
-const note=`<div class="meta guard-note">${s.reg?'서버 백업은 잠근 채 보관돼 서버도 열어볼 수 없어요(서명 그림·전화번호는 빼고 올려요). ':''}내 보관 파일은 백업 암호로 잠그고, 가게 열쇠도 함께 들어가요.</div>`;
+const note=`<div class="meta guard-note">${s.reg?'서버 백업은 잠근 채 보관돼 서버도 열어볼 수 없어요(서명 그림까지 올리고 전화번호는 빼요). ':''}내 보관 파일은 백업 암호로 잠그고, 가게 열쇠도 함께 들어가요.</div>`;
 // beta.59: 암호를 정한 가게에는 "적어 둔 종이"를 늘 한 줄로 되새긴다(평소엔 암호를 묻지 않으므로 잊기 쉽다).
 const pc=state.data.meta.backupPassCheck,passSet=!!(pc&&typeof pc==='object'&&pc.hash);
 const passNote=passSet?`<div class="guard-pass-note" id="guardPassNote">📝 <b>백업 암호는 종이에 적어 보관하세요.</b> 평소에는 묻지 않지만, 새 태블릿에서 장부를 되찾을 때 꼭 필요해요. 잊으셨으면 [백업 암호]에서 새로 정한 뒤 다시 백업해 주세요.</div>`:'';
@@ -5007,6 +5137,10 @@ const curMeta=(state.data&&state.data.meta)||{};
 META_DEVICE_KEYS.forEach(k=>{delete data.meta[k]});
 if(opts.forgotPin){['deviceSecret','privKeyWrapped','pubKey','keyCreatedAt','backupPassCheck','backupPassKeep','ownBackupWhere','installHintOff'].forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
 else{META_DEVICE_KEYS.forEach(k=>{if(curMeta[k]!==undefined)data.meta[k]=curMeta[k]})}
+// beta.62: 같은 기기에서 되찾을 때 이 기기에 이미 있는 서명 그림은 그대로 둔다 — 같은 거래 id·같은 signatureHash이고 그림의 해시가 맞을 때만.
+//   (서버 백업에서 받지 못한 서명도 이 기기에 있으면 잃지 않는다. 해시가 같으면 같은 그림이다.)
+{const curTxs=new Map(((state.data&&state.data.transactions)||[]).map(t=>[t.id,t]));for(const t of data.transactions){if(sigD(t.signatureData)||!str(t.signatureHash))continue;const c=curTxs.get(t.id);const cs=c&&str(c.signatureHash)===str(t.signatureHash)?sigD(c.signatureData):'';if(cs&&(await hash(cs))===str(t.signatureHash))t.signatureData=cs}}
+const sigMissing=countStrippedSignatures(data.transactions);
 const validation=validateRestoreData(data);if(validation.errors.length){throw relayCodeErr('restore_invalid','복원 검증 실패: '+validation.errors.join(', '))}
 // 데이터 보존: 복원 데이터에 직원/거래가 있으면 설정 마법사로 되돌아가지 않도록 setupComplete 유지
 if((data.employees.length||data.transactions.length)&&!data.meta.setupComplete)data.meta.setupComplete=true;
@@ -5054,7 +5188,7 @@ const lines=[`백업 시각: <b>${esc(restoreWhenText(when))}</b>`,`거래: 지�
 if(fewer)lines.push(`<b style="color:var(--danger)">⚠ 백업이 지금보다 거래가 ${curTx-tc}건 적어요.</b> 되돌리면 그 거래들이 이 기기에서 사라져요(안전 사본 파일에는 남아요).`);
 if(checksum&&checksum!==calc)lines.push('⚠️ 확인값이 일치하지 않아요. 파일이 수정되었거나 손상되었을 수 있어요.');
 if(validation.warnings.length)lines.push('⚠️ 검증 경고 '+validation.warnings.length+'건: '+esc(validation.warnings.slice(0,3).join(' / ')));
-if(opts.noSig)lines.push('서버 백업에는 서명 그림이 없어요 — 되찾은 뒤 이력에는 "서명 기록은 확인됨"으로 보여요.');
+{const sn=sigRestoreNote(opts.sigSrc,sigMissing,'ask');if(sn)lines.push(sn)}
 if(keyNote==='import')lines.push('가게 열쇠도 파일에서 함께 가져와요.');
 if(keyNote==='bad')lines.push('⚠️ 파일 안의 가게 열쇠 짝이 맞지 않아 열쇠는 가져오지 않아요(장부만 되돌려요).');
 const hasCur=!!(state.data.employees.length||curTx);
@@ -5083,7 +5217,7 @@ clearBusy();render();
 const done=[`직원 <b>${ec}명</b> · 거래 <b>${tc}건</b>으로 되돌렸어요.`];
 if(snap==='locked'||snap==='pass')done.push(`되돌리기 전 장부는 <b>${snap==='pass'?'암호 건':'잠긴'} 안전 사본 파일</b>로 내려받았어요(다운로드 폴더).`+(snap==='locked'&&keyPlan?' 이 사본은 <b>바꾸기 전의 가게 열쇠</b>로 잠겨 있어 그 열쇠가 든 백업 파일이 있어야 열려요.':''));
 else if(snap==='plain')done.push('되돌리기 전 장부는 <b>안전 사본 파일(암호 없음)</b>로 내려받았어요 — 이 기기에 가게 열쇠가 없어 잠그지 못했어요. 다운로드 폴더의 파일을 잘 보관해 주세요.');
-if(opts.noSig)done.push('서명 그림은 이 백업에 없어요. 이력에는 "서명 기록은 확인됨"으로 보여요.');
+{const sn=sigRestoreNote(opts.sigSrc,sigMissing,'done');if(sn)done.push(sn)}
 if(phoneKept)done.push(`이 기기에 있던 직원 전화번호 ${phoneKept}건은 그대로 두었어요.`);
 if(keyNote==='import')done.push('가게 열쇠도 함께 가져왔어요.');
 else if(!keyPlan&&!keepDeviceReg&&str(data.meta.restaurantId))done.push((keyNote==='kept'?'파일의 가게 열쇠는 가져오지 않았어요(이 기기 열쇠를 그대로 두었어요).':keyNote==='bad'?'파일 안의 가게 열쇠는 짝이 맞지 않아 가져오지 않았어요.':'이 파일에는 가게 열쇠가 없어요.')+' 명단 받기·서버 되찾기를 쓰려면 예전 폰에서 만든 <b>암호 건 백업 파일</b>(또는 예전 \'내 열쇠 백업\' 파일)도 [되찾기]로 가져와 주세요.');

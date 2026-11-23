@@ -1,6 +1,6 @@
 # 06 — 테스트 체계
 
-한 줄 요약: **`bash harness/verify-all.sh` → 16/16이 정상**(로컬 8 + 라이브 5 + 접속 3, 2026-11-13 기준). beta.60(2026-11-17, 배포 전) 로컬 수치: phase2 **919** · 마이그레이션 조합 **31** · 반응형 **3,725** · e2e beta.60 블록 53·36·64 · 설치 안내 **163** · 서비스워커 **12** · 담당자 웹 4종 **133** · 직원 앱 beta60 **78**. (beta.55 때: phase2 735 · 반응형 3,215 · e2e beta.55 블록 70·63·101 · 담당자 웹 4종 99 · 갱신 보존 beta.54→55 29/29.) verify-all 항목 구성은 `harness/verify-all.sh`가 원본이다. 실패 로그는 `/tmp/v1.log`~`/tmp/v9.log`.
+한 줄 요약: **`bash harness/verify-all.sh` → 16/16이 정상**(로컬 8 + 라이브 5 + 접속 3, 2026-11-13 기준). beta.62(2026-11-23, 배포 전) 로컬 수치: phase2 **1005** · e2e beta.62 블록 **51**(`E2E_ONLY=beta62`). beta.60(2026-11-17, 배포 전) 로컬 수치: phase2 **919** · 마이그레이션 조합 **31** · 반응형 **3,725** · e2e beta.60 블록 53·36·64 · 설치 안내 **163** · 서비스워커 **12** · 담당자 웹 4종 **133** · 직원 앱 beta60 **78**. (beta.55 때: phase2 735 · 반응형 3,215 · e2e beta.55 블록 70·63·101 · 담당자 웹 4종 99 · 갱신 보존 beta.54→55 29/29.) verify-all 항목 구성은 `harness/verify-all.sh`가 원본이다. 실패 로그는 `/tmp/v1.log`~`/tmp/v9.log`.
 
 > 아래 단언 개수는 **표에 적은 릴리스의 실행 기준**이며 릴리스마다 늘어난다. 개수 자체가 아니라 **책임 분담과 공백**을 보라.
 > `git push` 시에는 GitHub Actions가 서버 계약 하니스·정적 검사·링크 검사·앱 기동 스모크를 **배포 게이트**로 먼저 돌린다(§2.1).
@@ -12,8 +12,8 @@
 
 | 하니스 | 대상 | 브라우저 | 서버 | 검증 규모 | 실패 방식 |
 |---|---|---|---|---|---|
-| `prepaid.e2e.js` | **실제 `index.html`** (로컬 정적 서버 + Playwright chromium) | ✅ | ❌ 전 `/api/**`를 `context.route`로 목킹 | `assert()` 호출 1,111곳 | fail-fast, `exit 1` + 성공 시 `{"ok": true, …}` JSON. beta.55 블록은 `E2E_ONLY=beta55`(A1a 70)·`beta55b`(A1b 63)·`beta55c`(A2·A3 백업 101)로, beta.60 블록은 `E2E_ONLY=beta60a`(잠금·복구 53)·`beta60b`(명단·CSV 26)·`beta60c`(기타 57)로 따로, `E2E_SOFT=1`이면 단언별 실패 목록 |
-| `phase2.e2e.mjs` | **실제 worker 코드** — `import { handle, makeMemoryStore } from '../server/src/worker.js'` | ❌ | ✅ 로직은 진짜. 저장소는 메모리 store **와** `node:sqlite` D1 어댑터(실제 `makeD1Store` SQL)를 같은 시나리오로 | 최근 실행 **919 통과**(beta.60) | 누적 카운트, `결과: N 통과, M 실패` |
+| `prepaid.e2e.js` | **실제 `index.html`** (로컬 정적 서버 + Playwright chromium) | ✅ | ❌ 전 `/api/**`를 `context.route`로 목킹 | `assert()` 호출 1,111곳 | fail-fast, `exit 1` + 성공 시 `{"ok": true, …}` JSON. beta.55 블록은 `E2E_ONLY=beta55`(A1a 70)·`beta55b`(A1b 63)·`beta55c`(A2·A3 백업 101)로, beta.60 블록은 `E2E_ONLY=beta60a`(잠금·복구 53)·`beta60b`(명단·CSV 26)·`beta60c`(기타 57)로, beta.62 블록은 `E2E_ONLY=beta62`(서명 그림 서버 백업 51)로 따로, `E2E_SOFT=1`이면 단언별 실패 목록 |
+| `phase2.e2e.mjs` | **실제 worker 코드** — `import { handle, makeMemoryStore } from '../server/src/worker.js'` | ❌ | ✅ 로직은 진짜. 저장소는 메모리 store **와** `node:sqlite` D1 어댑터(실제 `makeD1Store` SQL)를 같은 시나리오로 | 최근 실행 **1005 통과**(beta.62) | 누적 카운트, `결과: N 통과, M 실패` |
 | `phase2.migrate.mjs` | **라이브 태그(기본 `live-beta59`)의 옛 `schema.sql` + 라이브에 있을 법한 행** 위에 `migrations-2026-11b.sql`을 **한 문장씩** 실행한 DB | ❌ | ✅ 새 `worker.js`를 그 DB에 붙여 beta.59 앱식 호출·beta.60 호출·cron을 돌린다 | **31 검사**(beta.60 신설) | 누적 카운트. 기준 태그는 `MIGRATE_BASE_REF` |
 | `phase2.live.mjs` | **배포된 라이브 서버 + 실제 D1** | ❌ | ✅ 진짜(프로덕션 D1을 실제로 쓴다) | 6단계 | 누적 카운트 |
 | `responsive.e2e.mjs` | **실제 `index.html`** 의 기하(레이아웃) | ✅ | ❌ `/api/**` 전부 `200 []` 스텁 | 폰 4뷰포트(+디바이스 프로파일) + **태블릿 가로·세로 6종**(beta.55) · 최근 실행 **3,725 검사**(beta.60) | 누적, 실패 목록 출력 |
@@ -154,6 +154,15 @@ deploy: needs: [test, smoke]             # 하나라도 실패하면 GitHub Page
 
 **남은 것**: 위 G10(실기기 더블탭·운영 D1 타이밍), G1(담당자 웹 자동 하니스 — `submission_id` 규칙이 사람 확인에만 의존), G4(라이브 제출 happy-path).
 
+### beta.62에서 메운 공백
+
+| 메운 것 | 어디에 |
+|---|---|
+| **서버 무변경 가정**의 증명 — 서명 조각(500~999) put/get/list, 머리 `seg_count`는 장부 조각만, 세대 교체 때 함께 삭제, 해제→인수 때 보관 칸으로 함께 이동·`/api/ledger-archive/seg/*`로 읽힘, 행·글자 상한과 자리표 덮기, 해제 30일 정리 — 메모리 store와 node:sqlite D1 양쪽 | `phase2.e2e.mjs` beta.62 묶음 |
+| 서명 조각 업로드·되찾기(`signatureHash` 대조, 받지 못한 조각, 예전 형식 머리·v1, 같은 기기 그림 유지), 실패 격리(서명 실패에도 장부 백업 성공), 상한 문구 — 실서버 규칙을 강제하는 목(`makeBackupRelay` 확장) | `prepaid.e2e.js` `runBeta62` |
+
+새 단언은 수정 전 코드(beta.61)에서 실패함을 확인했다(구역 A 보고). 남은 것: 실기기에서 서버 되찾기로 서명 그림이 돌아오는지([13](13-beta61-field-checklist.md) 3절), 예전 앱과 섞인 두 기기([09](09-open-items.md) D13).
+
 ### beta.60에서 메운 공백
 
 | 메운 것 | 어디에 |
@@ -220,6 +229,7 @@ node harness/dongsearch.e2e.mjs                 # 동 이름 검색
 node harness/agency-xlsx.e2e.mjs                # 담당자 웹 엑셀 양식 (csvchoice·sent·net도 같은 방식)
 E2E_ONLY=beta55c node harness/prepaid.e2e.js    # beta.55 백업 블록만 (beta55·beta55b도 같은 방식, E2E_SOFT=1이면 실패 목록)
 E2E_ONLY=beta60a node harness/prepaid.e2e.js    # beta.60 잠금·복구 블록만 (beta60b 명단·CSV, beta60c 기타)
+E2E_ONLY=beta62 node harness/prepaid.e2e.js     # beta.62 서명 그림 서버 백업 블록만
 node harness/install.e2e.mjs                    # 홈 화면에 추가 안내(beta.60)
 node harness/sw.e2e.mjs                         # 서비스워커 앱 화면 폴백(beta.60)
 node harness/phase2.migrate.mjs                 # 라이브 옛 스키마 + migrations-2026-11b.sql 조합(beta.60)

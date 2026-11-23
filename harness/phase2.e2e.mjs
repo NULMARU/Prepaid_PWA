@@ -736,6 +736,126 @@ async function beta55Suite(label, store, tw) {
 
 // ══════════════════════════════════════════════════════════════════════════
 // beta.60 — 서버 보강 S-4~S-14·S-D2 (계약 .claude/reviews/beta60-contract.md §2)
+// ══════════════════════════════════════════════════════════════════════════
+// beta.62 — 서명 그림 조각을 같은 세대의 번호 500~999에 올린다(서버 무변경 가정의 증명).
+// 메모리 store와 실제 D1 store(node:sqlite 어댑터)에 같은 시나리오를 돌린다. worker.js는 고치지 않았다 — 이 묶음이 그대로 통과해야 한다.
+//   ① 500대 조각 put/get/list ② 머리 seg_count는 0..n-1(장부 조각)만 센다 ③ 세대 교체 때 500대도 함께 지워진다
+//   ④ 해제→다른 열쇠 인수 때 보관 칸으로 함께 옮겨져 /api/ledger-archive/seg/get·list로 읽힌다 ⑤ 행·글자 상한에 함께 들고,
+//   작은 자리표로 덮어 글자 자리를 비울 수 있다(앱의 '서명 조각 비우기') ⑥ 해제 30일 정리 때 함께 지워진다.
+// ══════════════════════════════════════════════════════════════════════════
+async function beta62Suite(label, store, tw) {
+  const T = (m) => '[beta.62 ' + label + '] ' + m;
+  const searchCatalog = async (_env, region, q) => {
+    const kw = String(q || '').trim();
+    return [...publicCatalog].map(([restaurant_id, name]) => ({ restaurant_id, name, address: '서울 광진구', status: '영업/정상' }))
+      .filter(x => !kw || x.name.includes(kw));
+  };
+  const env = { ALLOW_ORIGIN: '*', AUTH_MODE: 'dev', REQUIRE_AGENCY_AUTH: '0', searchRestaurants: searchCatalog };
+  const envDown = { ...env, searchRestaurants: async () => { throw new Error('공공API HTTP 503'); } };
+  const P = label === '메모리' ? 'B62M-' : 'B62D-';
+  const DAY = 24 * 60 * 60 * 1000;
+  const mk = async () => { const kp = await genKeyPair(); return { kp, spki: b64(await subtle.exportKey('spki', kp.publicKey)) }; };
+  const nameOf = (rid) => '시험식당' + rid;
+  const post = (path, body, e = env) => call(store, e, 'POST', path, body);
+  const jsonOf = async (resp) => { try { return await resp.json(); } catch (_) { return {}; } };
+  const tok = (rid, k) => getAuthToken(store, env, rid, k.kp.privateKey);
+  const reg = async (rid, k, e = env) => call(store, e, 'POST', '/api/register-key', { restaurant_id: rid, restaurant_name: nameOf(rid), public_key: k.spki });
+  const seg = async (rid, k, gen, seg_no, blob = 'QQ==') => post('/api/ledger-backup/seg', { restaurant_id: rid, auth_token: await tok(rid, k), gen, seg_no, blob, blob_hash: 'h' + seg_no });
+  const head = async (rid, k, extra) => post('/api/ledger-backup', { restaurant_id: rid, auth_token: await tok(rid, k), blob: 'aGVhZA==', blob_hash: 'hh', ...extra });
+  const section = async (name, fn) => { try { await fn(); } catch (e) { ok(false, T(name + ' 구역이 예외로 중단됨: ' + ((e && e.message) || e))); } };
+  let r, jb;
+
+  await section('put-get-list-count', async () => {
+    const R = P + 'SIG', k = await mk();
+    await reg(R, k);
+    const g1 = 'siggen-00001';
+    const puts = [await seg(R, k, g1, 0, 'bGVkMA=='), await seg(R, k, g1, 1, 'bGVkMQ=='), await seg(R, k, g1, 500, 'c2lnNTAw'), await seg(R, k, g1, 501, 'c2lnNTAx'), await seg(R, k, g1, 999, 'c2lnOTk5')];
+    ok(puts.every(x => x.status === 200), T('① 같은 세대에 장부 조각 0·1과 서명 조각 500·501·999를 올리면 모두 200'));
+    r = await seg(R, k, g1, 1000, 'eA==');
+    ok(r.status === 400 && (await jsonOf(r)).error === 'invalid_seg_no', T('① 번호 1000은 400 invalid_seg_no(500~999가 서명 몫의 끝)'));
+    r = await post('/api/ledger-backup/seg/list', { restaurant_id: R, auth_token: await tok(R, k) });
+    jb = await jsonOf(r);
+    const nos = (jb.segments || []).filter(x => x.gen === g1).map(x => x.seg_no).sort((a, b) => a - b);
+    ok(r.status === 200 && nos.join(',') === '0,1,500,501,999' && (jb.segments || []).every(x => typeof x.size === 'number' && !('blob' in x)), T('① seg/list가 500대 조각도 크기와 함께 돌려준다(본문 없이)'));
+    r = await post('/api/ledger-backup/seg/get', { restaurant_id: R, auth_token: await tok(R, k), gen: g1, seg_nos: [501, 0, 500] });
+    jb = await jsonOf(r);
+    ok(r.status === 200 && (jb.segments || []).map(x => x.seg_no + ':' + x.blob).join(',') === '0:bGVkMA==,500:c2lnNTAw,501:c2lnNTAx', T('① seg/get이 500대 조각을 번호 순으로 돌려준다(장부 조각과 섞어도)'));
+    r = await post('/api/ledger-backup/seg/get', { restaurant_id: R, auth_token: await tok(R, k), gen: g1, seg_nos: [500, 501, 502, 503, 504, 505] });
+    ok(r.status === 400, T('① seg/get은 서명 조각도 한 번에 5개까지(6개 400)'));
+    r = await head(R, k, { gen: g1, seg_count: 2 });
+    ok(r.status === 200 && tw.headGen(R) === g1, T('② 머리 seg_count 2 — 장부 조각 0·1만 있으면 200(500대는 셈에 들지 않음)'));
+    r = await head(R, k, { gen: g1, seg_count: 3 });
+    ok(r.status === 409 && (await jsonOf(r)).error === 'segments_missing', T('② seg_count 3이면 409 — 500대 조각은 조각 2를 대신하지 않는다'));
+    const R2 = P + 'SIGONLY', k2 = await mk();
+    await reg(R2, k2);
+    await seg(R2, k2, 'sigonly-0001', 500, 'c2ln');
+    r = await head(R2, k2, { gen: 'sigonly-0001', seg_count: 1 });
+    ok(r.status === 409, T('② 서명 조각만 있고 장부 조각 0이 없으면 seg_count 1 머리는 409'));
+    r = await head(R2, k2, { gen: 'sigonly-0001' });
+    ok(r.status === 200 && tw.segGens(R2) === 'sigonly-0001:1', T('② seg_count 없는 머리(거래 0건)는 200, 같은 세대의 서명 조각은 그대로'));
+  });
+
+  await section('gen-replace-archive', async () => {
+    const R = P + 'GEN', k = await mk(), kN = await mk();
+    await reg(R, k);
+    const g1 = 'genold-00001', g2 = 'gennew-00002';
+    await seg(R, k, g1, 0, 'b2xkMA=='); await seg(R, k, g1, 500, 'b2xkNTAw'); await seg(R, k, g1, 501, 'b2xkNTAx');
+    await head(R, k, { gen: g1, seg_count: 1 });
+    await seg(R, k, g2, 0, 'bmV3MA=='); await seg(R, k, g2, 500, 'bmV3NTAw');
+    tw.setSegsUpdatedAt(R, g1, Date.now() - 20 * 60 * 1000);
+    r = await head(R, k, { gen: g2, seg_count: 1 });
+    ok(r.status === 200 && tw.segGens(R) === g2 + ':2', T('③ 새 세대 머리가 오면 옛 세대의 장부 조각과 500대 서명 조각이 함께 지워진다(새 세대 0·500만 남음)'));
+    r = await post('/api/deregister', { restaurant_id: R, auth_token: await tok(R, k) });
+    r = await reg(R, kN);
+    ok(r.status === 200 && tw.archiveSegCount(R) === 2 && tw.segCount(R) === 0, T('④ 해제 뒤 다른 열쇠 인수 — 장부 조각과 서명 조각이 함께 보관 칸으로(산 표는 비움)'));
+    const arcTok = async () => {
+      const rr = await post('/api/ledger-archive/challenge', { restaurant_id: R, public_key: k.spki });
+      if (rr.status !== 200) return null;
+      const { challenge_ct } = await jsonOf(rr);
+      try { return decU.decode(await subtle.decrypt({ name: 'RSA-OAEP' }, k.kp.privateKey, unb64(challenge_ct))); } catch (_) { return null; }
+    };
+    r = await post('/api/ledger-archive/seg/list', { restaurant_id: R, public_key: k.spki, auth_token: await arcTok() });
+    jb = await jsonOf(r);
+    ok(r.status === 200 && (jb.segments || []).map(x => x.gen + ':' + x.seg_no).sort().join(',') === g2 + ':0,' + g2 + ':500', T('④ 보관 칸 seg/list에 500대 조각이 보인다'));
+    r = await post('/api/ledger-archive/seg/get', { restaurant_id: R, public_key: k.spki, auth_token: await arcTok(), gen: g2, seg_nos: [500, 0] });
+    jb = await jsonOf(r);
+    ok(r.status === 200 && (jb.segments || []).map(x => x.seg_no + ':' + x.blob).join(',') === '0:bmV3MA==,500:bmV3NTAw', T('④ 옛 열쇠 소유 증명으로 /api/ledger-archive/seg/get이 500대 조각을 돌려준다'));
+  });
+
+  await section('quota', async () => {
+    // ⑤ 미확인 가게(250행·1,200만 자): 서명 조각도 행·글자 상한에 든다.
+    const RU = P + 'UNVR', kU = await mk();
+    await reg(RU, kU, envDown);
+    for (let i = 0; i < 249; i++) await store.upsertLedgerSeg({ restaurant_id: RU, gen: 'unvrow-00001', seg_no: i, blob: 'QQ==', blob_hash: null, updated_at: Date.now() });
+    r = await seg(RU, kU, 'unvrow-00001', 500);
+    const r2 = await seg(RU, kU, 'unvrow-00001', 501);
+    jb = await jsonOf(r2);
+    const r3 = await seg(RU, kU, 'unvrow-00001', 500, 'QkJC');
+    ok(r.status === 200 && r2.status === 400 && jb.error === 'too_many_segments' && jb.max === 250 && r3.status === 200,
+      T('⑤ 서명 조각도 가게당 행 수에 든다 — 250번째(500)는 200, 251번째(501)는 400 too_many_segments, 이미 있는 500 다시 올리기는 200'));
+    const RC = P + 'UNVC', kC = await mk();
+    await reg(RC, kC, envDown);
+    const big = 'x'.repeat(400000);
+    for (let i = 0; i < 30; i++) await store.upsertLedgerSeg({ restaurant_id: RC, gen: 'unvchr-00001', seg_no: 500 + i, blob: big, blob_hash: null, updated_at: Date.now() });
+    r = await seg(RC, kC, 'unvchr-00001', 0, 'bGVkZ2Vy');
+    jb = await jsonOf(r);
+    ok(r.status === 400 && jb.error === 'backup_quota_exceeded' && jb.max_chars === 12000000, T('⑤ 서명 조각이 글자 상한을 채우면 장부 조각이 400 backup_quota_exceeded(max_chars)'));
+    const trims = [];
+    for (let i = 0; i < 30; i++) trims.push((await seg(RC, kC, 'unvchr-00001', 500 + i, 'eyJ2IjoxLCJ0cmltIjoxfQ==')).status);
+    r = await seg(RC, kC, 'unvchr-00001', 0, 'bGVkZ2Vy');
+    ok(trims.every(x => x === 200) && r.status === 200, T('⑤ 서명 조각을 작은 자리표로 덮어 쓰면(행 그대로·글자만 줄임) 장부 조각이 다시 200'));
+    // ⑥ 해제 30일 정리 때 500대 조각도 함께 지워진다.
+    const RD = P + 'PURGE', kD = await mk();
+    await reg(RD, kD);
+    await seg(RD, kD, 'purge-000001', 0); await seg(RD, kD, 'purge-000001', 500);
+    await head(RD, kD, { gen: 'purge-000001', seg_count: 1 });
+    await post('/api/deregister', { restaurant_id: RD, auth_token: await tok(RD, kD) });
+    tw.setDeregAt(RD, Date.now() - 31 * DAY);
+    await store.cleanupTTL(Date.now());
+    ok(tw.segCount(RD) === 0 && !tw.hasHead(RD), T('⑥ 해제 30일 정리 — 머리와 함께 500대 서명 조각도 지워진다'));
+  });
+}
+
 // beta.55 묶음과 같이 ① 메모리 store ② 실제 D1 store + node:sqlite 어댑터에 같은 시나리오를 돌린다(새 store 인스턴스).
 // 새 단언은 전부 수정 전 코드(git HEAD의 worker.js·schema.sql·wrangler.toml)에서 실패하는지 확인했다.
 // ══════════════════════════════════════════════════════════════════════════
@@ -3440,6 +3560,15 @@ async function beta60Suite(label, store, tw, D1) {
   await runSuite61('메모리', makeMemoryStore());
   const sq61 = await makeSqliteD1();
   if (sq61) await runSuite61('D1', makeD1Store(sq61.D1));
+  // beta.62 묶음(서명 조각 500~999 — 서버 무변경 가정): 새 store 인스턴스로 메모리·D1 양쪽.
+  const runSuite62 = async (label, st, tw) => {
+    try { await beta62Suite(label, st, tw); }
+    catch (e) { ok(false, '[beta.62 ' + label + '] 묶음이 예외로 중단됨: ' + (e && e.message)); }
+  };
+  const memStore62 = makeMemoryStore();
+  await runSuite62('메모리', memStore62, memoryTweak(memStore62));
+  const sq62 = await makeSqliteD1();
+  if (sq62) await runSuite62('D1', makeD1Store(sq62.D1), d1Tweak(sq62.db, sq62.hooks));
 
   console.log(`\n결과: ${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
